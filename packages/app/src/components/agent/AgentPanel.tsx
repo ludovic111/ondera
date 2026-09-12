@@ -1,5 +1,7 @@
+import type { KeyboardEvent } from 'react';
 import { commands, type AgentLogEntry } from '@ondera/core';
 import { useDispatch, useSession } from '../../state/session';
+import { newId } from '../../state/ids';
 import { Button } from '../primitives/Button';
 import { CapsLabel } from '../primitives/CapsLabel';
 import { ChevronRightIcon, SendIcon } from '../primitives/Icons';
@@ -8,6 +10,17 @@ import styles from './AgentPanel.module.css';
 export function AgentPanel() {
   const dispatch = useDispatch();
   const agent = useSession((s) => s.agent);
+
+  const submit = () => {
+    if (!agent.draft.trim()) return;
+    dispatch(commands.agent.submit({ entryId: newId('log'), text: agent.draft }));
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  };
 
   return (
     <div className={styles.panel}>
@@ -56,15 +69,16 @@ export function AgentPanel() {
             className={styles.input}
             value={agent.draft}
             onChange={(e) => dispatch(commands.agent.setDraft({ text: e.target.value }))}
+            onKeyDown={onKeyDown}
             placeholder="Ask the agent… e.g. “double the chorus and mute BGV”"
           />
-          <div className={styles.sendKey}>
+          <div className={styles.sendKey} onClick={submit} title="Send (↩)">
             <SendIcon />
           </div>
         </div>
         <div className={styles.footer}>
-          <span>⌘↵ send · ⌘Z reverts last agent change</span>
-          <span>ondera-cli 0.9 · mcp</span>
+          <span>↩ send · ⌘Z undoes the last change</span>
+          <span>{agent.transport}</span>
         </div>
       </div>
     </div>

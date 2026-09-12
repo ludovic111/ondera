@@ -1,13 +1,20 @@
-import { useCallback, useRef, type MouseEvent } from 'react';
-import { barsToBeats, commands } from '@ondera/core';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
+import { beatsToBars, commands } from '@ondera/core';
 import { useDispatch, useSession, useStore } from '../../state/session';
 import { useCanvasSurface } from '../../canvas/surface';
 import { drawRuler } from '../../canvas/ruler';
-import { drawLanes, hitTestClip, laneGeometry, xToBar, barToX } from '../../canvas/timeline';
+import { drawLanes, hitTestClip, laneGeometry, barToX } from '../../canvas/timeline';
 import { useTimelineWheel } from './useTimelineWheel';
+import { useLaneInteraction } from './useLaneInteraction';
+import { useRulerInteraction } from './useRulerInteraction';
 import { TrackHeader } from './TrackHeader';
 import { CapsLabel } from '../primitives/CapsLabel';
 import { Button } from '../primitives/Button';
+import { InlineEdit } from '../primitives/InlineEdit';
+import { PopupMenu, type MenuState } from '../menu/PopupMenu';
+import { actionItem, separator, type MenuEntry } from '../../state/menus';
+import { reportLaneViewportWidth } from '../../state/actions';
+import { importAudioFiles } from '../../state/document';
 import { size } from '../../theme/tokens';
 import styles from './Arrangement.module.css';
 
@@ -23,29 +30,36 @@ export function Arrangement() {
 
 function RulerRow() {
   const store = useStore();
-  const dispatch = useDispatch();
-  const rulerRef = useCanvasSurface(useCallback((ctx, w, h) => drawRuler(ctx, w, h, store.getState()), [store]));
+  const ruler = useRulerInteraction();
+  const rulerRef = useCanvasSurface(useCallback((ctx, w, h) => drawRuler(ctx, w, h, store.getState(), ruler.overlay), [store, ruler.overlay]));
   const wrapRef = useRef<HTMLDivElement>(null);
   useTimelineWheel(wrapRef);
+  const [menu, setMenu] = useState<MenuState | null>(null);
 
-  const locate = (e: MouseEvent<HTMLDivElement>) => {
-    const state = store.getState();
-    const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-    const bar = Math.max(0, xToBar(x, laneGeometry(state)));
-    dispatch(commands.transport.setPosition({ beats: barsToBeats(bar, state.transport.timeSignature) }));
+  const openAddMenu = (e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({ x: r.left, y: r.bottom + 4, items: [actionItem(store, 'addAudioTrack'), actionItem(store, 'addMidiTrack')] });
   };
 
   return (
     <div className={styles.rulerRow}>
       <div className={styles.rulerCorner}>
-        <Button size="icon" className={styles.addTrack} title="Add track">
+        <Button size="icon" className={styles.addTrack} title="Add track" onClick={openAddMenu}>
           +
         </Button>
         <CapsLabel>Tracks</CapsLabel>
       </div>
-      <div ref={wrapRef} className={styles.rulerCanvasWrap} onClick={locate}>
+      <div
+        ref={wrapRef}
+        className={styles.rulerCanvasWrap}
+        onPointerDown={ruler.onPointerDown}
+        onPointerMove={ruler.onPointerMove}
+        onPointerUp={ruler.onPointerUp}
+        title="Click to locate · drag to set the cycle range"
+      >
         <canvas ref={rulerRef} className={styles.canvas} />
       </div>
+      {menu && <PopupMenu items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -55,23 +69,112 @@ function TrackList() {
   const dispatch = useDispatch();
   const tracks = useSession((s) => s.tracks);
   const lanesRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useCanvasSurface(useCallback((ctx, w, h) => drawLanes(ctx, w, h, store.getState()), [store]));
+  const lanes = useLaneInteraction();
+  const canvasRef = useCanvasSurface(useCallback((ctx, w, h) => drawLanes(ctx, w, h, store.getState(), lanes.overlay), [store, lanes.overlay]));
   useTimelineWheel(lanesRef);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
-  const onLaneClick = (e: MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  // Report the viewport width for zoom actions, and page-flip the view to keep the playhead visible.
+  useEffect(() => {
+    const el = lanesRef.current;
+    if (!el) return;
+    reportLaneViewportWidth(el.clientWidth);
+    const ro = new ResizeObserver(() => reportLaneViewportWidth(el.clientWidth));
+    ro.observe(el);
+    const off = store.subscribe((s, cmd) => {
+      if (cmd.name !== 'transport.tick' || !s.view.followPlayhead) return;
+      const geo = laneGeometry(s);
+      const w = el.clientWidth;
+      const bar = beatsToBars(s.transport.positionBeats, s.transport.timeSignature);
+      const px = barToX(bar, geo);
+      if (px > w - size.clipEdgeGrip * 2 || px < 0) {
+        store.dispatch(commands.view.scrollTo({ bar: Math.max(0, bar - (w * 0.08) / geo.ppb) }));
+      }
+    });
+    return () => {
+      ro.disconnect();
+      off();
+    };
+  }, [store]);
+
+  const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
     const state = store.getState();
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
     const clip = hitTestClip(state, x, y);
     if (clip) {
       dispatch(commands.clip.select({ clipId: clip.id }));
+      const items: MenuEntry[] = [
+        actionItem(store, 'openInEditor'),
+        { label: 'Rename…', onSelect: () => setRenaming(clip.id) },
+        separator,
+        actionItem(store, 'duplicateClip'),
+        actionItem(store, 'splitAtPlayhead'),
+        separator,
+        actionItem(store, 'deleteSelection', 'Delete Clip'),
+      ];
+      setMenu({ x: e.clientX, y: e.clientY, items });
       return;
     }
-    dispatch(commands.clip.clearSelection({}));
     const track = state.tracks[Math.floor(y / size.trackRow)];
     if (track) dispatch(commands.track.select({ trackId: track.id }));
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        actionItem(store, 'addAudioTrack'),
+        actionItem(store, 'addMidiTrack'),
+        separator,
+        { label: 'Import Audio…', onSelect: () => void importAudioFiles(store) },
+      ],
+    });
   };
+
+  // Dropping audio files onto a lane imports them at the drop position.
+  const [dropRow, setDropRow] = useState<number | null>(null);
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    const r = e.currentTarget.getBoundingClientRect();
+    const row = Math.floor((e.clientY - r.top) / size.trackRow);
+    if (row !== dropRow) {
+      setDropRow(row);
+      lanes.setOverlay({ dropTrackIndex: row });
+    }
+  };
+  const onDragLeave = () => {
+    setDropRow(null);
+    lanes.setOverlay({});
+  };
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDropRow(null);
+    lanes.setOverlay({});
+    const state = store.getState();
+    const r = e.currentTarget.getBoundingClientRect();
+    const row = Math.floor((e.clientY - r.top) / size.trackRow);
+    const geo = laneGeometry(state);
+    const bar = Math.max(0, Math.round(geo.scrollBars + (e.clientX - r.left) / geo.ppb));
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) void importAudioFiles(store, files, { trackId: state.tracks[row]?.id ?? null, startBar: bar });
+  };
+
+  const renamingClip = renaming ? tracks && store.getState().clips.find((c) => c.id === renaming) : undefined;
+  const renameStyle = (() => {
+    if (!renamingClip) return undefined;
+    const s = store.getState();
+    const geo = laneGeometry(s);
+    const row = s.tracks.findIndex((t) => t.id === renamingClip.trackId);
+    return {
+      left: barToX(renamingClip.startBar, geo) + 2,
+      top: row * size.trackRow + size.clipInset - 2,
+      width: Math.max(80, renamingClip.lengthBars * geo.ppb - 4),
+    };
+  })();
 
   return (
     <div className={styles.scroller}>
@@ -82,11 +185,36 @@ function TrackList() {
           ))}
           <div className={styles.headersEmpty} />
         </div>
-        <div ref={lanesRef} className={styles.lanes} onClick={onLaneClick}>
+        <div
+          ref={lanesRef}
+          className={styles.lanes}
+          onPointerDown={lanes.onPointerDown}
+          onPointerMove={lanes.onPointerMove}
+          onPointerUp={lanes.onPointerUp}
+          onClick={lanes.onClick}
+          onDoubleClick={lanes.onDoubleClick}
+          onContextMenu={onContextMenu}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
           <canvas ref={canvasRef} className={styles.canvas} />
           <AgentChips />
+          {renamingClip && renameStyle && (
+            <InlineEdit
+              className={styles.renameInput}
+              style={renameStyle}
+              value={renamingClip.name}
+              onCommit={(name) => {
+                dispatch(commands.clip.rename({ clipId: renamingClip.id, name }));
+                setRenaming(null);
+              }}
+              onCancel={() => setRenaming(null)}
+            />
+          )}
         </div>
       </div>
+      {menu && <PopupMenu items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </div>
   );
 }

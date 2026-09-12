@@ -1,24 +1,34 @@
 import { beatsToBarBeat, beatsToBars, formatBarBeatShort, type Session } from '@ondera/core';
-import { canvasShadow, color, fill, line, radius, timeline, white } from '../theme/tokens';
+import { canvasShadow, color, fill, line, radius, size, timeline, white } from '../theme/tokens';
 import { withAlpha } from '../theme/color';
 import { cc, hline, monoFont, roundRectPath, withShadows } from './paint';
 import { barToX, laneGeometry } from './timeline';
 
-export function drawRuler(ctx: CanvasRenderingContext2D, w: number, h: number, state: Session): void {
+/** Cycle range being dragged; drawn instead of the committed one. */
+export interface RulerOverlay {
+  cycle?: { startBar: number; endBar: number };
+}
+
+export function drawRuler(ctx: CanvasRenderingContext2D, w: number, h: number, state: Session, overlay: RulerOverlay = {}): void {
   const geo = laneGeometry(state);
   const { transport } = state;
 
   ctx.fillStyle = color.ruler;
   ctx.fillRect(0, 0, w, h);
 
-  if (transport.cycle) {
-    const x0 = Math.round(barToX(transport.cycleStartBar, geo));
-    const x1 = Math.round(barToX(transport.cycleEndBar, geo));
+  const cyc = overlay.cycle ?? (transport.cycle ? { startBar: transport.cycleStartBar, endBar: transport.cycleEndBar } : null);
+  if (cyc) {
+    const x0 = Math.round(barToX(cyc.startBar, geo));
+    const x1 = Math.round(barToX(cyc.endBar, geo));
     ctx.fillStyle = cc(fill.cycleRuler);
     ctx.fillRect(x0, 0, x1 - x0, h);
     ctx.fillStyle = cc(line.cycleEdge);
     ctx.fillRect(x0, 0, 1, h);
     ctx.fillRect(x1 - 1, 0, 1, h);
+    // Grip handles.
+    ctx.fillStyle = cc(fill.cycleHandle);
+    ctx.fillRect(x0, 0, size.cycleGrip, 3);
+    ctx.fillRect(x1 - size.cycleGrip, 0, size.cycleGrip, 3);
   }
 
   const labelEvery = geo.ppb >= 40 ? 1 : geo.ppb >= 20 ? 2 : geo.ppb >= 10 ? 4 : 8;

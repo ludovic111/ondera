@@ -1,8 +1,9 @@
-import { beatsPerBar, beatsToBars, getPeaks, type Clip, type Session, type Track } from '@ondera/core';
+import { barsToSeconds, beatsPerBar, beatsToBars, generatePeaks, PEAKS_PER_BAR, type Clip, type Session, type Track } from '@ondera/core';
 import { canvasShadow, clipMix, color, fill, line, radius, size, white } from '../theme/tokens';
 import { mix, withAlpha } from '../theme/color';
 import { cc, hline, roundRectPath, uiFont, monoFont, withShadows } from './paint';
 import { drawWaveform } from './waveform';
+import { library, PEAKS_PER_SECOND } from '../audio/library';
 
 export interface LaneGeometry {
   /** Pixels per bar. */
@@ -10,6 +11,18 @@ export interface LaneGeometry {
   /** First visible bar (fractional). */
   scrollBars: number;
   rowHeight: number;
+}
+
+/** Ephemeral drawing state from an interaction in progress. Never session state. */
+export interface LaneOverlay {
+  /** Outline where a dragged clip would land. */
+  ghost?: { trackIndex: number; startBar: number; lengthBars: number };
+  /** Clip being drawn with the pencil. */
+  pencil?: { trackIndex: number; startBar: number; lengthBars: number };
+  /** Scissors guide: where the cut would fall. */
+  split?: { trackIndex: number; bar: number };
+  /** Lane a dragged file would drop onto. */
+  dropTrackIndex?: number;
 }
 
 export function barToX(bar: number, geo: LaneGeometry): number {
@@ -31,14 +44,27 @@ export function hitTestClip(state: Session, x: number, y: number): Clip | null {
   const track = state.tracks[row];
   if (!track) return null;
   const bar = xToBar(x, geo);
-  for (const clip of state.clips) {
+  // Later clips draw on top, so hit-test back to front.
+  for (let i = state.clips.length - 1; i >= 0; i--) {
+    const clip = state.clips[i]!;
     if (clip.trackId !== track.id) continue;
     if (bar >= clip.startBar && bar < clip.startBar + clip.lengthBars) return clip;
   }
   return null;
 }
 
-export function drawLanes(ctx: CanvasRenderingContext2D, w: number, h: number, state: Session): void {
+/** Which edge of `clip` (if any) is within the grip zone of x. */
+export function clipEdgeAt(state: Session, clip: Clip, x: number): 'start' | 'end' | null {
+  const geo = laneGeometry(state);
+  const x0 = barToX(clip.startBar, geo);
+  const x1 = barToX(clip.startBar + clip.lengthBars, geo);
+  const grip = Math.min(size.clipEdgeGrip, (x1 - x0) / 3);
+  if (x - x0 <= grip) return 'start';
+  if (x1 - x <= grip) return 'end';
+  return null;
+}
+
+export function drawLanes(ctx: CanvasRenderingContext2D, w: number, h: number, state: Session, overlay: LaneOverlay = {}): void {
   const geo = laneGeometry(state);
   const { tracks, clips, transport, view } = state;
   const rowH = geo.rowHeight;
@@ -54,6 +80,10 @@ export function drawLanes(ctx: CanvasRenderingContext2D, w: number, h: number, s
     const selected = view.selectedTrackId === track.id;
     ctx.fillStyle = selected ? color.timelineSelected : track.agentActive ? color.timelineAgent : color.timeline;
     ctx.fillRect(0, y, w, rowH);
+    if (overlay.dropTrackIndex === i) {
+      ctx.fillStyle = cc(fill.dropTarget);
+      ctx.fillRect(0, y, w, rowH);
+    }
     hline(ctx, 0, y, w, line.laneTop);
     hline(ctx, 0, y + rowH - 1, w, line.laneBottom);
   });
@@ -80,6 +110,33 @@ export function drawLanes(ctx: CanvasRenderingContext2D, w: number, h: number, s
       drawClip(ctx, clip, track, x, y + size.clipInset, cw, rowH - size.clipInset * 2, view.selectedClipId === clip.id, geo, state);
     }
   });
+
+  // Interaction overlays.
+  if (overlay.pencil) {
+    const p = overlay.pencil;
+    const x = barToX(p.startBar, geo);
+    ctx.fillStyle = cc(fill.pencilPreview);
+    roundRectPath(ctx, x + 1, p.trackIndex * rowH + size.clipInset, Math.max(2, p.lengthBars * geo.ppb - 2), rowH - size.clipInset * 2, radius.clip);
+    ctx.fill();
+    ctx.strokeStyle = cc(color.accent);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  if (overlay.ghost) {
+    const g = overlay.ghost;
+    const x = barToX(g.startBar, geo);
+    ctx.fillStyle = cc(fill.dragGhost);
+    roundRectPath(ctx, x + 1.5, g.trackIndex * rowH + size.clipInset + 0.5, Math.max(2, g.lengthBars * geo.ppb - 3), rowH - size.clipInset * 2 - 1, radius.clip);
+    ctx.fill();
+    ctx.strokeStyle = cc(line.dragGhostEdge);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  if (overlay.split) {
+    const x = Math.round(barToX(overlay.split.bar, geo));
+    ctx.fillStyle = cc(line.splitGuide);
+    ctx.fillRect(x, overlay.split.trackIndex * rowH, 1, rowH);
+  }
 
   // Playhead.
   const px = Math.round(barToX(beatsToBars(transport.positionBeats, transport.timeSignature), geo));
@@ -169,13 +226,7 @@ function drawClip(
   const cy = y + titleH;
   const ch = h - titleH;
   if (clip.data.kind === 'audio') {
-    const peaks = getPeaks(clip.data.waveSeed, clip.data.waveKind, clip.lengthBars);
-    // Only draw the visible slice.
-    const visX0 = Math.max(x, 0);
-    const visX1 = Math.min(x + w, ctx.canvas.clientWidth);
-    if (visX1 > visX0) {
-      drawWaveform(ctx, peaks, visX0, cy, visX1 - visX0, ch, (visX0 - x) / w, (visX1 - x) / w);
-    }
+    drawAudioContent(ctx, clip, x, cy, w, ch, state);
   } else {
     drawMidiPreview(ctx, clip.data.notes, x, cy, w, ch, geo, state);
   }
@@ -195,6 +246,34 @@ function drawClip(
     roundRectPath(ctx, x - 0.25, y - 0.25, w + 0.5, h + 0.5, r);
     ctx.stroke();
   }
+}
+
+/** Waveform from the library when the source is decoded; the deterministic mock while it is not. */
+function drawAudioContent(ctx: CanvasRenderingContext2D, clip: Clip, x: number, y: number, w: number, h: number, state: Session): void {
+  if (clip.data.kind !== 'audio') return;
+  const source = state.sources[clip.data.sourceId];
+  const { tempo, timeSignature } = state.transport;
+  const clipSeconds = barsToSeconds(clip.lengthBars, tempo, timeSignature);
+  const visX0 = Math.max(x, 0);
+  const visX1 = Math.min(x + w, ctx.canvas.clientWidth);
+  if (visX1 <= visX0) return;
+  const f0 = (visX0 - x) / w;
+  const f1 = (visX1 - x) / w;
+
+  const real = library.peaksFor(clip.data.sourceId);
+  if (real) {
+    const first = (clip.data.offsetSeconds + f0 * clipSeconds) * PEAKS_PER_SECOND;
+    const last = (clip.data.offsetSeconds + f1 * clipSeconds) * PEAKS_PER_SECOND;
+    drawWaveform(ctx, real, visX0, y, visX1 - visX0, h, first, last);
+    return;
+  }
+  if (source?.origin === 'generated') {
+    const peaks = generatePeaks(source.seed ?? 1, source.waveKind ?? 'tonal', clip.lengthBars);
+    drawWaveform(ctx, peaks, visX0, y, visX1 - visX0, h, f0 * peaks.length, f1 * peaks.length);
+    return;
+  }
+  // Not decoded yet (or missing): a flat line.
+  drawWaveform(ctx, new Float32Array(Math.max(1, Math.round(clip.lengthBars * PEAKS_PER_BAR))), visX0, y, visX1 - visX0, h, 0, 1);
 }
 
 function drawMidiPreview(

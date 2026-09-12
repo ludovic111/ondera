@@ -67,3 +67,8 @@
   display: flex;
   gap: 3px;
 }
+
+.nameInput {
+  flex: 1;
+  width: 0;
+}

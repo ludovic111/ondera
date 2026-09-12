@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { useStore } from '../state/session';
+import { library } from '../audio/library';
 
 export type DrawFn = (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 
@@ -47,12 +48,14 @@ export function useCanvasSurface(draw: DrawFn): RefObject<HTMLCanvasElement | nu
     const ro = new ResizeObserver(schedule);
     ro.observe(canvas);
     const off = store.subscribe(schedule);
+    const offLibrary = library.onChange(schedule);
     void document.fonts?.ready.then(schedule);
     schedule();
 
     return () => {
       ro.disconnect();
       off();
+      offLibrary();
       if (raf) cancelAnimationFrame(raf);
       scheduleRef.current = () => {};
     };

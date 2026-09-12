@@ -95,6 +95,11 @@ export const color = {
 
   /** Neutral dot for non-Ondera browser items and neutral log entries. */
   neutralDot: '#5a5a57',
+
+  // Popup menus (title-bar menus and context menus): a raised graphite card.
+  menu: '#333332',
+  menuHover: '#3f3f3d',
+  menuSeparator: '#262625',
 } as const;
 
 /** Translucent whites and blacks used by the material recipes. */
@@ -223,11 +228,25 @@ export const size = {
   clipInset: 5,
   clipTitle: 14,
   clipNoteH: 3,
+  /** Grab zone at each clip edge for trimming, in px. */
+  clipEdgeGrip: 7,
+  /** Grab zone at each cycle-range edge in the ruler, in px. */
+  cycleGrip: 6,
+  /** Grab zone at a note's right edge for resizing, in px. */
+  noteEdgeGrip: 5,
+  menuMinW: 200,
+  menuItemH: 24,
+  menuPad: 4,
+  inlineInputH: 18,
 } as const;
 
 export const timeline = {
   pxPerBar: 48,
   editorPxPerBar: 88,
+  /** Long clips shrink in the editor down to this before they get cut off. */
+  editorMinPxPerBar: 28,
+  staffLineGap: 8,
+  noteHeadR: 3.5,
   minPxPerBar: 12,
   maxPxPerBar: 480,
   rulerTickH: 6,
@@ -325,6 +344,8 @@ export const shadow = {
   ledInsertOff: `inset 0 1px 1px ${black(0.8)}`,
   window: `0 30px 80px ${black(0.6)}, 0 0 0 1px ${white(0.06)}`,
   sendKey: `inset 0 1px 0 ${white(0.4)}, inset 0 -1px 0 ${black(0.25)}, 0 1px 2px ${black(0.6)}, 0 0 12px ${accentAlpha(0.4)}`,
+  menu: `inset 0 1px 0 ${white(0.08)}, 0 0 0 1px ${black(0.6)}, 0 8px 24px ${black(0.55)}, 0 2px 6px ${black(0.4)}`,
+  inlineInput: `inset 0 1px 2px ${black(0.7)}, 0 0 0 1px ${accentAlpha(0.6)}`,
   note: `inset 0 1px 0 ${white(0.35)}, inset 0 -1px 0 ${black(0.3)}, 0 1px 2px ${black(0.6)}, 0 2px 4px ${black(0.3)}`,
   /** Milled slot on a fader cap: dark line with a 1 px light edge below. */
   faderLineHi: `0 1px 0 ${white(0.14)}`,
@@ -359,6 +380,7 @@ export const canvasShadow = {
     { blur: 10, offsetY: 0, color: accentAlpha(0.4) },
     { blur: 5, offsetY: 0, color: accentAlpha(0.9) },
   ],
+  noteSelected: [{ blur: 6, offsetY: 0, color: white(0.5) }],
   note: [
     { blur: 4, offsetY: 2, color: black(0.3) },
     { blur: 2, offsetY: 1, color: black(0.6) },
@@ -387,6 +409,13 @@ export const fill = {
   eqGridLine: white(0.05),
   eqZeroLine: white(0.08),
   velocity: white(0.18),
+  /** Ghost of a clip or note while it is being dragged. */
+  dragGhost: white(0.12),
+  /** Marquee / pencil preview while drawing a new clip or note. */
+  pencilPreview: accentAlpha(0.25),
+  cycleHandle: white(0.35),
+  dropTarget: accentAlpha(0.12),
+  stepCell: white(0.06),
 } as const;
 
 /** Line colours for grids and rules. */
@@ -412,6 +441,11 @@ export const line = {
   faderLineHi: white(0.14),
   milled: black(0.6),
   milledHi: white(0.12),
+  dragGhostEdge: white(0.5),
+  noteSelected: white(0.9),
+  splitGuide: accentAlpha(0.9),
+  staff: white(0.35),
+  noteHead: white(0.9),
 } as const;
 
 export const blur = {

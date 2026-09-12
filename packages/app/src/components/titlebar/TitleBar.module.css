@@ -45,3 +45,18 @@
   pointer-events: none;
   color: var(--color-ink100);
 }
+
+.menuTitle {
+  padding: 3px 7px;
+  margin: 0 -7px;
+  border-radius: var(--radius-button);
+}
+
+.menuTitle:hover,
+.menuOpen {
+  color: var(--color-ink100);
+}
+
+.menuOpen {
+  background: var(--color-menu-hover);
+}

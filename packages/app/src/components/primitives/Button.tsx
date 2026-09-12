@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, MouseEvent, ReactNode } from 'react';
 import styles from './Button.module.css';
 
 export interface ButtonProps {
@@ -9,7 +9,7 @@ export interface ButtonProps {
   /** Accent-lit: record arm and the agent send key only. */
   lit?: boolean;
   size?: 'md' | 'wide' | 'sm' | 'auto' | 'icon';
-  onClick?: () => void;
+  onClick?: (e: MouseEvent<HTMLDivElement>) => void;
   className?: string | undefined;
   style?: CSSProperties | undefined;
 }

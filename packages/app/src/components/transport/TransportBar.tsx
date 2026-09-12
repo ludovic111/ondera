@@ -1,5 +1,8 @@
-import { commands } from '@ondera/core';
+import { useState, type MouseEvent } from 'react';
+import { commands, formatDb } from '@ondera/core';
 import { useDispatch, useSession } from '../../state/session';
+import { PopupMenu, type MenuState } from '../menu/PopupMenu';
+import { SNAP_DIVISIONS } from '../../state/actions';
 import { Button } from '../primitives/Button';
 import { LedStrip } from '../primitives/LedStrip';
 import { CapsLabel } from '../primitives/CapsLabel';
@@ -20,6 +23,22 @@ export function TransportBar() {
   const snap = useSession((s) => s.transport.snapDivision);
   const agentOpen = useSession((s) => s.view.agentPanelOpen);
   const meters = useSession((s) => s.meters);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+
+  const openSnapMenu = (e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({
+      x: r.left,
+      y: r.bottom + 4,
+      items: SNAP_DIVISIONS.map((d) => ({
+        label: d === 1 ? 'Bar' : `1/${d}`,
+        checked: snap === d,
+        onSelect: () => dispatch(commands.transport.setSnap({ division: d })),
+      })),
+    });
+  };
+  // Master readout: the loudest side, in dB, from the engine meters.
+  const masterDb = 20 * Math.log10(Math.max(1e-4, Math.pow(10, (Math.max(meters.masterL, meters.masterR) * 60 - 54) / 20)));
 
   return (
     <div className={styles.bar}>
@@ -35,20 +54,20 @@ export function TransportBar() {
         </Button>
       </div>
       <div className={styles.group}>
-        <Button title="Play" size="wide" pressed={playing} onClick={() => dispatch(commands.transport.play({}))}>
+        <Button title="Play (Space)" size="wide" pressed={playing} onClick={() => dispatch(commands.transport.play({}))}>
           <PlayIcon />
         </Button>
-        <Button title="Stop" onClick={() => dispatch(commands.transport.stop({}))}>
+        <Button title="Stop · twice to return to start" onClick={() => dispatch(commands.transport.stop({}))}>
           <StopIcon />
         </Button>
         <Button
-          title="Record"
+          title="Record (R) · arm an audio track, then play"
           lit={recording}
           onClick={() => dispatch(commands.transport.setRecording({ recording: !recording }))}
         >
           <RecordIcon />
         </Button>
-        <Button title="Cycle" pressed={cycle} onClick={() => dispatch(commands.transport.setCycle({ enabled: !cycle }))}>
+        <Button title="Cycle (C) · drag in the ruler to set the range" pressed={cycle} onClick={() => dispatch(commands.transport.setCycle({ enabled: !cycle }))}>
           <CycleIcon />
         </Button>
       </div>
@@ -58,13 +77,14 @@ export function TransportBar() {
       <div className={styles.group}>
         <Button
           size="auto"
+          title="Metronome (K)"
           pressed={metronome}
           onClick={() => dispatch(commands.transport.setMetronome({ enabled: !metronome }))}
         >
           Click
         </Button>
-        <Button size="auto" pressed>
-          Snap 1/{snap}
+        <Button size="auto" pressed onClick={openSnapMenu} title="Snap grid">
+          Snap {snap === 1 ? 'Bar' : `1/${snap}`}
         </Button>
       </div>
 
@@ -72,10 +92,10 @@ export function TransportBar() {
         <div className={styles.meter}>
           <CapsLabel>Master</CapsLabel>
           <div className={`${styles.masterWell} m-well-meter`}>
-            <LedStrip segments={MASTER_SEGMENTS} level={meters.masterL} />
-            <LedStrip segments={MASTER_SEGMENTS} level={meters.masterR} />
+            <LedStrip segments={MASTER_SEGMENTS} level={meters.masterL} hot={2} />
+            <LedStrip segments={MASTER_SEGMENTS} level={meters.masterR} hot={2} />
           </div>
-          <div className={styles.readout}>−3.2</div>
+          <div className={styles.readout}>{Math.max(meters.masterL, meters.masterR) > 0 ? formatDb(masterDb, 1) : '−∞'}</div>
         </div>
         <div className={styles.cpu}>
           <CapsLabel>CPU</CapsLabel>
@@ -94,6 +114,7 @@ export function TransportBar() {
           Agent
         </Button>
       </div>
+      {menu && <PopupMenu items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -85,3 +85,28 @@
   font-size: var(--fs-value);
   color: var(--color-ink500);
 }
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink100);
+  font-size: var(--fs-list);
+  user-select: text;
+}
+
+.item {
+  cursor: default;
+}
+
+.item:hover {
+  background: var(--fill-browser-highlight);
+}
+
+.empty {
+  padding: 12px 8px;
+  color: var(--color-ink500);
+  font-size: var(--fs-list);
+}

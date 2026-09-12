@@ -61,3 +61,20 @@
     display: none;
   }
 }
+
+.editable {
+  cursor: pointer;
+  touch-action: none;
+}
+
+.editable:hover .value {
+  color: var(--color-accent-hi);
+}
+
+.tempoInput {
+  width: 72px;
+  height: 20px;
+  font-size: var(--fs-transport);
+  font-weight: var(--fw-regular);
+  padding: 0 2px;
+}

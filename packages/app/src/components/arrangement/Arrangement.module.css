@@ -100,3 +100,16 @@
   width: 6px;
   height: 6px;
 }
+
+.lanes {
+  touch-action: none;
+}
+
+.rulerCanvasWrap {
+  touch-action: none;
+}
+
+.renameInput {
+  position: absolute;
+  z-index: 3;
+}

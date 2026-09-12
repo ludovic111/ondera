@@ -51,3 +51,8 @@
   top: 3px;
   height: 9px;
 }
+
+.interactive {
+  cursor: ns-resize;
+  touch-action: none;
+}

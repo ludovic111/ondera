@@ -300,3 +300,20 @@
   font-size: var(--fs-micro);
   color: var(--color-ink500);
 }
+
+.rowClickable {
+  cursor: pointer;
+}
+
+.rowClickable:hover .rowValue {
+  color: var(--color-accent);
+}
+
+.faderRail {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.insertLed {
+  cursor: pointer;
+}

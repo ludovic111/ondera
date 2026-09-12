@@ -2,9 +2,9 @@ import { line } from '../theme/tokens';
 import { cc } from './paint';
 
 /**
- * Draws a peak array as a symmetric bar waveform into the rect, one column
- * per CSS pixel. `startFrac`/`endFrac` select the visible slice of the peaks
- * so a partially scrolled clip still lines up.
+ * Draws a slice of a peak array as a symmetric bar waveform into the rect,
+ * one column per CSS pixel. `first`..`last` are fractional indices into
+ * `peaks`, so a trimmed or partially scrolled clip lines up with its audio.
  */
 export function drawWaveform(
   ctx: CanvasRenderingContext2D,
@@ -13,15 +13,13 @@ export function drawWaveform(
   y: number,
   w: number,
   h: number,
-  startFrac = 0,
-  endFrac = 1,
+  first: number,
+  last: number,
 ): void {
   if (w <= 0 || h <= 0 || peaks.length === 0) return;
   const mid = y + h / 2;
   const half = h / 2;
-  const first = startFrac * peaks.length;
-  const span = (endFrac - startFrac) * peaks.length;
-  const perPx = span / w;
+  const perPx = (last - first) / w;
 
   ctx.fillStyle = cc(line.waveform);
   const cols = Math.floor(w);
@@ -29,11 +27,11 @@ export function drawWaveform(
     const i0 = Math.floor(first + px * perPx);
     const i1 = Math.max(i0 + 1, Math.floor(first + (px + 1) * perPx));
     let peak = 0;
-    for (let i = i0; i < i1 && i < peaks.length; i++) {
+    for (let i = Math.max(0, i0); i < i1 && i < peaks.length; i++) {
       const v = peaks[i] ?? 0;
       if (v > peak) peak = v;
     }
-    const a = Math.max(0.8, peak * half);
+    const a = Math.max(0.8, peak * half * 0.95);
     ctx.fillRect(x + px, mid - a, 1, a * 2);
   }
   ctx.fillStyle = cc(line.waveformMid);

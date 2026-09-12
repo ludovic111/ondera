@@ -117,3 +117,19 @@
   height: 100%;
   display: block;
 }
+
+.grid {
+  touch-action: none;
+}
+
+.key {
+  cursor: pointer;
+}
+
+.paramButton {
+  height: 20px;
+  padding: 0 8px;
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-secondary);
+  color: var(--color-ink300);
+}
