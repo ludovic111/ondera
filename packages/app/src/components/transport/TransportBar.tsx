@@ -77,7 +77,7 @@ export function TransportBar() {
           </div>
           <div className={styles.readout}>−3.2</div>
         </div>
-        <div className={styles.meter}>
+        <div className={styles.cpu}>
           <CapsLabel>CPU</CapsLabel>
           <div className={`${styles.cpuWell} m-well-meter`}>
             <LedStrip segments={CPU_SEGMENTS} level={meters.cpu} segmentHeight={size.ledCpuH} />

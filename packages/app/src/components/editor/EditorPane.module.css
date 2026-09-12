@@ -16,6 +16,8 @@
   align-items: center;
   gap: 12px;
   padding: 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
   background: var(--gradient-transport);
   box-shadow: var(--shadow-toolbar-editor);
 }
@@ -44,6 +46,8 @@
   margin-left: auto;
   display: flex;
   gap: 14px;
+  min-width: 0;
+  overflow: hidden;
   font-size: var(--fs-secondary);
   color: var(--color-ink300);
 }

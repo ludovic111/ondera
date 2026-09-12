@@ -28,7 +28,7 @@ export function TimeDisplay() {
           <span className={styles.ticks}>{pad(pos.tick, 3)}</span>
         </div>
       </div>
-      <div className={styles.cell}>
+      <div className={`${styles.cell} ${styles.smpte}`}>
         <div className={styles.label}>SMPTE</div>
         <div className={`${styles.value} ${styles.dim}`}>{smpte}</div>
       </div>
