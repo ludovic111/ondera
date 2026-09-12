@@ -104,3 +104,9 @@ Ludovic Marie, [@lu4ovic](https://twitter.com/lu4ovic) on Twitter.
 ## License
 
 MIT, copyright Ludovic Marie. See [LICENSE](LICENSE).
+
+## Website
+
+`site/` is the marketing site (plain HTML, CSS and JS behind a dependency-free Node server). It
+deploys to Railway from that folder on every push. Its `tokens.css` and `tokens.js` are generated
+from the app's tokens file with `pnpm site:tokens`; run `pnpm site:dev` to serve it locally.
