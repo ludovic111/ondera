@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ondera — the DAW you and your agent play together</title>
+  <meta name="description" content="Ondera is an open-source, cross-platform DAW with a Logic-like workflow and a hardware-like feel. Every action is a typed command, so an AI agent can edit your session from the terminal while you keep working in the GUI.">
+  <meta name="theme-color" content="#141413">
+  <meta property="og:title" content="Ondera — the DAW you and your agent play together">
+  <meta property="og:description" content="Open-source, cross-platform DAW. Logic-like UX, hardware-like feel, 100% controllable from a CLI and an MCP server.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c2c2b'/%3E%3Crect x='0.5' y='0.5' width='31' height='31' rx='6.5' fill='none' stroke='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2382d6d1'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2382d6d1' stroke-opacity='.35' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="wordmark" href="#top" aria-label="Ondera home"><span class="led led--accent"></span>Ondera</a>
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#commands">Commands</a>
+      <a href="#materials">Materials</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+    <a class="btn btn--raised btn--sm" href="https://github.com/ludovic111/ondera" rel="noopener">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.5 15.6c.4 0 .5-.2.5-.4v-1.5c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.3 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.1 0 3.1-1.9 3.8-3.6 4 .3.3.6.8.6 1.5v2.2c0 .2.1.5.6.4A8 8 0 0 0 8 .2Z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <p class="eyebrow reveal">Open-source DAW &nbsp;·&nbsp; macOS &nbsp;·&nbsp; Linux &nbsp;·&nbsp; Windows</p>
+    <h1 class="display reveal">The DAW you and your <em>agent</em> play together.</h1>
+    <p class="lede reveal">Ondera is a cross-platform digital audio workstation with a Logic-like workflow and a hardware-like feel. Every action is a typed command, so an AI agent can edit your session from the terminal while you keep working in the GUI. Same session, same undo history.</p>
+    <div class="hero__cta reveal">
+      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera" rel="noopener">View on GitHub</a>
+      <a class="btn btn--raised" href="#architecture">How it works</a>
+    </div>
+  </section>
+
+  <section class="demo" aria-label="Interactive preview of the Ondera arrangement window">
+    <div class="daw-wrap reveal">
+      <div class="daw" id="daw">
+        <div class="daw__titlebar">
+          <span class="traffic"></span><span class="traffic"></span><span class="traffic"></span>
+          <span class="daw__title">Untitled session — Ondera</span>
+          <span class="daw__phase">Phase 1 · UI shell</span>
+        </div>
+
+        <div class="daw__transport">
+          <div class="tgroup">
+            <button class="tbtn" data-cmd="transport.returnToStart" aria-label="Go to start" title="Go to start">
+              <svg viewBox="0 0 14 12" aria-hidden="true"><path d="M2 1v10M12 1 4 6l8 5z"/></svg>
+            </button>
+            <button class="tbtn" data-cmd="transport.stop" aria-label="Stop" title="Stop">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+            </button>
+            <button class="tbtn tbtn--play" id="play" data-cmd="transport.togglePlay" aria-pressed="false" aria-label="Play" title="Play (space)">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 1.5v9l8-4.5z"/></svg>
+            </button>
+            <button class="tbtn tbtn--rec" id="rec" data-cmd="transport.setRecording" aria-pressed="false" aria-label="Record" title="Record">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4"/></svg>
+            </button>
+            <button class="tbtn" id="cycle" data-cmd="transport.setCycle" aria-pressed="true" aria-label="Cycle" title="Cycle (C)">
+              <svg viewBox="0 0 14 12" aria-hidden="true"><path d="M3 4.5h8M3 7.5h8M9 2l2 2.5-2 2.5M5 5l-2 2.5 2 2.5" fill="none"/></svg>
+            </button>
+          </div>
+
+          <div class="timedisplay">
+            <span class="td__pos" id="pos">001<i>.</i>01<i>.</i>001</span>
+            <span class="td__smpte" id="smpte">00:00:00:00</span>
+          </div>
+
+          <div class="tfield"><span class="tfield__label">Tempo</span><span class="tfield__value">120.00</span></div>
+          <div class="tfield"><span class="tfield__label">Sig</span><span class="tfield__value">4 / 4</span></div>
+
+          <div class="cpu">
+            <span class="tfield__label">CPU</span>
+            <div class="ledmeter ledmeter--h" id="cpu" aria-hidden="true"></div>
+          </div>
+        </div>
+
+        <div class="daw__body">
+          <div class="daw__headers" id="headers"></div>
+          <div class="daw__timeline" id="timeline-wrap"><canvas id="timeline" aria-label="Arrangement timeline: eight tracks with audio and MIDI clips"></canvas></div>
+          <aside class="daw__agent">
+            <div class="agent__head">
+              <span class="led led--accent"></span><span>Agent</span>
+              <span class="agent__status">claude · connected</span>
+            </div>
+            <div class="agent__card" id="agent-card">
+              <div class="agent__cardtitle">Editing <b>Keys B</b> on Keys</div>
+              <p id="agent-text">Tightening the comp on bars 5–8: quantise to 1/16 at 60 % strength and lift the off-beat velocities by 8.</p>
+              <div class="agent__actions">
+                <button class="btn btn--xs btn--lit" data-cmd="agent.keep">Keep</button>
+                <button class="btn btn--xs btn--raised" data-cmd="agent.toggleRevert">Revert</button>
+              </div>
+            </div>
+            <div class="agent__logtitle"><span>Command log</span><span class="agent__logsub">what the GUI dispatched</span></div>
+            <ol class="agent__log" id="log" aria-live="polite"></ol>
+            <div class="agent__input" aria-hidden="true"><span>Ask the agent…</span><span class="agent__key">⏎</span></div>
+          </aside>
+        </div>
+      </div>
+    </div>
+    <p class="demo__hint reveal"><kbd>Space</kbd> plays. Click <b>M</b> to mute a track. Every click lands in the command log as the command it dispatched, which is exactly what the CLI and an agent would send.</p>
+  </section>
+
+  <section id="commands" class="section">
+    <p class="eyebrow reveal">Command layer</p>
+    <h2 class="reveal">One command layer. Three clients. None of them privileged.</h2>
+    <p class="lede reveal">Every user action in Ondera becomes a named command with typed params. The desktop app dispatches them. So does the command-line tool. So does the MCP server an agent talks to. Anything the GUI can do, an agent can do with the same command, and every change is revertable from the UI.</p>
+
+    <div class="clients">
+      <article class="card reveal">
+        <header class="card__head"><span class="card__kind">GUI</span><h3>Click it</h3></header>
+        <div class="card__demo card__demo--gui">
+          <div class="mini-header" id="mini-bgv">
+            <span class="mini-header__strip"></span>
+            <span class="mini-header__name">BGV<small>Audio</small></span>
+            <span class="mini-header__btns">
+              <button class="hbtn" data-cmd="track.setMute" data-track="bgv" aria-label="Mute BGV">M</button>
+              <button class="hbtn" data-cmd="track.setSolo" data-track="bgv" aria-label="Solo BGV">S</button>
+              <button class="hbtn" data-cmd="track.setArmed" data-track="bgv" aria-label="Arm BGV">R</button>
+            </span>
+          </div>
+        </div>
+        <p>The button does not touch the session. It dispatches <code>track.setMute</code> and reads the result back through a subscription, like everything else in the app.</p>
+      </article>
+
+      <article class="card reveal">
+        <header class="card__head"><span class="card__kind">CLI</span><h3>Type it</h3></header>
+        <div class="card__demo">
+          <pre class="term" aria-live="polite"><span class="term__prompt">$</span> ondera track.setMute --track bgv --muted <span class="term__val" data-bind="bgv-muted">false</span>
+<span class="term__ok">ok</span>  session 3f9c · undo #<span data-bind="undo-count">12</span></pre>
+        </div>
+        <p>The CLI is generated from the command registry, not hand-written. New command in core, new subcommand in the shell.</p>
+      </article>
+
+      <article class="card reveal">
+        <header class="card__head"><span class="card__kind">MCP</span><h3>Ask for it</h3></header>
+        <div class="card__demo">
+          <pre class="term term--json">{
+  <span class="k">"tool"</span>: <span class="s">"ondera.dispatch"</span>,
+  <span class="k">"command"</span>: <span class="s">"track.setMute"</span>,
+  <span class="k">"params"</span>: { <span class="k">"trackId"</span>: <span class="s">"bgv"</span>, <span class="k">"muted"</span>: <span class="v" data-bind="bgv-muted">false</span> }
+}</pre>
+        </div>
+        <p>An agent gets the same registry as an MCP server, with the same param schemas, so it never has to guess what a session can do.</p>
+      </article>
+    </div>
+    <p class="clients__foot reveal">All three panels are wired to the <em>same store</em> as the window above. Mute BGV in any of them and watch the others follow.</p>
+  </section>
+
+  <section id="materials" class="section">
+    <p class="eyebrow reveal">Material system</p>
+    <h2 class="reveal">Feels like hardware, because it is drawn like hardware.</h2>
+    <p class="lede reveal">One light source, directly above. Every raised object gets the same four layers in the same order: a specular highlight on its top edge, a face that darkens downward, a contact line along the bottom, and a soft drop shadow. Pressed states swap the drop shadow for an inner one and darken the face. Nothing else moves. Try the rack.</p>
+
+    <div class="rack reveal">
+      <div class="rack__module">
+        <span class="rack__label">Gain</span>
+        <div class="knob knob--lg" id="knob" role="slider" aria-label="Gain" aria-valuemin="-60" aria-valuemax="6" aria-valuenow="-6" tabindex="0">
+          <div class="knob__inner"></div>
+          <div class="knob__indicator"></div>
+        </div>
+        <div class="value" id="knob-value">-6.0 dB</div>
+        <span class="rack__hint">drag up / down</span>
+      </div>
+
+      <div class="rack__module rack__module--fader">
+        <span class="rack__label">Level</span>
+        <div class="fader-row">
+          <div class="fader" id="fader" role="slider" aria-label="Level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="78" tabindex="0">
+            <div class="fader__rail"></div>
+            <div class="fader__cap"><span class="fader__line"></span></div>
+          </div>
+          <div class="ledmeter ledmeter--v" id="meter" aria-hidden="true"></div>
+          <div class="fader-scale" aria-hidden="true"><span>+6</span><span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-∞</span></div>
+        </div>
+        <span class="rack__hint">drag the cap</span>
+      </div>
+
+      <div class="rack__module rack__module--wide">
+        <span class="rack__label">States</span>
+        <div class="states">
+          <button class="btn btn--raised btn--sm" type="button">Raised</button>
+          <button class="btn btn--pressed btn--sm" type="button" aria-pressed="true">Pressed</button>
+          <button class="btn btn--lit btn--sm" type="button" aria-pressed="true">Lit</button>
+        </div>
+        <div class="segmented" id="segmented" role="tablist" aria-label="Editor tab">
+          <button role="tab" aria-selected="true">Piano roll</button>
+          <button role="tab" aria-selected="false">Score</button>
+          <button role="tab" aria-selected="false">Step</button>
+        </div>
+        <div class="leds" aria-hidden="true">
+          <span class="led led--on"></span><span class="led led--on"></span><span class="led led--accent"></span><span class="led"></span><span class="led"></span>
+        </div>
+        <span class="rack__hint">every recipe lives in one tokens file</span>
+      </div>
+
+      <div class="rack__module rack__module--wide">
+        <span class="rack__label">Recipe</span>
+        <ol class="recipe">
+          <li><span class="recipe__n">1</span><b>Specular</b><span>1 px white on the top edge</span></li>
+          <li><span class="recipe__n">2</span><b>Face</b><span>gradient, darker toward the bottom</span></li>
+          <li><span class="recipe__n">3</span><b>Contact</b><span>1 px black on the bottom edge</span></li>
+          <li><span class="recipe__n">4</span><b>Shadow</b><span>soft drop at 2–3× the contact distance</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture" class="section">
+    <p class="eyebrow reveal">Architecture</p>
+    <h2 class="reveal">API first. The GUI is just one client.</h2>
+    <p class="lede reveal">Most DAWs are built GUI-first and bolt scripting on afterwards. Ondera's session model and every operation on it live in a pure TypeScript package that has never heard of a screen. That is what makes it safe for an agent to edit a project while you watch.</p>
+
+    <div class="arch reveal" aria-label="Architecture diagram">
+      <div class="arch__clients">
+        <div class="arch__box"><b>Electron UI</b><span>React + canvas</span></div>
+        <div class="arch__box"><b>CLI</b><span>generated from the registry</span></div>
+        <div class="arch__box"><b>MCP server</b><span>generated from the registry</span></div>
+      </div>
+      <div class="arch__bus" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="arch__core">
+        <b>@ondera/core</b>
+        <span>command registry · session store · model · undo · <code>dispatch(command)</code></span>
+        <em>pure TypeScript · no DOM · no Electron · no Node</em>
+      </div>
+      <div class="arch__ipc" aria-hidden="true"><span>EngineClient · IPC</span></div>
+      <div class="arch__engine">
+        <b>Audio engine</b>
+        <span>a separate native process in Rust</span>
+        <em>Phase 1 ships a mock engine behind the same interface</em>
+      </div>
+    </div>
+
+    <ul class="rules reveal">
+      <li><b>No component mutates state.</b> The renderer reads through subscriptions and writes only through <code>dispatch</code>. Hover and drag live in React; anything worth undoing is a command.</li>
+      <li><b>Commands are deterministic.</b> Same state, same params, same result. No clock and no randomness inside a command; they arrive as params.</li>
+      <li><b>One tokens file.</b> Every colour, size, gradient and shadow, in canvas and CSS alike. A lint step fails the build if anything else hardcodes one. This page reads the same file.</li>
+    </ul>
+  </section>
+
+  <section id="roadmap" class="section">
+    <p class="eyebrow reveal">Roadmap</p>
+    <h2 class="reveal">Where it is, honestly.</h2>
+    <ol class="phases reveal">
+      <li class="phase phase--now">
+        <span class="led led--accent"></span>
+        <span class="phase__n">01</span>
+        <div><b>UI shell</b><span>Electron, React, canvas timeline, tokens, eight mock tracks, a playhead on a fake clock. Looks like the design and survives a resize.</span></div>
+        <span class="phase__tag">now</span>
+      </li>
+      <li class="phase">
+        <span class="led"></span>
+        <span class="phase__n">02</span>
+        <div><b>Audio engine</b><span>The Rust process behind <code>EngineClient</code>. Real playback, real meters, the mock engine retires.</span></div>
+        <span class="phase__tag">next</span>
+      </li>
+      <li class="phase">
+        <span class="led"></span>
+        <span class="phase__n">03</span>
+        <div><b>CLI and MCP server</b><span>Generated from the command registry, so they can never drift from what the GUI can do.</span></div>
+        <span class="phase__tag">planned</span>
+      </li>
+      <li class="phase">
+        <span class="led"></span>
+        <span class="phase__n">04</span>
+        <div><b>Files, plugins, persistence</b><span>Loading audio, hosting instruments and effects, saving sessions.</span></div>
+        <span class="phase__tag">planned</span>
+      </li>
+    </ol>
+  </section>
+
+  <section class="section cta">
+    <h2 class="reveal">Built in the open.</h2>
+    <p class="lede reveal">MIT licensed. TypeScript today, Rust next. Star it, fork it, or point your agent at it.</p>
+    <div class="codewell reveal">
+      <code id="clone-cmd">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; pnpm install &amp;&amp; pnpm dev</code>
+      <button class="btn btn--raised btn--xs" id="copy" type="button">Copy</button>
+    </div>
+    <div class="hero__cta reveal">
+      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera" rel="noopener">View on GitHub</a>
+      <a class="btn btn--raised" href="https://github.com/ludovic111/ondera/blob/main/CLAUDE.md" rel="noopener">Read the rules</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer__inner">
+    <span class="wordmark wordmark--sm"><span class="led led--accent"></span>Ondera</span>
+    <span>MIT license · © 2026 Ludovic Marie</span>
+    <span class="footer__type">Manrope · IBM Plex Mono · light from 90° above</span>
+  </div>
+</footer>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
