@@ -216,13 +216,19 @@ fn group(command: &mut Command) {
 fn terminate_tree(child: &mut Child) {
     #[cfg(unix)]
     {
-        // Each runner/preflight starts its own process group. No shell interpolation.
-        let _ = Command::new("/bin/kill")
-            .args(["-KILL", &format!("-{}", child.id())])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        unsafe extern "C" {
+            fn kill(pid: std::os::raw::c_int, signal: std::os::raw::c_int) -> std::os::raw::c_int;
+        }
+        // Each runner/preflight starts its own process group. Signal it directly:
+        // command-line kill utilities differ in how they parse a negative PID.
+        if let Ok(pid) = std::os::raw::c_int::try_from(child.id()) {
+            if pid > 1 {
+                // SAFETY: the checked positive child PID is its owned process-group
+                // ID. Negation cannot overflow or select group 0 / all processes.
+                // SIGKILL is 9 on the supported macOS and Linux targets.
+                unsafe { kill(-pid, 9) };
+            }
+        }
     }
     #[cfg(windows)]
     {
