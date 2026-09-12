@@ -9,15 +9,28 @@ import './theme/materials.css';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MockEngine, SessionStore, attachEngine, createMockSession } from '@ondera/core';
+import { SessionStore, attachEngine, commands, createMockSession } from '@ondera/core';
 import { applyTokens } from './theme/applyTokens';
 import { SessionProvider } from './state/session';
+import { attachDocument } from './state/document';
+import { attachRecorder } from './audio/recorder';
+import { engine } from './audio/instance';
 import { App } from './App';
 
 applyTokens();
 
 const store = new SessionStore(createMockSession());
-attachEngine(store, new MockEngine());
+attachEngine(store, engine);
+attachDocument(store);
+attachRecorder(store);
+
+// Dev console access to the command layer: `onderaDebug.store.dispatch(...)`. The CLI/MCP will replace this.
+Object.assign(window, { onderaDebug: { store, engine, commands } });
+
+// Browsers only start audio after a gesture; Electron does not mind the extra resume.
+const wake = () => engine.resume();
+window.addEventListener('pointerdown', wake, { capture: true });
+window.addEventListener('keydown', wake, { capture: true });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
