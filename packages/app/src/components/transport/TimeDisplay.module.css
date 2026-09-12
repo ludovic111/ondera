@@ -21,13 +21,6 @@
   border-right: 0;
 }
 
-/* Narrow windows: SMPTE is the first cell to go. */
-@container (max-width: 1320px) {
-  .smpte {
-    display: none;
-  }
-}
-
 .label {
   font-family: var(--font-ui);
   font-size: var(--fs-caps);
@@ -60,4 +53,11 @@
 
 .dim {
   color: var(--color-ink-dim);
+}
+
+/* Narrow windows: SMPTE is the first cell to go. */
+@container (max-width: 1320px) {
+  .smpte {
+    display: none;
+  }
 }

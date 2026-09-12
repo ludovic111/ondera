@@ -14,19 +14,6 @@
   container-type: inline-size;
 }
 
-/* Narrow windows: drop the least important readouts before anything clips. */
-@container (max-width: 1460px) {
-  .cpu {
-    display: none;
-  }
-}
-
-@container (max-width: 1320px) {
-  .bar {
-    gap: 10px;
-  }
-}
-
 .group {
   display: flex;
   gap: 6px;
@@ -78,4 +65,17 @@
 .agentDot {
   width: 7px;
   height: 7px;
+}
+
+/* Narrow windows: drop the least important readouts before anything clips. */
+@container (max-width: 1460px) {
+  .cpu {
+    display: none;
+  }
+}
+
+@container (max-width: 1320px) {
+  .bar {
+    gap: 10px;
+  }
 }

@@ -85,8 +85,9 @@ Both variants share the same anatomy: 1600×1000 reference window, panels 220 / 
 4 px base grid, 8 mock tracks. Each file ends with a spec sheet (color tokens, type scale, grid,
 material recipes) in the `renderVals()` script block; extract tokens from there, not from eyeballing.
 
-Which variant is authoritative for styling is recorded here once decided. Until then, do not write
-styling code.
+**Variant 01/02 (skeuomorphic) is authoritative for styling**, decided 2026-09-12: the brief asks
+for bevels, contact shadows and a single light source from above, and only that file defines the
+recipe. v2 is kept for reference only. Switching later is a tokens-file change, not a rebuild.
 
 When something in the design is ambiguous, ask rather than invent.
 
