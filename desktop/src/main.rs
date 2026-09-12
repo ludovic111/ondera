@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod chrome;
+mod control;
 mod editor;
 mod theme;
 mod timeline;
@@ -9,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let mut path = None;
     let mut screenshot = None;
+    let mut control = true;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--validate" => {
@@ -39,8 +41,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     args.next().ok_or("Missing screenshot path")?,
                 ))
             }
+            "--no-control" => control = false,
             "--help" | "-h" => {
-                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --screenshot image.png");
+                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --screenshot image.png\n  ondera --no-control   do not accept ondera-cli / ondera-mcp connections");
                 return Ok(());
             }
             _ => {
@@ -62,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eframe::run_native(
         "Ondera",
         options,
-        Box::new(move |cc| Ok(Box::new(app::Ondera::new(cc, path, screenshot)))),
+        Box::new(move |cc| Ok(Box::new(app::Ondera::new(cc, path, screenshot, control)))),
     )?;
     Ok(())
 }

@@ -1,0 +1,25 @@
+[package]
+name = "ondera-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Ondera command-line client and MCP server"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ondera-cli"
+path = "src/bin/ondera-cli.rs"
+
+[[bin]]
+name = "ondera-mcp"
+path = "src/bin/ondera-mcp.rs"
+
+[dependencies]
+ondera-engine = { path = "../engine" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

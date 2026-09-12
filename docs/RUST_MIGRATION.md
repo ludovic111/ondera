@@ -18,6 +18,7 @@ with `ondera` (desktop) and `ondera-engine`. The former source is preserved unch
 | Recording | default device input, bounded queue, native float samples; linear takes only |
 | Export | worker-based streaming stereo 48 kHz / 24-bit WAV, same renderer as playback, 3-second tail |
 | Platforms | native audio and graphics backends for macOS, Linux and Windows; four-runner CI matrix including Intel and Apple Silicon Macs |
+| Control | introspectable command registry (`engine/src/control.rs`) shared by the window, `ondera-cli` and the stdio MCP server `ondera-mcp`; live loopback socket with a per-launch token, or headless file hosting |
 
 ## Evidence
 
@@ -51,7 +52,10 @@ The final delivery note and CI runs contain the latest platform verification res
 - Native synths, EQ, reverb and dynamics differ from Web Audio. MIDI events and imported PCM
   survive migration, but old mixes and regenerated demo sound are not bit-identical.
 - Stereo files are linearly resampled. No time stretching, high-quality offline resampling,
-  MIDI hardware input, external plugin hosting, automation curves or MCP server yet.
+  MIDI hardware input, external plugin hosting or automation curves yet.
+- Live control answers file commands (open, save, bounce, import) synchronously on the
+  interface thread, so the window pauses for the duration of a large export. Recording is not
+  exposed through control.
 - Recording requires system microphone permission, uses the default input and captures linear
   takes. No loop-take comping or measured hardware latency compensation. A dropped/overflowed
   take reports an error instead of silently inserting corrupted audio.

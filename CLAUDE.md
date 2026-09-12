@@ -10,6 +10,11 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   browser and inspector; `timeline.rs` the arrangement; `editor.rs` the region editor. Fonts are
   Manrope and IBM Plex Mono (OFL) bundled in `desktop/assets/fonts`.
 - `engine/`: pure Rust command store, session model, DSP, audio devices and documents.
+  `engine/src/control.rs` is the public command registry; `control/wire.rs` the loopback
+  protocol. `tools/` builds `ondera-cli` and `ondera-mcp` as thin clients of that registry, and
+  `desktop/src/control.rs` serves it from the window between frames. A new user-facing action
+  goes into the registry so the window, the CLI and agents get it together; the CLI help and
+  MCP tool list are generated from it.
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs

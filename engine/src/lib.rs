@@ -1,5 +1,6 @@
 //! Native audio and document services. No webview or GUI dependencies.
 pub mod audio;
+pub mod control;
 pub mod device;
 pub mod document;
 pub mod dsp;

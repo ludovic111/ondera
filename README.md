@@ -64,9 +64,65 @@ and a ZIP. This is an ad-hoc signed test app, without Developer ID notarization.
 - Cmd/Ctrl+S saves, Cmd/Ctrl+O opens, Cmd/Ctrl+I imports, Cmd/Ctrl+B exports stereo 48 kHz /
   24-bit WAV. Undo/redo uses Cmd/Ctrl+Z / Shift+Z. A drag or text edit is one undo gesture.
 
-## Headless tools
+## Command line and MCP
 
-These commands work without a window or an audio device:
+The window, `ondera-cli` and `ondera-mcp` are peers: all three dispatch the same commands to
+the same store, so anything a person can do in the interface, a script or an AI agent can do
+with the same undo history. The registry lives in `engine/src/control.rs`; the CLI help and the
+MCP tool list are generated from it. Bars and beats are zero-based; note times are beats
+relative to their clip.
+
+```sh
+cargo build --release --workspace     # target/release/ondera-cli and ondera-mcp
+ondera-cli commands                   # every command with its parameters
+ondera-cli help clip.create
+```
+
+### Live control of the running app
+
+While `ondera` runs it listens on 127.0.0.1 and writes the port and a random token to
+`~/.ondera/control.json` (readable only by you; `$ONDERA_CONTROL` overrides the path). Clients
+read that file and connect; each command is applied on the interface thread between frames,
+never concurrently with a drag. Start the app with `--no-control` to refuse connections.
+
+```sh
+ondera-cli session.info
+ondera-cli track.add --kind midi --name Bass --instrument "Sub Bass 808"
+ondera-cli clip.create --trackId <id> --startBar 0 --lengthBars 2 \
+    --notes '[{"start":0,"length":1,"pitch":36},{"start":2,"length":1,"pitch":43}]'
+ondera-cli transport.play
+ondera-cli history.undo
+```
+
+### Files without the app
+
+```sh
+ondera-cli --file song.ondera session.new
+ondera-cli --file song.ondera clip.addLoop --name "Four Floor 124"
+ondera-cli --file song.ondera session.bounce --path mix.wav
+ondera-cli --file song.ondera session.importAudio --path vocal.wav --startBar 4
+```
+
+`--file` hosts the session in the CLI process and saves atomically after every change, so the
+file is always the state. Playback needs the app; rendering does not.
+
+### MCP server
+
+`ondera-mcp` is a stdio Model Context Protocol server. Each command is a tool (`track.add` is
+`track_add`) and the session is readable as `ondera://session`, `ondera://session/info` and
+`ondera://catalog`. With the app running it controls the app live; otherwise it hosts a session
+in its own process. `--live`, `--headless` and `--file <path>` choose explicitly. Clips and
+notes an agent creates are marked and drawn with the agent accent in the interface, and
+`history.undo` reverts them like any other edit.
+
+```sh
+claude mcp add ondera -- /path/to/ondera/target/release/ondera-mcp
+```
+
+For Claude Desktop or another client: `{"mcpServers": {"ondera": {"command": "/path/to/ondera-mcp"}}}`.
+
+Recording is not exposed through control: arm a track in the window and press Rec. The
+validation and export flags remain on the app binary:
 
 ```sh
 cargo run --release -- --validate song.ondera
@@ -74,16 +130,16 @@ cargo run --release -- --bounce song.ondera mix.wav
 cargo run --release -p ondera-engine --example benchmark
 ```
 
-The command enum in `engine/src/store.rs` is serializable and shared by the UI and headless
-Rust clients. A public CLI command registry, MCP connection and third-party plugin hosting are
-not implemented; the former app also did not provide those features.
+Third-party plugin hosting is not implemented.
 
 ## Architecture
 
 ```
-desktop/  egui native interface, wgpu rendering, native file dialogs
+desktop/  egui native interface, wgpu rendering, native file dialogs,
+    │     loopback control socket serving the same registry
+tools/    ondera-cli and ondera-mcp: registry clients, live or on a file
     │     typed commands + immutable session snapshots
-engine/   session validation, undo/redo, document and audio library
+engine/   command registry, session validation, undo/redo, document and audio library
     │     prepared graphs, bounded lock-free queues, atomic telemetry
     └──   CPAL output callback → native DSP → system audio
           CPAL input callback → bounded recording queue → worker
