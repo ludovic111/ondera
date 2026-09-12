@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ondera — the DAW you and your agent play together</title>
-  <meta name="description" content="Ondera is an open-source, cross-platform DAW with a Logic-like workflow and a hardware-like feel. Every action is a typed command, so an AI agent can edit your session from the terminal while you keep working in the GUI.">
+  <meta name="description" content="Ondera is an open-source native Rust DAW for macOS, Linux and Windows. Record, arrange, mix and export with stock or external plugins, a shared CLI and MCP, and an integrated Agents tab.">
   <meta name="theme-color" content="#141413">
   <meta property="og:title" content="Ondera — the DAW you and your agent play together">
-  <meta property="og:description" content="Open-source, cross-platform DAW. Logic-like UX, hardware-like feel, 100% controllable from a CLI and an MCP server.">
+  <meta property="og:description" content="Native Rust DAW for macOS, Linux and Windows. Recording, plugins, automation, audio export and agent control through a shared command registry.">
   <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c2c2b'/%3E%3Crect x='0.5' y='0.5' width='31' height='31' rx='6.5' fill='none' stroke='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2382d6d1'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2382d6d1' stroke-opacity='.35' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,9 +39,9 @@
   <section class="hero">
     <p class="eyebrow reveal">Open-source DAW &nbsp;·&nbsp; macOS &nbsp;·&nbsp; Linux &nbsp;·&nbsp; Windows</p>
     <h1 class="display reveal">The DAW you and your <em>agent</em> play together.</h1>
-    <p class="lede reveal">Ondera is a cross-platform digital audio workstation with a Logic-like workflow and a hardware-like feel. Every action is a typed command, so an AI agent can edit your session from the terminal while you keep working in the GUI. Same session, same undo history.</p>
+    <p class="lede reveal">Ondera 0.2 is a native Rust digital audio workstation for recording, arranging, mixing and exporting songs. Use stock or external plugins, then let the Agents tab, CLI or MCP help edit the same session with the same undo history.</p>
     <div class="hero__cta reveal">
-      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera" rel="noopener">View on GitHub</a>
+      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Download Ondera</a>
       <a class="btn btn--raised" href="#architecture">How it works</a>
     </div>
   </section>
@@ -52,7 +52,7 @@
         <div class="daw__titlebar">
           <span class="traffic"></span><span class="traffic"></span><span class="traffic"></span>
           <span class="daw__title">Untitled session — Ondera</span>
-          <span class="daw__phase">Phase 1 · UI shell</span>
+          <span class="daw__phase">Interactive web preview</span>
         </div>
 
         <div class="daw__transport">
@@ -111,13 +111,13 @@
         </div>
       </div>
     </div>
-    <p class="demo__hint reveal"><kbd>Space</kbd> plays. Click <b>M</b> to mute a track. Every click lands in the command log as the command it dispatched, which is exactly what the CLI and an agent would send.</p>
+    <p class="demo__hint reveal">This browser preview illustrates the controls: <kbd>Space</kbd> moves the playhead and <b>M</b> toggles a track’s mute state. Download the native app for audio playback, recording, plugins and agent tasks.</p>
   </section>
 
   <section id="commands" class="section">
     <p class="eyebrow reveal">Command layer</p>
     <h2 class="reveal">One command layer. Three clients. None of them privileged.</h2>
-    <p class="lede reveal">Every user action in Ondera becomes a named command with typed params. The desktop app dispatches them. So does the command-line tool. So does the MCP server an agent talks to. Anything the GUI can do, an agent can do with the same command, and every change is revertable from the UI.</p>
+    <p class="lede reveal">The desktop app, command-line tool and MCP server share 78 validated commands for sessions, tracks, notes, plugins, automation and exports. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
 
     <div class="clients">
       <article class="card reveal">
@@ -133,13 +133,13 @@
             </span>
           </div>
         </div>
-        <p>The button does not touch the session. It dispatches <code>track.setMute</code> and reads the result back through a subscription, like everything else in the app.</p>
+        <p>The native button dispatches <code>track.setMute</code> through the command store. Persistent edits share the session’s undo and redo history.</p>
       </article>
 
       <article class="card reveal">
         <header class="card__head"><span class="card__kind">CLI</span><h3>Type it</h3></header>
         <div class="card__demo">
-          <pre class="term" aria-live="polite"><span class="term__prompt">$</span> ondera track.setMute --track bgv --muted <span class="term__val" data-bind="bgv-muted">false</span>
+          <pre class="term" aria-live="polite"><span class="term__prompt">$</span> ondera-cli track.setMute --trackId bgv --muted <span class="term__val" data-bind="bgv-muted">false</span>
 <span class="term__ok">ok</span>  session 3f9c · undo #<span data-bind="undo-count">12</span></pre>
         </div>
         <p>The CLI is generated from the command registry, not hand-written. New command in core, new subcommand in the shell.</p>
@@ -149,15 +149,14 @@
         <header class="card__head"><span class="card__kind">MCP</span><h3>Ask for it</h3></header>
         <div class="card__demo">
           <pre class="term term--json">{
-  <span class="k">"tool"</span>: <span class="s">"ondera.dispatch"</span>,
-  <span class="k">"command"</span>: <span class="s">"track.setMute"</span>,
-  <span class="k">"params"</span>: { <span class="k">"trackId"</span>: <span class="s">"bgv"</span>, <span class="k">"muted"</span>: <span class="v" data-bind="bgv-muted">false</span> }
+  <span class="k">"name"</span>: <span class="s">"track_setMute"</span>,
+  <span class="k">"arguments"</span>: { <span class="k">"trackId"</span>: <span class="s">"bgv"</span>, <span class="k">"muted"</span>: <span class="v" data-bind="bgv-muted">false</span> }
 }</pre>
         </div>
-        <p>An agent gets the same registry as an MCP server, with the same param schemas, so it never has to guess what a session can do.</p>
+        <p>MCP tools expose the same parameter schemas. The Agents tab runs tasks through your installed, signed-in Codex CLI; prompts and tool results go to its model provider.</p>
       </article>
     </div>
-    <p class="clients__foot reveal">All three panels are wired to the <em>same store</em> as the window above. Mute BGV in any of them and watch the others follow.</p>
+    <p class="clients__foot reveal">These examples reflect the <em>browser preview’s store</em>. Mute BGV above and watch the displayed values follow.</p>
   </section>
 
   <section id="materials" class="section">
@@ -222,32 +221,32 @@
   <section id="architecture" class="section">
     <p class="eyebrow reveal">Architecture</p>
     <h2 class="reveal">API first. The GUI is just one client.</h2>
-    <p class="lede reveal">Most DAWs are built GUI-first and bolt scripting on afterwards. Ondera's session model and every operation on it live in a pure TypeScript package that has never heard of a screen. That is what makes it safe for an agent to edit a project while you watch.</p>
+    <p class="lede reveal">Ondera’s native interface, CLI and MCP server share a Rust command registry and session store. The live bridge applies commands between interface frames; audio processing runs separately from file operations and the interface.</p>
 
     <div class="arch reveal" aria-label="Architecture diagram">
       <div class="arch__clients">
-        <div class="arch__box"><b>Electron UI</b><span>React + canvas</span></div>
+        <div class="arch__box"><b>Native Rust UI</b><span>egui + wgpu</span></div>
         <div class="arch__box"><b>CLI</b><span>generated from the registry</span></div>
         <div class="arch__box"><b>MCP server</b><span>generated from the registry</span></div>
       </div>
       <div class="arch__bus" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="arch__core">
-        <b>@ondera/core</b>
+        <b>ondera-engine</b>
         <span>command registry · session store · model · undo · <code>dispatch(command)</code></span>
-        <em>pure TypeScript · no DOM · no Electron · no Node</em>
+        <em>Rust session model · validated edits · shared history</em>
       </div>
-      <div class="arch__ipc" aria-hidden="true"><span>EngineClient · IPC</span></div>
+      <div class="arch__ipc" aria-hidden="true"><span>prepared graphs · bounded queues</span></div>
       <div class="arch__engine">
         <b>Audio engine</b>
-        <span>a separate native process in Rust</span>
-        <em>Phase 1 ships a mock engine behind the same interface</em>
+        <span>native Rust DSP and device audio</span>
+        <em>stock, CLAP, VST3 and macOS Audio Units</em>
       </div>
     </div>
 
     <ul class="rules reveal">
-      <li><b>No component mutates state.</b> The renderer reads through subscriptions and writes only through <code>dispatch</code>. Hover and drag live in React; anything worth undoing is a command.</li>
-      <li><b>Commands are deterministic.</b> Same state, same params, same result. No clock and no randomness inside a command; they arrive as params.</li>
-      <li><b>One tokens file.</b> Every colour, size, gradient and shadow, in canvas and CSS alike. A lint step fails the build if anything else hardcodes one. This page reads the same file.</li>
+      <li><b>Edits go through the store.</b> The interface keeps hover and drag previews local. Persistent changes dispatch commands and participate in undo.</li>
+      <li><b>One shared registry.</b> CLI help and MCP tool schemas come from the same command definitions. Compact queries inspect the arrangement without returning opaque plugin state.</li>
+      <li><b>Consistent materials.</b> The native app centralizes its visual tokens and drawing helpers. This site preserves the original palette and material recipes.</li>
     </ul>
   </section>
 
@@ -258,40 +257,40 @@
       <li class="phase phase--now">
         <span class="led led--accent"></span>
         <span class="phase__n">01</span>
-        <div><b>UI shell</b><span>Electron, React, canvas timeline, tokens, eight mock tracks, a playhead on a fake clock. Looks like the design and survives a resize.</span></div>
+        <div><b>Native song workflow</b><span>Record audio and MIDI, arrange regions, edit notes, automate parameters, mix and export stereo WAV or track stems.</span></div>
         <span class="phase__tag">now</span>
       </li>
       <li class="phase">
         <span class="led"></span>
         <span class="phase__n">02</span>
-        <div><b>Audio engine</b><span>The Rust process behind <code>EngineClient</code>. Real playback, real meters, the mock engine retires.</span></div>
-        <span class="phase__tag">next</span>
+        <div><b>CLI, MCP and Agents</b><span>78 shared commands, live session control and natural-language tasks through an installed Codex CLI. Completed edits remain available in Undo.</span></div>
+        <span class="phase__tag">0.2</span>
       </li>
       <li class="phase">
         <span class="led"></span>
         <span class="phase__n">03</span>
-        <div><b>CLI and MCP server</b><span>Generated from the command registry, so they can never drift from what the GUI can do.</span></div>
-        <span class="phase__tag">planned</span>
+        <div><b>Files and plugins</b><span>Embedded-audio projects, MIDI interchange, recovery copies, 24 stock plugins and external CLAP, VST3 and macOS Audio Units.</span></div>
+        <span class="phase__tag">0.2</span>
       </li>
       <li class="phase">
         <span class="led"></span>
         <span class="phase__n">04</span>
-        <div><b>Files, plugins, persistence</b><span>Loading audio, hosting instruments and effects, saving sessions.</span></div>
-        <span class="phase__tag">planned</span>
+        <div><b>Current limits</b><span>No time stretching, comping, automation write modes, VST2 or AAX. External plugin editors are macOS-only. Packages are not notarized or publicly code-signed.</span></div>
+        <span class="phase__tag">limits</span>
       </li>
     </ol>
   </section>
 
   <section class="section cta">
     <h2 class="reveal">Built in the open.</h2>
-    <p class="lede reveal">MIT licensed. TypeScript today, Rust next. Star it, fork it, or point your agent at it.</p>
+    <p class="lede reveal">MIT licensed. Download the native app for your platform, or build from source with Rust and the platform prerequisites in the README. Release archives include the CLI and MCP companions.</p>
     <div class="codewell reveal">
-      <code id="clone-cmd">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; pnpm install &amp;&amp; pnpm dev</code>
+      <code id="clone-cmd">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; cargo build --release --workspace &amp;&amp; cargo run --release</code>
       <button class="btn btn--raised btn--xs" id="copy" type="button">Copy</button>
     </div>
     <div class="hero__cta reveal">
-      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera" rel="noopener">View on GitHub</a>
-      <a class="btn btn--raised" href="https://github.com/ludovic111/ondera/blob/main/CLAUDE.md" rel="noopener">Read the rules</a>
+      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Download Ondera</a>
+      <a class="btn btn--raised" href="https://github.com/ludovic111/ondera#build-and-run" rel="noopener">Build instructions</a>
     </div>
   </section>
 
