@@ -27,6 +27,7 @@ export interface Track {
 }
 
 export interface Note {
+  id: string;
   /** Start in beats, relative to the clip start. */
   start: number;
   /** Length in beats. */
@@ -41,11 +42,29 @@ export interface Note {
 
 export type WaveKind = 'drums' | 'tonal';
 
+/**
+ * An audio source: a decoded file, a recording, or a procedurally generated
+ * buffer. Core holds only metadata; the host (the app) owns the samples.
+ */
+export interface AudioSource {
+  id: string;
+  name: string;
+  durationSeconds: number;
+  sampleRate: number;
+  channels: number;
+  /** generated: synthesised by the host from `seed`/`waveKind`; file: imported; recording: captured. */
+  origin: 'generated' | 'file' | 'recording';
+  seed?: number;
+  waveKind?: WaveKind;
+  /** File name inside the session bundle, for file and recording sources. */
+  fileName?: string;
+}
+
 export interface AudioClipData {
   kind: 'audio';
-  /** Seed for the deterministic mock waveform generator. */
-  waveSeed: number;
-  waveKind: WaveKind;
+  sourceId: string;
+  /** Where in the source this clip starts, in seconds. */
+  offsetSeconds: number;
 }
 
 export interface MidiClipData {
@@ -102,9 +121,15 @@ export interface View {
   selectedClipId: ClipId | null;
   /** Clip shown in the bottom editor pane. */
   editorClipId: ClipId | null;
+  /** Selected note in the editor, by note id. */
+  selectedNoteId: string | null;
   editorMode: EditorMode;
   browserTab: BrowserTab;
+  /** Highlighted browser item, by name. */
+  browserSelection: string | null;
   arrangeTool: ArrangeTool;
+  /** Keep the playhead on screen while playing. */
+  followPlayhead: boolean;
 }
 
 export type AgentStatus = 'idle' | 'working';
@@ -141,7 +166,6 @@ export interface BrowserItem {
   name: string;
   meta: string;
   color: string | null;
-  highlighted: boolean;
 }
 
 export interface BrowserGroup {
@@ -162,13 +186,12 @@ export interface Send {
 }
 
 export interface ChannelStrip {
+  /** Instrument preset name for MIDI tracks; '—' on audio tracks. */
   instrument: string;
   input: string;
   output: string;
   inserts: InsertSlot[];
   sends: Send[];
-  /** Fader in dB. */
-  volumeDb: number;
 }
 
 export interface AudioSettings {
@@ -191,11 +214,14 @@ export interface Session {
   audio: AudioSettings;
   tracks: Track[];
   clips: Clip[];
+  /** Audio sources referenced by audio clips, keyed by id. */
+  sources: Record<string, AudioSource>;
   transport: Transport;
   view: View;
   agent: AgentState;
-  browser: BrowserGroup[];
-  /** Channel strip for the selected track. Keyed by track id. */
+  /** Browser sidebar content, one list per tab. */
+  browser: Record<BrowserTab, BrowserGroup[]>;
+  /** Channel strips keyed by track id. Tracks without one get defaultStrip(). */
   strips: Record<TrackId, ChannelStrip>;
   meters: Meters;
 }

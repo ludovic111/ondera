@@ -15,6 +15,7 @@ const clampZoom = (px: number) => Math.min(ZOOM_MAX_PX_PER_BAR, Math.max(ZOOM_MI
 export const setZoom = defineCommand({
   name: 'view.setZoom',
   description: 'Set arrangement zoom in pixels per bar. Optionally keep a bar position fixed on screen.',
+  transient: true,
   params: {
     pixelsPerBar: p.number({ min: ZOOM_MIN_PX_PER_BAR, max: ZOOM_MAX_PX_PER_BAR }),
     anchorBar: p.optional(p.number({ description: 'Bar under the cursor to keep stationary' })),
@@ -33,6 +34,7 @@ export const setZoom = defineCommand({
 export const zoomBy = defineCommand({
   name: 'view.zoomBy',
   description: 'Multiply the arrangement zoom by a factor (wheel / pinch).',
+  transient: true,
   params: {
     factor: p.number({ min: 0.01, max: 100 }),
     anchorBar: p.optional(p.number()),
@@ -66,6 +68,7 @@ export const scrollBy = defineCommand({
 export const setAgentPanelOpen = defineCommand({
   name: 'view.setAgentPanelOpen',
   description: 'Show or collapse the agent panel.',
+  transient: true,
   params: { open: p.boolean() },
   apply: (state, { open }) => setView(state, { agentPanelOpen: open }),
 });
@@ -73,6 +76,7 @@ export const setAgentPanelOpen = defineCommand({
 export const setBrowserTab = defineCommand({
   name: 'view.setBrowserTab',
   description: 'Switch the browser sidebar tab.',
+  transient: true,
   params: { tab: p.enum(['instruments', 'loops', 'plugins', 'files']) },
   apply: (state, { tab }) => setView(state, { browserTab: tab }),
 });
@@ -80,6 +84,7 @@ export const setBrowserTab = defineCommand({
 export const setEditorMode = defineCommand({
   name: 'view.setEditorMode',
   description: 'Switch the bottom editor between piano roll, score and step.',
+  transient: true,
   params: { mode: p.enum(['pianoRoll', 'score', 'step']) },
   apply: (state, { mode }) => setView(state, { editorMode: mode }),
 });
@@ -87,6 +92,36 @@ export const setEditorMode = defineCommand({
 export const setArrangeTool = defineCommand({
   name: 'view.setArrangeTool',
   description: 'Pick the arrangement tool.',
+  transient: true,
   params: { tool: p.enum(['pointer', 'pencil', 'scissors', 'grid']) },
   apply: (state, { tool }) => setView(state, { arrangeTool: tool }),
+});
+
+export const setEditorClip = defineCommand({
+  name: 'view.setEditorClip',
+  description: 'Open a MIDI clip in the bottom editor.',
+  transient: true,
+  params: { clipId: p.string() },
+  apply: (state, { clipId }) => {
+    const clip = state.clips.find((c) => c.id === clipId);
+    if (!clip) throw new Error(`view.setEditorClip: no clip with id "${clipId}"`);
+    if (clip.data.kind !== 'midi') throw new Error(`view.setEditorClip: clip "${clipId}" is not a MIDI clip`);
+    return setView(state, { editorClipId: clipId, selectedNoteId: null });
+  },
+});
+
+export const setBrowserSelection = defineCommand({
+  name: 'view.setBrowserSelection',
+  description: 'Highlight a browser item by name, or clear the highlight when no name is given.',
+  transient: true,
+  params: { name: p.optional(p.string()) },
+  apply: (state, { name }) => setView(state, { browserSelection: name ?? null }),
+});
+
+export const setFollowPlayhead = defineCommand({
+  name: 'view.setFollowPlayhead',
+  description: 'Keep the arrangement scrolled to the playhead while playing.',
+  transient: true,
+  params: { enabled: p.boolean() },
+  apply: (state, { enabled }) => setView(state, { followPlayhead: enabled }),
 });

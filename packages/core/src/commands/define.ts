@@ -12,8 +12,9 @@ export interface CommandDef<S extends ParamSchema = ParamSchema> {
   description: string;
   params: S;
   /**
-   * Transient commands are high-frequency state updates (engine ticks,
-   * scroll) that are not worth recording in history and are not undoable.
+   * Transient commands describe "now" rather than the document: engine
+   * ticks, scroll and zoom, selection, transport position. They are not
+   * recorded in history and not undoable.
    */
   transient: boolean;
   apply: (state: Session, params: ParamsOf<S>) => Session;

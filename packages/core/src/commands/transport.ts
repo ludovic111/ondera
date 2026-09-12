@@ -11,6 +11,7 @@ const setTransport = (state: Session, patch: Partial<Transport>): Session => ({
 export const play = defineCommand({
   name: 'transport.play',
   description: 'Start playback from the current position.',
+  transient: true,
   params: {},
   apply: (state) => setTransport(state, { playing: true }),
 });
@@ -18,6 +19,7 @@ export const play = defineCommand({
 export const stop = defineCommand({
   name: 'transport.stop',
   description: 'Stop playback. A second stop returns to the cycle start or bar 1.',
+  transient: true,
   params: {},
   apply: (state) => {
     if (state.transport.playing) return setTransport(state, { playing: false, recording: false });
@@ -31,6 +33,7 @@ export const stop = defineCommand({
 export const togglePlay = defineCommand({
   name: 'transport.togglePlay',
   description: 'Toggle between play and stop (space bar).',
+  transient: true,
   params: {},
   apply: (state) =>
     state.transport.playing ? stop.def.apply(state, {}) : play.def.apply(state, {}),
@@ -39,6 +42,7 @@ export const togglePlay = defineCommand({
 export const returnToStart = defineCommand({
   name: 'transport.returnToStart',
   description: 'Move the playhead to bar 1.',
+  transient: true,
   params: {},
   apply: (state) => setTransport(state, { positionBeats: 0 }),
 });
@@ -46,6 +50,7 @@ export const returnToStart = defineCommand({
 export const nudge = defineCommand({
   name: 'transport.nudge',
   description: 'Move the playhead by a number of bars (negative to rewind).',
+  transient: true,
   params: { bars: p.number({ description: 'Bars to move, may be negative' }) },
   apply: (state, { bars }) =>
     setTransport(state, {
@@ -59,6 +64,7 @@ export const nudge = defineCommand({
 export const setPosition = defineCommand({
   name: 'transport.setPosition',
   description: 'Set the playhead position in beats.',
+  transient: true,
   params: { beats: p.number({ min: 0 }) },
   apply: (state, { beats }) => setTransport(state, { positionBeats: beats }),
 });
@@ -85,6 +91,7 @@ export const tick = defineCommand({
 export const setRecording = defineCommand({
   name: 'transport.setRecording',
   description: 'Arm or disarm the transport record button.',
+  transient: true,
   params: { recording: p.boolean() },
   apply: (state, { recording }) => setTransport(state, { recording }),
 });
@@ -123,4 +130,18 @@ export const setSnap = defineCommand({
   description: 'Set the snap grid as a note division (4 = quarter, 16 = sixteenth).',
   params: { division: p.number({ min: 1, max: 128 }) },
   apply: (state, { division }) => setTransport(state, { snapDivision: division }),
+});
+
+export const setTimeSignature = defineCommand({
+  name: 'transport.setTimeSignature',
+  description: 'Set the time signature.',
+  params: { numerator: p.number({ min: 1, max: 32 }), denominator: p.number({ min: 1, max: 32 }) },
+  apply: (state, { numerator, denominator }) => setTransport(state, { timeSignature: { numerator, denominator } }),
+});
+
+export const setKey = defineCommand({
+  name: 'transport.setKey',
+  description: 'Set the project key, e.g. "C min" or "F# maj".',
+  params: { key: p.string() },
+  apply: (state, { key }) => setTransport(state, { key }),
 });

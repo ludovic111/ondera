@@ -1,18 +1,8 @@
-import type { Clip, Note, Session, Track } from '../model/types';
-
-/** Track palette from the design spec sheet: L 0.72–0.78, C 0.12–0.14. */
-export const TRACK_PALETTE = {
-  drums: 'oklch(0.72 0.14 40)',
-  bass: 'oklch(0.72 0.13 300)',
-  keys: 'oklch(0.75 0.13 250)',
-  pad: 'oklch(0.75 0.12 330)',
-  vox: 'oklch(0.78 0.14 85)',
-  bgv: 'oklch(0.75 0.12 130)',
-  guitar: 'oklch(0.72 0.13 20)',
-  riser: 'oklch(0.75 0.14 60)',
-} as const;
-
-const NEUTRAL = '#7f7e7a';
+import type { AudioSource, BrowserGroup, BrowserTab, Clip, Note, Session, Track, WaveKind } from '../model/types';
+import { barsToSeconds } from '../model/time';
+import { defaultStrip } from '../model/strip';
+import { TRACK_PALETTE } from '../model/palette';
+import { NEUTRAL_LOG_COLOR as NEUTRAL } from '../commands/agent';
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -29,6 +19,7 @@ function scatterNotes(seed: number, lengthBars: number, agent: boolean): Note[] 
   const notes: Note[] = [];
   for (let i = 0; i < count; i++) {
     const note: Note = {
+      id: `n${seed}-${i}`,
       start: rnd() * lengthBars * 4,
       length: 0.25 + rnd() * 0.75,
       pitch: 36 + Math.floor(rnd() * 36),
@@ -57,9 +48,9 @@ function bassVerseNotes(lengthBars: number): Note[] {
       [3, 0.75, r, 110],
       [3.5, 0.5, r + third, 70],
     ];
-    for (const [st, len, semis, vel] of pattern) {
-      notes.push({ start: x + st, length: len, pitch: base + semis, velocity: vel });
-    }
+    pattern.forEach(([st, len, semis, vel], i) => {
+      notes.push({ id: `bv${bar}-${i}`, start: x + st, length: len, pitch: base + semis, velocity: vel });
+    });
   }
   return notes;
 }
@@ -75,8 +66,34 @@ const tracks: Track[] = [
   { id: 'riser', name: 'Riser FX', kind: 'midi', color: TRACK_PALETTE.riser, volume: 0.6, pan: 0, mute: false, solo: false, armed: false, agentActive: false },
 ];
 
-const audio = (id: string, trackId: string, name: string, startBar: number, lengthBars: number, waveSeed: number, waveKind: 'drums' | 'tonal' = 'tonal'): Clip => ({
-  id, trackId, name, startBar, lengthBars, agent: false, data: { kind: 'audio', waveSeed, waveKind },
+const MOCK_TEMPO = 120;
+const MOCK_SIG = { numerator: 4, denominator: 4 };
+
+const sources: Record<string, AudioSource> = {};
+
+/** A generated source lasting exactly `lengthBars` at the mock tempo. */
+function source(id: string, name: string, lengthBars: number, seed: number, waveKind: WaveKind): string {
+  sources[id] = {
+    id,
+    name,
+    durationSeconds: barsToSeconds(lengthBars, MOCK_TEMPO, MOCK_SIG),
+    sampleRate: 48000,
+    channels: 2,
+    origin: 'generated',
+    seed,
+    waveKind,
+  };
+  return id;
+}
+
+const audio = (id: string, trackId: string, name: string, startBar: number, lengthBars: number, waveSeed: number, waveKind: WaveKind = 'tonal'): Clip => ({
+  id,
+  trackId,
+  name,
+  startBar,
+  lengthBars,
+  agent: false,
+  data: { kind: 'audio', sourceId: source(`src-${id}`, name, lengthBars, waveSeed, waveKind), offsetSeconds: 0 },
 });
 
 const midi = (id: string, trackId: string, name: string, startBar: number, lengthBars: number, notes: Note[], agent = false): Clip => ({
@@ -99,19 +116,83 @@ const clips: Clip[] = [
   midi('riser-1', 'riser', 'Riser', 7, 1, scatterNotes(41, 1, false)),
 ];
 
+
+const item = (name: string, meta = '', color: string | null = null) => ({ name, meta, color });
+
+const browser: Record<BrowserTab, BrowserGroup[]> = {
+  instruments: [
+    {
+      name: 'Ondera',
+      items: [
+        item('Ondera Synth', '', TRACK_PALETTE.bass),
+        item('E-Piano Mk I', '', TRACK_PALETTE.keys),
+        item('Drum Machine', '', TRACK_PALETTE.drums),
+        item('Sampler', '', TRACK_PALETTE.vox),
+      ],
+    },
+    {
+      name: 'Installed',
+      items: [item('Vital', 'VST3'), item('Surge XT', 'CLAP'), item('Dexed', 'VST3'), item('Odin 2', 'VST3'), item('Helm', 'LV2')],
+    },
+    {
+      name: 'Recent',
+      items: [
+        item('Sub Bass 808', 'preset', TRACK_PALETTE.bass),
+        item('Glass Keys', 'preset', TRACK_PALETTE.keys),
+        item('Choir Pad', 'preset', TRACK_PALETTE.pad),
+      ],
+    },
+  ],
+  loops: [
+    {
+      name: 'Drums',
+      items: [item('Boom Bap 92', '92 bpm', TRACK_PALETTE.drums), item('Four Floor 124', '124 bpm', TRACK_PALETTE.drums), item('Brushes Swing', '108 bpm', TRACK_PALETTE.drums)],
+    },
+    {
+      name: 'Melodic',
+      items: [item('Rhodes Comp Cm', 'C min', TRACK_PALETTE.keys), item('Analog Pad Swell', 'C min', TRACK_PALETTE.pad), item('Bass Pluck 120', '120 bpm', TRACK_PALETTE.bass)],
+    },
+    {
+      name: 'FX',
+      items: [item('Riser 1 bar', '1 bar', TRACK_PALETTE.riser), item('Reverse Cymbal', '2 bars', TRACK_PALETTE.riser), item('Vinyl Crackle', 'loop')],
+    },
+  ],
+  plugins: [
+    {
+      name: 'Ondera',
+      items: [item('Ondera Comp', 'dynamics'), item('Channel EQ', 'eq'), item('Tape Sat', 'saturation'), item('Chorus', 'modulation'), item('Space', 'reverb'), item('Echo', 'delay')],
+    },
+    {
+      name: 'Installed',
+      items: [item('Pro-Q 3', 'VST3'), item('Valhalla Room', 'VST3'), item('Airwindows Console', 'CLAP'), item('LSP Limiter', 'LV2')],
+    },
+  ],
+  files: [
+    {
+      name: 'Project',
+      items: [item('Nightfall.ondera', 'today'), item('Bounces', '3 files'), item('Audio Files', '14 files')],
+    },
+    {
+      name: 'Recent',
+      items: [item('Drums_take3.wav', '48k · 24'), item('LV_v2_comp.wav', '48k · 24'), item('Gtr DI.wav', '48k · 24'), item('BGV stack.wav', '48k · 24')],
+    },
+  ],
+};
+
 export function createMockSession(): Session {
   return {
     name: 'Nightfall.ondera',
     audio: { sampleRate: 48000, bitDepth: 24, bufferSize: 128 },
     tracks,
     clips,
+    sources,
     transport: {
       playing: false,
       recording: false,
       // 005.2.3.120 in the design: bar 5, beat 2, sixteenth 3, tick 120
       positionBeats: 16 + 1 + 0.5 + 120 / 960,
-      tempo: 120,
-      timeSignature: { numerator: 4, denominator: 4 },
+      tempo: MOCK_TEMPO,
+      timeSignature: MOCK_SIG,
       key: 'C min',
       cycle: true,
       cycleStartBar: 4,
@@ -126,9 +207,12 @@ export function createMockSession(): Session {
       selectedTrackId: 'bass',
       selectedClipId: 'bass-2',
       editorClipId: 'bass-2',
+      selectedNoteId: null,
       editorMode: 'pianoRoll',
       browserTab: 'instruments',
+      browserSelection: 'E-Piano Mk I',
       arrangeTool: 'pointer',
+      followPlayhead: true,
     },
     agent: {
       status: 'working',
@@ -150,36 +234,11 @@ export function createMockSession(): Session {
       ],
       draft: '',
     },
-    browser: [
-      {
-        name: 'Ondera',
-        items: [
-          { name: 'Ondera Synth', meta: '', color: TRACK_PALETTE.bass, highlighted: false },
-          { name: 'E-Piano Mk I', meta: '', color: TRACK_PALETTE.keys, highlighted: true },
-          { name: 'Drum Machine', meta: '', color: TRACK_PALETTE.drums, highlighted: false },
-          { name: 'Sampler', meta: '', color: TRACK_PALETTE.vox, highlighted: false },
-        ],
-      },
-      {
-        name: 'Installed',
-        items: [
-          { name: 'Vital', meta: 'VST3', color: null, highlighted: false },
-          { name: 'Surge XT', meta: 'CLAP', color: null, highlighted: false },
-          { name: 'Dexed', meta: 'VST3', color: null, highlighted: false },
-          { name: 'Odin 2', meta: 'VST3', color: null, highlighted: false },
-          { name: 'Helm', meta: 'LV2', color: null, highlighted: false },
-        ],
-      },
-      {
-        name: 'Recent',
-        items: [
-          { name: 'Sub Bass 808', meta: 'preset', color: TRACK_PALETTE.bass, highlighted: false },
-          { name: 'Glass Keys', meta: 'preset', color: TRACK_PALETTE.keys, highlighted: false },
-          { name: 'Choir Pad', meta: 'preset', color: TRACK_PALETTE.pad, highlighted: false },
-        ],
-      },
-    ],
+    browser,
     strips: {
+      keys: { ...defaultStrip('midi'), instrument: 'E-Piano Mk I' },
+      pad: { ...defaultStrip('midi'), instrument: 'Choir Pad' },
+      riser: { ...defaultStrip('midi'), instrument: 'Riser' },
       bass: {
         instrument: 'Ondera Synth',
         input: 'All MIDI',
@@ -194,7 +253,6 @@ export function createMockSession(): Session {
           { name: 'A · Reverb', levelDb: -12 },
           { name: 'B · Delay', levelDb: -Infinity },
         ],
-        volumeDb: -4.5,
       },
     },
     meters: { masterL: 16 / 22, masterR: 15 / 22, cpu: 0.34, channelL: 13 / 20, channelR: 12 / 20 },

@@ -76,3 +76,33 @@ export function formatBarBeat(p: BarBeatPosition): string {
 export function formatBarBeatShort(p: BarBeatPosition): string {
   return `${p.bar}.${p.beat}.${p.division}`;
 }
+
+/** Length of one snap step in bars for a note division (16 = sixteenth). */
+export function snapStepBars(division: number, sig: TimeSignature): number {
+  // A whole note is 4 beats; a 1/division note is 4/division beats.
+  return 4 / division / beatsPerBar(sig);
+}
+
+/** Round a bar position to the snap grid. */
+export function snapBars(bar: number, division: number, sig: TimeSignature): number {
+  const step = snapStepBars(division, sig);
+  return Math.round(bar / step) * step;
+}
+
+/** Round a beat position (clip-relative) to the snap grid. */
+export function snapBeats(beats: number, division: number): number {
+  const step = 4 / division;
+  return Math.round(beats / step) * step;
+}
+
+export function barsToSeconds(bars: number, tempo: number, sig: TimeSignature): number {
+  return beatsToSeconds(barsToBeats(bars, sig), tempo);
+}
+
+export function secondsToBeats(seconds: number, tempo: number): number {
+  return (seconds * tempo) / 60;
+}
+
+export function secondsToBars(seconds: number, tempo: number, sig: TimeSignature): number {
+  return beatsToBars(secondsToBeats(seconds, tempo), sig);
+}

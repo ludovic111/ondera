@@ -14,9 +14,15 @@ export function attachEngine(store: SessionStore, engine: EngineClient): () => v
   const offTick = engine.onTick((beats) => {
     store.dispatch(commands.transport.tick({ beats }));
   });
+  const offMeters = engine.onMeters?.((m) => {
+    store.dispatch(commands.session.updateMeters(m));
+  });
+
+  engine.sync?.(store.getState());
 
   const offStore = store.subscribe((state, command) => {
     const t = state.transport;
+    if (command.name !== 'transport.tick' && command.name !== 'session.updateMeters') engine.sync?.(state);
     if (t.playing !== wasPlaying) {
       wasPlaying = t.playing;
       if (t.playing) engine.start(t.positionBeats, t.tempo);
@@ -38,6 +44,7 @@ export function attachEngine(store: SessionStore, engine: EngineClient): () => v
 
   return () => {
     offTick();
+    offMeters?.();
     offStore();
     engine.stop();
   };

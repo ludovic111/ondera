@@ -5,12 +5,16 @@ import * as track from './commands/track';
 import * as clip from './commands/clip';
 import * as view from './commands/view';
 import * as agent from './commands/agent';
+import * as note from './commands/note';
+import * as strip from './commands/strip';
+import * as history from './commands/history';
+import * as session from './commands/session';
 
 /**
  * Every command the product exposes, grouped by family. This object is the
  * public API: the GUI, the CLI and the MCP server all go through it.
  */
-export const commands = { transport, track, clip, view, agent } as const;
+export const commands = { session, transport, track, clip, note, strip, view, agent, history } as const;
 
 type AnyCreator = CommandCreator<ParamSchema>;
 
