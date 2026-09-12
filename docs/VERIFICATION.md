@@ -5,7 +5,7 @@ evidence; it is not a certification of every audio interface, plugin or producti
 
 ## A complete song
 
-`python3 scripts/verify-song.py` builds **Afterglow** through a persistent MCP process and checks
+With Python 3.12 or newer, `python3 scripts/verify-song.py` builds **Afterglow** through a persistent MCP process and checks
 the saved document through the CLI and desktop validator. It creates five tracks, 17 regions
 and 384 notes, imports an embedded audio source, splits a region, exercises undo/redo, uses
 eight-slot inserts, sends and the master chain, draws a saved automation fade, saves and reopens

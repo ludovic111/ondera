@@ -14,6 +14,7 @@ from pathlib import Path
 import random
 import struct
 import subprocess
+import sys
 import time
 import wave
 
@@ -26,6 +27,8 @@ def main():
     parser.add_argument('--instrument', help='Installed external instrument descriptor ID')
     parser.add_argument('--effect', help='Installed external effect descriptor ID')
     args = parser.parse_args()
+    if sys.version_info < (3, 12):
+        parser.error('Song verification requires Python 3.12+ to read 24-bit WAVE_FORMAT_EXTENSIBLE PCM. No session has been changed.')
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     bins = args.bin_dir.resolve()
