@@ -107,3 +107,11 @@ colour and material tokens.
 ## License
 
 MIT. Copyright Ludovic Marie. See [LICENSE](LICENSE).
+
+## Website
+
+`site/` is the marketing site (plain HTML, CSS and JS behind a dependency-free Node server). It
+deploys to Railway from that folder on every push. Its `tokens.css` and `tokens.js` are generated
+from the preserved design tokens in `legacy/packages/app/src/theme/tokens.ts` with
+`node scripts/gen-site-tokens.mjs`; run `npm --prefix site start` to serve it locally.
+The website is independent of the native Cargo build.

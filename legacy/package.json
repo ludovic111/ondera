@@ -13,7 +13,9 @@
     "build": "pnpm --filter @ondera/app build",
     "typecheck": "pnpm -r typecheck",
     "lint:tokens": "node scripts/check-tokens.mjs",
-    "check": "pnpm typecheck && pnpm lint:tokens"
+    "check": "pnpm typecheck && pnpm lint:tokens",
+    "site:tokens": "node ../scripts/gen-site-tokens.mjs",
+    "site:dev": "npm --prefix ../site start"
   },
   "devDependencies": {
     "typescript": "^5.9.0"
