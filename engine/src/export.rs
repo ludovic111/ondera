@@ -420,7 +420,46 @@ fn publish_directory(source: &Path, destination: &Path) -> Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::fs::rename(source, destination).map_err(|e| format!("Could not publish stems: {e}"))
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            #[link_name = "MoveFileExW"]
+            fn move_file_ex_w(source: *const u16, destination: *const u16, flags: u32) -> i32;
+        }
+        fn wide(path: &Path) -> Result<Vec<u16>> {
+            let mut value: Vec<u16> = path.as_os_str().encode_wide().collect();
+            if value.contains(&0) {
+                return Err("Stem destination contains a null character".into());
+            }
+            value.push(0);
+            Ok(value)
+        }
+        // Canonicalizing the existing source/parent also supplies Windows'
+        // extended-length prefix without requiring the destination to exist.
+        let source = std::fs::canonicalize(source).map_err(|e| e.to_string())?;
+        let parent = destination
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let name = destination
+            .file_name()
+            .ok_or("Stem destination needs a folder name")?;
+        let destination = std::fs::canonicalize(parent)
+            .map_err(|e| e.to_string())?
+            .join(name);
+        let (source, destination) = (wide(&source)?, wide(&destination)?);
+        // Both null-terminated UTF-16 buffers stay live. Flags are zero:
+        // MOVEFILE_REPLACE_EXISTING and cross-volume copy are intentionally absent.
+        // Unlike std::fs::rename, this fails if even an empty target folder exists.
+        let code = unsafe { move_file_ex_w(source.as_ptr(), destination.as_ptr(), 0) };
+        if code != 0 {
+            Ok(())
+        } else {
+            Err(format!(
+                "Could not publish stems without replacing another folder: {}",
+                std::io::Error::last_os_error()
+            ))
+        }
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
