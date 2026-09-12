@@ -1,129 +1,109 @@
 # Ondera
 
-An open-source, cross-platform DAW (macOS, Linux, Windows) with Logic-like UX and a skeuomorphic
-UI that is also fully controllable from a CLI and an MCP server. A human in the GUI and an AI agent
-on the command line can work on the same session at the same time, because every action in Ondera
-is a named command and the GUI is just one client of that command layer.
+A native Rust digital audio workstation for macOS, Linux and Windows. The desktop interface,
+command store, undo history, synthesizers, effects, audio I/O and file operations are Rust.
+The application does not embed a browser, Electron, React, JavaScript or Web Audio.
 
-> **Status: Phase 1.5, usable.** You can make a song from start to finish: add tracks, draw MIDI
-> with built-in synth presets, import or record audio, arrange clips, mix with inserts and sends,
-> save the session and bounce a WAV. Audio runs on a Web Audio engine inside the app for now; the
-> Rust engine will replace it behind the same interface. No third-party plugins, no agent yet.
+This branch is the first native port, under validation. It preserves the existing arrangement /
+piano-roll / inspector workflow and reads version-1 `.ondera` sessions. Synth and effect DSP has
+been rewritten: an old session's composition and imported audio are preserved, but its mix will
+not sound bit-identical to the former Web Audio engine. See [migration status](docs/RUST_MIGRATION.md).
 
-## Why
+## Build and run
 
-Most DAWs are built GUI-first and bolt scripting on afterwards. Ondera is built API-first: the
-session model and every operation on it live in a pure TypeScript package with no knowledge of the
-screen. The desktop app, the future `ondera` CLI and the future MCP server all dispatch the same
-typed commands into the same store. That is what makes it safe for an agent to edit a project while
-you watch, and what makes every agent change revertable from the UI.
+Install Rust 1.88 or newer. Node and pnpm are not required.
+
+```sh
+cargo run --release
+```
+
+Use release mode for real-time audio. Debug builds prioritize diagnostics over audio performance.
+On macOS, install the Xcode command-line tools. On Windows, install Visual Studio's C++ build
+tools and Windows SDK; use the MSVC Rust toolchain. On Ubuntu/Debian, install:
+
+```sh
+sudo apt-get install build-essential pkg-config libasound2-dev libudev-dev \
+  libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev \
+  libxrandr-dev libxinerama-dev libegl1-mesa-dev libgl1-mesa-dev \
+  libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libdbus-1-dev
+```
+
+Linux file dialogs use the desktop portal (`xdg-desktop-portal` plus the appropriate desktop
+backend). Graphics use wgpu with Metal, DirectX 12, Vulkan or OpenGL ES backends. Audio uses
+CPAL's system backend and the default output/input selected in system settings. Device changes
+are applied with **Audio > Reconnect output**.
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --release --locked
+```
+
+The executable is `target/release/ondera` (`ondera.exe` on Windows). On macOS,
+`bash scripts/package-macos.sh` creates `dist/Ondera.app` with its microphone usage declaration,
+and a ZIP. This is an ad-hoc signed test app, without Developer ID notarization.
+
+## Working in Ondera
+
+- Add audio or instrument tracks above the arrangement. Rename in the inspector; right-click a
+  track name to reorder, recolour or delete it. M / S / A toggle mute, solo and arm.
+- Double-click a sound or loop in the library. Double-click an empty MIDI lane to create a
+  region, or use the Pencil tool. Click/drag in the piano roll to draw notes; drag a note to move
+  it or its right edge to resize. Right-click for velocity and deletion. Step mode toggles notes.
+- Drag regions to move, including to another track of the same type. Drag edges to trim. Use
+  Scissors or Cmd/Ctrl+T to split at the playhead; Cmd/Ctrl+D duplicates the selected region.
+- Space plays/stops, Enter returns to the start, 0 stops, C toggles cycle, K toggles the click.
+  Drag across the ruler to set the cycle. F toggles following; Z fits the arrangement.
+- File > Import Audio or drop files to import mono/stereo WAV, AIFF, FLAC, MP3, Ogg/Vorbis,
+  AAC/M4A and other formats supported by Symphonia. Unsupported codecs return an error.
+- Arm an audio track, disable Cycle, enable Rec and press Play to capture a linear take.
+  Microphone permission belongs to the operating system. The take is placed at the first input
+  callback's playhead position; hardware latency compensation and loop takes are not implemented.
+- Four inserts per channel, two effect sends, fader and stereo pan are available in the inspector.
+- Cmd/Ctrl+S saves, Cmd/Ctrl+O opens, Cmd/Ctrl+I imports, Cmd/Ctrl+B exports stereo 48 kHz /
+  24-bit WAV. Undo/redo uses Cmd/Ctrl+Z / Shift+Z. A drag or text edit is one undo gesture.
+
+## Headless tools
+
+These commands work without a window or an audio device:
+
+```sh
+cargo run --release -- --validate song.ondera
+cargo run --release -- --bounce song.ondera mix.wav
+cargo run --release -p ondera-engine --example benchmark
+```
+
+The command enum in `engine/src/store.rs` is serializable and shared by the UI and headless
+Rust clients. A public CLI command registry, MCP connection and third-party plugin hosting are
+not implemented; the former app also did not provide those features.
 
 ## Architecture
 
 ```
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  Electron UI │  │  CLI (later) │  │  MCP (later) │      clients
-└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-       └────────────────┼─────────────────┘
-                        ▼
-              ┌───────────────────┐
-              │   @ondera/core    │   command registry · session store · model
-              └─────────┬─────────┘
-                        │ EngineClient (IPC)
-                        ▼
-              ┌───────────────────┐
-              │  Rust audio engine│   separate process, not started yet
-              └───────────────────┘
+desktop/  egui native interface, wgpu rendering, native file dialogs
+    │     typed commands + immutable session snapshots
+engine/   session validation, undo/redo, document and audio library
+    │     prepared graphs, bounded lock-free queues, atomic telemetry
+    └──   CPAL output callback → native DSP → system audio
+          CPAL input callback → bounded recording queue → worker
 ```
 
-- **`packages/core`**: the command layer. Session model, typed command registry, store with
-  `dispatch()`, an `EngineClient` interface and a `MockEngine` that fakes the playhead.
-- **`packages/app`**: Electron + Vite + React. Canvas for the timeline, waveforms and piano roll;
-  DOM for chrome. One tokens file holds every colour, size and material recipe; a lint step fails
-  the build if anything else hardcodes a colour, gradient, shadow or font. `src/audio/` is the
-  interim Web Audio engine behind core's `EngineClient`.
-- **`engine/`**: reserved for the Rust process.
+The audio callback performs no heap allocations, deallocations, file access or mutex locking.
+Graph creation, decoding, generation and exports run off the UI/audio callback. Old audio graphs
+are reclaimed outside the callback and graph replacements crossfade over 5 ms. Rendering runs
+at the device's negotiated sample rate. Meter data is atomic; the GUI repaints at approximately
+30 Hz during playback and less frequently while idle. The offline renderer shares the DSP code.
 
-The rules that keep this honest are in [CLAUDE.md](CLAUDE.md): no UI component mutates state
-directly, and no visual constant lives outside the tokens file.
+Capacity is explicit: 128 tracks, 256 simultaneous arrangement voices, 32 preview voices,
+4 inserts/channel, 512 MiB per decoded source, 1 GiB of declared session audio, and 4-hour export.
+These are implementation bounds, not a promise that every device can sustain maximum load.
 
-## Run it
-
-Requirements: Node 22+, pnpm 10.
-
-```bash
-pnpm install
-pnpm dev
-```
-
-`pnpm check` runs the TypeScript typecheck for every package plus the tokens lint. `pnpm build`
-produces the Electron bundles under `packages/app/out`.
-
-### Making a song
-
-1. **Tracks.** `+` above the track headers (or ⌥⌘A / ⌥⌘S) adds an audio or MIDI track.
-   Right-click a header for rename, colour, move, delete. Double-click the name to rename.
-2. **Instruments.** Double-click an instrument in the browser to load it on the selected MIDI
-   track (or create one). The Instrument row in the inspector switches presets.
-3. **Notes.** Pick the pencil tool (2) and drag on a MIDI lane to draw a clip, then draw notes in
-   the piano roll (drag, or double-click). Drag a note to move it, its right edge to resize,
-   right-click for velocity. Step view toggles cells on the snap grid. Loops in the browser drop
-   a ready-made pattern at the playhead.
-4. **Audio.** File › Import Audio… (⌘I) or drop files onto a lane. To record, arm an audio track,
-   press R then Space; stop to commit the take.
-5. **Arrange.** Drag clips (also across tracks of the same kind), trim their edges, split with the
-   scissors (3) or ⌘T at the playhead, ⌘D duplicates, ⌫ deletes. Drag in the ruler to set a cycle.
-6. **Mix.** Track fader and pan in the header; the inspector has the channel fader, pan, two send
-   knobs (reverb, delay) and four insert slots. Click an empty slot to add an effect, the LED
-   toggles bypass.
-7. **Save and export.** ⌘S saves a `.ondera` file, ⌘B bounces the mix to WAV.
-
-Shortcuts are listed in every menu. Space play/stop, 0 stop, Return to start, `,` `.` nudge a
-bar, C cycle, K click, R record, M/S/A mute/solo/arm the selected track, F follow, Z zoom to fit,
-⌘= / ⌘- zoom, ⌘Z / ⇧⌘Z undo/redo, ⌘J agent panel, 1–4 tools. Pinch or ⌘ + wheel zooms around the
-cursor, horizontal wheel scrolls, ⌥ while dragging disables snap.
-
-## Repository layout
-
-```
-packages/
-  core/                @ondera/core, pure TS, no DOM, no Electron
-    src/model/         Session, Track, Clip, Note, Transport, View; bar/beat/SMPTE maths
-    src/commands/      one file per family: transport, track, clip, view, agent
-    src/registry.ts    every command, introspectable (CLI + MCP are generated from it later)
-    src/store.ts       getState / subscribe / dispatch(command)
-    src/engine/        EngineClient interface + MockEngine
-    src/mock/          the 8-track mock session and deterministic waveform peaks
-  app/                 @ondera/app, Electron + Vite + React
-    electron/          main.ts, preload.ts
-    src/theme/         tokens.ts (the tokens file), materials.css, colour maths
-    src/state/         React bindings, the actions/shortcuts/menus table, the document layer
-    src/audio/         Web Audio engine: graph, instruments, effects, library, bounce, recorder
-    src/canvas/        pure drawing: lanes, clips, waveforms, ruler, piano roll
-    src/components/    titlebar, transport, browser, arrangement, editor, inspector, agent
-design/                Claude Design export, the visual source of truth
-engine/                reserved for the Rust audio engine
-scripts/               check-tokens.mjs enforces the tokens rule
-```
-
-## Roadmap
-
-1. **Phase 1, UI shell**: layout, tokens, mock session, fake transport. Done.
-2. **Phase 1.5, usable** (this): every control works, Web Audio engine, sessions, import, record, bounce.
-3. **Phase 2, engine**: Rust audio process behind the same `EngineClient`, plugin hosting.
-4. **Phase 3, agents**: `ondera` CLI and MCP server generated from the command registry, with a
-   revertable change log in the agent panel.
-
-## Contributing
-
-Work on a branch, keep commits small, and open a pull request against `main`. Read `CLAUDE.md`
-first; it is short and it is the contract. If something in the design is ambiguous, ask in the PR
-rather than guessing.
-
-## Author
-
-Ludovic Marie, [@lu4ovic](https://twitter.com/lu4ovic) on Twitter.
+`legacy/` preserves the previous Electron/TypeScript source for comparison and regression
+fixtures. It is outside the Cargo workspace and is never built or loaded by the native app.
+`design/` retains the original visual reference. `desktop/src/theme.rs` contains the native
+colour and material tokens.
 
 ## License
 
-MIT, copyright Ludovic Marie. See [LICENSE](LICENSE).
+MIT. Copyright Ludovic Marie. See [LICENSE](LICENSE).

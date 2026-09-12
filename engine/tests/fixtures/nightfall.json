@@ -1,0 +1,1999 @@
+{
+  "name": "Nightfall.ondera",
+  "audio": {
+    "sampleRate": 48000,
+    "bitDepth": 24,
+    "bufferSize": 128
+  },
+  "tracks": [
+    {
+      "id": "drums",
+      "name": "Drums",
+      "kind": "audio",
+      "color": "oklch(0.72 0.14 40)",
+      "volume": 0.78,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "agentActive": false
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "kind": "midi",
+      "color": "oklch(0.72 0.13 300)",
+      "volume": 0.7,
+      "pan": -8,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "agentActive": false
+    },
+    {
+      "id": "keys",
+      "name": "Keys",
+      "kind": "midi",
+      "color": "oklch(0.75 0.13 250)",
+      "volume": 0.62,
+      "pan": 12,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "agentActive": true
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "kind": "midi",
+      "color": "oklch(0.75 0.12 330)",
+      "volume": 0.5,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "agentActive": false
+    },
+    {
+      "id": "vox",
+      "name": "Lead Vox",
+      "kind": "audio",
+      "color": "oklch(0.78 0.14 85)",
+      "volume": 0.82,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": true,
+      "agentActive": false
+    },
+    {
+      "id": "bgv",
+      "name": "BGV",
+      "kind": "audio",
+      "color": "oklch(0.75 0.12 130)",
+      "volume": 0.55,
+      "pan": -30,
+      "mute": true,
+      "solo": false,
+      "armed": false,
+      "agentActive": false
+    },
+    {
+      "id": "guitar",
+      "name": "Guitar",
+      "kind": "audio",
+      "color": "oklch(0.72 0.13 20)",
+      "volume": 0.66,
+      "pan": 35,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "agentActive": false
+    },
+    {
+      "id": "riser",
+      "name": "Riser FX",
+      "kind": "midi",
+      "color": "oklch(0.75 0.14 60)",
+      "volume": 0.6,
+      "pan": 0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "agentActive": false
+    }
+  ],
+  "clips": [
+    {
+      "id": "drums-1",
+      "trackId": "drums",
+      "name": "Drums_take3",
+      "startBar": 0,
+      "lengthBars": 12,
+      "agent": false,
+      "data": {
+        "kind": "audio",
+        "sourceId": "src-drums-1",
+        "offsetSeconds": 0
+      }
+    },
+    {
+      "id": "bass-1",
+      "trackId": "bass",
+      "name": "Bass intro",
+      "startBar": 0,
+      "lengthBars": 4,
+      "agent": false,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "n11-0",
+            "start": 3.8452967926859856,
+            "length": 0.4572312440141104,
+            "pitch": 48,
+            "velocity": 64
+          },
+          {
+            "id": "n11-1",
+            "start": 11.443299300968647,
+            "length": 0.8849702688748948,
+            "pitch": 39,
+            "velocity": 103
+          },
+          {
+            "id": "n11-2",
+            "start": 1.6583131179213524,
+            "length": 0.41029823146527633,
+            "pitch": 64,
+            "velocity": 76
+          },
+          {
+            "id": "n11-3",
+            "start": 5.74884120374918,
+            "length": 0.5163324141758494,
+            "pitch": 54,
+            "velocity": 98
+          },
+          {
+            "id": "n11-4",
+            "start": 6.2788674756884575,
+            "length": 0.6091589638381265,
+            "pitch": 60,
+            "velocity": 83
+          },
+          {
+            "id": "n11-5",
+            "start": 2.0289896205067635,
+            "length": 0.7996169493417256,
+            "pitch": 63,
+            "velocity": 62
+          },
+          {
+            "id": "n11-6",
+            "start": 4.860676907002926,
+            "length": 0.34401796612655744,
+            "pitch": 56,
+            "velocity": 63
+          },
+          {
+            "id": "n11-7",
+            "start": 5.783652998507023,
+            "length": 0.9430200375500135,
+            "pitch": 65,
+            "velocity": 103
+          },
+          {
+            "id": "n11-8",
+            "start": 15.476403765380383,
+            "length": 0.2853745631291531,
+            "pitch": 49,
+            "velocity": 106
+          },
+          {
+            "id": "n11-9",
+            "start": 0.509810097515583,
+            "length": 0.410765063657891,
+            "pitch": 66,
+            "velocity": 70
+          },
+          {
+            "id": "n11-10",
+            "start": 4.5239057168364525,
+            "length": 0.903456473199185,
+            "pitch": 63,
+            "velocity": 116
+          },
+          {
+            "id": "n11-11",
+            "start": 11.607759989798069,
+            "length": 0.36597372795222327,
+            "pitch": 52,
+            "velocity": 95
+          },
+          {
+            "id": "n11-12",
+            "start": 9.13248573988676,
+            "length": 0.5595284019946121,
+            "pitch": 45,
+            "velocity": 97
+          },
+          {
+            "id": "n11-13",
+            "start": 7.287372060120106,
+            "length": 0.28541213989956304,
+            "pitch": 63,
+            "velocity": 68
+          },
+          {
+            "id": "n11-14",
+            "start": 0.5691421255469322,
+            "length": 0.7690756362280808,
+            "pitch": 50,
+            "velocity": 94
+          },
+          {
+            "id": "n11-15",
+            "start": 4.474336005747318,
+            "length": 0.9961119118961506,
+            "pitch": 41,
+            "velocity": 69
+          },
+          {
+            "id": "n11-16",
+            "start": 0.644818477332592,
+            "length": 0.6368626374169253,
+            "pitch": 46,
+            "velocity": 79
+          },
+          {
+            "id": "n11-17",
+            "start": 11.716411836445332,
+            "length": 0.6338662530179136,
+            "pitch": 43,
+            "velocity": 92
+          },
+          {
+            "id": "n11-18",
+            "start": 3.120653711259365,
+            "length": 0.7138666356331669,
+            "pitch": 49,
+            "velocity": 68
+          },
+          {
+            "id": "n11-19",
+            "start": 1.0896798744797707,
+            "length": 0.7736010627704673,
+            "pitch": 71,
+            "velocity": 61
+          }
+        ]
+      }
+    },
+    {
+      "id": "bass-2",
+      "trackId": "bass",
+      "name": "Bass verse",
+      "startBar": 4,
+      "lengthBars": 8,
+      "agent": false,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "bv0-0",
+            "start": 0,
+            "length": 1.5,
+            "pitch": 36,
+            "velocity": 110
+          },
+          {
+            "id": "bv0-1",
+            "start": 1.5,
+            "length": 0.5,
+            "pitch": 48,
+            "velocity": 80
+          },
+          {
+            "id": "bv0-2",
+            "start": 2,
+            "length": 1,
+            "pitch": 43,
+            "velocity": 100
+          },
+          {
+            "id": "bv0-3",
+            "start": 3,
+            "length": 0.75,
+            "pitch": 36,
+            "velocity": 110
+          },
+          {
+            "id": "bv0-4",
+            "start": 3.5,
+            "length": 0.5,
+            "pitch": 39,
+            "velocity": 70
+          },
+          {
+            "id": "bv1-0",
+            "start": 4,
+            "length": 1.5,
+            "pitch": 36,
+            "velocity": 110
+          },
+          {
+            "id": "bv1-1",
+            "start": 5.5,
+            "length": 0.5,
+            "pitch": 48,
+            "velocity": 80
+          },
+          {
+            "id": "bv1-2",
+            "start": 6,
+            "length": 1,
+            "pitch": 43,
+            "velocity": 100
+          },
+          {
+            "id": "bv1-3",
+            "start": 7,
+            "length": 0.75,
+            "pitch": 36,
+            "velocity": 110
+          },
+          {
+            "id": "bv1-4",
+            "start": 7.5,
+            "length": 0.5,
+            "pitch": 39,
+            "velocity": 70
+          },
+          {
+            "id": "bv2-0",
+            "start": 8,
+            "length": 1.5,
+            "pitch": 44,
+            "velocity": 110
+          },
+          {
+            "id": "bv2-1",
+            "start": 9.5,
+            "length": 0.5,
+            "pitch": 56,
+            "velocity": 80
+          },
+          {
+            "id": "bv2-2",
+            "start": 10,
+            "length": 1,
+            "pitch": 51,
+            "velocity": 100
+          },
+          {
+            "id": "bv2-3",
+            "start": 11,
+            "length": 0.75,
+            "pitch": 44,
+            "velocity": 110
+          },
+          {
+            "id": "bv2-4",
+            "start": 11.5,
+            "length": 0.5,
+            "pitch": 48,
+            "velocity": 70
+          },
+          {
+            "id": "bv3-0",
+            "start": 12,
+            "length": 1.5,
+            "pitch": 44,
+            "velocity": 110
+          },
+          {
+            "id": "bv3-1",
+            "start": 13.5,
+            "length": 0.5,
+            "pitch": 56,
+            "velocity": 80
+          },
+          {
+            "id": "bv3-2",
+            "start": 14,
+            "length": 1,
+            "pitch": 51,
+            "velocity": 100
+          },
+          {
+            "id": "bv3-3",
+            "start": 15,
+            "length": 0.75,
+            "pitch": 44,
+            "velocity": 110
+          },
+          {
+            "id": "bv3-4",
+            "start": 15.5,
+            "length": 0.5,
+            "pitch": 48,
+            "velocity": 70
+          },
+          {
+            "id": "bv4-0",
+            "start": 16,
+            "length": 1.5,
+            "pitch": 41,
+            "velocity": 110
+          },
+          {
+            "id": "bv4-1",
+            "start": 17.5,
+            "length": 0.5,
+            "pitch": 53,
+            "velocity": 80
+          },
+          {
+            "id": "bv4-2",
+            "start": 18,
+            "length": 1,
+            "pitch": 48,
+            "velocity": 100
+          },
+          {
+            "id": "bv4-3",
+            "start": 19,
+            "length": 0.75,
+            "pitch": 41,
+            "velocity": 110
+          },
+          {
+            "id": "bv4-4",
+            "start": 19.5,
+            "length": 0.5,
+            "pitch": 44,
+            "velocity": 70
+          },
+          {
+            "id": "bv5-0",
+            "start": 20,
+            "length": 1.5,
+            "pitch": 41,
+            "velocity": 110
+          },
+          {
+            "id": "bv5-1",
+            "start": 21.5,
+            "length": 0.5,
+            "pitch": 53,
+            "velocity": 80
+          },
+          {
+            "id": "bv5-2",
+            "start": 22,
+            "length": 1,
+            "pitch": 48,
+            "velocity": 100
+          },
+          {
+            "id": "bv5-3",
+            "start": 23,
+            "length": 0.75,
+            "pitch": 41,
+            "velocity": 110
+          },
+          {
+            "id": "bv5-4",
+            "start": 23.5,
+            "length": 0.5,
+            "pitch": 44,
+            "velocity": 70
+          },
+          {
+            "id": "bv6-0",
+            "start": 24,
+            "length": 1.5,
+            "pitch": 43,
+            "velocity": 110
+          },
+          {
+            "id": "bv6-1",
+            "start": 25.5,
+            "length": 0.5,
+            "pitch": 55,
+            "velocity": 80
+          },
+          {
+            "id": "bv6-2",
+            "start": 26,
+            "length": 1,
+            "pitch": 50,
+            "velocity": 100
+          },
+          {
+            "id": "bv6-3",
+            "start": 27,
+            "length": 0.75,
+            "pitch": 43,
+            "velocity": 110
+          },
+          {
+            "id": "bv6-4",
+            "start": 27.5,
+            "length": 0.5,
+            "pitch": 47,
+            "velocity": 70
+          },
+          {
+            "id": "bv7-0",
+            "start": 28,
+            "length": 1.5,
+            "pitch": 43,
+            "velocity": 110
+          },
+          {
+            "id": "bv7-1",
+            "start": 29.5,
+            "length": 0.5,
+            "pitch": 55,
+            "velocity": 80
+          },
+          {
+            "id": "bv7-2",
+            "start": 30,
+            "length": 1,
+            "pitch": 50,
+            "velocity": 100
+          },
+          {
+            "id": "bv7-3",
+            "start": 31,
+            "length": 0.75,
+            "pitch": 43,
+            "velocity": 110
+          },
+          {
+            "id": "bv7-4",
+            "start": 31.5,
+            "length": 0.5,
+            "pitch": 47,
+            "velocity": 70
+          }
+        ]
+      }
+    },
+    {
+      "id": "keys-1",
+      "trackId": "keys",
+      "name": "Keys A",
+      "startBar": 0,
+      "lengthBars": 4,
+      "agent": false,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "n21-0",
+            "start": 3.9073051810264587,
+            "length": 0.38750948273809627,
+            "pitch": 43,
+            "velocity": 86
+          },
+          {
+            "id": "n21-1",
+            "start": 6.077900543808937,
+            "length": 0.4928017720230855,
+            "pitch": 50,
+            "velocity": 112
+          },
+          {
+            "id": "n21-2",
+            "start": 3.052734464406967,
+            "length": 0.8411619330872782,
+            "pitch": 47,
+            "velocity": 67
+          },
+          {
+            "id": "n21-3",
+            "start": 2.046639248728752,
+            "length": 0.9049645839841105,
+            "pitch": 64,
+            "velocity": 78
+          },
+          {
+            "id": "n21-4",
+            "start": 14.783541440963745,
+            "length": 0.7231613004696555,
+            "pitch": 59,
+            "velocity": 76
+          },
+          {
+            "id": "n21-5",
+            "start": 0.6029071360826492,
+            "length": 0.5208332283073105,
+            "pitch": 53,
+            "velocity": 105
+          },
+          {
+            "id": "n21-6",
+            "start": 7.644312292337418,
+            "length": 0.6576011174474843,
+            "pitch": 56,
+            "velocity": 103
+          },
+          {
+            "id": "n21-7",
+            "start": 7.360138043761253,
+            "length": 0.3228615280822851,
+            "pitch": 60,
+            "velocity": 76
+          },
+          {
+            "id": "n21-8",
+            "start": 9.60639101266861,
+            "length": 0.33331795857520774,
+            "pitch": 48,
+            "velocity": 60
+          },
+          {
+            "id": "n21-9",
+            "start": 9.56164862215519,
+            "length": 0.5757756452658214,
+            "pitch": 66,
+            "velocity": 98
+          },
+          {
+            "id": "n21-10",
+            "start": 9.724129408597946,
+            "length": 0.8256687841494568,
+            "pitch": 48,
+            "velocity": 90
+          },
+          {
+            "id": "n21-11",
+            "start": 12.236888334155083,
+            "length": 0.359288924431894,
+            "pitch": 51,
+            "velocity": 60
+          },
+          {
+            "id": "n21-12",
+            "start": 8.791137099266052,
+            "length": 0.9651832839590497,
+            "pitch": 42,
+            "velocity": 72
+          },
+          {
+            "id": "n21-13",
+            "start": 15.357689455151558,
+            "length": 0.897691736521665,
+            "pitch": 60,
+            "velocity": 74
+          },
+          {
+            "id": "n21-14",
+            "start": 10.996531516313553,
+            "length": 0.5030912210349925,
+            "pitch": 52,
+            "velocity": 62
+          },
+          {
+            "id": "n21-15",
+            "start": 11.99451707303524,
+            "length": 0.6863163225934841,
+            "pitch": 40,
+            "velocity": 103
+          },
+          {
+            "id": "n21-16",
+            "start": 4.581187903881073,
+            "length": 0.3237247754004784,
+            "pitch": 55,
+            "velocity": 97
+          },
+          {
+            "id": "n21-17",
+            "start": 7.4727190881967545,
+            "length": 0.4148766375728883,
+            "pitch": 70,
+            "velocity": 101
+          },
+          {
+            "id": "n21-18",
+            "start": 11.493989318609238,
+            "length": 0.4537958878208883,
+            "pitch": 37,
+            "velocity": 108
+          },
+          {
+            "id": "n21-19",
+            "start": 11.528776213526726,
+            "length": 0.43768319400260225,
+            "pitch": 38,
+            "velocity": 78
+          }
+        ]
+      }
+    },
+    {
+      "id": "keys-2",
+      "trackId": "keys",
+      "name": "Keys B",
+      "startBar": 4,
+      "lengthBars": 4,
+      "agent": true,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "n22-0",
+            "start": 3.913506019860506,
+            "length": 0.45553730661049485,
+            "pitch": 67,
+            "velocity": 88,
+            "agent": true
+          },
+          {
+            "id": "n22-1",
+            "start": 0.7413606680929661,
+            "length": 0.3035849223379046,
+            "pitch": 65,
+            "velocity": 107
+          },
+          {
+            "id": "n22-2",
+            "start": 11.192176599055529,
+            "length": 0.8842483032494783,
+            "pitch": 64,
+            "velocity": 108
+          },
+          {
+            "id": "n22-3",
+            "start": 1.6764190532267094,
+            "length": 0.8688278009649366,
+            "pitch": 37,
+            "velocity": 106,
+            "agent": true
+          },
+          {
+            "id": "n22-4",
+            "start": 1.2340088374912739,
+            "length": 0.7345615341328084,
+            "pitch": 70,
+            "velocity": 69
+          },
+          {
+            "id": "n22-5",
+            "start": 11.660298887640238,
+            "length": 0.942954856203869,
+            "pitch": 41,
+            "velocity": 109
+          },
+          {
+            "id": "n22-6",
+            "start": 9.522675830870867,
+            "length": 0.988959432579577,
+            "pitch": 42,
+            "velocity": 89,
+            "agent": true
+          },
+          {
+            "id": "n22-7",
+            "start": 4.317786548286676,
+            "length": 0.7858456771355122,
+            "pitch": 45,
+            "velocity": 86
+          },
+          {
+            "id": "n22-8",
+            "start": 9.019389737397432,
+            "length": 0.7881122981198132,
+            "pitch": 62,
+            "velocity": 115
+          },
+          {
+            "id": "n22-9",
+            "start": 7.26683247461915,
+            "length": 0.4422767034266144,
+            "pitch": 62,
+            "velocity": 107,
+            "agent": true
+          },
+          {
+            "id": "n22-10",
+            "start": 5.4441517777740955,
+            "length": 0.742890015244484,
+            "pitch": 68,
+            "velocity": 63
+          },
+          {
+            "id": "n22-11",
+            "start": 5.899801168590784,
+            "length": 0.35862044407986104,
+            "pitch": 65,
+            "velocity": 105
+          },
+          {
+            "id": "n22-12",
+            "start": 13.557002235203981,
+            "length": 0.4807487721554935,
+            "pitch": 49,
+            "velocity": 64,
+            "agent": true
+          },
+          {
+            "id": "n22-13",
+            "start": 0.16472119465470314,
+            "length": 0.7339196961838752,
+            "pitch": 53,
+            "velocity": 99
+          },
+          {
+            "id": "n22-14",
+            "start": 10.439270455390215,
+            "length": 0.9264927795156837,
+            "pitch": 63,
+            "velocity": 100
+          },
+          {
+            "id": "n22-15",
+            "start": 6.346535179764032,
+            "length": 0.3553367636632174,
+            "pitch": 40,
+            "velocity": 112,
+            "agent": true
+          },
+          {
+            "id": "n22-16",
+            "start": 9.774824846535921,
+            "length": 0.8174109891988337,
+            "pitch": 45,
+            "velocity": 110
+          },
+          {
+            "id": "n22-17",
+            "start": 3.8483498133718967,
+            "length": 0.9179776760283858,
+            "pitch": 58,
+            "velocity": 72
+          },
+          {
+            "id": "n22-18",
+            "start": 1.131322879344225,
+            "length": 0.9527888130396605,
+            "pitch": 46,
+            "velocity": 82,
+            "agent": true
+          },
+          {
+            "id": "n22-19",
+            "start": 2.9726858474314213,
+            "length": 0.32909140712581575,
+            "pitch": 38,
+            "velocity": 68
+          }
+        ]
+      }
+    },
+    {
+      "id": "keys-3",
+      "trackId": "keys",
+      "name": "Keys B",
+      "startBar": 8,
+      "lengthBars": 4,
+      "agent": false,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "n23-0",
+            "start": 3.9197068586945534,
+            "length": 0.5235651304828934,
+            "pitch": 56,
+            "velocity": 91
+          },
+          {
+            "id": "n23-1",
+            "start": 11.404820792376995,
+            "length": 0.8643680726527236,
+            "pitch": 45,
+            "velocity": 102
+          },
+          {
+            "id": "n23-2",
+            "start": 3.33161873370409,
+            "length": 0.9273346734116785,
+            "pitch": 44,
+            "velocity": 89
+          },
+          {
+            "id": "n23-3",
+            "start": 1.3061988577246666,
+            "length": 0.8326910179457627,
+            "pitch": 45,
+            "velocity": 74
+          },
+          {
+            "id": "n23-4",
+            "start": 3.6844762340188026,
+            "length": 0.7459617677959614,
+            "pitch": 45,
+            "velocity": 62
+          },
+          {
+            "id": "n23-5",
+            "start": 6.717690639197826,
+            "length": 0.6150764841004275,
+            "pitch": 65,
+            "velocity": 113
+          },
+          {
+            "id": "n23-6",
+            "start": 11.401039369404316,
+            "length": 0.5703177477116697,
+            "pitch": 63,
+            "velocity": 75
+          },
+          {
+            "id": "n23-7",
+            "start": 1.2754350528120995,
+            "length": 0.4988298261887394,
+            "pitch": 66,
+            "velocity": 95
+          },
+          {
+            "id": "n23-8",
+            "start": 8.432388462126255,
+            "length": 0.49290663766441867,
+            "pitch": 40,
+            "velocity": 110
+          },
+          {
+            "id": "n23-9",
+            "start": 4.972016327083111,
+            "length": 0.30877776158740744,
+            "pitch": 59,
+            "velocity": 116
+          },
+          {
+            "id": "n23-10",
+            "start": 1.164174146950245,
+            "length": 0.6601112463395111,
+            "pitch": 52,
+            "velocity": 97
+          },
+          {
+            "id": "n23-11",
+            "start": 15.562714003026485,
+            "length": 0.3579519637278281,
+            "pitch": 44,
+            "velocity": 89
+          },
+          {
+            "id": "n23-12",
+            "start": 2.3228673711419106,
+            "length": 0.7463142603519373,
+            "pitch": 56,
+            "velocity": 116
+          },
+          {
+            "id": "n23-13",
+            "start": 0.9717529341578484,
+            "length": 0.5701476558460854,
+            "pitch": 45,
+            "velocity": 64
+          },
+          {
+            "id": "n23-14",
+            "start": 9.882009394466877,
+            "length": 0.5998943379963748,
+            "pitch": 38,
+            "velocity": 79
+          },
+          {
+            "id": "n23-15",
+            "start": 0.6985532864928246,
+            "length": 0.7743572047329508,
+            "pitch": 40,
+            "velocity": 61
+          },
+          {
+            "id": "n23-16",
+            "start": 14.96846178919077,
+            "length": 0.561097202997189,
+            "pitch": 71,
+            "velocity": 64
+          },
+          {
+            "id": "n23-17",
+            "start": 0.22398053854703903,
+            "length": 0.6710787144838832,
+            "pitch": 46,
+            "velocity": 103
+          },
+          {
+            "id": "n23-18",
+            "start": 6.768656440079212,
+            "length": 0.7017817382584326,
+            "pitch": 56,
+            "velocity": 116
+          },
+          {
+            "id": "n23-19",
+            "start": 10.416595481336117,
+            "length": 0.9704996202490292,
+            "pitch": 38,
+            "velocity": 117
+          }
+        ]
+      }
+    },
+    {
+      "id": "pad-1",
+      "trackId": "pad",
+      "name": "Pad swell",
+      "startBar": 4,
+      "lengthBars": 8,
+      "agent": false,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "n31-0",
+            "start": 7.938627138733864,
+            "length": 0.3177877214620821,
+            "pitch": 37,
+            "velocity": 108
+          },
+          {
+            "id": "n31-1",
+            "start": 1.4250035732984543,
+            "length": 0.8506332751712762,
+            "pitch": 61,
+            "velocity": 62
+          },
+          {
+            "id": "n31-2",
+            "start": 8.894311621785164,
+            "length": 0.52202563470928,
+            "pitch": 67,
+            "velocity": 118
+          },
+          {
+            "id": "n31-3",
+            "start": 28.68887458741665,
+            "length": 0.5435967537923716,
+            "pitch": 39,
+            "velocity": 117
+          },
+          {
+            "id": "n31-4",
+            "start": 14.576430812478065,
+            "length": 0.8371636371011846,
+            "pitch": 59,
+            "velocity": 68
+          },
+          {
+            "id": "n31-5",
+            "start": 30.35364930331707,
+            "length": 0.9920495072728954,
+            "pitch": 42,
+            "velocity": 88
+          },
+          {
+            "id": "n31-6",
+            "start": 20.85589535534382,
+            "length": 0.9711842687684111,
+            "pitch": 56,
+            "velocity": 83
+          },
+          {
+            "id": "n31-7",
+            "start": 17.873246178030968,
+            "length": 0.45270301861455664,
+            "pitch": 56,
+            "velocity": 109
+          },
+          {
+            "id": "n31-8",
+            "start": 7.472756519913673,
+            "length": 0.3812613540212624,
+            "pitch": 47,
+            "velocity": 73
+          },
+          {
+            "id": "n31-9",
+            "start": 5.226974293589592,
+            "length": 0.7407862268737517,
+            "pitch": 65,
+            "velocity": 66
+          },
+          {
+            "id": "n31-10",
+            "start": 29.84870620071888,
+            "length": 0.7478810950997286,
+            "pitch": 69,
+            "velocity": 64
+          },
+          {
+            "id": "n31-11",
+            "start": 25.732033357024193,
+            "length": 0.3526041209115647,
+            "pitch": 50,
+            "velocity": 85
+          },
+          {
+            "id": "n31-12",
+            "start": 16.899576917290688,
+            "length": 0.6208381659234874,
+            "pitch": 39,
+            "velocity": 108
+          },
+          {
+            "id": "n31-13",
+            "start": 14.85601370036602,
+            "length": 0.759971333143767,
+            "pitch": 58,
+            "velocity": 81
+          },
+          {
+            "id": "n31-14",
+            "start": 10.847841814160347,
+            "length": 0.9871068058419041,
+            "pitch": 54,
+            "velocity": 89
+          },
+          {
+            "id": "n31-15",
+            "start": 7.029396280646324,
+            "length": 0.3765207332908176,
+            "pitch": 40,
+            "velocity": 76
+          },
+          {
+            "id": "n31-16",
+            "start": 17.035114660859108,
+            "length": 0.7605869133840315,
+            "pitch": 65,
+            "velocity": 114
+          },
+          {
+            "id": "n31-17",
+            "start": 6.458052679896355,
+            "length": 0.945887022127863,
+            "pitch": 61,
+            "velocity": 110
+          },
+          {
+            "id": "n31-18",
+            "start": 7.7346498519182205,
+            "length": 0.9437251400086097,
+            "pitch": 60,
+            "velocity": 88
+          },
+          {
+            "id": "n31-19",
+            "start": 11.935745105147362,
+            "length": 0.8517653252347372,
+            "pitch": 41,
+            "velocity": 95
+          },
+          {
+            "id": "n31-20",
+            "start": 15.963842406868935,
+            "length": 0.9610109838540666,
+            "pitch": 47,
+            "velocity": 115
+          },
+          {
+            "id": "n31-21",
+            "start": 3.6566263884305954,
+            "length": 0.8498447867459618,
+            "pitch": 63,
+            "velocity": 86
+          },
+          {
+            "id": "n31-22",
+            "start": 31.2967279702425,
+            "length": 0.6643478834885173,
+            "pitch": 40,
+            "velocity": 75
+          },
+          {
+            "id": "n31-23",
+            "start": 20.027739986777306,
+            "length": 0.47161716310074553,
+            "pitch": 71,
+            "velocity": 84
+          },
+          {
+            "id": "n31-24",
+            "start": 17.676482811570168,
+            "length": 0.5102993116597645,
+            "pitch": 66,
+            "velocity": 101
+          },
+          {
+            "id": "n31-25",
+            "start": 4.481519982218742,
+            "length": 0.850060416792985,
+            "pitch": 47,
+            "velocity": 80
+          },
+          {
+            "id": "n31-26",
+            "start": 21.227923825383186,
+            "length": 0.6592098690452985,
+            "pitch": 71,
+            "velocity": 94
+          },
+          {
+            "id": "n31-27",
+            "start": 30.288291081786156,
+            "length": 0.4671973101212643,
+            "pitch": 61,
+            "velocity": 99
+          },
+          {
+            "id": "n31-28",
+            "start": 16.070008531212807,
+            "length": 0.49620137800229713,
+            "pitch": 49,
+            "velocity": 92
+          },
+          {
+            "id": "n31-29",
+            "start": 7.368768617510796,
+            "length": 0.3235289989388548,
+            "pitch": 37,
+            "velocity": 70
+          },
+          {
+            "id": "n31-30",
+            "start": 0.12833507359027863,
+            "length": 0.8240439763176255,
+            "pitch": 46,
+            "velocity": 97
+          },
+          {
+            "id": "n31-31",
+            "start": 23.106558546423912,
+            "length": 0.5293436264037155,
+            "pitch": 42,
+            "velocity": 67
+          },
+          {
+            "id": "n31-32",
+            "start": 20.947642222046852,
+            "length": 0.47790221095783636,
+            "pitch": 65,
+            "velocity": 84
+          },
+          {
+            "id": "n31-33",
+            "start": 5.160657450556755,
+            "length": 0.3178999167284928,
+            "pitch": 37,
+            "velocity": 119
+          },
+          {
+            "id": "n31-34",
+            "start": 3.504309371113777,
+            "length": 0.86195613181917,
+            "pitch": 45,
+            "velocity": 76
+          },
+          {
+            "id": "n31-35",
+            "start": 18.277952536940575,
+            "length": 0.7304857689305209,
+            "pitch": 48,
+            "velocity": 97
+          },
+          {
+            "id": "n31-36",
+            "start": 20.018856540322304,
+            "length": 0.40789738547755405,
+            "pitch": 51,
+            "velocity": 107
+          },
+          {
+            "id": "n31-37",
+            "start": 11.10572163760662,
+            "length": 0.973351850581821,
+            "pitch": 43,
+            "velocity": 80
+          },
+          {
+            "id": "n31-38",
+            "start": 9.768444374203682,
+            "length": 0.7053003089386038,
+            "pitch": 56,
+            "velocity": 119
+          },
+          {
+            "id": "n31-39",
+            "start": 5.0041332095861435,
+            "length": 0.4465201915591024,
+            "pitch": 57,
+            "velocity": 60
+          }
+        ]
+      }
+    },
+    {
+      "id": "vox-1",
+      "trackId": "vox",
+      "name": "LV_v2_comp",
+      "startBar": 4,
+      "lengthBars": 4,
+      "agent": false,
+      "data": {
+        "kind": "audio",
+        "sourceId": "src-vox-1",
+        "offsetSeconds": 0
+      }
+    },
+    {
+      "id": "vox-2",
+      "trackId": "vox",
+      "name": "LV_v2_comp",
+      "startBar": 8,
+      "lengthBars": 4,
+      "agent": false,
+      "data": {
+        "kind": "audio",
+        "sourceId": "src-vox-2",
+        "offsetSeconds": 0
+      }
+    },
+    {
+      "id": "bgv-1",
+      "trackId": "bgv",
+      "name": "BGV stack",
+      "startBar": 8,
+      "lengthBars": 4,
+      "agent": false,
+      "data": {
+        "kind": "audio",
+        "sourceId": "src-bgv-1",
+        "offsetSeconds": 0
+      }
+    },
+    {
+      "id": "guitar-1",
+      "trackId": "guitar",
+      "name": "Gtr DI",
+      "startBar": 2,
+      "lengthBars": 6,
+      "agent": false,
+      "data": {
+        "kind": "audio",
+        "sourceId": "src-guitar-1",
+        "offsetSeconds": 0
+      }
+    },
+    {
+      "id": "guitar-2",
+      "trackId": "guitar",
+      "name": "Gtr DI",
+      "startBar": 8,
+      "lengthBars": 3,
+      "agent": false,
+      "data": {
+        "kind": "audio",
+        "sourceId": "src-guitar-2",
+        "offsetSeconds": 0
+      }
+    },
+    {
+      "id": "riser-1",
+      "trackId": "riser",
+      "name": "Riser",
+      "startBar": 7,
+      "lengthBars": 1,
+      "agent": false,
+      "data": {
+        "kind": "midi",
+        "notes": [
+          {
+            "id": "n41-0",
+            "start": 1.0078304894268513,
+            "length": 0.998065960186068,
+            "pitch": 68,
+            "velocity": 71
+          },
+          {
+            "id": "n41-1",
+            "start": 2.8367757573723793,
+            "length": 0.45846477831946686,
+            "pitch": 36,
+            "velocity": 72
+          },
+          {
+            "id": "n41-2",
+            "start": 1.4603942893445492,
+            "length": 0.9528893363312818,
+            "pitch": 50,
+            "velocity": 108
+          },
+          {
+            "id": "n41-3",
+            "start": 2.660558834671974,
+            "length": 0.9322289236006327,
+            "pitch": 49,
+            "velocity": 97
+          },
+          {
+            "id": "n41-4",
+            "start": 3.94822234287858,
+            "length": 0.9511659737327136,
+            "pitch": 58,
+            "velocity": 60
+          }
+        ]
+      }
+    }
+  ],
+  "sources": {
+    "src-drums-1": {
+      "id": "src-drums-1",
+      "name": "Drums_take3",
+      "durationSeconds": 24,
+      "sampleRate": 48000,
+      "channels": 2,
+      "origin": "generated",
+      "seed": 1,
+      "waveKind": "drums"
+    },
+    "src-vox-1": {
+      "id": "src-vox-1",
+      "name": "LV_v2_comp",
+      "durationSeconds": 8,
+      "sampleRate": 48000,
+      "channels": 2,
+      "origin": "generated",
+      "seed": 2,
+      "waveKind": "tonal"
+    },
+    "src-vox-2": {
+      "id": "src-vox-2",
+      "name": "LV_v2_comp",
+      "durationSeconds": 8,
+      "sampleRate": 48000,
+      "channels": 2,
+      "origin": "generated",
+      "seed": 3,
+      "waveKind": "tonal"
+    },
+    "src-bgv-1": {
+      "id": "src-bgv-1",
+      "name": "BGV stack",
+      "durationSeconds": 8,
+      "sampleRate": 48000,
+      "channels": 2,
+      "origin": "generated",
+      "seed": 4,
+      "waveKind": "tonal"
+    },
+    "src-guitar-1": {
+      "id": "src-guitar-1",
+      "name": "Gtr DI",
+      "durationSeconds": 12,
+      "sampleRate": 48000,
+      "channels": 2,
+      "origin": "generated",
+      "seed": 5,
+      "waveKind": "tonal"
+    },
+    "src-guitar-2": {
+      "id": "src-guitar-2",
+      "name": "Gtr DI",
+      "durationSeconds": 6,
+      "sampleRate": 48000,
+      "channels": 2,
+      "origin": "generated",
+      "seed": 6,
+      "waveKind": "tonal"
+    }
+  },
+  "transport": {
+    "playing": false,
+    "recording": false,
+    "positionBeats": 17.625,
+    "tempo": 120,
+    "timeSignature": {
+      "numerator": 4,
+      "denominator": 4
+    },
+    "key": "C min",
+    "cycle": true,
+    "cycleStartBar": 4,
+    "cycleEndBar": 8,
+    "metronome": false,
+    "snapDivision": 16
+  },
+  "view": {
+    "pixelsPerBar": 48,
+    "scrollBars": 0,
+    "agentPanelOpen": true,
+    "selectedTrackId": "bass",
+    "selectedClipId": "bass-2",
+    "editorClipId": "bass-2",
+    "selectedNoteId": null,
+    "editorMode": "pianoRoll",
+    "browserTab": "instruments",
+    "browserSelection": "E-Piano Mk I",
+    "arrangeTool": "pointer",
+    "followPlayhead": true
+  },
+  "agent": {
+    "status": "working",
+    "transport": "via MCP",
+    "current": {
+      "description": "Thickening the Keys part in bars 5–8: adding a 7th to each chord and lowering velocities 8% so it sits under the vocal.",
+      "summary": "adding 7ths, bars 5–8",
+      "progress": 0.6206896551724138,
+      "progressLabel": "18 / 29 notes"
+    },
+    "log": [
+      {
+        "id": "l1",
+        "title": "Adding 7ths to Keys B, bars 5–8",
+        "detail": "keys/clip:2 · 18 of 29 notes · in progress",
+        "color": "oklch(0.75 0.13 250)",
+        "live": true,
+        "reverted": false
+      },
+      {
+        "id": "l2",
+        "title": "Quantized Keys B to 1/16, 62% strength",
+        "detail": "ondera clip quantize keys:2 --grid 1/16 --strength .62",
+        "color": "oklch(0.75 0.13 250)",
+        "live": false,
+        "reverted": false
+      },
+      {
+        "id": "l3",
+        "title": "Created send Keys → A · Reverb, −12 dB",
+        "detail": "ondera send add keys --bus A --level -12",
+        "color": "oklch(0.75 0.13 250)",
+        "live": false,
+        "reverted": false
+      },
+      {
+        "id": "l4",
+        "title": "Trimmed Guitar clip 1 end to bar 8",
+        "detail": "ondera clip trim guitar:1 --end 8.1.1",
+        "color": "oklch(0.72 0.13 20)",
+        "live": false,
+        "reverted": false
+      },
+      {
+        "id": "l5",
+        "title": "Renamed “Audio 5” to “Lead Vox”",
+        "detail": "ondera track rename 5 \"Lead Vox\"",
+        "color": "oklch(0.78 0.14 85)",
+        "live": false,
+        "reverted": false
+      },
+      {
+        "id": "l6",
+        "title": "Set project key to C minor",
+        "detail": "ondera project set key Cm",
+        "color": "#7f7e7a",
+        "live": false,
+        "reverted": false
+      }
+    ],
+    "draft": ""
+  },
+  "browser": {
+    "instruments": [
+      {
+        "name": "Ondera",
+        "items": [
+          {
+            "name": "Ondera Synth",
+            "meta": "",
+            "color": "oklch(0.72 0.13 300)"
+          },
+          {
+            "name": "E-Piano Mk I",
+            "meta": "",
+            "color": "oklch(0.75 0.13 250)"
+          },
+          {
+            "name": "Drum Machine",
+            "meta": "",
+            "color": "oklch(0.72 0.14 40)"
+          },
+          {
+            "name": "Sampler",
+            "meta": "",
+            "color": "oklch(0.78 0.14 85)"
+          }
+        ]
+      },
+      {
+        "name": "Installed",
+        "items": [
+          {
+            "name": "Vital",
+            "meta": "VST3",
+            "color": null
+          },
+          {
+            "name": "Surge XT",
+            "meta": "CLAP",
+            "color": null
+          },
+          {
+            "name": "Dexed",
+            "meta": "VST3",
+            "color": null
+          },
+          {
+            "name": "Odin 2",
+            "meta": "VST3",
+            "color": null
+          },
+          {
+            "name": "Helm",
+            "meta": "LV2",
+            "color": null
+          }
+        ]
+      },
+      {
+        "name": "Recent",
+        "items": [
+          {
+            "name": "Sub Bass 808",
+            "meta": "preset",
+            "color": "oklch(0.72 0.13 300)"
+          },
+          {
+            "name": "Glass Keys",
+            "meta": "preset",
+            "color": "oklch(0.75 0.13 250)"
+          },
+          {
+            "name": "Choir Pad",
+            "meta": "preset",
+            "color": "oklch(0.75 0.12 330)"
+          }
+        ]
+      }
+    ],
+    "loops": [
+      {
+        "name": "Drums",
+        "items": [
+          {
+            "name": "Boom Bap 92",
+            "meta": "92 bpm",
+            "color": "oklch(0.72 0.14 40)"
+          },
+          {
+            "name": "Four Floor 124",
+            "meta": "124 bpm",
+            "color": "oklch(0.72 0.14 40)"
+          },
+          {
+            "name": "Brushes Swing",
+            "meta": "108 bpm",
+            "color": "oklch(0.72 0.14 40)"
+          }
+        ]
+      },
+      {
+        "name": "Melodic",
+        "items": [
+          {
+            "name": "Rhodes Comp Cm",
+            "meta": "C min",
+            "color": "oklch(0.75 0.13 250)"
+          },
+          {
+            "name": "Analog Pad Swell",
+            "meta": "C min",
+            "color": "oklch(0.75 0.12 330)"
+          },
+          {
+            "name": "Bass Pluck 120",
+            "meta": "120 bpm",
+            "color": "oklch(0.72 0.13 300)"
+          }
+        ]
+      },
+      {
+        "name": "FX",
+        "items": [
+          {
+            "name": "Riser 1 bar",
+            "meta": "1 bar",
+            "color": "oklch(0.75 0.14 60)"
+          },
+          {
+            "name": "Reverse Cymbal",
+            "meta": "2 bars",
+            "color": "oklch(0.75 0.14 60)"
+          },
+          {
+            "name": "Vinyl Crackle",
+            "meta": "loop",
+            "color": null
+          }
+        ]
+      }
+    ],
+    "plugins": [
+      {
+        "name": "Ondera",
+        "items": [
+          {
+            "name": "Ondera Comp",
+            "meta": "dynamics",
+            "color": null
+          },
+          {
+            "name": "Channel EQ",
+            "meta": "eq",
+            "color": null
+          },
+          {
+            "name": "Tape Sat",
+            "meta": "saturation",
+            "color": null
+          },
+          {
+            "name": "Chorus",
+            "meta": "modulation",
+            "color": null
+          },
+          {
+            "name": "Space",
+            "meta": "reverb",
+            "color": null
+          },
+          {
+            "name": "Echo",
+            "meta": "delay",
+            "color": null
+          }
+        ]
+      },
+      {
+        "name": "Installed",
+        "items": [
+          {
+            "name": "Pro-Q 3",
+            "meta": "VST3",
+            "color": null
+          },
+          {
+            "name": "Valhalla Room",
+            "meta": "VST3",
+            "color": null
+          },
+          {
+            "name": "Airwindows Console",
+            "meta": "CLAP",
+            "color": null
+          },
+          {
+            "name": "LSP Limiter",
+            "meta": "LV2",
+            "color": null
+          }
+        ]
+      }
+    ],
+    "files": [
+      {
+        "name": "Project",
+        "items": [
+          {
+            "name": "Nightfall.ondera",
+            "meta": "today",
+            "color": null
+          },
+          {
+            "name": "Bounces",
+            "meta": "3 files",
+            "color": null
+          },
+          {
+            "name": "Audio Files",
+            "meta": "14 files",
+            "color": null
+          }
+        ]
+      },
+      {
+        "name": "Recent",
+        "items": [
+          {
+            "name": "Drums_take3.wav",
+            "meta": "48k · 24",
+            "color": null
+          },
+          {
+            "name": "LV_v2_comp.wav",
+            "meta": "48k · 24",
+            "color": null
+          },
+          {
+            "name": "Gtr DI.wav",
+            "meta": "48k · 24",
+            "color": null
+          },
+          {
+            "name": "BGV stack.wav",
+            "meta": "48k · 24",
+            "color": null
+          }
+        ]
+      }
+    ]
+  },
+  "strips": {
+    "keys": {
+      "instrument": "E-Piano Mk I",
+      "input": "All MIDI",
+      "output": "Stereo Out",
+      "inserts": [
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        }
+      ],
+      "sends": [
+        {
+          "name": "A · Reverb",
+          "levelDb": null
+        },
+        {
+          "name": "B · Delay",
+          "levelDb": null
+        }
+      ]
+    },
+    "pad": {
+      "instrument": "Choir Pad",
+      "input": "All MIDI",
+      "output": "Stereo Out",
+      "inserts": [
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        }
+      ],
+      "sends": [
+        {
+          "name": "A · Reverb",
+          "levelDb": null
+        },
+        {
+          "name": "B · Delay",
+          "levelDb": null
+        }
+      ]
+    },
+    "riser": {
+      "instrument": "Riser",
+      "input": "All MIDI",
+      "output": "Stereo Out",
+      "inserts": [
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        }
+      ],
+      "sends": [
+        {
+          "name": "A · Reverb",
+          "levelDb": null
+        },
+        {
+          "name": "B · Delay",
+          "levelDb": null
+        }
+      ]
+    },
+    "bass": {
+      "instrument": "Ondera Synth",
+      "input": "All MIDI",
+      "output": "Stereo Out",
+      "inserts": [
+        {
+          "name": "Ondera Comp",
+          "meta": "3.2 dB GR",
+          "state": "active"
+        },
+        {
+          "name": "Tape Sat",
+          "meta": "Drive 24%",
+          "state": "active"
+        },
+        {
+          "name": "Chorus",
+          "meta": "bypassed",
+          "state": "bypassed"
+        },
+        {
+          "name": "Empty slot",
+          "meta": "",
+          "state": "empty"
+        }
+      ],
+      "sends": [
+        {
+          "name": "A · Reverb",
+          "levelDb": -12
+        },
+        {
+          "name": "B · Delay",
+          "levelDb": null
+        }
+      ]
+    }
+  },
+  "meters": {
+    "masterL": 0.7272727272727273,
+    "masterR": 0.6818181818181818,
+    "cpu": 0.34,
+    "channelL": 0.65,
+    "channelR": 0.6
+  }
+}

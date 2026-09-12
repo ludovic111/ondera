@@ -5,3 +5,7 @@ out/
 *.log
 .vite/
 .pnpm-store/
+target/
+artifacts/
+dist/
+*.dSYM/
