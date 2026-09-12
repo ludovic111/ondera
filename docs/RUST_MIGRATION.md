@@ -59,5 +59,11 @@ The final delivery note and CI runs contain the latest platform verification res
 - Arrangement voices are bounded; overflow is counted. This is not a hard-real-time OS guarantee.
 - Device hot-unplug reports failure; reconnect through the Audio menu. Device matrices, long
   sessions, sleep/wake and audio-driver latency need physical checks on each target system.
-- Local macOS packaging is ad-hoc signed. Public distribution still needs appropriate macOS
-  signing/notarization and Windows signing/installer validation.
+- Packaging is ad-hoc signed (macOS) or unsigned (Windows, Linux). GitHub releases and in-app
+  updates work with that, but first launches of a browser download need a Gatekeeper override
+  on macOS and a SmartScreen override on Windows. Public distribution still needs Developer ID
+  signing/notarization and Windows code signing.
+- Updates (added 2026-09-12): the app reads the latest GitHub release, verifies the asset
+  against `SHA256SUMS` and swaps itself in place. There is no delta update, no rollback UI
+  (the previous macOS bundle is removed on the next start) and no update channel other than
+  the latest release.

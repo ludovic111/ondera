@@ -22,6 +22,8 @@ pub enum Intent {
     Open,
     Demo,
     Quit,
+    /// Close this copy and start the freshly installed one.
+    Relaunch,
 }
 pub(crate) enum AfterTake {
     Save(bool),
@@ -89,6 +91,7 @@ pub struct Ondera {
     pub screenshot: Option<PathBuf>,
     pub(crate) frames: usize,
     pub show_help: bool,
+    pub(crate) updates: crate::update::Updates,
 }
 pub fn id(prefix: &str) -> String {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -106,10 +109,15 @@ impl Ondera {
         cc: &eframe::CreationContext<'_>,
         path: Option<PathBuf>,
         screenshot: Option<PathBuf>,
+        check_updates: bool,
     ) -> Self {
         install(&cc.egui_ctx);
+        let screenshot_run = screenshot.is_some();
         let mut app = Self::from_session(store::demo(), screenshot);
         app.connect();
+        if check_updates && !screenshot_run {
+            app.check_for_updates(false);
+        }
         if let Some(path) = path {
             app.load_path(path);
         }
@@ -158,6 +166,7 @@ impl Ondera {
             screenshot,
             frames: 0,
             show_help: false,
+            updates: Default::default(),
         }
     }
     pub fn dispatch(&mut self, command: Command) {
@@ -843,6 +852,15 @@ impl Ondera {
     pub(crate) fn execute(&mut self, intent: Intent) {
         match intent {
             Intent::Quit => self.closing = true,
+            Intent::Relaunch => {
+                if let Some(target) = self.updates.installed.take() {
+                    if let Err(e) = crate::update::relaunch(&target) {
+                        self.error = Some(e);
+                        return;
+                    }
+                }
+                self.closing = true;
+            }
             Intent::New | Intent::Demo => {
                 let s = if matches!(intent, Intent::New) {
                     store::empty()
@@ -1185,6 +1203,7 @@ impl eframe::App for Ondera {
             .set_gesture(ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input());
         self.frames += 1;
         self.poll();
+        self.poll_updates();
         self.keyboard(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1217,6 +1236,7 @@ impl eframe::App for Ondera {
                 self.arrangement(ui);
             });
         self.dialogs(ctx);
+        self.update_dialog(ctx);
         let dropped: Vec<_> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -1227,7 +1247,7 @@ impl eframe::App for Ondera {
         if !dropped.is_empty() {
             self.import(Some(dropped));
         }
-        if self.playing || self.job.is_some() {
+        if self.playing || self.job.is_some() || self.updates.busy() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else {
             ctx.request_repaint_after(Duration::from_millis(100));

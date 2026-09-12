@@ -1,0 +1,88 @@
+name: Release
+# Builds every platform from a `vX.Y.Z` tag and publishes a GitHub release with one asset per
+# platform plus SHA256SUMS. The desktop app reads that release to update itself.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-14
+            asset: Ondera-macos-arm64.zip
+          - os: macos-15-intel
+            asset: Ondera-macos-x86_64.zip
+          - os: ubuntu-22.04
+            asset: ondera-linux-x86_64
+          - os: windows-latest
+            asset: ondera-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the workspace version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} does not match Cargo.toml version $version" >&2; exit 1; }
+      - name: Linux native libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libegl1-mesa-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libdbus-1-dev
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: bash scripts/package-macos.sh
+      - name: Package Linux binary
+        if: runner.os == 'Linux'
+        run: mkdir -p dist && cp target/release/ondera dist/${{ matrix.asset }}
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: bash
+        run: mkdir -p dist && cp target/release/ondera.exe dist/${{ matrix.asset }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && ls -la && sha256sum Ondera-macos-arm64.zip Ondera-macos-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe > SHA256SUMS && cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            tag="v$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" --title "Ondera ${tag#v}" --generate-notes dist/*
+          fi

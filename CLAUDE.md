@@ -19,4 +19,8 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
 - Run fmt, clippy with warnings denied, and workspace tests. Check a real native window after
   UI changes. Distinguish tests, builds, actual device checks and public signing/notarization.
 - Work on a branch. Do not merge or publish a release without the owner's request.
+- Releases: bump the workspace `version` in `Cargo.toml`, then push a matching `vX.Y.Z` tag.
+  `.github/workflows/release.yml` builds all platforms, writes `SHA256SUMS` and publishes the
+  GitHub release that `desktop/src/update.rs` installs from. Keep the asset names in
+  `update::asset_name` and the workflow in sync. Builds are ad-hoc signed, not notarized.
 - `legacy/` is reference material, not the active implementation.
