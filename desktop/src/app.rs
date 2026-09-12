@@ -119,28 +119,25 @@ pub struct Ondera {
     pub(crate) recording_midi_tracks: Vec<String>,
     pub output_device: Option<String>,
     pub input_device: Option<String>,
+    pub(crate) control: Option<ondera_engine::control::wire::Server>,
 }
 pub fn id(prefix: &str) -> String {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    format!(
-        "{prefix}-{}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos(),
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    )
+    ondera_engine::control::new_id(prefix)
 }
 impl Ondera {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         path: Option<PathBuf>,
         screenshot: Option<PathBuf>,
+        control: bool,
     ) -> Self {
         install(&cc.egui_ctx);
         let mut app = Self::from_session(store::demo(), screenshot);
         app.catalog = host::scan::installed();
         app.connect();
+        if control {
+            app.start_control(&cc.egui_ctx);
+        }
         if let Some(path) = path {
             app.load_path(path);
         }
@@ -203,9 +200,17 @@ impl Ondera {
             recording_midi_tracks: vec![],
             output_device: None,
             input_device: None,
+            control: None,
         }
     }
     pub fn dispatch(&mut self, command: Command) {
+        if let Err(e) = self.try_dispatch(command) {
+            self.error = Some(e);
+        }
+    }
+    /// Apply a command; a change schedules an audio graph update, a selection updates the
+    /// device's preview track.
+    pub(crate) fn try_dispatch(&mut self, command: Command) -> Result<bool> {
         if self.recorder.is_some()
             || self.record_pending.is_some()
             || self.record_finishing.is_some()
@@ -217,28 +222,23 @@ impl Ondera {
                     || t.time_signature.denominator != old.time_signature.denominator
                     || t.cycle
                 {
-                    self.error = Some(
+                    return Err(
                         "Stop recording before changing tempo, time signature or cycle.".into(),
                     );
-                    return;
                 }
             }
         }
-        match self.store.dispatch(command) {
-            Ok(changed) => {
-                if changed {
-                    self.sync_needed = true;
-                } else if let Some(device) = &mut self.device {
-                    let index = self.store.session().tracks.iter().position(|t| {
-                        Some(&t.id) == self.store.session().view.selected_track_id.as_ref()
-                    });
-                    if let Err(e) = device.send(Message::Select(index)) {
-                        self.error = Some(e);
-                    }
-                }
-            }
-            Err(e) => self.error = Some(e),
+        let changed = self.store.dispatch(command)?;
+        if changed {
+            self.sync_needed = true;
+        } else if let Some(device) = &mut self.device {
+            let index =
+                self.store.session().tracks.iter().position(|t| {
+                    Some(&t.id) == self.store.session().view.selected_track_id.as_ref()
+                });
+            device.send(Message::Select(index))?;
         }
+        Ok(changed)
     }
     fn spawn(
         &mut self,
@@ -540,31 +540,8 @@ impl Ondera {
                     session,
                     library,
                     path,
-                }) => {
-                    self.position = session.transport.position_beats;
-                    self.zoom = session.view.pixels_per_bar.clamp(12.0, 480.0);
-                    self.scroll = session.view.scroll_bars.max(0.0);
-                    if let Err(e) = self.store.load(*session) {
-                        self.error = Some(e);
-                    } else {
-                        self.library = library;
-                        self.path = Some(path);
-                        self.sync_needed = true;
-                        self.synced_revision = None;
-                        self.status = "Session opened".into();
-                        self.locate(self.position);
-                    }
-                }
-                Ok(JobResult::Saved { path, revision }) => {
-                    self.path = Some(path);
-                    self.store.mark_saved(revision);
-                    self.status = "Session saved".into();
-                    if !self.store.dirty() {
-                        if let Some(intent) = self.after_save.take() {
-                            self.execute(intent);
-                        }
-                    }
-                }
+                }) => self.loaded(*session, library, path),
+                Ok(JobResult::Saved { path, revision }) => self.saved(path, revision),
                 Ok(JobResult::Imported(files)) => {
                     let position = self.position;
                     for (path, buffer) in files {
@@ -1051,6 +1028,32 @@ impl Ondera {
             Ok(JobResult::Bounced)
         });
     }
+    /// Install a decoded session and its audio, whether a job or a live client opened it.
+    pub(crate) fn loaded(&mut self, session: Session, library: Library, path: PathBuf) {
+        self.position = session.transport.position_beats;
+        self.zoom = session.view.pixels_per_bar.clamp(12.0, 480.0);
+        self.scroll = session.view.scroll_bars.max(0.0);
+        if let Err(e) = self.store.load(session) {
+            self.error = Some(e);
+        } else {
+            self.library = library;
+            self.path = Some(path);
+            self.sync_needed = true;
+            self.synced_revision = None;
+            self.status = "Session opened".into();
+            self.locate(self.position);
+        }
+    }
+    pub(crate) fn saved(&mut self, path: PathBuf, revision: u64) {
+        self.path = Some(path);
+        self.store.mark_saved(revision);
+        self.status = "Session saved".into();
+        if !self.store.dirty() {
+            if let Some(intent) = self.after_save.take() {
+                self.execute(intent);
+            }
+        }
+    }
     pub(crate) fn load_path(&mut self, path: PathBuf) {
         self.stop();
         self.spawn("Opening session…", move || {
@@ -1486,10 +1489,11 @@ impl Ondera {
 }
 impl eframe::App for Ondera {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.store
-            .set_gesture(ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input());
+        let gesture = ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input();
+        self.store.set_gesture(gesture);
         self.frames += 1;
         self.poll();
+        self.serve_control(gesture);
         self.keyboard(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1915,5 +1919,32 @@ mod tests {
         assert!(app.intent.is_none());
         assert_eq!(app.error.as_deref(), Some("Input disconnected"));
         assert_eq!(serde_json::to_value(app.store.session()).unwrap(), before);
+    }
+
+    #[test]
+    fn idle_control_keeps_a_drag_as_one_undo_step() {
+        let (mut app, _ctx) = setup();
+        let dir = std::env::temp_dir().join(format!("ondera-gesture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        app.control = Some(
+            ondera_engine::control::wire::Server::start_at(dir.join("control.json"), || {})
+                .unwrap(),
+        );
+        let tempo = |app: &Ondera| app.store.session().transport.tempo;
+        let start = tempo(&app);
+        let set = |app: &mut Ondera, bpm: f64| {
+            let mut t = app.store.session().transport.clone();
+            t.tempo = bpm;
+            app.dispatch(Command::SetTransport(t));
+        };
+        app.store.set_gesture(true);
+        set(&mut app, start + 1.0);
+        app.serve_control(true);
+        set(&mut app, start + 2.0);
+        app.store.set_gesture(false);
+        app.dispatch(Command::Undo);
+        assert_eq!(tempo(&app), start, "the whole drag is one undo step");
+        app.control = None;
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
