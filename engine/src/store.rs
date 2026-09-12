@@ -251,7 +251,7 @@ pub fn demo() -> Session {
     s.transport.position_beats = 0.0;
     s.transport.playing = false;
     s.transport.recording = false;
-    s.extra.remove("agent");
+    s.extra.insert("agent".into(),serde_json::json!({"status":"idle","transport":"no agent connected","current":null,"log":[],"draft":""}));
     s
 }
 pub fn empty() -> Session {

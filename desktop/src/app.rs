@@ -24,6 +24,11 @@ pub enum Intent {
     Demo,
     Quit,
 }
+enum AfterTake {
+    Save(bool),
+    Bounce,
+    Request(Intent),
+}
 enum JobResult {
     Prepared {
         renderer: Box<Renderer>,
@@ -63,6 +68,7 @@ pub struct Ondera {
     pub ruler_anchor: Option<f64>,
     pub draw_clip_anchor: Option<(String, f64)>,
     pub draw_note_anchor: Option<f64>,
+    pending_preview: Option<(String, u8, u8)>,
     pub editor_low: u8,
     pub editor_zoom: f32,
     job: Option<Job>,
@@ -72,6 +78,8 @@ pub struct Ondera {
     recorder: Option<Recorder>,
     device_pending: Option<mpsc::Receiver<Result<DeviceEngine>>>,
     record_pending: Option<mpsc::Receiver<Result<Recorder>>>,
+    record_finishing: Option<mpsc::Receiver<Result<audio::AudioBuffer>>>,
+    after_take: Option<AfterTake>,
     recording_tracks: Vec<String>,
     record_start: f64,
     intent: Option<Intent>,
@@ -127,6 +135,7 @@ impl Ondera {
             ruler_anchor: None,
             draw_clip_anchor: None,
             draw_note_anchor: None,
+            pending_preview: None,
             editor_low: 36,
             editor_zoom: 1.0,
             job: None,
@@ -136,6 +145,8 @@ impl Ondera {
             recorder: None,
             device_pending: None,
             record_pending: None,
+            record_finishing: None,
+            after_take: None,
             recording_tracks: vec![],
             record_start: 0.0,
             intent: None,
@@ -147,7 +158,10 @@ impl Ondera {
         }
     }
     pub fn dispatch(&mut self, command: Command) {
-        if self.recorder.is_some() || self.record_pending.is_some() {
+        if self.recorder.is_some()
+            || self.record_pending.is_some()
+            || self.record_finishing.is_some()
+        {
             if let Command::SetTransport(t) = &command {
                 let old = &self.store.session().transport;
                 if t.tempo != old.tempo
@@ -287,7 +301,17 @@ impl Ondera {
                                 self.sync_needed = true;
                             } else {
                                 self.synced_revision = Some(revision);
+                                let selected = self.store.session().tracks.iter().position(|t| {
+                                    Some(&t.id)
+                                        == self.store.session().view.selected_track_id.as_ref()
+                                });
+                                if let Err(e) = device.send(Message::Select(selected)) {
+                                    self.error = Some(e);
+                                }
                             }
+                        }
+                        if let Some((track, pitch, velocity)) = self.pending_preview.take() {
+                            self.preview(&track, pitch, velocity);
                         }
                         self.status = "Ready".into();
                     } else {
@@ -324,13 +348,20 @@ impl Ondera {
                     }
                 }
                 Ok(JobResult::Imported(files)) => {
+                    let position = self.position;
                     for (path, buffer) in files {
+                        let duration = buffer.duration();
                         self.import_buffer(
                             path.file_stem().and_then(|s| s.to_str()).unwrap_or("Audio"),
                             buffer,
                             None,
                         );
+                        let s = self.store.session();
+                        self.position += (duration * s.transport.tempo / 60.0 / s.beats_per_bar())
+                            .ceil()
+                            * s.beats_per_bar();
                     }
+                    self.position = position;
                     self.status = "Audio imported".into();
                 }
                 Ok(JobResult::Bounced) => self.status = "WAV export complete".into(),
@@ -342,6 +373,45 @@ impl Ondera {
                     self.error = Some(e);
                     self.status = "Operation failed".into();
                     self.after_save = None;
+                }
+            }
+        }
+        if let Some(result) = self
+            .record_finishing
+            .as_ref()
+            .and_then(|rx| match rx.try_recv() {
+                Ok(value) => Some(value),
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err(
+                    "Recording worker stopped before delivering the take".into(),
+                )),
+                Err(mpsc::TryRecvError::Empty) => None,
+            })
+        {
+            self.record_finishing = None;
+            match result {
+                Ok(buffer) => {
+                    let clips = self.store.session().clips.len();
+                    self.import_buffer(
+                        "Take",
+                        Arc::new(buffer),
+                        Some((self.record_start, self.recording_tracks.clone())),
+                    );
+                    if self.store.session().clips.len() == clips {
+                        self.after_take = None;
+                    }
+                }
+                Err(error) => {
+                    self.error = Some(error);
+                    self.after_take = None;
+                }
+            }
+        }
+        if self.record_finishing.is_none() && self.job.is_none() {
+            if let Some(action) = self.after_take.take() {
+                match action {
+                    AfterTake::Save(save_as) => self.save(save_as),
+                    AfterTake::Bounce => self.bounce(),
+                    AfterTake::Request(intent) => self.request(intent),
                 }
             }
         }
@@ -412,7 +482,10 @@ impl Ondera {
         }
     }
     fn start_recording(&mut self) {
-        if self.recorder.is_some() || self.record_pending.is_some() {
+        if self.recorder.is_some()
+            || self.record_pending.is_some()
+            || self.record_finishing.is_some()
+        {
             return;
         }
         let s = self.store.session();
@@ -456,22 +529,24 @@ impl Ondera {
     fn finish_recording(&mut self) {
         if let Some(r) = self.recorder.take() {
             let first = f64::from_bits(r.first_beat.load(Ordering::Relaxed));
-            let start = if first.is_finite() {
+            self.record_start = if first.is_finite() {
                 first
             } else {
                 self.record_start
             };
-            match r.finish() {
-                Ok(buffer) => self.import_buffer(
-                    "Take",
-                    Arc::new(buffer),
-                    Some((start, self.recording_tracks.clone())),
-                ),
-                Err(e) => self.error = Some(e),
-            }
+            let (tx, rx) = mpsc::sync_channel(1);
+            self.record_finishing = Some(rx);
+            self.status = "Finishing take…".into();
+            std::thread::spawn(move || {
+                let _ = tx.send(r.finish());
+            });
         }
     }
     pub fn preview(&mut self, track: &str, pitch: u8, velocity: u8) {
+        if self.sync_needed || self.synced_revision != Some(self.store.revision) {
+            self.pending_preview = Some((track.into(), pitch, velocity));
+            return;
+        }
         let index = self
             .store
             .session()
@@ -682,6 +757,10 @@ impl Ondera {
             return;
         }
         self.stop();
+        if self.record_finishing.is_some() {
+            self.after_take = Some(AfterTake::Save(save_as));
+            return;
+        }
         let mut session = (*self.store.snapshot()).clone();
         session.transport.position_beats = self.position;
         session.view.pixels_per_bar = self.zoom;
@@ -711,6 +790,10 @@ impl Ondera {
             return;
         }
         self.stop();
+        if self.record_finishing.is_some() {
+            self.after_take = Some(AfterTake::Bounce);
+            return;
+        }
         let session = self.store.snapshot();
         let library = self.library.clone();
         self.spawn("Exporting WAV…", move || {
@@ -744,6 +827,10 @@ impl Ondera {
             return;
         }
         self.stop();
+        if self.record_finishing.is_some() {
+            self.after_take = Some(AfterTake::Request(intent));
+            return;
+        }
         if self.store.dirty() {
             self.intent = Some(intent);
         } else {
@@ -1065,7 +1152,7 @@ impl Ondera {
                         self.play();
                     }
                     if ui
-                        .selectable_label(self.record_enabled, RichText::new("● Rec").color(RED))
+                        .selectable_label(self.record_enabled, RichText::new("• Rec").color(RED))
                         .clicked()
                     {
                         self.record_enabled = !self.record_enabled;
@@ -1190,7 +1277,7 @@ impl Ondera {
                     for (i, name) in names.iter().enumerate() {
                         let response = ui
                             .horizontal(|ui| {
-                                ui.label(RichText::new("●").color(TRACKS[i % 8]));
+                                ui.label(RichText::new("•").color(TRACKS[i % 8]));
                                 ui.add_sized(
                                     [ui.available_width(), 28.0],
                                     egui::Button::new(*name).frame(false),
@@ -1250,7 +1337,11 @@ impl Ondera {
             .cloned()
             .unwrap_or_default();
         strip.instrument = name.into();
-        self.dispatch(Command::SetStrip { track, strip });
+        self.dispatch(Command::SetStrip {
+            track: track.clone(),
+            strip,
+        });
+        self.preview(&track, 60, 95);
     }
     fn add_effect(&mut self, name: &str) {
         let Some(track) = self.store.session().view.selected_track_id.clone() else {
@@ -1382,7 +1473,7 @@ impl Ondera {
                         if ui
                             .add_enabled(
                                 slot.state != "empty",
-                                egui::Button::new(RichText::new("●").color(if active {
+                                egui::Button::new(RichText::new("•").color(if active {
                                     ACCENT
                                 } else {
                                     FAINT
@@ -1870,5 +1961,44 @@ mod tests {
         };
         let _ = ctx.run(input, |ctx| app.keyboard(ctx));
         assert_eq!(app.store.session().name, original);
+    }
+    #[test]
+    fn quit_waits_for_final_take_then_offers_to_save_it() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.sync_needed = false;
+        app.record_start = 8.0;
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.record_finishing = Some(rx);
+        app.request(Intent::Quit);
+        app.poll();
+        assert!(!app.closing);
+        assert!(app.intent.is_none());
+        assert!(app.store.session().clips.is_empty());
+        tx.send(Ok(
+            audio::AudioBuffer::new(48000, vec![[0.1; 2]; 4800]).unwrap()
+        ))
+        .unwrap();
+        app.poll();
+        assert!(!app.closing);
+        assert!(matches!(app.intent, Some(Intent::Quit)));
+        assert!(app.store.dirty());
+        let clip = &app.store.session().clips[0];
+        assert_eq!(clip.start_bar, 2.0);
+        assert!(clip.length_bars > 0.0);
+    }
+    #[test]
+    fn failed_take_cancels_deferred_quit_and_preserves_session() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.sync_needed = false;
+        let before = serde_json::to_value(app.store.session()).unwrap();
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.record_finishing = Some(rx);
+        app.request(Intent::Quit);
+        tx.send(Err("Input disconnected".into())).unwrap();
+        app.poll();
+        assert!(!app.closing);
+        assert!(app.intent.is_none());
+        assert_eq!(app.error.as_deref(), Some("Input disconnected"));
+        assert_eq!(serde_json::to_value(app.store.session()).unwrap(), before);
     }
 }
