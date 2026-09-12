@@ -1,0 +1,17 @@
+[package]
+name = "ondera-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+cpal = "0.16"
+rtrb = "0.3"
+symphonia = { version = "0.5", features = ["all"] }
+hound = "3.5"
+tempfile = "3"
+base64 = "0.22"
+
