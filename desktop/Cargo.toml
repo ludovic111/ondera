@@ -15,7 +15,19 @@ wgpu = { version = "25", default-features = false, features = ["metal", "dx12", 
 # separately from CPAL's Windows 0.54 bindings. CI checks the actual Windows build.
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+sha2 = "0.10"
+tempfile = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [[bin]]
 name = "ondera"
 path = "src/main.rs"
+
+[dev-dependencies]
+ondera-tools = { path = "../tools" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSGraphics", "NSApplication", "NSRunningApplication"] }
+objc2-foundation = "0.3"

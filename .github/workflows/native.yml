@@ -20,8 +20,18 @@ jobs:
       matrix:
         os: [macos-14, macos-15-intel, ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bound Linux compiler memory
+        if: runner.os == 'Linux'
+        run: |
+          echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
+          echo 'CARGO_PROFILE_DEV_DEBUG=0' >> "$GITHUB_ENV"
+          echo 'CARGO_PROFILE_TEST_DEBUG=0' >> "$GITHUB_ENV"
       - name: Linux native libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libegl1-mesa-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libdbus-1-dev
@@ -34,7 +44,15 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
-      - run: cargo build --release --locked
+        timeout-minutes: 15
+      - run: cargo build --release --locked --workspace
+      - name: Complete song through MCP and CLI
+        run: python3 scripts/verify-song.py
+      - name: Song verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Song-verification-${{ matrix.os }}
+          path: artifacts/song-verification/verification.json
       - name: Package macOS app
         if: runner.os == 'macOS'
         run: bash scripts/package-macos.sh
@@ -43,16 +61,30 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Ondera-${{ matrix.os }}
-          path: dist/Ondera-macos.zip
-      - name: Upload Linux binary
+          path: dist/Ondera-macos-*.zip
+      - name: Upload Linux binaries
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: Ondera-linux-x86_64
-          path: target/release/ondera
-      - name: Upload Windows binary
+          path: |
+            target/release/ondera
+            target/release/ondera-cli
+            target/release/ondera-mcp
+      - name: Upload Windows binaries
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: Ondera-windows-x86_64
-          path: target/release/ondera.exe
+          path: |
+            target/release/ondera.exe
+            target/release/ondera-cli.exe
+            target/release/ondera-mcp.exe
+      - name: Upload macOS command-line tools
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ondera-tools-${{ matrix.os }}
+          path: |
+            target/release/ondera-cli
+            target/release/ondera-mcp

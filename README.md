@@ -4,10 +4,12 @@ A native Rust digital audio workstation for macOS, Linux and Windows. The deskto
 command store, undo history, synthesizers, effects, audio I/O and file operations are Rust.
 The application does not embed a browser, Electron, React, JavaScript or Web Audio.
 
-This branch is the first native port, under validation. It preserves the existing arrangement /
-piano-roll / inspector workflow and reads version-1 `.ondera` sessions. Synth and effect DSP has
-been rewritten: an old session's composition and imported audio are preserved, but its mix will
-not sound bit-identical to the former Web Audio engine. See [migration status](docs/RUST_MIGRATION.md).
+Version 0.2 brings the native arrangement, piano roll, mixer, plugin hosts and agent control into
+one application. You can write MIDI parts, record audio and MIDI, arrange regions, mix through
+stock or installed plugins, save a project and export a stereo WAV. It reads version-1 `.ondera`
+sessions; the rewritten DSP preserves the composition and imported audio, but old mixes do not
+sound bit-identical to the former Web Audio engine. See [release notes](docs/releases/0.2.0.md)
+and the [migration status and limits](docs/RUST_MIGRATION.md).
 
 ## Build and run
 
@@ -30,19 +32,61 @@ sudo apt-get install build-essential pkg-config libasound2-dev libudev-dev \
 
 Linux file dialogs use the desktop portal (`xdg-desktop-portal` plus the appropriate desktop
 backend). Graphics use wgpu with Metal, DirectX 12, Vulkan or OpenGL ES backends. Audio uses
-CPAL's system backend and the default output/input selected in system settings. Device changes
-are applied with **Audio > Reconnect output**.
+CPAL's system backend. Choose input, output and a hardware MIDI controller in the **Audio** menu;
+the initial device selection follows the system defaults.
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo build --release --locked
+cargo build --release --workspace --locked
 ```
 
-The executable is `target/release/ondera` (`ondera.exe` on Windows). On macOS,
-`bash scripts/package-macos.sh` creates `dist/Ondera.app` with its microphone usage declaration,
-and a ZIP. This is an ad-hoc signed test app, without Developer ID notarization.
+The executables are `target/release/ondera`, `ondera-cli` and `ondera-mcp` (`.exe` on Windows).
+Keep all three together. On macOS,
+`bash scripts/package-macos.sh` creates `dist/Ondera.app` with its icon and microphone usage
+declaration, and `dist/Ondera-macos-<arch>.zip`. This is an ad-hoc signed test app, without
+Developer ID notarization.
+
+## Install and updates
+
+Download the build for your computer from the
+[latest release](https://github.com/ludovic111/ondera/releases/latest):
+`Ondera-macos-arm64.zip` (Apple Silicon), `Ondera-macos-x86_64.zip` (Intel Mac),
+`Ondera-linux-x86_64.zip` (also available as `.tar.gz`) or `Ondera-windows-x86_64.zip`. These include the application and
+CLI/MCP companions. Extract all three executables into the same directory on Linux/Windows;
+on macOS they are together inside `Ondera.app/Contents/MacOS`. Every release ships `SHA256SUMS`.
+The separate `ondera-linux-x86_64` and `ondera-windows-x86_64.exe` assets contain only the desktop
+executable and are retained for compatibility with the 0.1 updater.
+
+On macOS, unzip and drag `Ondera.app` into Applications. The app is ad-hoc signed, not
+notarized, so the first launch of a browser download is blocked by Gatekeeper: open
+**System Settings > Privacy & Security** and choose **Open Anyway**, or clear the quarantine
+flag from a terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Ondera.app
+```
+
+Ondera checks GitHub for a newer release when it starts and offers it in the title bar and in
+**Help > Check for updates…**. Installing downloads the release asset, verifies it against
+`SHA256SUMS`, replaces the installed copy in place and relaunches; the previous copy is kept
+until the new one is verified. `ondera --update` does the same from a terminal. Set
+`ONDERA_NO_UPDATE=1` or pass `--no-update-check` to skip the startup check.
+The update replaces the application and both companions together. On Linux/Windows, it rejects
+incomplete or unsafe ZIP entries, verifies all three binary versions before replacement, and
+restores the previous files if an install step fails. Backups stay until the new version starts.
+
+The release also includes `Ondera-Afterglow-demo.zip`: a complete stock-plugin session, its stereo
+WAV mix, MIDI export and verification report. Extract it and open `Afterglow.ondera` to explore
+the arrangement, instrument and effect settings, and automation. Audio is embedded in the project.
+
+To publish a release: bump `version` in `Cargo.toml`, merge to `main`, then push a matching tag
+(`git tag v0.2.0 && git push origin v0.2.0`). The `Release` workflow builds all four platforms,
+writes `SHA256SUMS` and creates the GitHub release; installed apps pick it up on their next start.
+
+The exercised native song workflow, test evidence and remaining platform limits are recorded in
+[docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Working in Ondera
 
@@ -51,53 +95,219 @@ and a ZIP. This is an ad-hoc signed test app, without Developer ID notarization.
 - Double-click a sound or loop in the library. Double-click an empty MIDI lane to create a
   region, or use the Pencil tool. Click/drag in the piano roll to draw notes; drag a note to move
   it or its right edge to resize. Right-click for velocity and deletion. Step mode toggles notes.
+  Edit > Quantize / Transpose act on the selected region.
 - Drag regions to move, including to another track of the same type. Drag edges to trim. Use
   Scissors or Cmd/Ctrl+T to split at the playhead; Cmd/Ctrl+D duplicates the selected region.
 - Space plays/stops, Enter returns to the start, 0 stops, C toggles cycle, K toggles the click.
   Drag across the ruler to set the cycle. F toggles following; Z fits the arrangement.
+- **Play live**: Cmd/Ctrl+K turns on musical typing (A–L play notes, Z / X change octave) on the
+  selected instrument track. Audio > MIDI input connects a hardware keyboard; notes go straight to
+  the audio thread. Live CC64 sustain holds notes and extends recorded note lengths until pedal
+  release. Retriggering, Stop and input disconnect release held notes; disconnect also stops the
+  take while retaining its recorded notes. Pitch bend, MPE and general MIDI CC control are not
+  implemented.
+- **Record**: arm audio tracks to capture the input device, arm instrument tracks to capture
+  MIDI from the keyboard or musical typing. Enable Rec, press Play, stop to keep the take. Audio
+  takes need microphone permission; hardware latency compensation and loop takes are not
+  implemented. Completed takes retain a separate float32 source WAV in the app data recordings
+  folder. Interruptions preserve partial audio with a warning. If it cannot be inserted, the app
+  shows its recovery path; Audio > Save recovered take retries a failed disk backup before closing.
+  Active recording remains in memory until the take finishes.
 - File > Import Audio or drop files to import mono/stereo WAV, AIFF, FLAC, MP3, Ogg/Vorbis,
   AAC/M4A and other formats supported by Symphonia. Unsupported codecs return an error.
-- Arm an audio track, disable Cycle, enable Rec and press Play to capture a linear take.
-  Microphone permission belongs to the operating system. The take is placed at the first input
-  callback's playhead position; hardware latency compensation and loop takes are not implemented.
-- Four inserts per channel, two effect sends, fader and stereo pan are available in the inspector.
-- Cmd/Ctrl+S saves, Cmd/Ctrl+O opens, Cmd/Ctrl+I imports, Cmd/Ctrl+B exports stereo 48 kHz /
-  24-bit WAV. Undo/redo uses Cmd/Ctrl+Z / Shift+Z. A drag or text edit is one undo gesture.
+- **MIDI files**: File > Import MIDI imports notes into new instrument tracks at the chosen
+  bar, optionally using the file's initial tempo and time signature. File > Export MIDI writes
+  selected instrument tracks as a Standard MIDI File. MIDI files contain notes, not rendered
+  plugin audio; ignored controllers and later tempo changes are reported.
+- **Mixing**: every track, the A / B aux buses and the master strip have eight insert slots, and
+  tracks have two sends. Effects come from the stock library or from scanned CLAP, VST3 and
+  Audio Unit plugins; instruments likewise. Click an insert for its parameters, *Open plugin
+  window* for the native editor on macOS. Static plugin delay compensation aligns parallel
+  track and aux paths. See [docs/PLUGINS.md](docs/PLUGINS.md).
+- **Automation**: Track/View > Automation opens editable lanes for track volume/pan, the master
+  fader, and instrument/insert parameters, including aux and master plugins. Add points by
+  double-clicking, drag to move, right-click to delete, or enter their beat/value numerically.
+  Choose linear or stepped changes and enable/disable reading. Lanes save with the project and
+  participate in undo. Touch/latch/write recording and clip-follow automation are not implemented.
+- Audio > Output / Input device pick the interface; MIDI input picks the controller.
+- Cmd/Ctrl+S saves, Cmd/Ctrl+O opens and Cmd/Ctrl+I imports audio. Cmd/Ctrl+B opens audio export
+  settings: stereo mix or selected track stems, 44.1/48/96 kHz, 16/24-bit PCM or 32-bit float,
+  optional PCM dither, full arrangement or a bar range, and 0–120 seconds of release tail.
+  Stem settings choose track effects/sends and master processing; the result reports paths,
+  clipping and warnings. Undo/redo uses Cmd/Ctrl+Z / Shift+Z. A drag or text edit is one undo gesture.
+- **Agents**: select the Agents tab beside Library, describe a musical task and press Run task.
+  The installed, authenticated Codex CLI uses this window's MCP tools; progress, its final response
+  and actual command results appear in the panel. Stop cancels the task and keeps completed edits
+  in Undo history. Codex settings let you select its executable and optionally a model; a recent
+  CLI with `--ignore-user-config` is required. The runner disables shell/web/other client tools and
+  uses a read-only filesystem sandbox, while Ondera tools perform the requested session edits.
+  Prompts and tool results go to the CLI's model provider; authentication remains managed by Codex.
+  You can also connect another MCP client or use the command workbench directly.
+  `ondera --agents` opens directly into this tab.
+- **Recovery**: edited sessions get a separate recovery copy every 30 seconds when no file,
+  recording or editing gesture is active. File > Recover session lists generated snapshots;
+  selecting one offers to save current edits, then opens a copy. Save chooses its destination.
+  The recovery worker does not overwrite your original project. Recovery status and location
+  are shown in the picker; snapshots can lag while the app is busy.
 
-## Headless tools
+The current workflow does not include time stretching, comping or a notation
+editor. VST2 and AAX are unsupported. Native external plugin editors are currently macOS-only;
+generic parameter controls are available on all platforms. Hardware recording latency is not
+measured or compensated. Supported formats do not establish compatibility with every plugin.
 
-These commands work without a window or an audio device:
+## Command line and MCP
+
+The window, `ondera-cli` and `ondera-mcp` share the command store and undo history. The 78-command
+registry covers session files, transport/recording, tracks, clips, notes, mixing and plugin
+state/parameters. It lives in `engine/src/control.rs`; CLI help, MCP tools and the Agents
+workbench are generated from that registry. Native dialogs and plugin windows remain interface
+actions. Bars and beats are zero-based; note times are beats relative to their clip.
+
+```sh
+cargo build --release --workspace     # target/release/ondera-cli and ondera-mcp
+ondera-cli commands                   # every command with its parameters
+ondera-cli help clip.create
+```
+
+For routine inspection, use `session.info` for counts and transport or `session.inspect` for the
+arrangement, mixer and automation without opaque plugin state. Its clips are summaries by default;
+use `clip.get` for one region's notes or opt into all notes with `--includeNotes true`. These queries
+keep agent context smaller than the full document returned by `session.get`.
+
+```sh
+ondera-cli session.inspect
+ondera-cli session.inspect --includeNotes true
+ondera-cli session.catalog
+ondera-cli plugin.list --kind instrument --format vst3 --query bass --limit 20 --offset 0
+```
+
+`session.catalog` contains the 24 stock plugins, presets and bundled loops. Search installed plugins
+with `plugin.list`: `query` matches name, vendor or ID; `kind` accepts `instrument`/`effect`, and
+`format` accepts `stock`/`clap`/`vst3`/`au`. Pages default to 50 entries, with a maximum of 200.
+Pass the returned `nextOffset` as `offset` to continue; `null` means the last page. `plugin.scan`
+refreshes the cache and returns a count and scan errors; use `plugin.list` to retrieve descriptors.
+
+### Live control of the running app
+
+While `ondera` runs it listens on 127.0.0.1 and writes the port and a random token to
+`~/.ondera/control.json` (readable only by you; `$ONDERA_CONTROL` overrides the path). Clients
+read that file and connect; document commands apply on the interface thread between frames,
+with their own undo steps. File decoding, save, export and scanning run on workers; the result
+returns after completion. Start the app with `--no-control`, or disable the bridge in Agents,
+to refuse connections. Use the copied Agents configuration to target this window explicitly.
+
+```sh
+ondera-cli session.info
+ondera-cli track.add --kind midi --name Bass --instrument "Sub Bass 808"
+ondera-cli clip.create --trackId <id> --startBar 0 --lengthBars 2 \
+    --notes '[{"start":0,"length":1,"pitch":36},{"start":2,"length":1,"pitch":43}]'
+ondera-cli transport.play
+ondera-cli history.undo
+ondera-cli plugin.list
+ondera-cli strip.setPlugin --trackId master --slot 7 --pluginId stock:Limiter
+ondera-cli strip.parameters --trackId master --slot 7
+ondera-cli master.setVolume --volume 0.75
+ondera-cli session.exportAudio --path mix.wav --sampleRate 96000 --format float32 --tailSeconds 5
+ondera-cli session.exportStems --directory song-stems --includeMaster false
+ondera-cli session.importMidi --path melody.mid --startBar 4
+ondera-cli session.exportMidi --path arrangement.mid
+```
+
+`strip.setParameter` takes a parameter ID and its plain value from `strip.parameters`.
+`strip.getState` / `strip.setState` read persisted plugin state and restore it; save first to
+capture changes from a native plugin editor. Strip commands accept
+track IDs or `master`, `bus-a` and `bus-b`; insert slots are zero-based 0–7. Omit `slot` in
+`strip.setPlugin` to set a MIDI track's instrument. See `ondera-cli help <command>` for parameters.
+Use `track.setArmed` then `transport.record` to record in the live app, and `transport.stop`
+to finish. Recording requires an available input and does not support cycle takes.
+
+### Files without the app
+
+```sh
+ondera-cli --file song.ondera session.new
+ondera-cli --file song.ondera clip.addLoop --name "Four Floor 124"
+ondera-cli --file song.ondera session.bounce --path mix.wav
+ondera-cli --file song.ondera session.importAudio --path vocal.wav --startBar 4
+```
+
+`--file` hosts the session in the CLI process and saves atomically after every change, so the
+file is always the state. Playback needs the app; rendering does not.
+
+MIDI interchange accepts SMF type 0/1 files with quarter-note timing and exports type 1 at
+960 ticks per quarter note. SMPTE timing and type 2 files are rejected. Imported controller data,
+including CC64 sustain, program changes, pitch bend, SysEx and later tempo/meter changes are
+reported rather than imported. Live sustain is captured as extended note lengths.
+Exports preserve the note arrangement; they do not encode automation lanes or convert audio.
+
+### MCP server
+
+`ondera-mcp` is a stdio Model Context Protocol server. Each command is a tool (`track.add` is
+`track_add`) and the session is readable as `ondera://session`, `ondera://session/info` and
+`ondera://catalog`. With the app running it controls the app live; otherwise it hosts a session
+in its own process. Use `--live` to require the visible app; `--headless` and `--file <path>`
+choose an independent session explicitly. Clips and
+notes an agent creates are marked and drawn with the agent accent in the interface, and
+`history.undo` reverts them like any other edit.
+
+```sh
+claude mcp add ondera -- /path/to/ondera/target/release/ondera-mcp --live
+```
+
+For a client using an `mcpServers` configuration:
+
+```json
+{"mcpServers":{"ondera":{"command":"/path/to/ondera-mcp","args":["--live"]}}}
+```
+
+The Agents tab copies this configuration with the discovered companion path and this window's
+discovery location. Configure the companion's full path if it is installed elsewhere.
+
+A saved project has one editing owner across desktop windows and CLI/MCP file mode. Use `--live`
+to share the open desktop session. Ownership uses the sibling `.filename.ondera-lock` file; its
+OS lock is released when the last owner exits or crashes. The small lock file intentionally
+remains so another process cannot replace its inode. `ondera --validate` remains read-only.
+
+The validation and export flags also remain on the app binary:
 
 ```sh
 cargo run --release -- --validate song.ondera
 cargo run --release -- --bounce song.ondera mix.wav
+cargo run --release -- --scan-plugins
+cargo run --release -- --plugins
 cargo run --release -p ondera-engine --example benchmark
+cargo run --release -p ondera-engine --example probe -- "clap:com.example.plugin"
 ```
 
-The command enum in `engine/src/store.rs` is serializable and shared by the UI and headless
-Rust clients. A public CLI command registry, MCP connection and third-party plugin hosting are
-not implemented; the former app also did not provide those features.
+Bouncing restores the session's saved plugin states and explicit parameters, then renders
+through the same stock and external DSP as playback. Live save/export first capture the
+loaded plugin states. Plugin load failures are reported rather than silently dropping an insert.
 
 ## Architecture
 
 ```
-desktop/  egui native interface, wgpu rendering, native file dialogs
+desktop/  egui native interface, wgpu rendering, native file dialogs, plugin windows
     │     typed commands + immutable session snapshots
-engine/   session validation, undo/redo, document and audio library
+tools/    ondera-cli and ondera-mcp: shared registry clients, live or on a file
+engine/   command registry, session validation, undo/redo, document and audio library
+    │     plugin hosts (stock, CLAP, VST3, Audio Units), scanning cache, MIDI input
     │     prepared graphs, bounded lock-free queues, atomic telemetry
-    └──   CPAL output callback → native DSP → system audio
+    └──   CPAL output callback → renderer + plugin rack → system audio
           CPAL input callback → bounded recording queue → worker
 ```
 
 The audio callback performs no heap allocations, deallocations, file access or mutex locking.
-Graph creation, decoding, generation and exports run off the UI/audio callback. Old audio graphs
-are reclaimed outside the callback and graph replacements crossfade over 5 ms. Rendering runs
-at the device's negotiated sample rate. Meter data is atomic; the GUI repaints at approximately
-30 Hz during playback and less frequently while idle. The offline renderer shares the DSP code.
+Graph creation, decoding, generation and exports run off the UI/audio callback. Plugin
+instances live in a rack that the callback owns; renderers are rebuilt on every edit and adopt
+the previous renderer's transport and held notes, preserving continuity without re-instantiating
+anything. Old graphs and unmounted processors are reclaimed on the main thread.
+Rendering runs at the device's negotiated sample rate in blocks of at most 256 frames. Meter data
+is atomic; the GUI repaints at approximately 30 Hz during playback and less frequently while
+idle. The offline renderer shares the DSP code and the plugin hosts.
 
-Capacity is explicit: 128 tracks, 256 simultaneous arrangement voices, 32 preview voices,
-4 inserts/channel, 512 MiB per decoded source, 1 GiB of declared session audio, and 4-hour export.
-These are implementation bounds, not a promise that every device can sustain maximum load.
+Capacity is explicit: 128 tracks, 256 simultaneous arrangement events, 32 voices per stock
+instrument, 8 inserts per strip, 1024 rack slots, 512 MiB per decoded source, 1 GiB of declared
+session audio, and 4-hour export. These are implementation bounds, not a promise that every
+device can sustain maximum load.
 
 `legacy/` preserves the previous Electron/TypeScript source for comparison and regression
 fixtures. It is outside the Cargo workspace and is never built or loaded by the native app.

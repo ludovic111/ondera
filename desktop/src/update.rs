@@ -1,0 +1,1122 @@
+//! Updates from GitHub Releases. The check and the download run on a worker thread and the
+//! interface only reads their results between frames; nothing here touches the audio callback.
+//!
+//! A release is published by `.github/workflows/release.yml` from a `vX.Y.Z` tag. It carries one
+//! asset per platform plus a `SHA256SUMS` file. The app compares the latest tag with its own
+//! version, downloads its asset, verifies the checksum, swaps the installed copy in place and
+//! relaunches. Set `ONDERA_PRETEND_VERSION=0.0.1` to exercise the flow against a real release.
+
+use crate::app::{Intent, Ondera};
+use crate::theme::*;
+use eframe::egui;
+use ondera_engine::Result;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::{
+    fs,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::mpsc,
+    time::Duration,
+};
+
+pub const REPO: &str = "ludovic111/ondera";
+const API: &str = "https://api.github.com/repos";
+const CHECKSUMS: &str = "SHA256SUMS";
+const MAX_ASSET: u64 = 512 * 1024 * 1024;
+
+/// The running version, or the one `ONDERA_PRETEND_VERSION` asks us to pretend we are.
+pub fn current_version() -> String {
+    std::env::var("ONDERA_PRETEND_VERSION")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
+}
+
+/// The release asset built for this platform, or `None` where no release is built.
+pub fn asset_name() -> Option<&'static str> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some("Ondera-macos-arm64.zip")
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some("Ondera-macos-x86_64.zip")
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some("Ondera-linux-x86_64.zip")
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some("Ondera-windows-x86_64.zip")
+    } else {
+        None
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Release {
+    pub version: String,
+    pub tag: String,
+    pub notes: String,
+    pub asset: String,
+    pub url: String,
+    pub size: u64,
+    pub checksums_url: Option<String>,
+    pub sha256: Option<String>,
+}
+
+pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
+    let s = s.trim().trim_start_matches(['v', 'V']);
+    let core = s.split(['-', '+']).next()?;
+    let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
+    let major = parts.next()??;
+    let minor = parts.next().unwrap_or(Some(0))?;
+    let patch = parts.next().unwrap_or(Some(0))?;
+    Some((major, minor, patch))
+}
+
+pub fn newer(latest: &str, current: &str) -> bool {
+    match (parse_version(latest), parse_version(current)) {
+        (Some(l), Some(c)) => l > c,
+        _ => false,
+    }
+}
+
+/// Read the release this platform can install out of a GitHub `releases/latest` document.
+pub fn find(json: &Value, asset: &str) -> Result<Option<Release>> {
+    let tag = json
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .ok_or("The release has no tag")?;
+    let assets = json
+        .get("assets")
+        .and_then(Value::as_array)
+        .ok_or("The release lists no assets")?;
+    let by_name = |name: &str| {
+        assets
+            .iter()
+            .find(|a| a.get("name").and_then(Value::as_str) == Some(name))
+    };
+    let Some(mine) = by_name(asset) else {
+        return Ok(None);
+    };
+    let url = mine
+        .get("browser_download_url")
+        .and_then(Value::as_str)
+        .ok_or("The asset has no download URL")?;
+    Ok(Some(Release {
+        version: tag.trim_start_matches(['v', 'V']).to_string(),
+        tag: tag.to_string(),
+        notes: json
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        asset: asset.to_string(),
+        url: url.to_string(),
+        size: mine.get("size").and_then(Value::as_u64).unwrap_or(0),
+        checksums_url: by_name(CHECKSUMS)
+            .and_then(|a| a.get("browser_download_url"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        sha256: None,
+    }))
+}
+
+/// The hex digest for `name` in a `sha256sum` style listing.
+pub fn parse_checksum(text: &str, name: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        let file = parts.next()?.trim_start_matches('*');
+        (file == name && hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| hash.to_ascii_lowercase())
+    })
+}
+
+fn hex(digest: &[u8]) -> String {
+    let mut out = String::with_capacity(digest.len() * 2);
+    for b in digest {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(600)))
+        .user_agent(format!("Ondera/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into()
+}
+
+fn get_text(agent: &ureq::Agent, url: &str) -> Result<String> {
+    agent
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("Could not reach GitHub: {e}"))?
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("Could not read the reply from GitHub: {e}"))
+}
+
+/// Ask GitHub for the latest release and return it when it is newer than this build.
+pub fn check() -> Result<Option<Release>> {
+    let Some(asset) = asset_name() else {
+        return Ok(None);
+    };
+    let agent = agent();
+    let url = format!("{API}/{REPO}/releases/latest");
+    let text = match agent
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .call()
+    {
+        Ok(mut response) => response
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("Could not read the reply from GitHub: {e}"))?,
+        Err(ureq::Error::StatusCode(404)) => return Ok(None),
+        Err(e) => return Err(format!("Could not reach GitHub: {e}")),
+    };
+    let json: Value =
+        serde_json::from_str(&text).map_err(|e| format!("GitHub sent an unexpected reply: {e}"))?;
+    let Some(mut release) = find(&json, asset)? else {
+        return Ok(None);
+    };
+    if !newer(&release.version, &current_version()) {
+        return Ok(None);
+    }
+    let sums_url = release
+        .checksums_url
+        .clone()
+        .ok_or_else(|| format!("Release {} has no {CHECKSUMS} file", release.tag))?;
+    let sums = get_text(&agent, &sums_url)?;
+    release.sha256 = Some(
+        parse_checksum(&sums, asset)
+            .ok_or_else(|| format!("{CHECKSUMS} in release {} lacks {asset}", release.tag))?,
+    );
+    Ok(Some(release))
+}
+
+fn download(agent: &ureq::Agent, release: &Release, to: &Path) -> Result<()> {
+    let mut response = agent
+        .get(&release.url)
+        .call()
+        .map_err(|e| format!("Download failed: {e}"))?;
+    let mut reader = response.body_mut().with_config().limit(MAX_ASSET).reader();
+    let mut file = fs::File::create(to).map_err(|e| format!("{}: {e}", to.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| format!("Download failed: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("{}: {e}", to.display()))?;
+    }
+    file.sync_all().map_err(|e| e.to_string())?;
+    let got = hex(&hasher.finalize());
+    match &release.sha256 {
+        Some(expected) if *expected == got => Ok(()),
+        Some(_) => Err(format!(
+            "The download of {} does not match its published checksum; nothing was changed",
+            release.asset
+        )),
+        None => Err("The release has no checksum for this file; nothing was changed".into()),
+    }
+}
+
+/// Where this process runs from, resolved through symlinks.
+fn current_exe() -> Result<PathBuf> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    fs::canonicalize(&exe).map_err(|e| format!("{}: {e}", exe.display()))
+}
+
+#[cfg(target_os = "macos")]
+fn bundle_of(exe: &Path) -> Result<PathBuf> {
+    let bundle = exe
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .filter(|b| b.extension().is_some_and(|e| e == "app"))
+        .ok_or_else(|| {
+            format!(
+                "Updates apply to an installed Ondera.app; this copy runs from {}",
+                exe.display()
+            )
+        })?;
+    Ok(bundle.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+fn previous_bundle(bundle: &Path) -> PathBuf {
+    bundle.with_file_name(".Ondera-previous.app")
+}
+
+#[cfg(target_os = "macos")]
+fn run(cmd: &mut std::process::Command, what: &str) -> Result<()> {
+    let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{what}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+// Portable archives contain exactly these three root files. The macOS application is
+// already replaced as one signed bundle, including its companions.
+#[cfg(any(not(target_os = "macos"), test))]
+mod companions {
+    use super::*;
+    use std::io::{Seek, SeekFrom};
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+
+    const BACKUP_PREFIX: &str = ".ondera-update-backup-";
+    const MARKER: &str = "installed-version";
+    const MAX_EXPANDED: u64 = 1024 * 1024 * 1024;
+
+    fn names(windows: bool) -> [&'static str; 3] {
+        if windows {
+            ["ondera.exe", "ondera-cli.exe", "ondera-mcp.exe"]
+        } else {
+            ["ondera", "ondera-cli", "ondera-mcp"]
+        }
+    }
+
+    /// Validate every entry before writing anything. Exact names also exclude paths,
+    /// device names, extra payloads, links and duplicate entries on either platform.
+    fn unpack(archive: &Path, destination: &Path, names: &[&str; 3]) -> Result<()> {
+        let file = fs::File::open(archive).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("Invalid update ZIP: {e}"))?;
+        if zip.len() != names.len() {
+            return Err(
+                "The update ZIP must contain exactly the desktop, CLI and MCP binaries".into(),
+            );
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut expanded = 0u64;
+        for index in 0..zip.len() {
+            let entry = zip.by_index(index).map_err(|e| e.to_string())?;
+            let file_type = entry.unix_mode().unwrap_or(0) & 0o170000;
+            if !names.contains(&entry.name())
+                || !seen.insert(entry.name().to_owned())
+                || !matches!(file_type, 0 | 0o100000)
+                || entry.is_dir()
+                || entry.size() == 0
+                || entry.size() > MAX_ASSET
+            {
+                return Err(format!(
+                    "The update ZIP contains an invalid binary: {}",
+                    entry.name()
+                ));
+            }
+            expanded = expanded
+                .checked_add(entry.size())
+                .ok_or("Update ZIP is too large")?;
+            if expanded > MAX_EXPANDED {
+                return Err("The expanded update ZIP is too large".into());
+            }
+        }
+        fs::create_dir(destination).map_err(|e| e.to_string())?;
+        for index in 0..zip.len() {
+            let mut entry = zip.by_index(index).map_err(|e| e.to_string())?;
+            let path = destination.join(entry.name());
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .map_err(|e| e.to_string())?;
+            // Reading to EOF verifies the ZIP CRC; the declared and actual size must agree.
+            let declared = entry.size();
+            let copied = std::io::copy(&mut entry.by_ref().take(MAX_ASSET + 1), &mut output)
+                .map_err(|e| format!("Could not extract {}: {e}", path.display()))?;
+            if copied != declared {
+                return Err("The update ZIP has an inconsistent binary size".into());
+            }
+            output.sync_all().map_err(|e| e.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Only run this after the whole archive has passed the published SHA-256 check.
+    /// A file-backed stdout avoids pipe deadlocks; malformed tools have a fixed deadline.
+    fn verify_version(binary: &Path, name: &str, version: &str, timeout: Duration) -> Result<()> {
+        let mut output = tempfile::tempfile().map_err(|e| e.to_string())?;
+        let mut child = Command::new(binary)
+            .arg("--version")
+            .current_dir(binary.parent().ok_or("The staged binary has no folder")?)
+            .env_remove("ONDERA_PRETEND_VERSION")
+            .stdin(Stdio::null())
+            .stdout(output.try_clone().map_err(|e| e.to_string())?)
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Could not verify {name}: {e}"))?;
+        let started = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if started.elapsed() < timeout => {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                result => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(match result {
+                        Err(e) => format!("Could not verify {name}: {e}"),
+                        _ => format!("{name} did not answer --version in time"),
+                    });
+                }
+            }
+        };
+        output.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        let mut text = String::new();
+        output
+            .take(1025)
+            .read_to_string(&mut text)
+            .map_err(|e| e.to_string())?;
+        let expected = format!("{} {version}", name.trim_end_matches(".exe"));
+        if !status.success() || text.len() > 1024 || text.trim() != expected {
+            return Err(format!(
+                "{name} does not report the expected version {version}; nothing was changed"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Move existing files aside before publishing any replacement. A failure restores
+    /// every old file, including the original absence of a companion. A failed rollback
+    /// retains its backup directory for manual recovery rather than deleting evidence.
+    fn replace_with(
+        executable: &Path,
+        staged: &Path,
+        names: &[&str; 3],
+        version: &str,
+        mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    ) -> Result<PathBuf> {
+        let parent = executable.parent().ok_or("The executable has no folder")?;
+        let targets = [
+            executable.to_path_buf(),
+            parent.join(names[1]),
+            parent.join(names[2]),
+        ];
+        if targets[0] == targets[1] || targets[0] == targets[2] {
+            return Err("The desktop executable has a companion's filename".into());
+        }
+        for target in &targets {
+            match fs::symlink_metadata(target) {
+                Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                _ => {
+                    return Err(format!(
+                        "Refusing to replace a non-regular file: {}",
+                        target.display()
+                    ))
+                }
+            }
+        }
+        let backup = tempfile::Builder::new()
+            .prefix(BACKUP_PREFIX)
+            .tempdir_in(parent)
+            .map_err(|e| format!("Could not create update backup: {e}"))?
+            .keep();
+        let mut moved = [false; 3];
+        let mut published = [false; 3];
+        let result = (|| -> Result<()> {
+            for (index, target) in targets.iter().enumerate() {
+                if target.exists() {
+                    rename(target, &backup.join(names[index])).map_err(|e| e.to_string())?;
+                    moved[index] = true;
+                }
+            }
+            for (index, target) in targets.iter().enumerate() {
+                rename(&staged.join(names[index]), target).map_err(|e| e.to_string())?;
+                published[index] = true;
+            }
+            fs::write(backup.join(MARKER), version).map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            let mut rollback_errors = Vec::new();
+            for index in (0..3).rev() {
+                if published[index] {
+                    if let Err(e) = fs::remove_file(&targets[index]) {
+                        rollback_errors.push(e.to_string());
+                        continue;
+                    }
+                }
+                if moved[index] {
+                    if let Err(e) = fs::rename(backup.join(names[index]), &targets[index]) {
+                        rollback_errors.push(e.to_string());
+                    }
+                }
+            }
+            if rollback_errors.is_empty() {
+                let _ = fs::remove_dir_all(&backup);
+                return Err(format!(
+                    "Update failed; previous files were restored: {error}"
+                ));
+            }
+            return Err(format!("Update failed: {error}. Some files could not be restored ({}). Previous files remain in {}", rollback_errors.join("; "), backup.display()));
+        }
+        Ok(backup)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(super) fn install(agent: &ureq::Agent, release: &Release, executable: &Path) -> Result<()> {
+        let parent = executable.parent().ok_or("The executable has no folder")?;
+        let staging = tempfile::Builder::new()
+            .prefix(".ondera-update-stage-")
+            .tempdir_in(parent)
+            .map_err(|e| e.to_string())?;
+        let archive = staging.path().join("update.zip");
+        download(agent, release, &archive)?;
+        let names = names(cfg!(windows));
+        let unpacked = staging.path().join("binaries");
+        unpack(&archive, &unpacked, &names)?;
+        for name in names {
+            verify_version(
+                &unpacked.join(name),
+                name,
+                &release.version,
+                Duration::from_secs(5),
+            )?;
+        }
+        replace_with(
+            executable,
+            &unpacked,
+            &names,
+            &release.version,
+            |from, to| fs::rename(from, to),
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn cleanup_backups(parent: &Path, running_version: &str) {
+        let Ok(entries) = fs::read_dir(parent) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(BACKUP_PREFIX)
+                || !entry
+                    .file_type()
+                    .is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+            {
+                continue;
+            }
+            let Ok(children) = fs::read_dir(&path) else {
+                continue;
+            };
+            let children: std::io::Result<Vec<_>> = children.collect();
+            let Ok(children) = children else { continue };
+            // Only clean a completed update belonging to this running release, and only
+            // its known regular files. Interrupted transactions remain recoverable.
+            if children.iter().any(|child| {
+                let name = child.file_name();
+                let name = name.to_string_lossy();
+                (name != MARKER
+                    && !names(false).contains(&name.as_ref())
+                    && !names(true).contains(&name.as_ref()))
+                    || !child
+                        .file_type()
+                        .is_ok_and(|kind| kind.is_file() && !kind.is_symlink())
+            }) || fs::read_to_string(path.join(MARKER)).ok().as_deref() != Some(running_version)
+            {
+                continue;
+            }
+            let mut removed = true;
+            for child in children.iter().filter(|child| child.file_name() != MARKER) {
+                removed &= fs::remove_file(child.path()).is_ok();
+            }
+            if removed {
+                let _ = fs::remove_file(path.join(MARKER));
+                let _ = fs::remove_dir(path);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use zip::write::SimpleFileOptions;
+
+        fn archive(path: &Path, entries: &[(&str, bool)]) {
+            let mut writer = zip::ZipWriter::new(fs::File::create(path).unwrap());
+            for (name, symlink) in entries {
+                if *symlink {
+                    writer
+                        .add_symlink(*name, "outside", SimpleFileOptions::default())
+                        .unwrap();
+                } else {
+                    writer
+                        .start_file(*name, SimpleFileOptions::default())
+                        .unwrap();
+                    writer.write_all(b"binary").unwrap();
+                }
+            }
+            writer.finish().unwrap();
+        }
+
+        #[test]
+        fn archives_require_only_three_regular_root_binaries() {
+            let dir = tempfile::tempdir().unwrap();
+            let zip = dir.path().join("update.zip");
+            let valid = [
+                ("ondera", false),
+                ("ondera-cli", false),
+                ("ondera-mcp", false),
+            ];
+            archive(&zip, &valid);
+            unpack(&zip, &dir.path().join("good"), &names(false)).unwrap();
+            assert_eq!(
+                fs::read(dir.path().join("good/ondera-mcp")).unwrap(),
+                b"binary"
+            );
+            for bad in [
+                vec![("ondera", false)],
+                vec![("../ondera", false), valid[1], valid[2]],
+                vec![("/ondera", false), valid[1], valid[2]],
+                vec![("nested\\ondera", false), valid[1], valid[2]],
+                vec![("ondera", true), valid[1], valid[2]],
+                vec![("ondera", false), valid[1], ("extra", false)],
+            ] {
+                archive(&zip, &bad);
+                let destination = dir.path().join("rejected");
+                assert!(
+                    unpack(&zip, &destination, &names(false)).is_err(),
+                    "{bad:?}"
+                );
+                assert!(!destination.exists());
+            }
+        }
+
+        #[test]
+        fn every_forward_failure_restores_all_existing_files_and_absences() {
+            for missing_companion in [false, true] {
+                let count = if missing_companion { 5 } else { 6 };
+                for failure in 0..count {
+                    let dir = tempfile::tempdir().unwrap();
+                    let staged = dir.path().join("stage");
+                    fs::create_dir(&staged).unwrap();
+                    for name in names(false) {
+                        if !missing_companion || name != "ondera-cli" {
+                            fs::write(dir.path().join(name), format!("old {name}")).unwrap();
+                        }
+                        fs::write(staged.join(name), format!("new {name}")).unwrap();
+                    }
+                    fs::write(dir.path().join("song.ondera"), "original song").unwrap();
+                    let mut call = 0;
+                    let result = replace_with(
+                        &dir.path().join("ondera"),
+                        &staged,
+                        &names(false),
+                        "0.2.0",
+                        |from, to| {
+                            let fail = call == failure;
+                            call += 1;
+                            if fail {
+                                Err(std::io::Error::other("injected rename failure"))
+                            } else {
+                                fs::rename(from, to)
+                            }
+                        },
+                    );
+                    assert!(result.unwrap_err().contains("previous files were restored"));
+                    for name in names(false) {
+                        if missing_companion && name == "ondera-cli" {
+                            assert!(!dir.path().join(name).exists());
+                        } else {
+                            assert_eq!(
+                                fs::read_to_string(dir.path().join(name)).unwrap(),
+                                format!("old {name}")
+                            );
+                        }
+                    }
+                    assert_eq!(
+                        fs::read_to_string(dir.path().join("song.ondera")).unwrap(),
+                        "original song"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn successful_update_keeps_backup_until_new_version_starts() {
+            let dir = tempfile::tempdir().unwrap();
+            let staged = dir.path().join("stage");
+            fs::create_dir(&staged).unwrap();
+            for name in names(false) {
+                fs::write(staged.join(name), "new").unwrap();
+                fs::write(dir.path().join(name), "old").unwrap();
+            }
+            let backup = replace_with(
+                &dir.path().join("ondera"),
+                &staged,
+                &names(false),
+                "0.2.0",
+                |from, to| fs::rename(from, to),
+            )
+            .unwrap();
+            for name in names(false) {
+                assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), "new");
+                assert_eq!(fs::read_to_string(backup.join(name)).unwrap(), "old");
+            }
+            cleanup_backups(dir.path(), "0.1.0");
+            assert!(backup.exists());
+            cleanup_backups(dir.path(), "0.2.0");
+            assert!(!backup.exists());
+        }
+
+        #[test]
+        fn a_failed_rollback_keeps_the_original_binaries_for_recovery() {
+            let dir = tempfile::tempdir().unwrap();
+            let staged = dir.path().join("stage");
+            fs::create_dir(&staged).unwrap();
+            for name in names(false) {
+                fs::write(staged.join(name), "new").unwrap();
+                fs::write(dir.path().join(name), "old").unwrap();
+            }
+            let desktop = dir.path().join("ondera");
+            let mut call = 0;
+            let result = replace_with(&desktop, &staged, &names(false), "0.2.0", |from, to| {
+                call += 1;
+                if call == 4 {
+                    // Another process obstructs the original location after all backups
+                    // are safe, making even a real rollback rename fail.
+                    fs::create_dir(&desktop)?;
+                    fs::write(desktop.join("unexpected"), "preserve")?;
+                    Err(std::io::Error::other("injected publish failure"))
+                } else {
+                    fs::rename(from, to)
+                }
+            });
+            assert!(result.unwrap_err().contains("Previous files remain in"));
+            cleanup_backups(dir.path(), "0.2.0");
+            let backup = fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .find(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(BACKUP_PREFIX)
+                })
+                .unwrap()
+                .path();
+            assert_eq!(fs::read_to_string(backup.join("ondera")).unwrap(), "old");
+            assert_eq!(
+                fs::read_to_string(dir.path().join("ondera-cli")).unwrap(),
+                "old"
+            );
+            assert_eq!(
+                fs::read_to_string(dir.path().join("ondera-mcp")).unwrap(),
+                "old"
+            );
+            assert_eq!(
+                fs::read_to_string(desktop.join("unexpected")).unwrap(),
+                "preserve"
+            );
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn symlink_targets_and_unfinished_backups_are_preserved() {
+            use std::os::unix::fs::symlink;
+            let dir = tempfile::tempdir().unwrap();
+            let original = dir.path().join("original");
+            fs::write(&original, "keep").unwrap();
+            symlink(&original, dir.path().join("ondera-cli")).unwrap();
+            assert!(replace_with(
+                &dir.path().join("ondera"),
+                dir.path(),
+                &names(false),
+                "0.2.0",
+                |from, to| fs::rename(from, to)
+            )
+            .is_err());
+            let backup = dir.path().join(format!("{BACKUP_PREFIX}interrupted"));
+            fs::create_dir(&backup).unwrap();
+            fs::write(backup.join("ondera"), "keep backup").unwrap();
+            cleanup_backups(dir.path(), "0.2.0");
+            assert!(backup.exists());
+            fs::write(backup.join(MARKER), "0.2.0").unwrap();
+            symlink(&original, backup.join("ondera-cli")).unwrap();
+            cleanup_backups(dir.path(), "0.2.0");
+            assert!(backup.exists());
+            assert_eq!(fs::read_to_string(original).unwrap(), "keep");
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn version_verification_requires_exact_binary_identity_and_is_bounded() {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().unwrap();
+            let binary = dir.path().join("ondera-cli");
+            fs::write(&binary, "#!/bin/sh\nprintf 'ondera-cli 0.2.0\\n'\n").unwrap();
+            fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+            verify_version(&binary, "ondera-cli", "0.2.0", Duration::from_secs(1)).unwrap();
+            assert!(
+                verify_version(&binary, "ondera-mcp", "0.2.0", Duration::from_secs(1)).is_err()
+            );
+            assert!(
+                verify_version(&binary, "ondera-cli", "0.3.0", Duration::from_secs(1)).is_err()
+            );
+            fs::write(&binary, "#!/bin/sh\nwhile :; do :; done\n").unwrap();
+            let started = Instant::now();
+            assert!(
+                verify_version(&binary, "ondera-cli", "0.2.0", Duration::from_millis(30))
+                    .unwrap_err()
+                    .contains("in time")
+            );
+            assert!(started.elapsed() < Duration::from_secs(2));
+        }
+    }
+}
+
+/// Download, verify and swap the installed copy. Returns what to launch afterwards. The old
+/// copy stays in place until the new one is fully unpacked and verified.
+pub fn install(release: &Release) -> Result<PathBuf> {
+    let exe = current_exe()?;
+    let agent = agent();
+    #[cfg(target_os = "macos")]
+    {
+        let bundle = bundle_of(&exe)?;
+        let parent = bundle.parent().ok_or("The app has no parent folder")?;
+        let staging = parent.join(format!(".ondera-update-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&staging);
+        fs::create_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+        let result = (|| -> Result<()> {
+            let zip = staging.join(&release.asset);
+            download(&agent, release, &zip)?;
+            let unpacked = staging.join("unpacked");
+            run(
+                std::process::Command::new("ditto")
+                    .args(["-x", "-k"])
+                    .arg(&zip)
+                    .arg(&unpacked),
+                "Could not unpack the update",
+            )?;
+            let fresh = fs::read_dir(&unpacked)
+                .map_err(|e| e.to_string())?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .find(|p| p.extension().is_some_and(|e| e == "app"))
+                .ok_or("The update archive holds no application")?;
+            if ["ondera", "ondera-cli", "ondera-mcp"]
+                .iter()
+                .any(|binary| !fresh.join("Contents/MacOS").join(binary).is_file())
+            {
+                return Err("The update archive is incomplete".into());
+            }
+            run(
+                std::process::Command::new("codesign")
+                    .args(["--verify", "--deep", "--strict"])
+                    .arg(&fresh),
+                "The downloaded app failed signature verification",
+            )?;
+            let previous = previous_bundle(&bundle);
+            let _ = fs::remove_dir_all(&previous);
+            fs::rename(&bundle, &previous)
+                .map_err(|e| format!("Could not replace {}: {e}", bundle.display()))?;
+            if let Err(e) = fs::rename(&fresh, &bundle) {
+                let _ = fs::rename(&previous, &bundle);
+                return Err(format!("Could not install into {}: {e}", bundle.display()));
+            }
+            Ok(())
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        result?;
+        Ok(bundle)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        companions::install(&agent, release, &exe)?;
+        Ok(exe)
+    }
+}
+
+/// Remove what a previous update left behind. Called once at startup; errors are ignored
+/// because the old copy may still be shutting down.
+pub fn cleanup() {
+    let Ok(exe) = current_exe() else {
+        return;
+    };
+    #[cfg(target_os = "macos")]
+    if let Ok(bundle) = bundle_of(&exe) {
+        let _ = fs::remove_dir_all(previous_bundle(&bundle));
+    }
+    #[cfg(not(target_os = "macos"))]
+    if let Some(dir) = exe.parent() {
+        companions::cleanup_backups(dir, env!("CARGO_PKG_VERSION"));
+    }
+}
+
+/// Start the freshly installed copy. The caller closes this one.
+pub fn relaunch(target: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg("-n").arg(target);
+        c
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut cmd = std::process::Command::new(target);
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not relaunch {}: {e}", target.display()))
+}
+
+#[derive(Default)]
+pub(crate) struct Updates {
+    pub checking: Option<mpsc::Receiver<Result<Option<Release>>>>,
+    pub manual: bool,
+    pub available: Option<Release>,
+    pub installing: Option<mpsc::Receiver<Result<PathBuf>>>,
+    pub installed: Option<PathBuf>,
+    pub show: bool,
+}
+impl Updates {
+    pub fn busy(&self) -> bool {
+        self.checking.is_some() || self.installing.is_some()
+    }
+}
+
+impl Ondera {
+    pub(crate) fn check_for_updates(&mut self, manual: bool) {
+        if self.updates.busy() {
+            return;
+        }
+        if self.updates.available.is_some() && manual {
+            self.updates.show = true;
+            return;
+        }
+        self.updates.manual = manual;
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.updates.checking = Some(rx);
+        if manual {
+            self.status = "Checking for updates…".into();
+        }
+        std::thread::spawn(move || {
+            let _ = tx.send(check());
+        });
+    }
+    pub(crate) fn install_update(&mut self) {
+        let Some(release) = self.updates.available.clone() else {
+            return;
+        };
+        if self.updates.busy() || self.updates.installed.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.updates.installing = Some(rx);
+        self.status = format!("Downloading Ondera {}…", release.version);
+        std::thread::spawn(move || {
+            let _ = tx.send(install(&release));
+        });
+    }
+    pub(crate) fn poll_updates(&mut self) {
+        if let Some(result) = self
+            .updates
+            .checking
+            .as_ref()
+            .and_then(|rx| match rx.try_recv() {
+                Ok(v) => Some(v),
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err("Update check stopped".into())),
+                Err(_) => None,
+            })
+        {
+            self.updates.checking = None;
+            match result {
+                Ok(Some(release)) => {
+                    self.status = format!("Ondera {} is available", release.version);
+                    self.updates.available = Some(release);
+                    self.updates.show = true;
+                }
+                Ok(None) if self.updates.manual => {
+                    self.status = format!("Ondera {} is up to date", current_version());
+                }
+                Ok(None) => {}
+                Err(e) if self.updates.manual => self.error = Some(e),
+                Err(_) => {}
+            }
+        }
+        if let Some(result) = self
+            .updates
+            .installing
+            .as_ref()
+            .and_then(|rx| match rx.try_recv() {
+                Ok(v) => Some(v),
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err("Update stopped".into())),
+                Err(_) => None,
+            })
+        {
+            self.updates.installing = None;
+            match result {
+                Ok(target) => {
+                    self.status = "Update installed".into();
+                    self.updates.installed = Some(target);
+                    self.updates.show = true;
+                }
+                Err(e) => {
+                    self.status = "Update failed".into();
+                    self.updates.show = false;
+                    self.error = Some(e);
+                }
+            }
+        }
+    }
+    /// Title-bar notice, shown once a newer release is known.
+    pub(crate) fn update_button(&mut self, ui: &mut egui::Ui) {
+        let label = match (&self.updates.available, &self.updates.installed) {
+            (_, Some(_)) => "Relaunch to update".to_string(),
+            (Some(r), None) => format!("Update to {}", r.version),
+            (None, None) => return,
+        };
+        if text_button(ui, &label, Face::Lit).clicked() {
+            self.updates.show = true;
+        }
+    }
+    pub(crate) fn update_dialog(&mut self, ctx: &egui::Context) {
+        if !self.updates.show {
+            return;
+        }
+        let Some(release) = self.updates.available.clone() else {
+            self.updates.show = false;
+            return;
+        };
+        egui::Modal::new(egui::Id::new("update")).show(ctx, |ui| {
+            ui.set_max_width(440.0);
+            let title = if self.updates.installed.is_some() {
+                format!("Ondera {} is installed", release.version)
+            } else {
+                format!("Ondera {} is available", release.version)
+            };
+            ui.label(text(title, FS_PANEL_TITLE, Weight::Bold, INK));
+            ui.add_space(6.0);
+            let body = if self.updates.installed.is_some() {
+                "Relaunch to start using it. Your session is saved first if it has changes."
+                    .to_string()
+            } else if self.updates.installing.is_some() {
+                format!("Downloading {}…", release.asset)
+            } else {
+                format!(
+                    "You have {}. The update downloads from GitHub, is verified, replaces this copy and relaunches.",
+                    current_version()
+                )
+            };
+            ui.label(text(body, FS_BODY, Weight::Medium, DIM));
+            let notes: Vec<&str> = release
+                .notes
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .take(8)
+                .collect();
+            if !notes.is_empty() && self.updates.installed.is_none() {
+                ui.add_space(8.0);
+                for line in notes {
+                    ui.label(text(line, FS_SECONDARY, Weight::Medium, INK_CONTROL));
+                }
+            }
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                if self.updates.installed.is_some() {
+                    if text_button(ui, "Relaunch now", Face::Lit).clicked() {
+                        self.updates.show = false;
+                        self.request(Intent::Relaunch);
+                    }
+                    if text_button(ui, "Later", Face::Raised).clicked() {
+                        self.updates.show = false;
+                    }
+                } else if self.updates.installing.is_none() {
+                    if text_button(ui, "Install and relaunch", Face::Lit).clicked() {
+                        self.install_update();
+                    }
+                    if text_button(ui, "Later", Face::Raised).clicked() {
+                        self.updates.show = false;
+                    }
+                }
+            });
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_compare_numerically() {
+        assert_eq!(parse_version("v1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("0.10"), Some((0, 10, 0)));
+        assert_eq!(parse_version("v1.2.3-beta.1"), Some((1, 2, 3)));
+        assert_eq!(parse_version("nightly"), None);
+        assert!(newer("v0.2.0", "0.1.9"));
+        assert!(newer("v0.10.0", "0.9.0"));
+        assert!(!newer("v0.1.0", "0.1.0"));
+        assert!(!newer("garbage", "0.1.0"));
+    }
+
+    #[test]
+    fn release_document_yields_this_platforms_asset() {
+        let json: Value = serde_json::json!({
+            "tag_name": "v0.2.0",
+            "body": "Notes",
+            "assets": [
+                {"name": "SHA256SUMS", "browser_download_url": "https://x/SHA256SUMS", "size": 300},
+                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://x/a.zip", "size": 10},
+            ]
+        });
+        let r = find(&json, "Ondera-macos-arm64.zip").unwrap().unwrap();
+        assert_eq!(r.version, "0.2.0");
+        assert_eq!(r.url, "https://x/a.zip");
+        assert_eq!(r.checksums_url.as_deref(), Some("https://x/SHA256SUMS"));
+        assert_eq!(r.notes, "Notes");
+        assert!(find(&json, "ondera-linux-x86_64").unwrap().is_none());
+        assert!(find(&serde_json::json!({}), "x").is_err());
+    }
+
+    #[test]
+    fn checksum_listing_is_parsed() {
+        let sums = format!(
+            "{}  Ondera-macos-arm64.zip\n{} *ondera-windows-x86_64.exe\n",
+            "a".repeat(64),
+            "B".repeat(64)
+        );
+        assert_eq!(
+            parse_checksum(&sums, "Ondera-macos-arm64.zip").as_deref(),
+            Some("a".repeat(64).as_str())
+        );
+        assert_eq!(
+            parse_checksum(&sums, "ondera-windows-x86_64.exe").as_deref(),
+            Some("b".repeat(64).as_str())
+        );
+        assert_eq!(parse_checksum(&sums, "other"), None);
+        assert_eq!(
+            parse_checksum(&format!("{}  other", "g".repeat(64)), "other"),
+            None
+        );
+        assert_eq!(
+            hex(&Sha256::digest(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn this_platform_has_a_release_asset() {
+        assert!(asset_name().is_some());
+    }
+}
