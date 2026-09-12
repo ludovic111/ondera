@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0f0f0e;font-family:Geist,system-ui,sans-serif;color:#ededea;-webkit-font-smoothing:antialiased}
+a{color:#ededea}a:hover{color:oklch(0.82 0.13 185)}
+*{box-sizing:border-box}
+input::placeholder{color:#77766f}
+</style>
+</helmet>
+
+<div style="display:flex;flex-direction:column;gap:48px;padding:48px;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:10px;align-items:baseline;font-size:12px;color:#8f8e88"><span style="font-family:'Geist Mono',monospace;font-size:10px;padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,.14);color:#ededea">v2</span>Arrangement window · 1600 × 1000 · Swiss / flat system, same anatomy</div>
+
+<!-- ============ WINDOW ============ -->
+<div style="width:1600px;height:1000px;display:flex;flex-direction:column;background:#191918;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 40px 100px rgba(0,0,0,.6);font-size:12px;line-height:1.3;position:relative">
+
+<!-- title bar -->
+<div style="height:30px;flex:none;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 14px;background:#1e1e1d;border-bottom:1px solid rgba(255,255,255,.08);color:#8f8e88;font-size:11.5px;font-weight:500">
+  <div style="display:flex;align-items:center;gap:22px">
+    <div style="display:flex;gap:7px"><span style="width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,.25)"></span><span style="width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,.25)"></span><span style="width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,.25)"></span></div>
+    <div style="display:flex;gap:16px"><span>File</span><span>Edit</span><span>Track</span><span>Mix</span><span>Agent</span><span>View</span><span>Help</span></div>
+  </div>
+  <div style="color:#ededea;font-weight:500;display:flex;gap:8px;align-items:center"><span style="width:6px;height:6px;background:#ededea"></span>Nightfall.ondera</div>
+  <div style="text-align:right;font-family:'Geist Mono',monospace;font-size:10.5px;color:#77766f">48 kHz · 24-bit · 128 smp</div>
+</div>
+
+<!-- transport -->
+<div style="height:56px;flex:none;display:flex;align-items:center;padding:0 16px;gap:16px;white-space:nowrap;background:#1e1e1d;border-bottom:1px solid rgba(255,255,255,.08);position:relative;z-index:3">
+  <div style="display:flex;gap:4px;flex:none">
+    <div title="Return" style="display:flex;align-items:center;justify-content:center;width:32px;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3"><svg width="12" height="10" viewBox="0 0 12 10"><rect x="0" y="0" width="2" height="10" fill="currentColor"></rect><path d="M11 0 L3 5 L11 10Z" fill="currentColor"></path></svg></div>
+    <div title="Rewind" style="display:flex;align-items:center;justify-content:center;width:32px;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3"><svg width="14" height="10" viewBox="0 0 14 10"><path d="M7 0 L0 5 L7 10Z M14 0 L7 5 L14 10Z" fill="currentColor"></path></svg></div>
+    <div title="Forward" style="display:flex;align-items:center;justify-content:center;width:32px;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3"><svg width="14" height="10" viewBox="0 0 14 10"><path d="M0 0 L7 5 L0 10Z M7 0 L14 5 L7 10Z" fill="currentColor"></path></svg></div>
+  </div>
+  <div style="display:flex;gap:4px;flex:none">
+    <div title="Play" style="display:flex;align-items:center;justify-content:center;width:44px;height:28px;border-radius:4px;background:#ededea;border:1px solid #ededea;color:#141413"><svg width="11" height="12" viewBox="0 0 11 12"><path d="M0 0 L11 6 L0 12Z" fill="currentColor"></path></svg></div>
+    <div title="Stop" style="display:flex;align-items:center;justify-content:center;width:32px;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3"><svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" fill="currentColor"></rect></svg></div>
+    <div title="Record" style="{{ recStyle }}"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="currentColor"></circle></svg></div>
+    <div title="Cycle" style="display:flex;align-items:center;justify-content:center;width:32px;height:28px;border-radius:4px;background:#ededea;border:1px solid #ededea;color:#141413"><svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6 a5 5 0 0 1 9 -3 M12 6 a5 5 0 0 1 -9 3"></path><path d="M11 0 v3 h-3 M3 12 v-3 h3"></path></svg></div>
+  </div>
+
+  <!-- time display -->
+  <div style="display:flex;align-items:stretch;height:36px;flex:none;border:1px solid rgba(255,255,255,.12);border-radius:4px;font-family:'Geist Mono',monospace;font-variant-numeric:tabular-nums;overflow:hidden">
+    <div style="display:flex;flex-direction:column;justify-content:center;padding:0 12px;border-right:1px solid rgba(255,255,255,.1);background:#141413">
+      <div style="font-size:9px;font-family:Geist,sans-serif;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase;line-height:1">Position</div>
+      <div style="font-size:18px;line-height:1.1;color:#ededea;display:flex;gap:5px;font-weight:500"><span>005</span><span style="color:#4d4c47">·</span><span>2</span><span style="color:#4d4c47">·</span><span>3</span><span style="color:#4d4c47">·</span><span style="color:#8f8e88">120</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;justify-content:center;padding:0 12px;border-right:1px solid rgba(255,255,255,.1)">
+      <div style="font-size:9px;font-family:Geist,sans-serif;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase;line-height:1">SMPTE</div>
+      <div style="font-size:18px;line-height:1.1;color:#b5b4ae">00:00:09:14</div>
+    </div>
+    <div style="display:flex;flex-direction:column;justify-content:center;padding:0 12px;border-right:1px solid rgba(255,255,255,.1)">
+      <div style="font-size:9px;font-family:Geist,sans-serif;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase;line-height:1">Tempo</div>
+      <div style="font-size:18px;line-height:1.1;color:#ededea">120.00</div>
+    </div>
+    <div style="display:flex;flex-direction:column;justify-content:center;padding:0 12px;border-right:1px solid rgba(255,255,255,.1)">
+      <div style="font-size:9px;font-family:Geist,sans-serif;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase;line-height:1">Sig</div>
+      <div style="font-size:18px;line-height:1.1;color:#ededea">4/4</div>
+    </div>
+    <div style="display:flex;flex-direction:column;justify-content:center;padding:0 12px">
+      <div style="font-size:9px;font-family:Geist,sans-serif;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase;line-height:1">Key</div>
+      <div style="font-size:18px;line-height:1.1;color:#ededea">C min</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:4px;flex:none">
+    <div style="display:flex;align-items:center;height:28px;padding:0 10px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3;font-weight:500;font-size:11.5px">Click</div>
+    <div style="display:flex;align-items:center;height:28px;padding:0 10px;border-radius:4px;background:#ededea;border:1px solid #ededea;color:#141413;font-weight:500;font-size:11.5px">Snap 1/16</div>
+  </div>
+
+  <!-- master + cpu -->
+  <div style="margin-left:auto;display:flex;align-items:center;gap:16px;flex:none">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="font-size:9px;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase">Master</div>
+      <div style="display:flex;flex-direction:column;gap:3px;width:120px">
+        <div style="height:5px;background:rgba(255,255,255,.08);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:{{ masterL }}%;background:#ededea"></div><div style="position:absolute;left:{{ masterLPk }}%;top:0;bottom:0;width:2px;background:oklch(0.82 0.13 185)"></div></div>
+        <div style="height:5px;background:rgba(255,255,255,.08);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:{{ masterR }}%;background:#ededea"></div><div style="position:absolute;left:{{ masterRPk }}%;top:0;bottom:0;width:2px;background:oklch(0.82 0.13 185)"></div></div>
+      </div>
+      <div style="font-family:'Geist Mono',monospace;font-size:11px;color:#8f8e88;font-variant-numeric:tabular-nums;width:34px">−3.2</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="font-size:9px;font-weight:500;letter-spacing:.1em;color:#77766f;text-transform:uppercase">CPU</div>
+      <div style="width:56px;height:5px;background:rgba(255,255,255,.08);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:34%;background:#ededea"></div></div>
+      <div style="font-family:'Geist Mono',monospace;font-size:11px;color:#8f8e88;font-variant-numeric:tabular-nums">34%</div>
+    </div>
+    <div onClick="{{ toggleAgent }}" style="{{ agentBtnStyle }}"><span style="width:7px;height:7px;border-radius:50%;background:oklch(0.82 0.13 185)"></span>Agent</div>
+  </div>
+</div>
+
+<!-- body -->
+<div style="flex:1;display:flex;min-height:0">
+
+  <!-- ===== LEFT: browser ===== -->
+  <div style="width:220px;flex:none;display:flex;flex-direction:column;background:#1e1e1d;border-right:1px solid rgba(255,255,255,.08)">
+    <div style="display:flex;padding:10px 10px 8px">
+      <div style="display:flex;flex:1;border:1px solid rgba(255,255,255,.12);border-radius:4px;overflow:hidden">
+        <div style="flex:1;text-align:center;padding:5px 0;font-size:10.5px;font-weight:500;color:#141413;background:#ededea">Instr</div>
+        <div style="flex:1;text-align:center;padding:5px 0;font-size:10.5px;font-weight:500;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)">Loops</div>
+        <div style="flex:1;text-align:center;padding:5px 0;font-size:10.5px;font-weight:500;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)">Plugins</div>
+        <div style="flex:1;text-align:center;padding:5px 0;font-size:10.5px;font-weight:500;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)">Files</div>
+      </div>
+    </div>
+    <div style="margin:0 10px 8px;height:28px;display:flex;align-items:center;gap:7px;padding:0 9px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#77766f;font-size:11.5px"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4.5" cy="4.5" r="3.5"></circle><path d="M7 7 L10 10"></path></svg>Search instruments</div>
+    <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:0 6px">
+      <sc-for list="{{ browser }}" as="grp" hint-placeholder-count="3">
+        <div style="padding:10px 8px 4px;font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f;display:flex;justify-content:space-between"><span>{{ grp.name }}</span><span style="font-family:'Geist Mono',monospace">{{ grp.count }}</span></div>
+        <sc-for list="{{ grp.items }}" as="it" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:9px;padding:5px 8px;border-radius:4px;color:#d8d7d3;font-size:11.5px;font-weight:500;background:{{ it.bg }}"><span style="width:8px;height:8px;border-radius:50%;background:{{ it.dot }}"></span>{{ it.name }}<span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">{{ it.meta }}</span></div>
+        </sc-for>
+      </sc-for>
+    </div>
+    <div style="padding:10px;border-top:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:8px;color:#8f8e88;font-size:11px">
+      <div style="display:flex;align-items:center;justify-content:center;width:26px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3"><svg width="8" height="9" viewBox="0 0 8 9"><path d="M0 0 L8 4.5 L0 9Z" fill="currentColor"></path></svg></div>
+      <span>Preview</span><span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10.5px;color:#77766f">E-Piano Mk I</span>
+    </div>
+  </div>
+
+  <!-- ===== CENTER ===== -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#191918">
+    <!-- arrangement toolbar -->
+    <div style="height:32px;flex:none;display:flex;align-items:center;gap:10px;padding:0 10px;background:#1e1e1d;border-bottom:1px solid rgba(255,255,255,.08)">
+      <div style="display:flex;border:1px solid rgba(255,255,255,.12);border-radius:4px;overflow:hidden">
+        <div style="width:28px;height:22px;display:flex;align-items:center;justify-content:center;background:#ededea;color:#141413"><svg width="9" height="12" viewBox="0 0 9 12"><path d="M0 0 L9 8 L5 8 L7 12 L5 12 L3 8.5 L0 11Z" fill="currentColor"></path></svg></div>
+        <div style="width:28px;height:22px;display:flex;align-items:center;justify-content:center;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 10 L2 7 L8 1 L10 3 L4 9Z"></path></svg></div>
+        <div style="width:28px;height:22px;display:flex;align-items:center;justify-content:center;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="3" cy="8" r="2"></circle><circle cx="8" cy="8" r="2"></circle><path d="M4.5 6.5 L9 0 M6.5 6.5 L2 0"></path></svg></div>
+        <div style="width:28px;height:22px;display:flex;align-items:center;justify-content:center;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 3 H10 M1 8 H10 M3 1 V10 M8 1 V10"></path></svg></div>
+      </div>
+      <div style="font-size:11px;color:#8f8e88;display:flex;gap:14px;margin-left:6px"><span><span style="color:#77766f">Grid</span> Bar</span><span><span style="color:#77766f">Cycle</span> 5 – 9</span></div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;color:#77766f;font-size:11px"><span>Zoom</span><div style="width:90px;height:2px;background:rgba(255,255,255,.14);position:relative"><div style="position:absolute;left:38px;top:-5px;width:2px;height:12px;background:#ededea"></div></div></div>
+    </div>
+
+    <!-- ruler -->
+    <div style="height:28px;flex:none;display:flex;position:relative;z-index:1">
+      <div style="width:184px;flex:none;background:#1e1e1d;border-right:1px solid rgba(255,255,255,.08);border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;padding:0 10px;gap:8px">
+        <div style="display:flex;align-items:center;justify-content:center;width:22px;height:20px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3;font-size:13px;line-height:1">+</div>
+        <span style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Tracks</span>
+      </div>
+      <div style="flex:1;position:relative;background:#1e1e1d;border-bottom:1px solid rgba(255,255,255,.08);overflow:hidden">
+        <div style="position:absolute;left:192px;width:192px;top:0;height:3px;background:#ededea"></div>
+        <sc-for list="{{ bars }}" as="bar" hint-placeholder-count="12">
+          <div style="position:absolute;top:0;bottom:0;left:{{ bar.left }}px;width:48px;border-left:1px solid rgba(255,255,255,.18);font-family:'Geist Mono',monospace;font-size:10px;color:#8f8e88;padding:8px 0 0 5px;background:repeating-linear-gradient(90deg,transparent 0 11px,rgba(255,255,255,.1) 11px 12px);background-size:48px 5px;background-position:0 100%;background-repeat:no-repeat">{{ bar.n }}</div>
+        </sc-for>
+        <div style="position:absolute;top:0;bottom:0;left:207px;width:1px;background:oklch(0.82 0.13 185)"></div>
+        <div style="position:absolute;left:207px;top:6px;padding:2px 6px;background:oklch(0.82 0.13 185);font-family:'Geist Mono',monospace;font-size:10px;font-weight:500;color:#0e2624;line-height:1.2">5.2.3</div>
+      </div>
+    </div>
+
+    <!-- tracks -->
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative">
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="8">
+        <div style="height:70px;flex:none;display:flex;position:relative">
+          <!-- header -->
+          <div style="width:184px;flex:none;position:relative;display:flex;flex-direction:column;justify-content:center;gap:7px;padding:0 10px 0 16px;background:{{ t.hdrBg }};border-right:1px solid rgba(255,255,255,.08);border-bottom:1px solid rgba(255,255,255,.08);z-index:1">
+            <div style="position:absolute;left:0;top:0;bottom:-1px;width:{{ t.stripW }}px;background:{{ t.stripColor }}"></div>
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:12px;font-weight:500;color:#ededea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">{{ t.name }}</span>
+              <span style="font-family:'Geist Mono',monospace;font-size:9px;color:#77766f;letter-spacing:.05em">{{ t.kindLabel }}</span>
+              <sc-if value="{{ t.agent }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:50%;background:oklch(0.82 0.13 185)"></span></sc-if>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="display:flex;gap:2px">
+                <div style="{{ t.mStyle }}">M</div>
+                <div style="{{ t.sStyle }}">S</div>
+                <div style="{{ t.rStyle }}"><svg width="7" height="7" viewBox="0 0 7 7"><circle cx="3.5" cy="3.5" r="3.5" fill="currentColor"></circle></svg></div>
+              </div>
+              <div style="flex:1;height:2px;background:rgba(255,255,255,.14);position:relative">
+                <div style="position:absolute;left:0;top:0;bottom:0;width:{{ t.volLeft }}px;background:rgba(255,255,255,.35)"></div>
+                <div style="position:absolute;left:{{ t.volLeft }}px;top:-5px;width:3px;height:12px;background:#ededea"></div>
+              </div>
+              <div style="position:relative;width:20px;height:20px;border-radius:50%;background:conic-gradient(from 225deg,{{ t.panArc }});display:flex;align-items:center;justify-content:center"><div style="width:14px;height:14px;border-radius:50%;background:{{ t.hdrBg }};position:relative"><div style="position:absolute;left:6px;top:0;width:2px;height:5px;background:#ededea;transform-origin:1px 7px;transform:rotate({{ t.panDeg }}deg)"></div></div></div>
+            </div>
+          </div>
+          <!-- lane -->
+          <div style="flex:1;position:relative;background:{{ t.laneBg }};border-bottom:1px solid rgba(255,255,255,.06);background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.09) 0 1px,transparent 1px 48px),repeating-linear-gradient(90deg,rgba(255,255,255,.03) 0 1px,transparent 1px 12px)">
+            <div style="position:absolute;left:192px;width:192px;top:0;bottom:0;background:rgba(255,255,255,.02)"></div>
+            <sc-for list="{{ t.clips }}" as="c" hint-placeholder-count="2">
+              <div style="position:absolute;top:6px;bottom:6px;left:{{ c.left }}px;width:{{ c.width }}px;border-radius:3px;overflow:hidden;background:{{ c.bg }};box-shadow:{{ c.ring }}">
+                <div style="height:15px;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:500;color:{{ c.fg }};white-space:nowrap;overflow:hidden;gap:6px">{{ c.name }}<sc-if value="{{ c.agent }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:9px;font-weight:500;color:oklch(0.82 0.13 185);letter-spacing:.04em">AGENT</span></sc-if></div>
+                <sc-if value="{{ c.isAudio }}" hint-placeholder-val="{{ false }}"><canvas data-wave="{{ c.wave }}" data-kind="{{ c.wk }}" data-color="{{ c.fg }}" style="position:absolute;left:0;top:15px;width:100%;height:43px;display:block"></canvas></sc-if>
+                <sc-for list="{{ c.notes }}" as="n" hint-placeholder-count="0"><span style="position:absolute;left:{{ n.l }}px;top:{{ n.t }}px;width:{{ n.w }}px;height:3px;background:{{ n.bg }}"></span></sc-for>
+              </div>
+            </sc-for>
+            <sc-if value="{{ t.agent }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:{{ agentChipLeft }}px;top:4px;display:flex;align-items:center;gap:6px;padding:3px 8px;background:#141413;border:1px solid oklch(0.82 0.13 185);border-radius:3px;font-size:10.5px;font-weight:500;color:#ededea;z-index:2;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:oklch(0.82 0.13 185)"></span>Agent · adding 7ths, bars 5–8</div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+      <div style="flex:1;background:#171716;display:flex"><div style="width:184px;background:#1b1b1a;border-right:1px solid rgba(255,255,255,.08)"></div></div>
+      <div style="position:absolute;top:0;bottom:0;left:391px;width:1px;background:oklch(0.82 0.13 185);z-index:3;pointer-events:none"></div>
+    </div>
+
+    <!-- ===== editor: piano roll ===== -->
+    <div style="height:300px;flex:none;display:flex;flex-direction:column;background:#1e1e1d;border-top:1px solid rgba(255,255,255,.12);z-index:2;position:relative">
+      <div style="height:32px;flex:none;display:flex;align-items:center;gap:12px;padding:0 10px;border-bottom:1px solid rgba(255,255,255,.08)">
+        <div style="display:flex;border:1px solid rgba(255,255,255,.12);border-radius:4px;overflow:hidden">
+          <div style="padding:4px 10px;font-size:10.5px;font-weight:500;color:#141413;background:#ededea">Piano Roll</div>
+          <div style="padding:4px 10px;font-size:10.5px;font-weight:500;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)">Score</div>
+          <div style="padding:4px 10px;font-size:10.5px;font-weight:500;color:#8f8e88;border-left:1px solid rgba(255,255,255,.1)">Step</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:500;color:#ededea"><span style="width:8px;height:8px;border-radius:50%;background:oklch(0.74 0.13 300)"></span>Bass verse<span style="font-weight:400;color:#77766f">· bars 5 – 12</span></div>
+        <div style="margin-left:auto;display:flex;gap:14px;font-size:11px;color:#8f8e88"><span><span style="color:#77766f">Quantize</span> 1/16</span><span><span style="color:#77766f">Velocity</span> 96</span><span><span style="color:#77766f">Scale</span> C minor</span></div>
+      </div>
+      <div style="flex:1;display:flex;min-height:0;position:relative">
+        <div style="width:56px;flex:none;display:flex;flex-direction:column;background:#1e1e1d;border-right:1px solid rgba(255,255,255,.12);position:relative;z-index:1">
+          <div style="height:18px;flex:none;border-bottom:1px solid rgba(255,255,255,.08)"></div>
+          <sc-for list="{{ keys }}" as="k" hint-placeholder-count="24">
+            <div style="height:10px;flex:none;display:flex;align-items:center;justify-content:flex-end;padding-right:5px;background:{{ k.bg }};border-bottom:1px solid rgba(0,0,0,.25);font-family:'Geist Mono',monospace;font-size:8.5px;color:{{ k.fg }}">{{ k.label }}</div>
+          </sc-for>
+        </div>
+        <div style="flex:1;position:relative;overflow:hidden;background:#191918">
+          <div style="height:18px;position:relative;background:#1e1e1d;border-bottom:1px solid rgba(255,255,255,.08)">
+            <sc-for list="{{ prBars }}" as="b" hint-placeholder-count="8"><div style="position:absolute;top:0;bottom:0;left:{{ b.left }}px;border-left:1px solid rgba(255,255,255,.18);padding:3px 0 0 5px;font-family:'Geist Mono',monospace;font-size:10px;color:#8f8e88">{{ b.n }}</div></sc-for>
+          </div>
+          <div style="position:absolute;left:0;right:0;top:18px;bottom:0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.1) 0 1px,transparent 1px 88px),repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 1px,transparent 1px 22px)"></div>
+          <sc-for list="{{ prRows }}" as="r" hint-placeholder-count="0"><div style="position:absolute;left:0;right:0;top:{{ r.top }}px;height:10px;background:{{ r.bg }}"></div></sc-for>
+          <sc-for list="{{ prNotes }}" as="n" hint-placeholder-count="0">
+            <div style="position:absolute;left:{{ n.l }}px;top:{{ n.t }}px;width:{{ n.w }}px;height:9px;border-radius:1px;background:oklch(0.74 0.13 300);overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:{{ n.vel }}px;background:rgba(0,0,0,.3)"></div></div>
+          </sc-for>
+          <div style="position:absolute;top:0;bottom:0;left:29px;width:1px;background:oklch(0.82 0.13 185);z-index:2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== INSPECTOR ===== -->
+  <div style="width:240px;flex:none;display:flex;flex-direction:column;background:#1e1e1d;border-left:1px solid rgba(255,255,255,.08);overflow:hidden">
+    <div style="padding:14px 14px 12px;display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <span style="width:10px;height:10px;border-radius:50%;background:oklch(0.74 0.13 300)"></span>
+      <span style="font-size:15px;font-weight:500;color:#ededea;letter-spacing:-.01em">Bass</span>
+      <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">MIDI · CH 2</span>
+    </div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Instrument</span><span style="color:#ededea;font-weight:500">Ondera Synth</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Input</span><span style="color:#ededea;font-weight:500">All MIDI</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Output</span><span style="color:#ededea;font-weight:500">Stereo Out</span></div>
+    </div>
+    <!-- EQ -->
+    <div style="padding:10px 14px 10px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Channel EQ</span><span style="font-family:'Geist Mono',monospace;font-size:9.5px;color:#8f8e88">4 bands</span></div>
+      <div style="height:74px;border-radius:3px;background:#141413;border:1px solid rgba(255,255,255,.08);position:relative;overflow:hidden">
+        <div style="position:absolute;inset:0;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 42px),linear-gradient(180deg,transparent 36px,rgba(255,255,255,.1) 36px,rgba(255,255,255,.1) 37px,transparent 37px)"></div>
+        <svg width="210" height="72" viewBox="0 0 210 72" style="position:absolute;inset:0">
+          <defs><linearGradient id="eqf2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.74 0.13 300)" stop-opacity=".3"></stop><stop offset="1" stop-color="oklch(0.74 0.13 300)" stop-opacity="0"></stop></linearGradient></defs>
+          <path d="M0 50 C30 50 40 20 70 24 S120 44 150 38 S190 26 210 28 L210 72 L0 72Z" fill="url(#eqf2)"></path>
+          <path d="M0 50 C30 50 40 20 70 24 S120 44 150 38 S190 26 210 28" fill="none" stroke="oklch(0.74 0.13 300)" stroke-width="1.5"></path>
+          <circle cx="70" cy="24" r="3" fill="#141413" stroke="#ededea" stroke-width="1.5"></circle><circle cx="150" cy="38" r="3" fill="#141413" stroke="#ededea" stroke-width="1.5"></circle>
+        </svg>
+      </div>
+    </div>
+    <!-- inserts -->
+    <div style="padding:10px 14px 10px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:3px">
+      <div style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f;margin-bottom:4px">Inserts</div>
+      <sc-for list="{{ inserts }}" as="ins" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;border-radius:3px;border:1px solid {{ ins.border }};font-size:11px;font-weight:500;color:{{ ins.fg }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ ins.led }}"></span>{{ ins.name }}<span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:9.5px;font-weight:400;color:#77766f">{{ ins.meta }}</span></div>
+      </sc-for>
+    </div>
+    <!-- sends -->
+    <div style="padding:10px 14px 10px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <div style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f;margin-bottom:8px">Sends</div>
+      <div style="display:flex;gap:8px">
+        <sc-for list="{{ sends }}" as="s" hint-placeholder-count="2">
+          <div style="flex:1;display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:3px;border:1px solid rgba(255,255,255,.1)">
+            <div style="position:relative;width:26px;height:26px;border-radius:50%;background:conic-gradient(from 225deg,{{ s.arc }});display:flex;align-items:center;justify-content:center"><div style="width:18px;height:18px;border-radius:50%;background:#1e1e1d"></div></div>
+            <div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:10.5px;font-weight:500;color:#ededea">{{ s.name }}</span><span style="font-family:'Geist Mono',monospace;font-size:9.5px;color:#77766f">{{ s.val }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <!-- fader -->
+    <div style="flex:1;padding:10px 14px 14px;display:flex;gap:14px;min-height:0">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Pan</div>
+        <div style="position:relative;width:36px;height:36px;border-radius:50%;background:conic-gradient(from 180deg,transparent 0 46%,#ededea 46% 50%,rgba(255,255,255,.14) 50% 100%);display:flex;align-items:center;justify-content:center"><div style="width:26px;height:26px;border-radius:50%;background:#1e1e1d"></div></div>
+        <div style="font-family:'Geist Mono',monospace;font-size:10px;color:#8f8e88">L 8</div>
+        <div style="margin-top:auto;font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Vol</div>
+        <div style="font-family:'Geist Mono',monospace;font-size:11px;color:#ededea;padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,.12)">−4.5</div>
+      </div>
+      <div style="flex:1;display:flex;justify-content:center;gap:16px;padding-top:6px">
+        <div style="position:relative;width:2px;height:150px;background:rgba(255,255,255,.14)">
+          <div style="position:absolute;left:0;top:46px;bottom:0;width:2px;background:rgba(255,255,255,.4)"></div>
+          <div style="position:absolute;left:-11px;top:46px;width:24px;height:4px;background:#ededea"></div>
+        </div>
+        <div style="display:flex;gap:3px;height:150px">
+          <div style="width:6px;height:100%;background:rgba(255,255,255,.08);position:relative"><div style="position:absolute;left:0;right:0;bottom:0;height:{{ chL }}%;background:#ededea"></div><div style="position:absolute;left:0;right:0;bottom:{{ chLPk }}%;height:2px;background:oklch(0.82 0.13 185)"></div></div>
+          <div style="width:6px;height:100%;background:rgba(255,255,255,.08);position:relative"><div style="position:absolute;left:0;right:0;bottom:0;height:{{ chR }}%;background:#ededea"></div><div style="position:absolute;left:0;right:0;bottom:{{ chRPk }}%;height:2px;background:oklch(0.82 0.13 185)"></div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:space-between;height:150px;font-family:'Geist Mono',monospace;font-size:8.5px;color:#77766f;padding:2px 0"><span>+6</span><span>0</span><span>−6</span><span>−12</span><span>−24</span><span>−∞</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== AGENT PANEL ===== -->
+  <sc-if value="{{ agentOpen }}" hint-placeholder-val="{{ true }}">
+  <div style="width:380px;flex:none;display:flex;flex-direction:column;background:#1b1b1a;border-left:1px solid rgba(255,255,255,.12)">
+    <div style="height:44px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <span style="width:8px;height:8px;border-radius:50%;background:oklch(0.82 0.13 185)"></span>
+      <span style="font-size:13px;font-weight:500;color:#ededea">Agent</span>
+      <span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">working · via MCP</span>
+      <div onClick="{{ toggleAgent }}" style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:24px;height:22px;border-radius:4px;border:1px solid rgba(255,255,255,.12);color:#d8d7d3;cursor:pointer"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1 L7 5 L3 9"></path></svg></div>
+    </div>
+
+    <!-- current action -->
+    <div style="margin:14px 14px 0;padding:14px 14px 12px;border-radius:4px;border:1px solid oklch(0.82 0.13 185);background:#141413;position:relative">
+      <div style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:oklch(0.82 0.13 185);margin-bottom:8px">Now</div>
+      <div style="font-size:14px;line-height:1.4;color:#ededea;font-weight:400;letter-spacing:-.005em;text-wrap:pretty">Thickening the Keys part in bars 5–8: adding a 7th to each chord and lowering velocities 8% so it sits under the vocal.</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+        <div style="flex:1;height:3px;background:rgba(255,255,255,.1);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.82 0.13 185)"></div></div>
+        <span style="font-family:'Geist Mono',monospace;font-size:10px;color:#8f8e88">18 / 29 notes</span>
+        <div style="display:flex;align-items:center;justify-content:center;height:22px;padding:0 9px;border-radius:3px;border:1px solid rgba(255,255,255,.14);color:#ededea;font-size:10.5px;font-weight:500">Stop</div>
+      </div>
+    </div>
+
+    <!-- log -->
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:16px 14px 0">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;padding:0 2px"><span style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Changes this session</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">{{ logCount }}</span></div>
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <sc-for list="{{ log }}" as="e" hint-placeholder-count="5">
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07);opacity:{{ e.op }}">
+            <div style="width:6px;height:6px;margin-top:5px;flex:none;border-radius:50%;background:{{ e.color }}"></div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+              <div style="font-size:12px;font-weight:500;color:#ededea;line-height:1.3;text-decoration:{{ e.deco }}">{{ e.title }}</div>
+              <div style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.detail }}</div>
+            </div>
+            <div onClick="{{ e.onRevert }}" style="{{ e.btnStyle }}">{{ e.btn }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- input -->
+    <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:flex-end;gap:8px;padding:6px 6px 6px 12px;border-radius:4px;border:1px solid rgba(255,255,255,.16);background:#141413">
+        <input value="{{ draft }}" onChange="{{ onDraft }}" placeholder="Ask the agent… e.g. “double the chorus and mute BGV”" style="flex:1;min-width:0;background:transparent;border:0;outline:0;color:#ededea;font-family:Geist,sans-serif;font-size:12.5px;padding:6px 0 8px"></input>
+        <div style="display:flex;align-items:center;justify-content:center;width:30px;height:28px;border-radius:3px;background:oklch(0.82 0.13 185);color:#0e2624"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5.5 10 V1 M1.5 5 L5.5 1 L9.5 5"></path></svg></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:9.5px;color:#77766f"><span>⌘↵ send · ⌘Z reverts last agent change</span><span>ondera-cli 0.9 · mcp</span></div>
+    </div>
+  </div>
+  </sc-if>
+  <sc-if value="{{ agentClosed }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ toggleAgent }}" style="width:32px;flex:none;display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:12px;background:#1b1b1a;border-left:1px solid rgba(255,255,255,.12);cursor:pointer">
+    <span style="width:8px;height:8px;border-radius:50%;background:oklch(0.82 0.13 185)"></span>
+    <span style="writing-mode:vertical-rl;font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#8f8e88">Agent · working</span>
+  </div>
+  </sc-if>
+</div>
+</div>
+</div>
+
+<!-- ============ SPEC SHEET ============ -->
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:10px;align-items:baseline;font-size:12px;color:#8f8e88"><span style="font-family:'Geist Mono',monospace;font-size:10px;padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,.14);color:#ededea">v2</span>Spec sheet · tokens, type, surface & state system</div>
+<div style="width:1600px;padding:40px 44px;display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:44px;background:#191918;border-radius:8px;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 40px 100px rgba(0,0,0,.6)">
+
+  <div style="display:flex;flex-direction:column;gap:22px">
+    <div style="font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Color tokens</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <sc-for list="{{ colorTokens }}" as="c" hint-placeholder-count="10">
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:40px;height:26px;border-radius:3px;flex:none;background:{{ c.v }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)"></span><span style="font-size:12px;font-weight:500;color:#ededea;width:130px">{{ c.n }}</span><span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#8f8e88;flex:1">{{ c.v }}</span><span style="font-size:10.5px;color:#77766f">{{ c.use }}</span></div>
+      </sc-for>
+    </div>
+    <div style="font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f;margin-top:6px">Track palette</div>
+    <div style="display:flex;gap:6px"><sc-for list="{{ trackColors }}" as="c" hint-placeholder-count="8"><div style="flex:1;display:flex;flex-direction:column;gap:5px"><span style="height:26px;border-radius:3px;background:{{ c.v }}"></span><span style="font-family:'Geist Mono',monospace;font-size:9px;color:#77766f">{{ c.h }}</span></div></sc-for></div>
+    <div style="font-size:11.5px;line-height:1.55;color:#8f8e88;text-wrap:pretty">Graphite stays warm-neutral (oklch hue 90, chroma 0.003). Surfaces are separated by 1 px hairlines at 8–12% white, never by shadows. Track colors share L 0.74 / C 0.13 so the palette reads as one family. Accent is reserved for playhead, record state and agent activity; the human's selection is always white.</div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:22px">
+    <div style="font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Type scale</div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'Geist Mono',monospace;font-size:18px;font-weight:500;color:#ededea;font-variant-numeric:tabular-nums;width:190px">005·2·3·120</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist Mono 18/500 · transport · tnum</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:15px;font-weight:500;color:#ededea;letter-spacing:-.01em;width:190px">Bass</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist 15/500 · panel title · −1% tracking</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:14px;font-weight:400;color:#ededea;width:190px">Thickening the Keys part</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist 14/400 · agent prose · lh 1.4</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:12px;font-weight:500;color:#ededea;width:190px">Lead Vox</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist 12/500 · track & list names</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:11px;font-weight:400;color:#8f8e88;width:190px">Output · Stereo Out</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist 11/400 · secondary UI</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f;width:190px">Channel EQ</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist 9/500 · caps label · +10% tracking</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#8f8e88;width:190px">−12.0 dB · 1/16 · 00:00:09:14</span><span style="font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">Geist Mono 10.5 · values, rulers, log</span></div>
+    </div>
+    <div style="font-size:11.5px;line-height:1.55;color:#8f8e88;text-wrap:pretty;margin-top:6px">Two families, three weights. Geist for what a human reads, Geist Mono for anything that counts, tabular so digits never jitter during playback. Hierarchy comes from size, weight and the three ink values, not from color.</div>
+    <div style="font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f;margin-top:6px">Grid</div>
+    <div style="font-size:11.5px;line-height:1.55;color:#8f8e88">4 px base · 70 px track rows · 48 px per bar at default zoom · panels 220 / 184 / 240 / 380 · radius 3 (clips, chips) · 4 (buttons, fields) · hairline 1 px</div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div style="font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#77766f">Surface & state system</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px">
+      <sc-for list="{{ materials }}" as="m" hint-placeholder-count="8">
+        <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:4px;border:1px solid rgba(255,255,255,.08)">
+          <div style="width:64px;height:48px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:3px;background:{{ m.stage }}"><div style="{{ m.sample }}">{{ m.sampleText }}</div></div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:12px;font-weight:500;color:#ededea">{{ m.name }}</div>
+            <div style="font-family:'Geist Mono',monospace;font-size:9.5px;line-height:1.5;color:#8f8e88;white-space:pre-wrap;word-break:break-word">{{ m.recipe }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="font-size:11.5px;line-height:1.55;color:#8f8e88;text-wrap:pretty">Three elevations only: field (#141413, sunk), surface (#1e1e1d, chrome), timeline (#191918). Interactive objects are outlined at rest and inverted to ink when active, so state is legible at any zoom and in any light. Accent never fills a large area; it outlines, ticks and dots.</div>
+  </div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;agentPanelOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Agent layer&quot;},&quot;recordArmed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Transport&quot;}}">
+class Component extends DCLogic {
+  state = { agentOpen: null, draft: '', reverted: {} };
+  componentDidMount() {
+    this.draw();
+    let n = 0; const tick = () => { this.draw(); if (++n < 40) this._t = setTimeout(tick, 150); };
+    this._t = setTimeout(tick, 50);
+    this._mo = new MutationObserver(() => this.draw()); this._mo.observe(document.body, { childList: true, subtree: true });
+  }
+  componentWillUnmount() { clearTimeout(this._t); if (this._mo) this._mo.disconnect(); }
+  componentDidUpdate() { this.draw(); }
+  draw() {
+    const dpr = window.devicePixelRatio || 1;
+    document.querySelectorAll('canvas[data-wave]').forEach(c => {
+      const w = c.clientWidth, h = c.clientHeight; if (!w || !h) return;
+      const W = Math.round(w * dpr), H = Math.round(h * dpr);
+      if (c.width === W && c.height === H && c.dataset.drawn === W + 'x' + H) return;
+      c.width = W; c.height = H; c.dataset.drawn = W + 'x' + H;
+      const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+      let s = parseInt(c.dataset.wave) * 7919 + 13; const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+      const mid = h / 2, drums = c.dataset.kind === 'drums';
+      ctx.fillStyle = c.dataset.color;
+      for (let x = 0; x < w; x++) {
+        const beat = (x % 12) / 12;
+        const env = drums ? (beat < 0.18 ? 1 - beat * 2 : 0.22 + 0.12 * Math.sin(x / 3)) : 0.42 + 0.3 * Math.sin(x / 41 + s % 7) + 0.14 * Math.sin(x / 9);
+        const a = Math.max(0.8, (rnd() * 0.55 + 0.45) * env * mid * 0.9);
+        ctx.fillRect(x, mid - a, 1, a * 2);
+      }
+    });
+  }
+  renderVals() {
+    const A = 'oklch(0.82 0.13 185)', INK = '#ededea';
+    const BAR = 48;
+    const OUT = 'border:1px solid rgba(255,255,255,.14);background:transparent;color:#d8d7d3';
+    const ON = `border:1px solid ${INK};background:${INK};color:#141413`;
+    const LIT = `border:1px solid ${A};background:${A};color:#0e2624`;
+    const small = 'display:flex;align-items:center;justify-content:center;width:20px;height:18px;border-radius:3px;font-size:9.5px;font-weight:500;';
+    const btn = (on, lit) => small + (on ? (lit ? LIT : ON) : OUT);
+    const recArmed = this.props.recordArmed ?? false;
+    const recStyle = 'display:flex;align-items:center;justify-content:center;width:32px;height:28px;border-radius:4px;' + (recArmed ? LIT : OUT);
+    const agentOpen = this.state.agentOpen ?? (this.props.agentPanelOpen ?? true);
+    const agentBtnStyle = 'display:flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:4px;font-weight:500;font-size:11.5px;cursor:pointer;' + (agentOpen ? ON : OUT);
+
+    let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const tint = (c, p) => `color-mix(in oklch, ${c} ${p}%, #1e1e1d)`;
+    const arc = (deg) => { const p = ((deg + 135) / 270) * 75; return `${INK} 0 ${p}%,rgba(255,255,255,.14) ${p}% 75%,transparent 75% 100%`; };
+    const T = [
+      { name: 'Drums', kind: 'audio', color: 'oklch(0.74 0.13 40)', vol: .78, pan: 0, clips: [{ s: 0, l: 12, name: 'Drums_take3', wave: 1, wk: 'drums' }] },
+      { name: 'Bass', kind: 'midi', color: 'oklch(0.74 0.13 300)', vol: .7, pan: -8, sel: true, clips: [{ s: 0, l: 4, name: 'Bass intro' }, { s: 4, l: 8, name: 'Bass verse', sel: true }] },
+      { name: 'Keys', kind: 'midi', color: 'oklch(0.74 0.13 250)', vol: .62, pan: 12, agent: true, clips: [{ s: 0, l: 4, name: 'Keys A' }, { s: 4, l: 4, name: 'Keys B', agent: true }, { s: 8, l: 4, name: 'Keys B' }] },
+      { name: 'Pad', kind: 'midi', color: 'oklch(0.74 0.13 330)', vol: .5, pan: 0, clips: [{ s: 4, l: 8, name: 'Pad swell' }] },
+      { name: 'Lead Vox', kind: 'audio', color: 'oklch(0.78 0.13 85)', vol: .82, pan: 0, arm: true, clips: [{ s: 4, l: 4, name: 'LV_v2_comp', wave: 2 }, { s: 8, l: 4, name: 'LV_v2_comp', wave: 3 }] },
+      { name: 'BGV', kind: 'audio', color: 'oklch(0.74 0.13 130)', vol: .55, pan: -30, mute: true, clips: [{ s: 8, l: 4, name: 'BGV stack', wave: 4 }] },
+      { name: 'Guitar', kind: 'audio', color: 'oklch(0.74 0.13 20)', vol: .66, pan: 35, clips: [{ s: 2, l: 6, name: 'Gtr DI', wave: 5 }, { s: 8, l: 3, name: 'Gtr DI', wave: 6 }] },
+      { name: 'Riser FX', kind: 'midi', color: 'oklch(0.76 0.13 60)', vol: .6, pan: 0, clips: [{ s: 7, l: 1, name: 'Riser' }] },
+    ];
+    const tracks = T.map(t => {
+      const hdrBg = t.sel ? '#292928' : (t.agent ? '#1f2322' : '#1e1e1d');
+      return {
+        ...t, hdrBg,
+        kindLabel: t.kind === 'audio' ? 'AUD' : 'MIDI',
+        stripW: t.agent ? 3 : 3, stripColor: t.agent ? A : t.color,
+        laneBg: t.sel ? '#1d1d1c' : (t.agent ? '#1a1d1c' : '#191918'),
+        mStyle: btn(t.mute), sStyle: btn(t.solo), rStyle: btn(t.arm, true),
+        volLeft: Math.round(t.vol * 58), panDeg: t.pan * 1.35, panArc: arc(t.pan * 1.35),
+        clips: t.clips.map(c => {
+          const width = c.l * BAR - 2, isAudio = t.kind === 'audio';
+          let notes = [];
+          if (!isAudio) {
+            const n = c.l * 5;
+            for (let i = 0; i < n; i++) {
+              const ag = c.agent && i % 3 === 0;
+              notes.push({ l: Math.round(4 + rnd() * (width - 14)), t: Math.round(19 + rnd() * 34), w: Math.round(4 + rnd() * 10), bg: ag ? A : t.color });
+            }
+          }
+          return { ...c, isAudio, width, left: c.s * BAR + 1, notes, fg: t.color,
+            bg: c.agent ? `color-mix(in oklch, ${A} 10%, ${tint(t.color, 18)})` : tint(t.color, 20),
+            ring: c.agent ? `inset 0 0 0 1px ${A}` : c.sel ? `inset 0 0 0 1.5px ${INK}` : `inset 0 0 0 1px color-mix(in oklch, ${t.color} 45%, transparent)` };
+        })
+      };
+    });
+    const bars = Array.from({ length: 12 }, (_, i) => ({ n: i + 1, left: i * BAR }));
+    const browser = [
+      { name: 'Ondera', items: [{ name: 'Ondera Synth', meta: '', dot: 'oklch(0.74 0.13 300)', bg: 'transparent' }, { name: 'E-Piano Mk I', meta: '', dot: 'oklch(0.74 0.13 250)', bg: 'rgba(255,255,255,.07)' }, { name: 'Drum Machine', meta: '', dot: 'oklch(0.74 0.13 40)', bg: 'transparent' }, { name: 'Sampler', meta: '', dot: 'oklch(0.78 0.13 85)', bg: 'transparent' }] },
+      { name: 'Installed', items: [{ name: 'Vital', meta: 'VST3', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Surge XT', meta: 'CLAP', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Dexed', meta: 'VST3', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Odin 2', meta: 'VST3', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Helm', meta: 'LV2', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }] },
+      { name: 'Recent', items: [{ name: 'Sub Bass 808', meta: 'preset', dot: 'oklch(0.74 0.13 300)', bg: 'transparent' }, { name: 'Glass Keys', meta: 'preset', dot: 'oklch(0.74 0.13 250)', bg: 'transparent' }, { name: 'Choir Pad', meta: 'preset', dot: 'oklch(0.74 0.13 330)', bg: 'transparent' }] },
+    ].map(g => ({ ...g, count: String(g.items.length).padStart(2, '0') }));
+    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const keys = [], prRows = [];
+    for (let i = 23; i >= 0; i--) {
+      const black = names[i % 12].includes('#'), oct = 2 + Math.floor(i / 12);
+      keys.push({ label: black ? '' : names[i % 12] + oct, bg: black ? '#1e1e1d' : '#ededea', fg: black ? '#77766f' : '#4d4c47' });
+      if (black) prRows.push({ top: 18 + (23 - i) * 10, bg: 'rgba(255,255,255,.03)' });
+    }
+    const prBars = Array.from({ length: 8 }, (_, i) => ({ n: i + 5, left: i * 88 }));
+    const roots = [0, 0, 8, 8, 5, 5, 7, 7], thirds = [3, 3, 4, 4, 3, 3, 4, 4], prNotes = [];
+    const B = 22, rowTop = r => 18 + (23 - r) * 10 + 0.5;
+    roots.forEach((r, b) => {
+      const x = b * 88;
+      [[0, 1.5, r, 20], [1.5, .5, r + 12, 14], [2, 1, r + 7, 18], [3, .75, r, 20], [3.5, .5, r + thirds[b], 12]].forEach(([st, len, row, vel]) => {
+        if (row < 24) prNotes.push({ l: Math.round(x + st * B) + 1, t: rowTop(row), w: Math.round(len * B) - 2, vel });
+      });
+    });
+    const inserts = [
+      { name: 'Ondera Comp', meta: '3.2 dB GR', border: 'rgba(255,255,255,.14)', fg: INK, led: INK },
+      { name: 'Tape Sat', meta: 'Drive 24%', border: 'rgba(255,255,255,.14)', fg: INK, led: INK },
+      { name: 'Chorus', meta: 'bypassed', border: 'rgba(255,255,255,.14)', fg: '#8f8e88', led: 'rgba(255,255,255,.18)' },
+      { name: 'Empty slot', meta: '', border: 'rgba(255,255,255,.06)', fg: '#77766f', led: 'transparent' },
+    ];
+    const sends = [{ name: 'A · Reverb', val: '−12.0 dB', arc: arc(-40) }, { name: 'B · Delay', val: '−∞ dB', arc: arc(-135) }];
+    const rev = this.state.reverted;
+    const LOG = [
+      { id: 1, title: 'Adding 7ths to Keys B, bars 5–8', detail: 'keys/clip:2 · 18 of 29 notes · in progress', color: A, live: true },
+      { id: 2, title: 'Quantized Keys B to 1/16, 62% strength', detail: 'ondera clip quantize keys:2 --grid 1/16 --strength .62', color: 'oklch(0.74 0.13 250)' },
+      { id: 3, title: 'Created send Keys → A · Reverb, −12 dB', detail: 'ondera send add keys --bus A --level -12', color: 'oklch(0.74 0.13 250)' },
+      { id: 4, title: 'Trimmed Guitar clip 1 end to bar 8', detail: 'ondera clip trim guitar:1 --end 8.1.1', color: 'oklch(0.74 0.13 20)' },
+      { id: 5, title: 'Renamed “Audio 5” to “Lead Vox”', detail: 'ondera track rename 5 "Lead Vox"', color: 'oklch(0.78 0.13 85)' },
+      { id: 6, title: 'Set project key to C minor', detail: 'ondera project set key Cm', color: 'rgba(255,255,255,.3)' },
+    ];
+    const revBtn = 'display:flex;align-items:center;justify-content:center;height:22px;padding:0 9px;border-radius:3px;font-size:10.5px;font-weight:500;cursor:pointer;flex:none;';
+    const log = LOG.map(e => {
+      const r = !!rev[e.id];
+      return { ...e, op: r ? .5 : 1, deco: r ? 'line-through' : 'none',
+        btn: e.live ? 'Stop' : (r ? 'Redo' : 'Revert'),
+        btnStyle: revBtn + (r ? ON : OUT),
+        onRevert: () => this.setState(s => ({ reverted: { ...s.reverted, [e.id]: !s.reverted[e.id] } })),
+      };
+    });
+    const colorTokens = [
+      { n: 'graphite-950', v: '#0f0f0e', use: 'desk' }, { n: 'graphite-900', v: '#141413', use: 'fields, wells' }, { n: 'graphite-800', v: '#191918', use: 'timeline' }, { n: 'graphite-700', v: '#1e1e1d', use: 'surface / chrome' }, { n: 'graphite-600', v: '#292928', use: 'selected row' },
+      { n: 'hairline', v: 'rgba(255,255,255,.10)', use: '1 px dividers' }, { n: 'ink-100', v: '#ededea', use: 'primary, active fill' }, { n: 'ink-300', v: '#8f8e88', use: 'secondary' }, { n: 'ink-500', v: '#77766f', use: 'labels, dim' },
+      { n: 'accent', v: 'oklch(0.82 0.13 185)', use: 'playhead · record · agent' },
+    ];
+    const trackColors = T.map(t => ({ v: t.color, h: t.color.match(/\d+\)$/)[0].replace(')', '°') }));
+    const S = 'display:flex;align-items:center;justify-content:center;width:34px;height:28px;border-radius:4px;font-size:11px;font-weight:500;';
+    const materials = [
+      { name: 'Button · rest', stage: '#1e1e1d', sampleText: 'M', sample: S + OUT, recipe: 'transparent fill\n1 px hairline 14% white\nink-100 label\nno shadow, no gradient' },
+      { name: 'Button · active', stage: '#1e1e1d', sampleText: 'M', sample: S + ON, recipe: 'fill ink-100 · label graphite-900\ninversion is the only state change\nsame box, same size' },
+      { name: 'Button · armed', stage: '#1e1e1d', sampleText: '●', sample: S + LIT, recipe: 'fill accent · label #0e2624\nused for record arm only\n(and the agent send key)' },
+      { name: 'Knob', stage: '#1e1e1d', sampleText: '', sample: `width:30px;height:30px;border-radius:50%;background:radial-gradient(circle,#1e1e1d 0 9.5px,transparent 10px),conic-gradient(from 225deg,${arc(-30)})`, recipe: 'conic arc, 270° sweep from 225°\nvalue ink-100 · remainder 14% white\ninner disc = parent surface\nno bevel; value is the ring' },
+      { name: 'Fader', stage: '#1e1e1d', sampleText: '', sample: 'width:44px;height:12px;background-image:linear-gradient(#ededea,#ededea),linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4)),linear-gradient(rgba(255,255,255,.14),rgba(255,255,255,.14));background-size:3px 12px,26px 2px,44px 2px;background-position:26px 0,0 5px,0 5px;background-repeat:no-repeat', recipe: 'rail 2 px 14% white\ntravelled 40% white\nthumb 3×12 ink-100 (h) · 24×4 (v)' },
+      { name: 'Field / well', stage: '#1e1e1d', sampleText: '−4.5', sample: 'padding:3px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.16);background:#141413;font-family:Geist Mono,monospace;font-size:11px;color:#ededea', recipe: 'fill graphite-900 (one step below surface)\n1 px hairline 16% white\nmono value, tnum' },
+      { name: 'Clip', stage: '#191918', sampleText: 'Bass', sample: 'width:50px;height:34px;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:500;color:oklch(0.74 0.13 300);background:color-mix(in oklch,oklch(0.74 0.13 300) 20%,#1e1e1d);box-shadow:inset 0 0 0 1px color-mix(in oklch,oklch(0.74 0.13 300) 45%,transparent)', recipe: 'fill mix(track 20%, surface)\ninset ring 1 px mix(track 45%)\nname + waveform + notes in track color\nselected: ring 1.5 px ink-100' },
+      { name: 'Meter', stage: '#1e1e1d', sampleText: '', sample: 'width:46px;height:5px;background:rgba(255,255,255,.08);background-image:linear-gradient(#ededea,#ededea),linear-gradient(oklch(0.82 0.13 185),oklch(0.82 0.13 185));background-size:30px 5px,2px 5px;background-position:0 0,38px 0;background-repeat:no-repeat', recipe: 'rail 8% white · level ink-100\npeak hold 2 px accent\nno segments, no bloom\nreads as a bar chart' },
+      { name: 'Floating chip', stage: 'linear-gradient(135deg,oklch(0.74 0.13 300),#191918)', sampleText: '5.2.3', sample: 'padding:2px 6px;background:oklch(0.82 0.13 185);font-family:Geist Mono,monospace;font-size:10px;font-weight:500;color:#0e2624', recipe: 'solid accent flag for the playhead\nsolid graphite-900 + accent outline for\nagent chips · no blur, no translucency' },
+      { name: 'Agent marking', stage: '#191918', sampleText: 'Keys B', sample: 'width:50px;height:34px;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:500;color:oklch(0.74 0.13 250);background:color-mix(in oklch,oklch(0.82 0.13 185) 10%,color-mix(in oklch,oklch(0.74 0.13 250) 18%,#1e1e1d));box-shadow:inset 0 0 0 1px oklch(0.82 0.13 185)', recipe: 'clip: ring 1 px accent + 10% accent tint\ntrack: 3 px accent strip replaces color strip\n+ dot after name · lane tinted 1 step\nhuman selection stays white' },
+    ];
+    const masterL = 72, masterR = 68, chL = 64, chR = 60;
+    return {
+      recStyle, agentBtnStyle, agentOpen, agentClosed: !agentOpen,
+      toggleAgent: () => this.setState({ agentOpen: !agentOpen }),
+      draft: this.state.draft, onDraft: e => this.setState({ draft: e.target.value }),
+      masterL, masterR, masterLPk: 84, masterRPk: 80, chL, chR, chLPk: 78, chRPk: 74,
+      browser, bars, tracks, agentChipLeft: 12 * BAR + 10,
+      keys, prRows, prBars, prNotes, inserts, sends, log, logCount: LOG.length + ' entries',
+      colorTokens, trackColors, materials,
+    };
+  }
+}
+</script>
+</body>
+</html>
