@@ -35,6 +35,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build --release --locked --workspace
+      - name: Complete song through MCP and CLI
+        run: python3 scripts/verify-song.py
+      - name: Song verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: Song-verification-${{ matrix.os }}
+          path: artifacts/song-verification/verification.json
       - name: Package macOS app
         if: runner.os == 'macOS'
         run: bash scripts/package-macos.sh

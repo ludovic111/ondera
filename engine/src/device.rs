@@ -27,6 +27,7 @@ pub struct Telemetry {
     pub position: AtomicU64,
     pub playing: AtomicBool,
     pub device_failed: AtomicBool,
+    pub input_overflow: AtomicBool,
     pub cpu: AtomicU32,
     pub late_callbacks: AtomicU64,
     pub voice_overflows: AtomicU64,
@@ -55,6 +56,12 @@ pub enum Message {
         pitch: u8,
         velocity: u8,
     },
+    RoutedNote {
+        route: usize,
+        on: bool,
+        pitch: u8,
+        velocity: u8,
+    },
     Select(Option<usize>),
     Mount(u32, Box<dyn Processor>),
     Unmount(u32),
@@ -72,12 +79,17 @@ pub enum Retired {
 #[derive(Clone)]
 pub struct Sender(Arc<Mutex<Producer<Message>>>);
 impl Sender {
+    pub fn try_send(&self, message: Message) -> std::result::Result<(), Message> {
+        match self.0.lock() {
+            Ok(mut queue) => queue
+                .push(message)
+                .map_err(|rtrb::PushError::Full(message)| message),
+            Err(_) => Err(message),
+        }
+    }
     pub fn send(&self, message: Message) -> Result<()> {
-        self.0
-            .lock()
-            .map_err(|_| "Audio command queue poisoned".to_string())?
-            .push(message)
-            .map_err(|_| "Audio command queue is full; wait and retry".to_string())
+        self.try_send(message)
+            .map_err(|_| "Audio command queue is full or unavailable; wait and retry".to_string())
     }
 }
 pub struct DeviceEngine {
@@ -147,7 +159,9 @@ impl DeviceEngine {
         let name = device.name().unwrap_or_else(|_| "Default output".into());
         let renderer = Box::new(renderer(sample_rate)?);
         let (commands, input) = RingBuffer::new(256);
-        let (garbage, retired) = RingBuffer::new(256);
+        // Leave room for every live processor during device teardown, plus
+        // objects already retired by queued graph changes.
+        let (garbage, retired) = RingBuffer::new(RACK_SLOTS * 2 + 256);
         let telemetry = Arc::new(Telemetry::default());
         let rt = Callback {
             renderer,
@@ -195,6 +209,9 @@ impl DeviceEngine {
     pub fn send(&mut self, msg: Message) -> Result<()> {
         self.commands.send(msg)
     }
+    pub fn try_send(&mut self, msg: Message) -> std::result::Result<(), Message> {
+        self.commands.try_send(msg)
+    }
 }
 impl Drop for DeviceEngine {
     /// Stop the stream and wait for its worker so plugin processors it still
@@ -216,14 +233,26 @@ struct Callback {
 }
 impl Callback {
     fn commands(&mut self) {
+        let panic = self.telemetry.input_overflow.swap(false, Ordering::AcqRel);
         // Bound work per callback; never destroy an old graph or plugin on this thread.
-        for _ in 0..64 {
+        for _ in 0..if panic { 256 } else { 64 } {
             if self.garbage.slots() < 2 {
                 break;
             }
             let Ok(message) = self.input.pop() else {
                 break;
             };
+            if panic
+                && matches!(
+                    message,
+                    Message::Note { .. }
+                        | Message::RoutedNote { .. }
+                        | Message::Preview(..)
+                        | Message::Start(..)
+                )
+            {
+                continue;
+            }
             match message {
                 Message::Replace(mut new) => {
                     new.adopt(&self.renderer);
@@ -245,6 +274,12 @@ impl Callback {
                     pitch,
                     velocity,
                 } => self.renderer.note(track, on, pitch, velocity),
+                Message::RoutedNote {
+                    route,
+                    on,
+                    pitch,
+                    velocity,
+                } => self.renderer.routed_note(route, on, pitch, velocity),
                 Message::Select(track) => self.renderer.set_selected(track),
                 Message::Mount(slot, processor) => {
                     if let Some(old) = self.rack.mount(slot, processor) {
@@ -271,12 +306,17 @@ impl Callback {
                 Message::SetRecording(on) => self.renderer.recording = on,
             }
         }
+        if panic {
+            self.renderer.stop();
+            if !self.input.is_empty() {
+                self.telemetry.input_overflow.store(true, Ordering::Release);
+            }
+        }
     }
 }
 impl Drop for Callback {
     fn drop(&mut self) {
-        for mut processor in self.rack.drain() {
-            processor.stop();
+        for processor in self.rack.drain() {
             let _ = self.garbage.push(Retired::Processor(u32::MAX, processor));
         }
     }
@@ -356,39 +396,81 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 }
 
 /// Sendable control handle; the platform stream never leaves its owning worker.
+#[derive(Debug)]
+pub struct RecordedAudio {
+    pub buffer: AudioBuffer,
+    /// Successfully captured samples are retained when capture is interrupted.
+    pub warning: Option<String>,
+    pub recovery_path: Option<std::path::PathBuf>,
+}
+impl RecordedAudio {
+    /// Preserve source audio independently of project placement or saving.
+    pub fn preserve(&mut self, path: &std::path::Path) -> Result<()> {
+        preserve_recording(&self.buffer, path)?;
+        self.recovery_path = Some(path.into());
+        Ok(())
+    }
+}
+pub fn preserve_recording(buffer: &AudioBuffer, path: &std::path::Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    crate::document::atomic_write(path, |file| {
+        let mut writer = hound::WavWriter::new(
+            std::io::BufWriter::new(file),
+            hound::WavSpec {
+                channels: 2,
+                sample_rate: buffer.sample_rate,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        for sample in buffer.frames.iter().flatten() {
+            writer.write_sample(*sample).map_err(|e| e.to_string())?;
+        }
+        writer.finalize().map_err(|e| e.to_string())
+    })
+}
 pub struct Recorder {
     stop: Option<std::sync::mpsc::Sender<()>>,
-    result: std::sync::mpsc::Receiver<Result<AudioBuffer>>,
+    result: std::sync::mpsc::Receiver<Result<RecordedAudio>>,
     pub failed: Arc<AtomicBool>,
     pub first_beat: Arc<AtomicU64>,
 }
 impl Recorder {
-    pub fn start(telemetry: Arc<Telemetry>, input: Option<String>) -> Result<Self> {
+    pub fn start(
+        telemetry: Arc<Telemetry>,
+        input: Option<String>,
+        byte_limit: usize,
+    ) -> Result<Self> {
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
-        std::thread::spawn(move || match LocalRecorder::start(telemetry, input) {
-            Ok(local) => {
-                let (stop_tx, stop_rx) = std::sync::mpsc::channel();
-                let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-                let handle = Self {
-                    stop: Some(stop_tx),
-                    result: result_rx,
-                    failed: local.failed.clone(),
-                    first_beat: local.first_beat.clone(),
-                };
-                if ready_tx.send(Ok(handle)).is_ok() {
-                    let _ = stop_rx.recv();
+        std::thread::spawn(
+            move || match LocalRecorder::start(telemetry, input, byte_limit) {
+                Ok(local) => {
+                    let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+                    let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+                    let handle = Self {
+                        stop: Some(stop_tx),
+                        result: result_rx,
+                        failed: local.failed.clone(),
+                        first_beat: local.first_beat.clone(),
+                    };
+                    if ready_tx.send(Ok(handle)).is_ok() {
+                        let _ = stop_rx.recv();
+                    }
+                    let _ = result_tx.send(local.finish());
                 }
-                let _ = result_tx.send(local.finish());
-            }
-            Err(error) => {
-                let _ = ready_tx.send(Err(error));
-            }
-        });
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                }
+            },
+        );
         ready_rx
             .recv()
             .map_err(|_| "Microphone worker stopped".to_string())?
     }
-    pub fn finish(mut self) -> Result<AudioBuffer> {
+    pub fn finish(mut self) -> Result<RecordedAudio> {
         self.stop.take();
         self.result
             .recv_timeout(std::time::Duration::from_secs(10))
@@ -399,11 +481,15 @@ struct LocalRecorder {
     stream: Option<Stream>,
     stop: Arc<AtomicBool>,
     pub failed: Arc<AtomicBool>,
-    join: Option<JoinHandle<Result<AudioBuffer>>>,
+    join: Option<JoinHandle<Result<RecordedAudio>>>,
     pub first_beat: Arc<AtomicU64>,
 }
 impl LocalRecorder {
-    pub fn start(telemetry: Arc<Telemetry>, input: Option<String>) -> Result<Self> {
+    pub fn start(
+        telemetry: Arc<Telemetry>,
+        input: Option<String>,
+        byte_limit: usize,
+    ) -> Result<Self> {
         let host = cpal::default_host();
         let device = match &input {
             Some(wanted) => host
@@ -418,7 +504,13 @@ impl LocalRecorder {
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let config = supported.config();
         let rate = config.sample_rate.0;
-        let (producer, mut consumer) = RingBuffer::<[f32; 2]>::new(rate as usize * 2);
+        let peak_chunk = (rate / 400).max(1) as usize;
+        let maximum_frames =
+            (byte_limit / (8 * peak_chunk + 4) * peak_chunk).min(crate::audio::MAX_AUDIO_BYTES / 8);
+        if maximum_frames == 0 {
+            return Err("No decoded-audio capacity remains for a recording".into());
+        }
+        let (producer, consumer) = RingBuffer::<[f32; 2]>::new(rate as usize * 2);
         let stop = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
         let first_beat = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
@@ -441,26 +533,7 @@ impl LocalRecorder {
         let worker_stop = stop.clone();
         let worker_failed = failed.clone();
         let join = std::thread::spawn(move || {
-            let mut frames = Vec::new();
-            loop {
-                while let Ok(frame) = consumer.pop() {
-                    if frames.len() >= crate::audio::MAX_AUDIO_BYTES / 8 {
-                        worker_failed.store(true, Ordering::Relaxed);
-                        return Err("Take reached the 512 MiB recording limit".into());
-                    }
-                    frames.push(frame);
-                }
-                if worker_stop.load(Ordering::Acquire) && consumer.is_empty() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-            if worker_failed.load(Ordering::Relaxed) {
-                return Err(
-                    "Recording interrupted: input disconnected or recording buffer overrun".into(),
-                );
-            }
-            AudioBuffer::new(rate, frames)
+            collect_recording(consumer, &worker_stop, &worker_failed, rate, maximum_frames)
         });
         Ok(Self {
             stream: Some(stream),
@@ -470,7 +543,7 @@ impl LocalRecorder {
             first_beat,
         })
     }
-    pub fn finish(mut self) -> Result<AudioBuffer> {
+    pub fn finish(mut self) -> Result<RecordedAudio> {
         self.stream.take();
         self.stop.store(true, Ordering::Release);
         self.join
@@ -479,6 +552,41 @@ impl LocalRecorder {
             .join()
             .map_err(|_| "Recording worker failed")?
     }
+}
+fn collect_recording(
+    mut consumer: Consumer<[f32; 2]>,
+    stop: &AtomicBool,
+    failed: &AtomicBool,
+    rate: u32,
+    maximum_frames: usize,
+) -> Result<RecordedAudio> {
+    let mut frames = Vec::new();
+    let mut warning = None;
+    'capture: loop {
+        while let Ok(frame) = consumer.pop() {
+            if frames.len() >= maximum_frames {
+                failed.store(true, Ordering::Relaxed);
+                warning = Some("Recording reached its memory limit. The partial take was recovered; save it before continuing.".into());
+                break 'capture;
+            }
+            frames.push(frame);
+        }
+        if (stop.load(Ordering::Acquire) || failed.load(Ordering::Relaxed)) && consumer.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    if failed.load(Ordering::Relaxed) && warning.is_none() {
+        warning = Some("Recording was interrupted by an input disconnect or buffer overrun. The partial take was recovered; save it before continuing.".into());
+    }
+    if frames.is_empty() {
+        return Err("Recording ended before any audio was captured".into());
+    }
+    Ok(RecordedAudio {
+        buffer: AudioBuffer::new(rate, frames)?,
+        warning,
+        recovery_path: None,
+    })
 }
 impl Drop for LocalRecorder {
     fn drop(&mut self) {
@@ -513,6 +621,11 @@ where
         .build_input_stream(
             config,
             move |data: &[T], _| {
+                // Once interrupted, retain one contiguous prefix instead of
+                // concatenating audio across an unreported gap in the take.
+                if capture.failed.load(Ordering::Relaxed) {
+                    return;
+                }
                 if capture.first {
                     capture.first_beat.store(
                         capture.telemetry.position.load(Ordering::Relaxed),
@@ -527,6 +640,7 @@ where
                     );
                     if capture.producer.push([l, r]).is_err() {
                         capture.failed.store(true, Ordering::Relaxed);
+                        break;
                     }
                 }
             },
@@ -536,4 +650,129 @@ where
             None,
         )
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+
+    #[test]
+    fn raw_recording_backup_roundtrips_and_write_failure_preserves_the_buffer() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("recordings/take.wav");
+        let mut take = RecordedAudio {
+            buffer: AudioBuffer::new(48000, vec![[0.125, -0.75]; 100]).unwrap(),
+            warning: None,
+            recovery_path: None,
+        };
+        take.preserve(&path).unwrap();
+        let decoded = crate::audio::decode(std::fs::read(&path).unwrap(), Some("wav")).unwrap();
+        assert_eq!(decoded.frames, take.buffer.frames);
+        assert_eq!(take.recovery_path.as_ref(), Some(&path));
+        assert!(take.preserve(&path.join("impossible.wav")).is_err());
+        assert_eq!(take.buffer.frames, vec![[0.125, -0.75]; 100]);
+    }
+
+    #[test]
+    fn input_queue_overflow_discards_pending_attacks_and_stops_transport() {
+        let (mut producer, input) = RingBuffer::new(4);
+        let (garbage, _retired) = RingBuffer::new(8);
+        producer.push(Message::Start(0.0)).ok().unwrap();
+        producer
+            .push(Message::Note {
+                track: 0,
+                on: true,
+                pitch: 60,
+                velocity: 100,
+            })
+            .ok()
+            .unwrap();
+        let telemetry = Arc::new(Telemetry::default());
+        telemetry.input_overflow.store(true, Ordering::Release);
+        let mut callback = Callback {
+            renderer: Box::new(
+                Renderer::new(
+                    crate::store::empty(),
+                    &crate::audio::Library::new(),
+                    48000,
+                    &std::collections::HashMap::new(),
+                )
+                .unwrap(),
+            ),
+            rack: Rack::new(1),
+            input,
+            garbage,
+            telemetry,
+            scratch: vec![[0.0; 2]; MAX_BLOCK],
+        };
+        callback.commands();
+        assert!(!callback.renderer.playing);
+        assert!(callback.input.is_empty());
+        assert!(!callback.telemetry.input_overflow.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn interrupted_capture_preserves_every_completed_sample_and_reports_the_partial_take() {
+        let (mut producer, consumer) = RingBuffer::new(16);
+        let frames = [[0.1, -0.2], [0.3, -0.4], [0.5, -0.6]];
+        for frame in frames {
+            producer.push(frame).unwrap();
+        }
+        let captured = collect_recording(
+            consumer,
+            &AtomicBool::new(false),
+            &AtomicBool::new(true),
+            48000,
+            16,
+        )
+        .unwrap();
+        assert_eq!(captured.buffer.frames, frames);
+        assert!(captured
+            .warning
+            .unwrap()
+            .contains("partial take was recovered"));
+    }
+
+    #[test]
+    fn memory_limit_preserves_the_contiguous_prefix_instead_of_discarding_the_take() {
+        let (mut producer, consumer) = RingBuffer::new(16);
+        for i in 0..8 {
+            producer.push([i as f32; 2]).unwrap();
+        }
+        let failed = AtomicBool::new(false);
+        let captured =
+            collect_recording(consumer, &AtomicBool::new(true), &failed, 48000, 4).unwrap();
+        assert_eq!(
+            captured.buffer.frames,
+            vec![[0.0; 2], [1.0; 2], [2.0; 2], [3.0; 2]]
+        );
+        assert!(failed.load(Ordering::Relaxed));
+        assert!(captured.warning.unwrap().contains("memory limit"));
+    }
+
+    #[test]
+    fn successful_capture_is_complete_and_empty_capture_reports_no_audio() {
+        let (mut producer, consumer) = RingBuffer::new(16);
+        producer.push([0.25; 2]).unwrap();
+        let captured = collect_recording(
+            consumer,
+            &AtomicBool::new(true),
+            &AtomicBool::new(false),
+            48000,
+            16,
+        )
+        .unwrap();
+        assert_eq!(captured.buffer.frames, vec![[0.25; 2]]);
+        assert!(captured.warning.is_none());
+        let (_, consumer) = RingBuffer::new(16);
+        assert!(collect_recording(
+            consumer,
+            &AtomicBool::new(true),
+            &AtomicBool::new(true),
+            48000,
+            16
+        )
+        .unwrap_err()
+        .contains("before any audio"));
+    }
 }

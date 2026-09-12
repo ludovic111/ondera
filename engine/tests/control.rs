@@ -23,7 +23,7 @@ fn fail(host: &mut dyn Host, name: &str, params: Value) -> String {
 #[test]
 fn registry_is_unique_introspectable_and_mcp_safe() {
     let mut names = HashSet::new();
-    for spec in COMMANDS {
+    for spec in COMMANDS.iter() {
         assert!(names.insert(spec.name), "duplicate {}", spec.name);
         let (family, action) = spec.name.split_once('.').expect("family.action");
         assert!(!family.is_empty() && !action.is_empty() && !action.contains('.'));
@@ -58,9 +58,110 @@ fn registry_is_unique_introspectable_and_mcp_safe() {
 }
 
 #[test]
+fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
+    let mut host = Headless::new();
+    let catalog = call(&mut host, "session.catalog", json!({}));
+    assert_eq!(catalog["plugins"].as_array().unwrap().len(), 24);
+    assert!(catalog["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|plugin| plugin["format"] == "stock"));
+    assert!(
+        serde_json::to_vec(&catalog).unwrap().len() < 12000,
+        "a stock sound lookup must not dump installed third-party libraries"
+    );
+    let first = call(
+        &mut host,
+        "plugin.list",
+        json!({"format":"stock","kind":"instrument","limit":3}),
+    );
+    assert_eq!(first["total"], 8);
+    assert_eq!(first["plugins"].as_array().unwrap().len(), 3);
+    assert_eq!(first["nextOffset"], 3);
+    let last = call(
+        &mut host,
+        "plugin.list",
+        json!({"format":"stock","kind":"instrument","limit":3,"offset":6}),
+    );
+    assert_eq!(last["plugins"].as_array().unwrap().len(), 2);
+    assert!(last["nextOffset"].is_null());
+    let found = call(
+        &mut host,
+        "plugin.list",
+        json!({"format":"stock","query":"PIANO"}),
+    );
+    assert_eq!(found["total"], 1);
+    assert_eq!(found["plugins"][0]["id"], "stock:E-Piano Mk I");
+    for params in [
+        json!({"limit":0}),
+        json!({"limit":201}),
+        json!({"offset":-1}),
+        json!({"format":"aax"}),
+        json!({"kind":"random"}),
+    ] {
+        assert!(!fail(&mut host, "plugin.list", params).is_empty());
+    }
+}
+
+#[test]
+fn compact_session_inspection_excludes_plugin_payloads_and_only_expands_notes_on_request() {
+    let mut host = Headless::new();
+    let track = host
+        .store
+        .session()
+        .tracks
+        .iter()
+        .find(|track| track.kind == "midi")
+        .unwrap()
+        .id
+        .clone();
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":1,"notes":[{"start":0,"length":1,"pitch":60}]}),
+    );
+    call(
+        &mut host,
+        "strip.setPlugin",
+        json!({"trackId":track,"slot":0,"pluginId":"stock:Utility"}),
+    );
+    host.store
+        .amend(|session| {
+            session.strips.get_mut(&track).unwrap().inserts[0].blob = "YWJj".repeat(100000)
+        })
+        .unwrap();
+    let summary = call(&mut host, "session.inspect", json!({}));
+    assert_eq!(summary["clips"][0]["noteCount"], 1);
+    assert!(summary["clips"][0].get("data").is_none());
+    assert_eq!(
+        summary["strips"][&track]["inserts"][0]["hasSavedState"],
+        true
+    );
+    assert!(summary["strips"][&track]["inserts"][0]
+        .get("blob")
+        .is_none());
+    assert!(serde_json::to_vec(&summary).unwrap().len() < 20000);
+    let expanded = call(&mut host, "session.inspect", json!({"includeNotes":true}));
+    assert_eq!(expanded["clips"][0]["data"]["notes"][0]["pitch"], 60);
+    let complete = call(&mut host, "session.get", json!({}));
+    assert_eq!(
+        complete["strips"][&track]["inserts"][0]["blob"]
+            .as_str()
+            .unwrap()
+            .len(),
+        400000
+    );
+}
+
+#[test]
 fn every_registered_command_is_implemented() {
     let mut host = Headless::new();
-    for spec in COMMANDS {
+    for spec in COMMANDS.iter() {
+        // Scanner tests use isolated fixtures; never probe the user's installed plugins here.
+        if spec.name == "plugin.scan" {
+            continue;
+        }
         let err = control::call(&mut host, spec.name, &json!({}), false).err();
         assert!(
             err.as_deref()
@@ -346,4 +447,191 @@ fn live_socket_serves_commands_in_order_with_auth() {
         "dropping the server removes its discovery file"
     );
     assert!(wire::Client::connect_at(&discovery).is_err());
+}
+
+#[test]
+fn plugin_routing_parameters_state_and_master_round_trip() {
+    let mut host = Headless::new();
+    let track = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    call(
+        &mut host,
+        "track.setArmed",
+        json!({"trackId":track,"armed":true}),
+    );
+    call(
+        &mut host,
+        "strip.setPlugin",
+        json!({"trackId":track,"pluginId":"stock:Glass Keys"}),
+    );
+    call(
+        &mut host,
+        "strip.setPlugin",
+        json!({"trackId":track,"slot":7,"pluginId":"stock:Space"}),
+    );
+    let metadata = call(
+        &mut host,
+        "strip.parameters",
+        json!({"trackId":track,"slot":7}),
+    );
+    let parameter = metadata["parameters"][0].clone();
+    let value = parameter["min"].as_f64().unwrap();
+    call(
+        &mut host,
+        "strip.setParameter",
+        json!({"trackId":track,"slot":7,"parameterId":parameter["id"],"value":value}),
+    );
+    let state = call(
+        &mut host,
+        "strip.getState",
+        json!({"trackId":track,"slot":7}),
+    );
+    assert_eq!(state["params"][parameter["id"].to_string()], value);
+    let revision = host.store.revision;
+    assert!(fail(&mut host, "strip.setParameter", json!({"trackId":track,"slot":7,"parameterId":parameter["id"],"value":parameter["max"].as_f64().unwrap()+1.0})).contains("between"));
+    assert_eq!(host.store.revision, revision);
+    call(
+        &mut host,
+        "strip.setBypass",
+        json!({"trackId":track,"slot":7,"bypassed":true}),
+    );
+    let bypassed = call(
+        &mut host,
+        "strip.getState",
+        json!({"trackId":track,"slot":7}),
+    );
+    assert_eq!(bypassed["id"], state["id"]);
+    assert_eq!(bypassed["params"], state["params"]);
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(
+        call(
+            &mut host,
+            "strip.getState",
+            json!({"trackId":track,"slot":7})
+        )["state"],
+        "active"
+    );
+    for bus in ["master", "bus-a", "bus-b"] {
+        call(
+            &mut host,
+            "strip.setInsert",
+            json!({"trackId":bus,"slot":7,"effect":"Space"}),
+        );
+        assert_eq!(
+            call(&mut host, "strip.get", json!({"trackId":bus}))["inserts"][7]["pluginId"],
+            "stock:Space"
+        );
+        assert!(fail(
+            &mut host,
+            "strip.setSendLevel",
+            json!({"trackId":bus,"send":0,"levelDb":-6})
+        )
+        .contains("feedback"));
+    }
+    call(&mut host, "master.setVolume", json!({"volume":0.5}));
+    assert_eq!(host.store.session().master_volume, 0.5);
+    call(
+        &mut host,
+        "strip.setInstrument",
+        json!({"trackId":track,"instrument":"Ondera Synth"}),
+    );
+    assert!(host.store.session().strips[track.as_str().unwrap()]
+        .synth
+        .is_none());
+    let mut instance = ondera_engine::host::instantiate("stock:Space", "Space", 48000).unwrap();
+    let blob = ondera_engine::host::encode_blob(&instance.editor.save().unwrap());
+    call(
+        &mut host,
+        "strip.setState",
+        json!({"trackId":track,"slot":7,"blob":blob}),
+    );
+    let saved = call(
+        &mut host,
+        "strip.getState",
+        json!({"trackId":track,"slot":7}),
+    );
+    assert_eq!(saved["blob"], blob);
+    assert!(saved.get("params").is_none());
+    assert!(fail(
+        &mut host,
+        "strip.setState",
+        json!({"trackId":track,"slot":7,"blob":"invalid!"})
+    )
+    .contains("Invalid plugin state"));
+}
+
+#[test]
+fn live_wire_limits_clients_and_keeps_pending_requests_until_completion() {
+    let dir = tempfile::tempdir().unwrap();
+    let discovery = dir.path().join("control.json");
+    let server = wire::Server::start_at(discovery.clone(), || {}).unwrap();
+    let clients: Vec<_> = (0..16)
+        .map(|_| wire::Client::connect_at(&discovery).unwrap())
+        .collect();
+    assert!(
+        wire::Client::connect_at(&discovery).is_err(),
+        "excess live clients are refused without allocating another worker"
+    );
+    drop(clients);
+    let mut client = None;
+    for _ in 0..100 {
+        if let Ok(connection) = wire::Client::connect_at(&discovery) {
+            client = Some(connection);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut client = client.expect("closed connections release capacity");
+    let (send, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        send.send(client.call(
+            "session.rename",
+            &json!({"name":"Acknowledged after completion"}),
+            false,
+        ))
+        .unwrap();
+    });
+    let request = server.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(
+        receive.recv_timeout(Duration::from_millis(250)).is_err(),
+        "no optimistic result while store work is pending"
+    );
+    let mut host = Headless::new();
+    wire::serve(&mut host, request);
+    assert_eq!(
+        receive
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap()["name"],
+        "Acknowledged after completion"
+    );
+    worker.join().unwrap();
+}
+
+#[test]
+fn dropping_live_server_closes_authenticated_idle_sockets() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control.json");
+    let server = wire::Server::start_at(path.clone(), || {}).unwrap();
+    let discovery = wire::read_discovery(&path).unwrap();
+    let mut socket = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    writeln!(
+        socket,
+        "{}",
+        json!({"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":discovery.token}})
+    )
+    .unwrap();
+    let mut reader = BufReader::new(socket);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    assert!(line.contains("result"));
+    drop(server);
+    line.clear();
+    assert_eq!(
+        reader.read_line(&mut line).unwrap(),
+        0,
+        "shutdown wakes idle connection workers immediately"
+    );
 }

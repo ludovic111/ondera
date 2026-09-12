@@ -8,7 +8,7 @@ use ondera_engine::control;
 use ondera_tools::Backend;
 use serde_json::{json, Value};
 use std::{
-    io::{BufRead, Write},
+    io::{BufRead, Read, Write},
     path::PathBuf,
 };
 
@@ -26,6 +26,14 @@ Register with an MCP client, for example in Claude Code:
   claude mcp add ondera -- /path/to/ondera-mcp";
 
 fn main() {
+    let input_args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(result) = ondera_tools::scan_child(&input_args) {
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+        return;
+    }
     let mut file: Option<PathBuf> = None;
     let (mut live, mut headless) = (false, false);
     let mut args = std::env::args().skip(1);
@@ -39,7 +47,13 @@ fn main() {
                 println!("ondera-mcp {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
-            "--file" | "-f" => file = args.next().map(PathBuf::from),
+            "--file" | "-f" => {
+                let Some(path) = args.next().filter(|p| !p.starts_with("--")) else {
+                    eprintln!("--file needs a path");
+                    std::process::exit(2);
+                };
+                file = Some(PathBuf::from(path));
+            }
             "--live" => live = true,
             "--headless" => headless = true,
             _ => {
@@ -47,6 +61,10 @@ fn main() {
                 std::process::exit(2);
             }
         }
+    }
+    if usize::from(file.is_some()) + usize::from(live) + usize::from(headless) > 1 {
+        eprintln!("--file, --live and --headless are exclusive");
+        std::process::exit(2);
     }
     let backend = match (file, live, headless) {
         (Some(path), _, _) => Backend::headless(Some(&path), true),
@@ -75,8 +93,21 @@ fn main() {
     let mut server = Server { backend };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    let mut input = stdin.lock();
+    loop {
+        let mut line = String::new();
+        match input
+            .by_ref()
+            .take(control::wire::MAX_LINE as u64)
+            .read_line(&mut line)
+        {
+            Ok(0) | Err(_) => break,
+            Ok(_) if line.len() >= control::wire::MAX_LINE => {
+                eprintln!("ondera-mcp: input exceeds 64 MiB");
+                break;
+            }
+            Ok(_) => {}
+        }
         if line.trim().is_empty() {
             continue;
         }
@@ -111,13 +142,21 @@ impl Server {
             ));
         };
         let id = obj.get("id").cloned();
+        if obj.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+            || obj
+                .get("method")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty)
+            || id
+                .as_ref()
+                .is_some_and(|id| !id.is_null() && !id.is_string() && !id.is_number())
+        {
+            return Some(error(Value::Null, -32600, "Invalid JSON-RPC 2.0 request"));
+        }
         let method = obj.get("method").and_then(Value::as_str).unwrap_or("");
         let params = obj.get("params").cloned().unwrap_or(Value::Null);
-        if id.is_none() || id == Some(Value::Null) {
-            // Notifications (initialized, cancelled, progress) need no answer.
-            return None;
-        }
-        let id = id.unwrap_or(Value::Null);
+        // Notifications (initialized, cancelled, progress) need no answer.
+        let id = id?;
         Some(match self.dispatch(method, &params) {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Err((code, message)) => error(id, code, &message),
@@ -146,8 +185,16 @@ impl Server {
                 }))
             }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools() })),
+            "tools/list" => {
+                if params.get("cursor").is_some_and(|c| !c.is_null()) {
+                    return Err((-32602, "This server returned no pagination cursor".into()));
+                }
+                Ok(json!({ "tools": tools() }))
+            }
             "tools/call" => {
+                if !params.is_object() {
+                    return Err((-32602, "tools/call needs an object of parameters".into()));
+                }
                 let name = params
                     .get("name")
                     .and_then(Value::as_str)
@@ -166,7 +213,12 @@ impl Server {
                                 text.push_str(&format!("\n(saved {})", path.display()))
                             }
                             Ok(None) => {}
-                            Err(e) => text.push_str(&format!("\nWarning: autosave failed: {e}")),
+                            Err(e) => {
+                                return Ok(json!({
+                                    "content": [{ "type": "text", "text": format!("The command changed the in-memory session but autosave failed: {e}. Retry session_save before closing the server.") }],
+                                    "isError": true,
+                                }))
+                            }
                         }
                         let mut reply = json!({
                             "content": [{ "type": "text", "text": text }],
@@ -218,14 +270,14 @@ impl Server {
     fn instructions(&self) -> String {
         let mode = match &self.backend {
             Backend::Live(_) => "Live mode: every tool runs inside the open Ondera window. A person may be editing at the same time; you share one undo history, and transport_play is audible.".to_string(),
-            Backend::Headless(h) => match &h.path {
+            Backend::Headless(h, _, _) => match &h.path {
                 Some(p) => format!("Headless mode on {}: the file is saved after every change. transport_play is unavailable; use session_bounce to render audio.", p.display()),
                 None => "Headless mode: this process hosts a session in memory. Call session_open or session_save with a path to work on files. transport_play is unavailable; use session_bounce to render audio.".into(),
             },
         };
         format!(
             "Ondera is a digital audio workstation. {mode}\n\
-             Start with session_info, then track_list and clip_list. session_catalog lists instruments, effects and bundled loops.\n\
+             Start with session_info, then track_list and clip_list. session_catalog lists instruments, effects and bundled loops. plugin_scan discovers installed CLAP, VST3 and AU plugins; plugin_list returns their stable IDs.\n\
              Bars and beats are zero-based. Note start/length are beats relative to the clip; pitch 60 is C4; velocity 1-127.\n\
              clip_create with notes, or clip_setNotes, writes a whole pattern in one undo step. history_undo reverts your last edit.\n\
              Clips and notes you create are marked as agent-made so the person can see them."

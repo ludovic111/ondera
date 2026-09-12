@@ -28,6 +28,9 @@ pub struct Loaded {
     pub mounted: bool,
     pub retiring: bool,
     pub sent: BTreeMap<u32, f64>,
+    pub baseline: BTreeMap<u32, f64>,
+    pub blob: String,
+    pub latency: u32,
     pub external: bool,
 }
 pub struct EditorWindow {
@@ -101,7 +104,7 @@ impl Ondera {
             .filter(|l| {
                 needed
                     .get(l.key.as_str())
-                    .is_none_or(|n| n.plugin != l.plugin_id)
+                    .is_none_or(|n| n.plugin != l.plugin_id || n.blob != l.blob)
             })
             .map(|l| l.key.clone())
             .collect();
@@ -110,6 +113,9 @@ impl Ondera {
             changed = true;
         }
         let mut loaded_external = false;
+        self.plugins
+            .failed
+            .retain(|key, _| needed.contains_key(key.as_str()));
         for need in &needs {
             if self.plugins.loaded.contains_key(&need.key)
                 || self.plugins.failed.contains_key(&need.key)
@@ -127,12 +133,23 @@ impl Ondera {
             match host::instantiate(&need.plugin, &need.name, rate) {
                 Ok(mut instance) => {
                     if !need.blob.is_empty() {
-                        if let Ok(bytes) = host::decode_blob(&need.blob) {
-                            if let Err(e) = instance.editor.load(&bytes) {
-                                self.status = e;
-                            }
+                        if let Err(error) = host::decode_blob(&need.blob)
+                            .and_then(|bytes| instance.editor.load(&bytes))
+                        {
+                            self.plugins.failed.insert(need.key.clone(), error.clone());
+                            self.error = Some(format!(
+                                "{} state could not be restored: {error}",
+                                need.name
+                            ));
+                            continue;
                         }
                     }
+                    let baseline = instance
+                        .editor
+                        .params()
+                        .iter()
+                        .map(|p| (p.id, instance.editor.value(p.id).unwrap_or(p.default)))
+                        .collect();
                     let slot = self.plugins.allocate();
                     let mut entry = Loaded {
                         key: need.key.clone(),
@@ -144,6 +161,9 @@ impl Ondera {
                         mounted: false,
                         retiring: false,
                         sent: BTreeMap::new(),
+                        baseline,
+                        blob: need.blob.clone(),
+                        latency: 0,
                         external,
                     };
                     for (&id, &value) in &need.params {
@@ -159,6 +179,21 @@ impl Ondera {
                 }
             }
         }
+        for need in &needs {
+            if let Some(entry) = self.plugins.loaded.get_mut(&need.key) {
+                if !entry.mounted && !entry.retiring {
+                    for (&id, &value) in &entry.baseline {
+                        if entry.sent.contains_key(&id) && !need.params.contains_key(&id) {
+                            entry.editor.set_value(id, value);
+                        }
+                    }
+                    for (&id, &value) in &need.params {
+                        entry.editor.set_value(id, value);
+                    }
+                    entry.sent = need.params.clone();
+                }
+            }
+        }
         // Mount processors once a device exists; forward parameter changes.
         if let Some(device) = &mut self.device {
             for need in &needs {
@@ -169,19 +204,38 @@ impl Ondera {
                     continue;
                 }
                 if let Some(processor) = entry.processor.take() {
-                    match device.send(Message::Mount(entry.slot, processor)) {
+                    match device.try_send(Message::Mount(entry.slot, processor)) {
                         Ok(()) => {
                             entry.mounted = true;
                             entry.sent.clear();
                             changed = true;
                         }
-                        Err(e) => {
-                            self.error = Some(e);
+                        Err(Message::Mount(_, processor)) => {
+                            entry.processor = Some(processor);
+                            self.status = "Waiting for the audio queue to load the plugin…".into();
                             break;
                         }
+                        Err(_) => unreachable!("try_send returns its input message"),
                     }
                 }
                 if entry.mounted {
+                    // A first edit's undo removes the override. Restore its original
+                    // preset value instead of leaving the last edit audible.
+                    let reset: Vec<_> = entry
+                        .sent
+                        .keys()
+                        .filter(|id| !need.params.contains_key(id))
+                        .filter_map(|id| entry.baseline.get(id).map(|value| (*id, *value)))
+                        .collect();
+                    for (id, value) in reset {
+                        if device
+                            .send(Message::SetParam(entry.slot, id, value))
+                            .is_ok()
+                        {
+                            entry.editor.set_value(id, value);
+                            entry.sent.remove(&id);
+                        }
+                    }
                     for (&id, &value) in &need.params {
                         if entry.sent.get(&id) != Some(&value)
                             && device
@@ -207,6 +261,7 @@ impl Ondera {
             return;
         };
         self.plugins.slots.remove(key);
+        entry.editor.close_gui();
         self.plugins.windows.remove(key);
         if entry.mounted {
             entry.retiring = true;
@@ -253,24 +308,36 @@ impl Ondera {
     /// Unmount everything, wait for the audio thread, then destroy instances
     /// here. Used before reconnecting the device and before quitting.
     pub(crate) fn unload_plugins(&mut self) {
+        for entry in self.plugins.loaded.values_mut() {
+            entry.editor.close_gui();
+            entry.retiring = entry.mounted;
+        }
+        self.plugins.windows.clear();
         if let Some(device) = &mut self.device {
-            let _ = device.send(Message::UnmountAll);
+            let mut requested = device.send(Message::UnmountAll).is_ok();
             let started = std::time::Instant::now();
             while started.elapsed() < std::time::Duration::from_millis(600) {
                 self.collect_retired();
-                if self
-                    .plugins
-                    .loaded
-                    .values()
-                    .all(|l| !l.mounted || !l.retiring)
-                {
-                    let pending = self.plugins.loaded.values().filter(|l| l.mounted).count();
-                    if pending == 0 {
-                        break;
-                    }
+                if self.plugins.loaded.values().all(|l| !l.mounted) {
+                    break;
+                }
+                if !requested {
+                    requested = self
+                        .device
+                        .as_mut()
+                        .is_some_and(|d| d.send(Message::UnmountAll).is_ok());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
+        }
+        // A stalled/disconnected output cannot acknowledge retirement. Stop and join
+        // its owning worker before destroying any editor that shares plugin state.
+        if self.plugins.loaded.values().any(|entry| entry.mounted) {
+            self.midi = None;
+            self.device = None;
+            self.synced_revision = None;
+            self.status =
+                "Audio output stopped while unloading plugins; reconnect output to resume.".into();
         }
         self.plugins.windows.clear();
         self.plugins.loaded.clear();
@@ -280,38 +347,125 @@ impl Ondera {
         self.plugins.failed.clear();
         self.sync_needed = true;
     }
-    /// Store every external plugin's current state in the document so saving,
-    /// bouncing and reopening restore exactly what the plugin window shows.
+    /// Capture native editor state as one document edit so it participates in
+    /// undo and the unsaved-changes prompt as well as save/export.
     pub(crate) fn capture_plugin_states(&mut self) {
-        let mut updates: Vec<(String, String)> = vec![];
+        struct Capture {
+            key: String,
+            blob: String,
+            baseline: BTreeMap<u32, f64>,
+        }
+        let mut updates = vec![];
+        let mut strips = HashMap::new();
+        let desired = self.store.snapshot();
         for entry in self.plugins.loaded.values_mut() {
             if !entry.external || entry.retiring {
                 continue;
             }
-            if let Some(bytes) = entry.editor.save() {
-                updates.push((entry.key.clone(), host::encode_blob(&bytes)));
+            let Some((strip_id, insert, _)) = find_insert(&desired, &entry.key) else {
+                continue;
+            };
+            if insert.blob != entry.blob {
+                // A preset/state command may be waiting for reconciliation. Capturing
+                // the old instance here would silently overwrite that requested state.
+                continue;
             }
-        }
-        let session = self.store.session();
-        updates.retain(|(key, blob)| {
-            find_insert(session, key).is_some_and(|(_, insert, _)| &insert.blob != blob)
-        });
-        if updates.is_empty() {
-            return;
-        }
-        let result = self.store.amend(|s| {
-            for (key, blob) in &updates {
-                for strip in s.strips.values_mut() {
-                    for insert in strip.inserts.iter_mut().chain(strip.synth.iter_mut()) {
-                        if &insert.id == key {
-                            insert.blob = blob.clone();
-                        }
+            let Some(bytes) = entry.editor.save() else {
+                continue;
+            };
+            let blob = host::encode_blob(&bytes);
+            let mut parameters = insert.params.clone();
+            let mut automated = BTreeMap::new();
+            for lane in &desired.automation {
+                if let ondera_engine::automation::AutomationTarget::PluginParameter {
+                    insert_id,
+                    plugin_id,
+                    parameter_id,
+                    ..
+                } = &lane.target
+                {
+                    if insert_id != &entry.key || plugin_id != &entry.plugin_id {
+                        continue;
+                    }
+                    if lane.enabled && !lane.points.is_empty() {
+                        automated.insert(*parameter_id, lane.manual_value);
+                        parameters.entry(*parameter_id).or_insert(lane.manual_value);
+                    } else {
+                        // A disabled lane still needs its manual value on reopening;
+                        // its original creation-time fallback may predate native edits.
+                        parameters.entry(*parameter_id).or_insert_with(|| {
+                            entry
+                                .editor
+                                .value(*parameter_id)
+                                .filter(|value| value.is_finite())
+                                .unwrap_or(lane.manual_value)
+                        });
                     }
                 }
             }
-        });
-        if let Err(e) = result {
+            for (&id, &value) in &insert.params {
+                // An applied generic override may subsequently have changed in the
+                // plugin's own editor. Persist that actual value beside the blob so
+                // reopening cannot overwrite it with the earlier generic knob value.
+                // Preserve commands which have not reached the loaded instance yet.
+                if !automated.contains_key(&id) && entry.sent.get(&id) == Some(&value) {
+                    if let Some(actual) = entry.editor.value(id).filter(|value| value.is_finite()) {
+                        parameters.insert(id, actual);
+                    }
+                }
+            }
+            if blob == insert.blob && parameters == insert.params {
+                continue;
+            }
+            let baseline = entry
+                .editor
+                .params()
+                .iter()
+                .filter(|parameter| !parameters.contains_key(&parameter.id))
+                .map(|parameter| {
+                    (
+                        parameter.id,
+                        entry
+                            .editor
+                            .value(parameter.id)
+                            .unwrap_or(parameter.default),
+                    )
+                })
+                .collect();
+            let strip = strips
+                .entry(strip_id.clone())
+                .or_insert_with(|| desired.strips[&strip_id].clone());
+            for insert in strip.inserts.iter_mut().chain(strip.synth.iter_mut()) {
+                if insert.id == entry.key {
+                    insert.blob = blob.clone();
+                    insert.params = parameters.clone();
+                }
+            }
+            updates.push(Capture {
+                key: entry.key.clone(),
+                blob,
+                baseline,
+            });
+        }
+        if updates.is_empty() {
+            return;
+        }
+        self.store.set_gesture(false);
+        let commands = strips
+            .into_iter()
+            .map(|(track, strip)| Command::SetStrip { track, strip })
+            .collect();
+        if let Err(e) = self.try_dispatch(Command::Batch(commands)) {
             self.error = Some(e);
+        } else {
+            for capture in updates {
+                if let Some(entry) = self.plugins.loaded.get_mut(&capture.key) {
+                    // The loaded instance already contains this state. Keep it alive,
+                    // and let a later first-parameter undo restore the captured preset.
+                    entry.blob = capture.blob;
+                    entry.baseline.extend(capture.baseline);
+                }
+            }
         }
     }
     /// Per-frame plugin housekeeping: main-thread callbacks and native windows.
@@ -319,6 +473,11 @@ impl Ondera {
         let mut closed = vec![];
         for (key, entry) in self.plugins.loaded.iter_mut() {
             entry.editor.idle();
+            let latency = entry.editor.latency();
+            if entry.latency != latency {
+                entry.latency = latency;
+                self.sync_needed = true;
+            }
             if let Some(window) = self.plugins.windows.get_mut(key) {
                 if let Some(native) = &window.native {
                     if !native.is_open() {
@@ -812,5 +971,326 @@ pub fn truncate(s: &str, max: usize) -> String {
         let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
         out.push('…');
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::Intent;
+    use ondera_engine::{control::Host, store};
+
+    /// Use the real stock state serializer as a deterministic native-editor stand-in:
+    /// direct editor changes bypass the store just like an external plugin's own UI.
+    fn captured_editor() -> (Ondera, String, u32, f64, f64) {
+        let mut app = Ondera::from_session(store::empty(), None);
+        let track = app.store.session().tracks[0].id.clone();
+        app.add_effect_to(&track, "stock:Utility", "Utility");
+        app.reconcile_plugins();
+        let key = app.store.session().strips[&track].inserts[0].id.clone();
+        let entry = app.plugins.loaded.get_mut(&key).unwrap();
+        entry.external = true;
+        let parameter = entry.editor.params()[0].clone();
+        app.capture_plugin_states();
+        app.store.mark_saved(app.store.revision);
+        assert!(!app.store.dirty());
+        (app, key, parameter.id, parameter.min, parameter.max)
+    }
+
+    #[test]
+    fn native_only_edit_prompts_before_quit_and_capture_can_be_undone() {
+        let (mut app, key, parameter, min, max) = captured_editor();
+        let original = app.plugins.loaded[&key].editor.value(parameter).unwrap();
+        let edited = if original == max { min } else { max };
+        app.plugins
+            .loaded
+            .get_mut(&key)
+            .unwrap()
+            .editor
+            .set_value(parameter, edited);
+        assert!(
+            !app.store.dirty(),
+            "Native changes have not been captured yet"
+        );
+        app.request(Intent::Quit);
+        assert!(matches!(app.intent, Some(Intent::Quit)));
+        assert!(
+            !app.closing,
+            "The app must wait for the save/discard choice"
+        );
+        assert!(app.store.dirty());
+        let captured = app.store.revision;
+        app.capture_plugin_states();
+        assert_eq!(
+            app.store.revision, captured,
+            "An unchanged capture is not another edit"
+        );
+        app.dispatch(Command::Undo);
+        app.reconcile_plugins();
+        assert!(!app.store.dirty());
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(original)
+        );
+    }
+
+    #[test]
+    fn saved_native_preset_is_the_next_parameter_edits_undo_baseline() {
+        let (mut app, key, parameter, min, max) = captured_editor();
+        let preset = min + (max - min) * 0.25;
+        let edited = min + (max - min) * 0.75;
+        let slot = app.plugins.loaded[&key].slot;
+        app.plugins
+            .loaded
+            .get_mut(&key)
+            .unwrap()
+            .editor
+            .set_value(parameter, preset);
+        app.capture_plugin_states();
+        app.store.mark_saved(app.store.revision);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].slot, slot,
+            "Capturing should keep the live instance"
+        );
+        app.set_insert_param(&key, parameter, edited);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(edited)
+        );
+        app.dispatch(Command::Undo);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(preset)
+        );
+        assert!(!app.store.dirty());
+        app.dispatch(Command::Redo);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(edited)
+        );
+    }
+
+    #[test]
+    fn native_change_after_generic_override_survives_fresh_processing_and_undo() {
+        use ondera_engine::plugin::{ParamChange, ProcessContext};
+
+        let (mut app, key, parameter, min, max) = captured_editor();
+        let generic = min + (max - min) * 0.25;
+        let native = min + (max - min) * 0.75;
+        app.set_insert_param(&key, parameter, generic);
+        app.reconcile_plugins();
+        app.plugins
+            .loaded
+            .get_mut(&key)
+            .unwrap()
+            .editor
+            .set_value(parameter, native);
+        app.capture_plugin_states();
+        let captured = find_insert(app.store.session(), &key).unwrap().1;
+        assert_eq!(captured.params[&parameter], native);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(native)
+        );
+
+        // Restore into a fresh processor using the same state-plus-overrides order
+        // as offline export, then compare real DSP output to the native knob value.
+        let mut restored = host::instantiate(&captured.plugin_id(), &captured.name, 48000).unwrap();
+        restored
+            .editor
+            .load(&host::decode_blob(&captured.blob).unwrap())
+            .unwrap();
+        let params: Vec<_> = captured
+            .params
+            .iter()
+            .map(|(&id, &value)| ParamChange { id, value })
+            .collect();
+        let mut reference =
+            host::instantiate(&captured.plugin_id(), &captured.name, 48000).unwrap();
+        let mut actual = [[0.01, -0.02]; 256];
+        let mut expected = actual;
+        restored.processor.as_mut().unwrap().process(
+            &mut actual,
+            &[],
+            &params,
+            &ProcessContext::default(),
+        );
+        reference.processor.as_mut().unwrap().process(
+            &mut expected,
+            &[],
+            &[ParamChange {
+                id: parameter,
+                value: native,
+            }],
+            &ProcessContext::default(),
+        );
+        assert_eq!(actual, expected);
+        assert!(actual.iter().any(|frame| frame[0] != 0.0));
+
+        app.dispatch(Command::Undo);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(generic)
+        );
+        app.dispatch(Command::Redo);
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(native)
+        );
+    }
+
+    #[test]
+    fn native_capture_preserves_generic_overrides_not_yet_applied() {
+        let (mut app, key, parameter, min, max) = captured_editor();
+        let pending = min + (max - min) * 0.25;
+        let native = min + (max - min) * 0.75;
+        app.set_insert_param(&key, parameter, pending);
+        app.plugins
+            .loaded
+            .get_mut(&key)
+            .unwrap()
+            .editor
+            .set_value(parameter, native);
+        app.capture_plugin_states();
+        assert_eq!(
+            find_insert(app.store.session(), &key).unwrap().1.params[&parameter],
+            pending
+        );
+        app.reconcile_plugins();
+        assert_eq!(
+            app.plugins.loaded[&key].editor.value(parameter),
+            Some(pending)
+        );
+    }
+
+    #[test]
+    fn capturing_read_automation_preserves_manual_parameter_values() {
+        use ondera_engine::automation::{
+            AutomationLane, AutomationPoint, AutomationTarget, Interpolation,
+        };
+
+        for explicit in [false, true] {
+            let (mut app, key, parameter, min, max) = captured_editor();
+            let base = app.plugins.loaded[&key].editor.value(parameter).unwrap();
+            let manual = if explicit {
+                min + (max - min) * 0.25
+            } else {
+                base
+            };
+            let modulated = min + (max - min) * 0.75;
+            if explicit {
+                app.set_insert_param(&key, parameter, manual);
+                app.reconcile_plugins();
+            }
+            let (track, insert, _) = find_insert(app.store.session(), &key).unwrap();
+            app.dispatch(Command::PutAutomation(AutomationLane {
+                id: "test-lane".into(),
+                name: "Gain".into(),
+                target: AutomationTarget::PluginParameter {
+                    track_id: track,
+                    insert_id: key.clone(),
+                    plugin_id: insert.plugin_id(),
+                    parameter_id: parameter,
+                },
+                min,
+                max,
+                manual_value: base,
+                interpolation: Interpolation::Linear,
+                enabled: true,
+                points: vec![AutomationPoint {
+                    id: "test-point".into(),
+                    beat: 0.0,
+                    value: modulated,
+                }],
+            }));
+            app.plugins
+                .loaded
+                .get_mut(&key)
+                .unwrap()
+                .editor
+                .set_value(parameter, modulated);
+            app.capture_plugin_states();
+            assert_eq!(
+                find_insert(app.store.session(), &key).unwrap().1.params[&parameter],
+                manual
+            );
+            assert_eq!(app.store.session().automation[0].points[0].value, modulated);
+            app.dispatch(Command::RemoveAutomation("test-lane".into()));
+            app.reconcile_plugins();
+            assert_eq!(
+                app.plugins.loaded[&key].editor.value(parameter),
+                Some(manual)
+            );
+        }
+    }
+
+    #[test]
+    fn capture_does_not_replace_state_waiting_for_reconciliation() {
+        let (mut app, key, parameter, min, max) = captured_editor();
+        let entry = app.plugins.loaded.get_mut(&key).unwrap();
+        let original = entry.editor.value(parameter).unwrap();
+        entry
+            .editor
+            .set_value(parameter, if original == max { min } else { max });
+        let pending_blob = host::encode_blob(&entry.editor.save().unwrap());
+        entry.editor.set_value(parameter, original);
+        let (track, _, _) = find_insert(app.store.session(), &key).unwrap();
+        let mut strip = app.store.session().strips[&track].clone();
+        strip.inserts[0].blob = pending_blob.clone();
+        app.dispatch(Command::SetStrip { track, strip });
+        let pending_revision = app.store.revision;
+        app.capture_plugin_states();
+        assert_eq!(app.store.revision, pending_revision);
+        assert_eq!(
+            find_insert(app.store.session(), &key).unwrap().1.blob,
+            pending_blob
+        );
+    }
+
+    #[test]
+    fn first_parameter_edit_undo_restores_the_loaded_preset() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        let track = app.store.session().tracks[0].id.clone();
+        app.add_effect_to(&track, "stock:Utility", "Utility");
+        app.reconcile_plugins();
+        let key = app.store.session().strips[&track].inserts[0].id.clone();
+        let entry = &app.plugins.loaded[&key];
+        let p = entry.editor.params()[0].clone();
+        let original = entry.editor.value(p.id).unwrap();
+        let edited = if original == p.max { p.min } else { p.max };
+        app.set_insert_param(&key, p.id, edited);
+        app.reconcile_plugins();
+        assert_eq!(app.plugins.loaded[&key].editor.value(p.id), Some(edited));
+        app.dispatch(Command::Undo);
+        app.reconcile_plugins();
+        assert_eq!(app.plugins.loaded[&key].editor.value(p.id), Some(original));
+        app.dispatch(Command::Redo);
+        app.reconcile_plugins();
+        assert_eq!(app.plugins.loaded[&key].editor.value(p.id), Some(edited));
+    }
+
+    #[test]
+    fn live_registry_can_inspect_implicit_stock_instrument() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.reconcile_plugins();
+        let track = app
+            .store
+            .session()
+            .tracks
+            .iter()
+            .find(|t| t.kind == "midi")
+            .unwrap()
+            .id
+            .clone();
+        let result = Host::plugin_parameters(&mut app, &track, None).unwrap();
+        assert_eq!(result["pluginId"], "stock:Ondera Synth");
+        assert!(!result["parameters"].as_array().unwrap().is_empty());
     }
 }

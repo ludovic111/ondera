@@ -9,6 +9,7 @@ use objc2_audio_toolbox::*;
 use objc2_core_audio_types::*;
 use objc2_core_foundation::*;
 use std::{
+    cell::UnsafeCell,
     ffi::{c_char, c_void, CStr},
     ptr::NonNull,
     sync::{
@@ -215,6 +216,9 @@ unsafe extern "C-unwind" fn input_callback(
     }
     let list = &mut *data;
     let count = list.mNumberBuffers as usize;
+    if count != 2 || frames as usize > state.frames || state.pointers.iter().any(|p| p.is_null()) {
+        return -50;
+    }
     let buffers = std::slice::from_raw_parts_mut(list.mBuffers.as_mut_ptr(), count);
     let n = (frames as usize).min(state.frames);
     for (i, buffer) in buffers.iter_mut().enumerate() {
@@ -237,10 +241,11 @@ struct BufferList2 {
 }
 
 struct Shared {
+    rate: u32,
     unit: AudioUnit,
     kind: u32,
     host: Box<HostState>,
-    input: Box<InputState>,
+    input: Box<UnsafeCell<InputState>>,
     initialized: AtomicBool,
 }
 // SAFETY: AudioUnit instances are designed for one render thread plus the
@@ -335,13 +340,14 @@ pub fn instantiate(plugin_id: &str, rate: u32) -> Result<Instance> {
             "Creating the Audio Unit",
         )?;
         let shared = Arc::new(Shared {
+            rate,
             unit,
             kind: parts[0],
             host: Box::new(HostState::default()),
-            input: Box::new(InputState {
+            input: Box::new(UnsafeCell::new(InputState {
                 pointers: [std::ptr::null_mut(); 2],
                 frames: 0,
-            }),
+            })),
             initialized: AtomicBool::new(false),
         });
         let format = stream_format(rate);
@@ -369,7 +375,7 @@ pub fn instantiate(plugin_id: &str, rate: u32) -> Result<Instance> {
             )?;
             let callback = AURenderCallbackStruct {
                 inputProc: Some(input_callback),
-                inputProcRefCon: &*shared.input as *const InputState as *mut c_void,
+                inputProcRefCon: shared.input.get() as *mut c_void,
             };
             check(
                 set_property(
@@ -761,7 +767,7 @@ impl Editor for AuEditor {
                 &mut seconds,
             ) == 0
             {
-                return (seconds * 48000.0) as u32;
+                return (seconds * self.shared.rate as f64).max(0.0) as u32;
             }
         }
         0
@@ -859,7 +865,7 @@ impl Processor for AuProcessor {
                 }
             }
             // The input callback reads the block through this shared state.
-            let input = &*self.shared.input as *const InputState as *mut InputState;
+            let input = self.shared.input.get();
             (*input).pointers = [self.input[0].as_mut_ptr(), self.input[1].as_mut_ptr()];
             (*input).frames = n;
             let mut list = BufferList2 {
@@ -891,6 +897,16 @@ impl Processor for AuProcessor {
             );
             self.sample_time += n as f64;
             if status != 0 {
+                return;
+            }
+            if list.count != 2
+                || list.buffers.iter().any(|buffer| {
+                    buffer.mData.is_null()
+                        || buffer.mDataByteSize < (n * 4) as u32
+                        || buffer.mNumberChannels != 1
+                })
+            {
+                audio[..n].fill([0.0; 2]);
                 return;
             }
             for (k, frame) in audio[..n].iter_mut().enumerate() {

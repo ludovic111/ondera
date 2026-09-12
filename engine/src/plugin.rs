@@ -246,7 +246,7 @@ pub struct Instance {
 
 /// Bounded pending parameter changes per rack slot.
 struct Pending {
-    changes: [ParamChange; 64],
+    changes: Vec<ParamChange>,
     len: usize,
 }
 
@@ -258,12 +258,17 @@ pub struct Rack {
 }
 impl Rack {
     pub fn new(capacity: usize) -> Self {
+        Self::with_parameter_capacity(capacity, 512)
+    }
+    /// Offline restores may enqueue many saved parameters before the first
+    /// block; reserve their complete document values on the calling thread.
+    pub fn with_parameter_capacity(capacity: usize, parameters: usize) -> Self {
         let mut slots = Vec::with_capacity(capacity);
         let mut pending = Vec::with_capacity(capacity);
         for _ in 0..capacity {
             slots.push(None);
             pending.push(Pending {
-                changes: [ParamChange { id: 0, value: 0.0 }; 64],
+                changes: vec![ParamChange { id: 0, value: 0.0 }; parameters.max(1)],
                 len: 0,
             });
         }
@@ -339,7 +344,24 @@ impl Rack {
         }
     }
     pub fn drain(&mut self) -> Vec<Box<dyn Processor>> {
-        self.slots.iter_mut().filter_map(|s| s.take()).collect()
+        self.slots
+            .iter_mut()
+            .filter_map(|s| s.take())
+            .map(|mut processor| {
+                processor.stop();
+                processor
+            })
+            .collect()
+    }
+}
+
+impl Drop for Rack {
+    fn drop(&mut self) {
+        // Offline racks also own running processors. Stop processing before the
+        // last instance reference deactivates and destroys the plugin.
+        for processor in self.slots.iter_mut().flatten() {
+            processor.stop();
+        }
     }
 }
 

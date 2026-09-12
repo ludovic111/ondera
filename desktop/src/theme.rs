@@ -1103,18 +1103,40 @@ pub fn button(
     response
 }
 pub fn icon_button(ui: &mut Ui, size: Vec2, face_kind: Face, icon_kind: Icon) -> Response {
-    button(ui, size, face_kind, R_CONTROL, |p, r, ink| {
+    let response = button(ui, size, face_kind, R_CONTROL, |p, r, ink| {
         icon(p, r, icon_kind, ink)
-    })
+    });
+    let label = match icon_kind {
+        Icon::Return => "Return to start",
+        Icon::Rewind => "Rewind",
+        Icon::Forward => "Forward",
+        Icon::Play => "Play",
+        Icon::Stop => "Stop",
+        Icon::Record => "Record",
+        Icon::Cycle => "Cycle",
+        Icon::Plus => "Add",
+        Icon::Pointer => "Pointer",
+        Icon::Pencil => "Pencil",
+        Icon::Scissors => "Split",
+        Icon::Search => "Search",
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    response
 }
 pub fn text_button(ui: &mut Ui, label: &str, face_kind: Face) -> Response {
     let galley =
         ui.painter()
             .layout_no_wrap(label.into(), font(FS_SECONDARY, Weight::SemiBold), INK);
     let size = vec2(galley.size().x + 20.0, 26.0);
-    button(ui, size, face_kind, R_CONTROL, |p, r, ink| {
+    let response = button(ui, size, face_kind, R_CONTROL, |p, r, ink| {
         p.galley(r.center() - galley.size() / 2.0, galley.clone(), ink);
-    })
+    });
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    response
 }
 /// M / S / R: 20 × 17, bold 9.5.
 pub fn toggle_small(ui: &mut Ui, label: &str, on: bool, lit_when_on: bool) -> Response {
@@ -1126,13 +1148,23 @@ pub fn toggle_small(ui: &mut Ui, label: &str, on: bool, lit_when_on: bool) -> Re
     let galley = ui
         .painter()
         .layout_no_wrap(label.into(), font(FS_CAPS, Weight::Bold), INK);
-    button(ui, SMALL_BUTTON, face_kind, R_BUTTON, |p, r, ink| {
+    let response = button(ui, SMALL_BUTTON, face_kind, R_BUTTON, |p, r, ink| {
         if label == "R" {
             p.circle_filled(r.center(), 3.5, ink);
         } else {
             p.galley(r.center() - galley.size() / 2.0, galley.clone(), ink);
         }
-    })
+    });
+    let label = match label {
+        "M" => "Mute",
+        "S" => "Solo",
+        "R" | "A" => "Arm recording",
+        other => other,
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), on, label)
+    });
+    response
 }
 /// A segmented control in a shallow groove. Returns the newly chosen index.
 pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize, min_seg: f32) -> Option<usize> {
@@ -1156,6 +1188,14 @@ pub fn segmented(ui: &mut Ui, labels: &[&str], selected: usize, min_seg: f32) ->
     for (i, (label, w)) in labels.iter().zip(widths).enumerate() {
         let seg = Rect::from_min_size(pos2(x, rect.top() + 2.0), vec2(w, 20.0));
         let response = ui.interact(seg, ui.id().with(("segment", i, label)), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::SelectableLabel,
+                ui.is_enabled(),
+                i == selected,
+                *label,
+            )
+        });
         if i == selected {
             segment_active(ui.painter(), seg, R_BUTTON);
         }
@@ -1193,6 +1233,14 @@ pub fn segmented_icons(ui: &mut Ui, icons: &[(Icon, &str)], selected: usize) -> 
         let response = ui
             .interact(seg, ui.id().with(("segment-icon", i)), Sense::click())
             .on_hover_text(*tip);
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::SelectableLabel,
+                ui.is_enabled(),
+                i == selected,
+                *tip,
+            )
+        });
         if i == selected {
             segment_active(ui.painter(), seg, R_BUTTON);
         }

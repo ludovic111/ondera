@@ -27,6 +27,8 @@ pub struct Session {
     pub clips: Vec<Clip>,
     pub sources: HashMap<String, Source>,
     pub strips: HashMap<String, Strip>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub automation: Vec<crate::automation::AutomationLane>,
     pub transport: Transport,
     pub view: View,
     #[serde(default = "default_master_volume")]
@@ -372,6 +374,7 @@ impl Session {
             .fold(1.0, f64::max)
     }
     pub fn validate(&self) -> Result<()> {
+        crate::automation::validate(self)?;
         let t = &self.transport;
         if !self.view.pixels_per_bar.is_finite()
             || !(12.0..=480.0).contains(&self.view.pixels_per_bar)

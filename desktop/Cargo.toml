@@ -17,10 +17,15 @@ rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
 sha2 = "0.10"
+tempfile = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [[bin]]
 name = "ondera"
 path = "src/main.rs"
+
+[dev-dependencies]
+ondera-tools = { path = "../tools" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

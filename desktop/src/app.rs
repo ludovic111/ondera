@@ -5,11 +5,12 @@ use crate::{
 use eframe::egui;
 use ondera_engine::{
     audio::{self, Library},
-    device::{DeviceEngine, Message, Recorder},
+    device::{DeviceEngine, Message, RecordedAudio, Recorder},
     document, host, midi,
     model::*,
     plugin::Descriptor,
-    render::{self, Renderer},
+    render::Renderer,
+    session_file::SessionFileLock,
     store::{self, Command, Store},
     Result,
 };
@@ -30,12 +31,14 @@ pub struct RecordedNote {
     pub end: Option<f64>,
     pub pitch: u8,
     pub velocity: u8,
+    pub channel: u8,
 }
 
 #[derive(Clone, Copy)]
 pub enum Intent {
     New,
     Open,
+    Recover,
     Demo,
     Quit,
     /// Close this copy and start the freshly installed one.
@@ -56,13 +59,14 @@ pub(crate) enum JobResult {
         session: Box<Session>,
         library: Library,
         path: PathBuf,
+        ownership: SessionFileLock,
     },
     Saved {
         path: PathBuf,
         revision: u64,
+        ownership: SessionFileLock,
     },
     Imported(Vec<(PathBuf, Arc<audio::AudioBuffer>)>),
-    Bounced,
     Cancelled,
 }
 type Job = mpsc::Receiver<Result<JobResult>>;
@@ -82,6 +86,7 @@ pub struct Ondera {
     pub error: Option<String>,
     pub status: String,
     pub path: Option<PathBuf>,
+    pub(crate) session_file: Option<SessionFileLock>,
     pub clip_drag: Option<crate::timeline::ClipDrag>,
     pub note_drag: Option<crate::editor::NoteDrag>,
     pub ruler_anchor: Option<f64>,
@@ -97,12 +102,16 @@ pub struct Ondera {
     pub(crate) recorder: Option<Recorder>,
     pub(crate) device_pending: Option<mpsc::Receiver<Result<DeviceEngine>>>,
     pub(crate) record_pending: Option<mpsc::Receiver<Result<Recorder>>>,
-    pub(crate) record_finishing: Option<mpsc::Receiver<Result<audio::AudioBuffer>>>,
+    pub(crate) record_finishing: Option<mpsc::Receiver<Result<RecordedAudio>>>,
     pub(crate) after_take: Option<AfterTake>,
     pub(crate) recording_tracks: Vec<String>,
+    // Last-resort ownership when both placement and source-file writing fail.
+    pub(crate) unplaced_recording: Option<Arc<audio::AudioBuffer>>,
+    recovered_recording_write: Option<mpsc::Receiver<Result<Option<PathBuf>>>>,
     pub(crate) record_start: f64,
     pub(crate) intent: Option<Intent>,
     pub(crate) after_save: Option<Intent>,
+    after_agent: Option<Intent>,
     pub(crate) closing: bool,
     pub screenshot: Option<PathBuf>,
     pub(crate) frames: usize,
@@ -116,12 +125,18 @@ pub struct Ondera {
     pub musical_typing: bool,
     pub typing_octave: i32,
     pub(crate) typing_down: Vec<u8>,
+    typing_owners: midi::NoteOwners,
     pub(crate) midi_take: Vec<RecordedNote>,
     pub(crate) midi_recording: bool,
     pub(crate) recording_midi_tracks: Vec<String>,
     pub output_device: Option<String>,
     pub input_device: Option<String>,
     pub(crate) control: Option<ondera_engine::control::wire::Server>,
+    pub(crate) agents: crate::agents::AgentPanel,
+    pub(crate) automation: crate::automation::AutomationUi,
+    pub(crate) export: crate::export::ExportDialog,
+    pub(crate) recovery: crate::recovery::Recovery,
+    pub(crate) control_job: Option<crate::control::ControlJob>,
     pub(crate) updates: crate::update::Updates,
 }
 pub fn id(prefix: &str) -> String {
@@ -169,6 +184,7 @@ impl Ondera {
             error: None,
             status: "Preparing audio…".into(),
             path: None,
+            session_file: None,
             clip_drag: None,
             note_drag: None,
             ruler_anchor: None,
@@ -187,9 +203,12 @@ impl Ondera {
             record_finishing: None,
             after_take: None,
             recording_tracks: vec![],
+            unplaced_recording: None,
+            recovered_recording_write: None,
             record_start: 0.0,
             intent: None,
             after_save: None,
+            after_agent: None,
             closing: false,
             screenshot,
             frames: 0,
@@ -203,12 +222,18 @@ impl Ondera {
             musical_typing: false,
             typing_octave: 0,
             typing_down: vec![],
+            typing_owners: Default::default(),
             midi_take: vec![],
             midi_recording: false,
             recording_midi_tracks: vec![],
             output_device: None,
             input_device: None,
             control: None,
+            agents: Default::default(),
+            automation: Default::default(),
+            export: Default::default(),
+            recovery: Default::default(),
+            control_job: None,
             updates: Default::default(),
         }
     }
@@ -220,21 +245,33 @@ impl Ondera {
     /// Apply a command; a change schedules an audio graph update, a selection updates the
     /// device's preview track.
     pub(crate) fn try_dispatch(&mut self, command: Command) -> Result<bool> {
-        if self.recorder.is_some()
+        if self.control_job.is_some()
+            && !matches!(command, Command::Select { .. } | Command::SetView(_))
+        {
+            return Err("Wait for the current agent file operation before editing.".into());
+        }
+        if self.midi_recording
+            || self.recorder.is_some()
             || self.record_pending.is_some()
             || self.record_finishing.is_some()
         {
-            if let Command::SetTransport(t) = &command {
-                let old = &self.store.session().transport;
-                if t.tempo != old.tempo
-                    || t.time_signature.numerator != old.time_signature.numerator
-                    || t.time_signature.denominator != old.time_signature.denominator
-                    || t.cycle
-                {
-                    return Err(
-                        "Stop recording before changing tempo, time signature or cycle.".into(),
-                    );
+            fn changes_recording(command: &Command, old: &Transport) -> bool {
+                match command {
+                    Command::Undo | Command::Redo | Command::RemoveTrack(_) => true,
+                    Command::SetTransport(t) => {
+                        t.tempo != old.tempo
+                            || t.time_signature.numerator != old.time_signature.numerator
+                            || t.time_signature.denominator != old.time_signature.denominator
+                            || t.cycle
+                    }
+                    Command::Batch(commands) => commands.iter().any(|c| changes_recording(c, old)),
+                    _ => false,
                 }
+            }
+            if changes_recording(&command, &self.store.session().transport) {
+                return Err(
+                    "Stop recording before changing timing, undoing, or removing a track.".into(),
+                );
             }
         }
         let changed = self.store.dispatch(command)?;
@@ -286,6 +323,9 @@ impl Ondera {
     /// Connect a MIDI input port; `None` picks the first one. Live notes reach
     /// the audio thread directly, so this is redone whenever the device changes.
     pub(crate) fn connect_midi(&mut self, port: Option<String>) {
+        if self.midi.is_some() {
+            self.stop();
+        }
         self.midi = None;
         let Some(device) = &self.device else {
             self.midi_port = port;
@@ -323,60 +363,106 @@ impl Ondera {
             .iter()
             .position(|t| t.kind == "midi" && Some(&t.id) == s.view.selected_track_id.as_ref());
         self.midi_route.store(
-            armed.or(selected).unwrap_or(midi::UNROUTED),
+            armed
+                .or(selected)
+                .map_or(midi::UNROUTED, |index| midi::route_id(&s.tracks[index].id)),
             Ordering::Relaxed,
         );
     }
     /// A note from musical typing: play it live and record it when armed.
     pub(crate) fn live_note(&mut self, on: bool, pitch: u8, velocity: u8) {
-        let track = self.midi_route.load(Ordering::Relaxed);
-        if track == midi::UNROUTED {
+        let (prior, track) =
+            self.typing_owners
+                .event(on, pitch, 0, self.midi_route.load(Ordering::Relaxed));
+        if let (Some(route), Some(device)) = (prior, self.device.as_mut()) {
+            if device
+                .send(Message::RoutedNote {
+                    route,
+                    on: false,
+                    pitch,
+                    velocity: 0,
+                })
+                .is_err()
+            {
+                device
+                    .telemetry
+                    .input_overflow
+                    .store(true, Ordering::Release);
+            }
+        }
+        let Some(track) = track else {
             if on {
                 self.status = "Select an instrument track to play".into();
             }
             return;
-        }
+        };
         if let Some(d) = &mut self.device {
-            if let Err(e) = d.send(Message::Note {
-                track,
+            if let Err(e) = d.send(Message::RoutedNote {
+                route: track,
                 on,
                 pitch,
                 velocity,
             }) {
+                d.telemetry.input_overflow.store(true, Ordering::Release);
+                self.stop();
                 self.error = Some(e);
+                return;
             }
         }
         let beats = self.position;
         self.record_note(on, pitch, velocity, beats);
     }
     fn record_note(&mut self, on: bool, pitch: u8, velocity: u8, beats: f64) {
+        self.record_note_channel(on, pitch, velocity, beats, 0);
+    }
+    fn record_note_channel(&mut self, on: bool, pitch: u8, velocity: u8, beats: f64, channel: u8) {
         if !self.midi_recording {
             return;
         }
         if on {
+            if let Some(previous) =
+                self.midi_take.iter_mut().rev().find(|note| {
+                    note.pitch == pitch && note.channel == channel && note.end.is_none()
+                })
+            {
+                previous.end = Some(beats.max(previous.start));
+            }
             self.midi_take.push(RecordedNote {
                 start: beats.max(self.record_start),
                 end: None,
                 pitch,
                 velocity: velocity.max(1),
+                channel,
             });
         } else if let Some(note) = self
             .midi_take
             .iter_mut()
             .rev()
-            .find(|n| n.pitch == pitch && n.end.is_none())
+            .find(|n| n.pitch == pitch && n.channel == channel && n.end.is_none())
         {
             note.end = Some(beats.max(note.start));
         }
     }
     fn poll_midi(&mut self) {
-        let events = match &mut self.midi {
-            Some(input) => input.drain(),
+        let (events, failed, disconnected) = match &mut self.midi {
+            Some(input) => {
+                input.check_connection();
+                (
+                    input.drain(),
+                    input.failed.load(Ordering::Relaxed),
+                    input.disconnected,
+                )
+            }
             None => return,
         };
         for e in events {
             let beats = if e.playing { e.beats } else { self.position };
-            self.record_note(e.on, e.pitch, e.velocity, beats);
+            self.record_note_channel(e.on, e.pitch, e.velocity, beats, e.channel);
+        }
+        if failed {
+            self.stop();
+            self.midi = None;
+            self.error = Some(if disconnected { "MIDI input disconnected and playback was stopped. Captured notes were retained; reconnect the MIDI input before continuing." } else { "MIDI input exceeded its event queue capacity and was stopped. Captured notes were retained; reconnect the MIDI input before continuing." }.into());
         }
     }
     /// Turn the captured notes into one region per armed instrument track.
@@ -386,11 +472,16 @@ impl Ondera {
         }
         self.midi_recording = false;
         let end_position = self.position;
+        // Key down/up can arrive in the same UI frame. Keep a one-millisecond
+        // tap instead of silently deleting it because both saw one playhead time.
+        let minimum_length = self.store.session().transport.tempo / 60.0 * 0.001;
         let mut take = std::mem::take(&mut self.midi_take);
         for note in &mut take {
-            if note.end.is_none() {
-                note.end = Some(end_position.max(note.start));
-            }
+            note.end = Some(
+                note.end
+                    .unwrap_or(end_position)
+                    .max(note.start + minimum_length),
+            );
         }
         take.retain(|n| n.end.is_some_and(|e| e > n.start + 1e-6));
         if take.is_empty() {
@@ -549,8 +640,13 @@ impl Ondera {
                     session,
                     library,
                     path,
-                }) => self.loaded(*session, library, path),
-                Ok(JobResult::Saved { path, revision }) => self.saved(path, revision),
+                    ownership,
+                }) => self.loaded(*session, library, path, Some(ownership)),
+                Ok(JobResult::Saved {
+                    path,
+                    revision,
+                    ownership,
+                }) => self.saved(path, revision, ownership),
                 Ok(JobResult::Imported(files)) => {
                     let position = self.position;
                     for (path, buffer) in files {
@@ -568,7 +664,6 @@ impl Ondera {
                     self.position = position;
                     self.status = "Audio imported".into();
                 }
-                Ok(JobResult::Bounced) => self.status = "WAV export complete".into(),
                 Ok(JobResult::Cancelled) => {
                     self.status = "Cancelled".into();
                     self.after_save = None;
@@ -593,14 +688,28 @@ impl Ondera {
         {
             self.record_finishing = None;
             match result {
-                Ok(buffer) => {
+                Ok(take) => {
                     let clips = self.store.session().clips.len();
+                    let buffer = Arc::new(take.buffer);
                     self.import_buffer(
                         "Take",
-                        Arc::new(buffer),
+                        buffer.clone(),
                         Some((self.record_start, self.recording_tracks.clone())),
                     );
                     if self.store.session().clips.len() == clips {
+                        self.after_take = None;
+                        let reason = self.error.take().unwrap_or_else(|| {
+                            "The recorded take could not be placed in this session".into()
+                        });
+                        if let Some(path) = take.recovery_path {
+                            self.error = Some(format!("{reason}. The complete captured audio is preserved at {}. Import that WAV into a session with available capacity.", path.display()));
+                        } else {
+                            self.unplaced_recording = Some(buffer);
+                            self.error = Some(format!("{reason}. Source-file backup also failed; the take remains in memory. Free disk space and use Audio > Save recovered take before closing."));
+                        }
+                    } else if let Some(warning) = take.warning {
+                        self.error = Some(warning);
+                        self.status = "Recorded take retained with warning".into();
                         self.after_take = None;
                     }
                 }
@@ -619,6 +728,24 @@ impl Ondera {
                 }
             }
         }
+        if let Some(result) =
+            self.recovered_recording_write
+                .as_ref()
+                .and_then(|rx| match rx.try_recv() {
+                    Ok(value) => Some(value),
+                    Err(mpsc::TryRecvError::Disconnected) => Some(Err(
+                        "Recovered-take writer stopped; audio remains in memory".into(),
+                    )),
+                    Err(mpsc::TryRecvError::Empty) => None,
+                })
+        {
+            self.recovered_recording_write = None;
+            match result {
+                Ok(Some(path)) => { self.unplaced_recording = None; self.error = None; self.status = format!("Recovered take saved to {}", path.display()); }
+                Ok(None) => self.status = "Recovered take remains in memory".into(),
+                Err(error) => self.error = Some(format!("{error}. Recovered audio remains in memory; retry Audio > Save recovered take.")),
+            }
+        }
         if self.sync_needed && self.job.is_none() {
             self.sync_needed = false;
             self.preparing = true;
@@ -627,9 +754,17 @@ impl Ondera {
             let revision = self.store.revision;
             let rate = self.device.as_ref().map_or(48000, |d| d.sample_rate);
             let slots = self.plugins.slots.clone();
+            let latencies = self
+                .plugins
+                .loaded
+                .values()
+                .map(|entry| (entry.slot, entry.editor.latency()))
+                .collect();
             self.spawn("Updating audio…", move || {
                 audio::prepare_sources(&session, &mut library)?;
-                let renderer = Box::new(Renderer::new((*session).clone(), &library, rate, &slots)?);
+                let mut renderer =
+                    Box::new(Renderer::new((*session).clone(), &library, rate, &slots)?);
+                renderer.set_latencies(&latencies)?;
                 Ok(JobResult::Prepared {
                     renderer,
                     library,
@@ -710,6 +845,34 @@ impl Ondera {
             .filter(|t| t.kind == "midi" && t.armed)
             .map(|t| t.id.clone())
             .collect();
+        let mut byte_limit = 0;
+        if !self.recording_tracks.is_empty() {
+            let embedded_bytes: usize = s
+                .sources
+                .values()
+                .filter(|source| source.origin != "generated")
+                .filter_map(|source| self.library.get(&source.id))
+                .map(|buffer| (buffer.frames.len() * 8 + 128).div_ceil(3) * 4)
+                .sum();
+            byte_limit = audio::MAX_LIBRARY_BYTES
+                .saturating_sub(audio::library_bytes(&self.library))
+                .min(
+                    (700usize * 1024 * 1024)
+                        .saturating_sub(embedded_bytes)
+                        .saturating_mul(3)
+                        / 4,
+                )
+                .saturating_sub(4096);
+            if byte_limit < 8192
+                || s.sources.len() >= 10_000
+                || s.clips.len() + self.recording_tracks.len() > 50_000
+                || self.unplaced_recording.is_some()
+            {
+                self.error = Some("No capacity remains for another audio take. Save recovered audio or start a new session first.".into());
+                self.record_enabled = false;
+                return;
+            }
+        }
         if self.recording_tracks.is_empty() && self.recording_midi_tracks.is_empty() {
             self.error = Some("Arm an audio or instrument track before recording.".into());
             return;
@@ -733,10 +896,28 @@ impl Ondera {
         self.record_pending = Some(rx);
         self.status = "Opening microphone — check system permission…".into();
         std::thread::spawn(move || {
-            let _ = tx.send(Recorder::start(telemetry, input));
+            let _ = tx.send(Recorder::start(telemetry, input, byte_limit));
         });
     }
     pub fn stop(&mut self) {
+        let events = self
+            .midi
+            .as_mut()
+            .map(|input| {
+                let events = input.drain();
+                input.reset_notes();
+                events
+            })
+            .unwrap_or_default();
+        for event in events {
+            self.record_note_channel(
+                event.on,
+                event.pitch,
+                event.velocity,
+                event.beats,
+                event.channel,
+            );
+        }
         self.playing = false;
         self.record_pending.take();
         if let Some(d) = &mut self.device {
@@ -762,9 +943,41 @@ impl Ondera {
             self.record_finishing = Some(rx);
             self.status = "Finishing take…".into();
             std::thread::spawn(move || {
-                let _ = tx.send(r.finish());
+                let result = r.finish().map(|mut take| {
+                    let path = host::scan::data_dir().join("recordings").join(format!("{}.wav", id("take")));
+                    if let Err(error) = take.preserve(&path) {
+                        let detail = format!("Source audio backup failed at {}: {error}. Keep this session open until you save the take.", path.display());
+                        take.warning = Some(take.warning.map_or(detail.clone(), |warning| format!("{warning} {detail}")));
+                    }
+                    take
+                });
+                let _ = tx.send(result);
             });
         }
+    }
+    pub(crate) fn save_recovered_take(&mut self) {
+        if self.recovered_recording_write.is_some() {
+            return;
+        }
+        let Some(buffer) = self.unplaced_recording.clone() else {
+            return;
+        };
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.recovered_recording_write = Some(rx);
+        std::thread::spawn(move || {
+            let result = (|| {
+                let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("Recovered take.wav")
+                    .add_filter("WAV", &["wav"])
+                    .save_file()
+                else {
+                    return Ok(None);
+                };
+                ondera_engine::device::preserve_recording(&buffer, &path)?;
+                Ok(Some(path))
+            })();
+            let _ = tx.send(result);
+        });
     }
     pub fn preview(&mut self, track: &str, pitch: u8, velocity: u8) {
         if self.sync_needed || self.synced_revision != Some(self.store.revision) {
@@ -939,7 +1152,7 @@ impl Ondera {
         self.dispatch(Command::Batch(commands));
     }
     pub fn import(&mut self, paths: Option<Vec<PathBuf>>) {
-        if self.job.is_some() {
+        if self.job.is_some() || self.control_job.is_some() {
             return;
         }
         self.spawn("Importing audio…", move || {
@@ -976,7 +1189,7 @@ impl Ondera {
         });
     }
     pub(crate) fn save(&mut self, save_as: bool) {
-        if self.job.is_some() {
+        if self.job.is_some() || self.control_job.is_some() {
             self.status = "Wait for the current operation before saving".into();
             return;
         }
@@ -985,7 +1198,10 @@ impl Ondera {
             self.after_take = Some(AfterTake::Save(save_as));
             return;
         }
-        self.capture_plugin_states();
+        if let Err(error) = self.guarded(Ondera::capture_plugin_states) {
+            self.error = Some(error);
+            return;
+        }
         let mut session = (*self.store.snapshot()).clone();
         session.transport.position_beats = self.position;
         session.view.pixels_per_bar = self.zoom;
@@ -993,6 +1209,7 @@ impl Ondera {
         let library = self.library.clone();
         let revision = self.store.revision;
         let path = if save_as { None } else { self.path.clone() };
+        let current = self.session_file.clone();
         self.spawn("Saving…", move || {
             let path = path.or_else(|| {
                 rfd::FileDialog::new()
@@ -1006,12 +1223,18 @@ impl Ondera {
             if path.extension().is_none() {
                 path.set_extension("ondera");
             }
+            let ownership = SessionFileLock::acquire_or_reuse(&path, current.as_ref())?;
+            let path = ownership.path().to_path_buf();
             document::save(&session, &library, &path)?;
-            Ok(JobResult::Saved { path, revision })
+            Ok(JobResult::Saved {
+                path,
+                revision,
+                ownership,
+            })
         });
     }
     pub(crate) fn bounce(&mut self) {
-        if self.job.is_some() {
+        if self.job.is_some() || self.control_job.is_some() {
             return;
         }
         self.stop();
@@ -1019,42 +1242,36 @@ impl Ondera {
             self.after_take = Some(AfterTake::Bounce);
             return;
         }
-        self.capture_plugin_states();
-        let session = self.store.snapshot();
-        let library = self.library.clone();
-        self.spawn("Exporting WAV…", move || {
-            let path = rfd::FileDialog::new()
-                .add_filter("WAV audio", &["wav"])
-                .set_file_name(format!("{}.wav", session.name.trim_end_matches(".ondera")))
-                .save_file();
-            let Some(mut path) = path else {
-                return Ok(JobResult::Cancelled);
-            };
-            if path.extension().is_none() {
-                path.set_extension("wav");
-            }
-            render::bounce(&session, &library, &path, 48000)?;
-            Ok(JobResult::Bounced)
-        });
+        self.open_export_dialog();
     }
     /// Install a decoded session and its audio, whether a job or a live client opened it.
-    pub(crate) fn loaded(&mut self, session: Session, library: Library, path: PathBuf) {
+    pub(crate) fn loaded(
+        &mut self,
+        session: Session,
+        library: Library,
+        path: PathBuf,
+        ownership: Option<SessionFileLock>,
+    ) {
+        self.unload_plugins();
         self.position = session.transport.position_beats;
         self.zoom = session.view.pixels_per_bar.clamp(12.0, 480.0);
         self.scroll = session.view.scroll_bars.max(0.0);
         if let Err(e) = self.store.load(session) {
             self.error = Some(e);
         } else {
+            self.recovery.new_document();
             self.library = library;
             self.path = Some(path);
+            self.session_file = ownership;
             self.sync_needed = true;
             self.synced_revision = None;
             self.status = "Session opened".into();
             self.locate(self.position);
         }
     }
-    pub(crate) fn saved(&mut self, path: PathBuf, revision: u64) {
+    pub(crate) fn saved(&mut self, path: PathBuf, revision: u64, ownership: SessionFileLock) {
         self.path = Some(path);
+        self.session_file = Some(ownership);
         self.store.mark_saved(revision);
         self.status = "Session saved".into();
         if !self.store.dirty() {
@@ -1064,18 +1281,51 @@ impl Ondera {
         }
     }
     pub(crate) fn load_path(&mut self, path: PathBuf) {
+        if self.unplaced_recording.is_some() {
+            self.error = Some("Use Audio > Save recovered take before opening another session; recorded audio remains in memory.".into());
+            return;
+        }
         self.stop();
+        let current = self.session_file.clone();
         self.spawn("Opening session…", move || {
+            let ownership = SessionFileLock::acquire_or_reuse(&path, current.as_ref())?;
+            let path = ownership.path().to_path_buf();
             let (session, library) = document::load(&path)?;
             Ok(JobResult::Loaded {
                 session: Box::new(session),
                 library,
                 path,
+                ownership,
             })
         });
     }
+    fn poll_agent(&mut self, ctx: &egui::Context) {
+        self.agents.poll_runner(ctx);
+        if !self.agents.runner_busy() && self.job.is_none() && self.control_job.is_none() {
+            if let Some(intent) = self.after_agent.take() {
+                // The runner joins its MCP children before becoming idle. Reject commands
+                // they queued before cancellation so none can reach the replacement session.
+                if let Some(server) = &self.control {
+                    for request in server.drain() {
+                        request.respond(Err("Agent stopped before switching sessions; retry for the current session.".into()));
+                    }
+                }
+                self.request(intent);
+            }
+        }
+    }
     pub(crate) fn request(&mut self, intent: Intent) {
-        if self.job.is_some() {
+        if self.agents.runner_busy() {
+            self.agents.stop_runner();
+            self.after_agent = Some(intent);
+            self.status = "Stopping agent before switching sessions…".into();
+            return;
+        }
+        if self.unplaced_recording.is_some() {
+            self.error = Some("Use Audio > Save recovered take before closing or replacing this session; recorded audio remains in memory.".into());
+            return;
+        }
+        if self.job.is_some() || self.control_job.is_some() {
             return;
         }
         self.stop();
@@ -1083,6 +1333,12 @@ impl Ondera {
             self.after_take = Some(AfterTake::Request(intent));
             return;
         }
+        let previous_error = self.error.take();
+        self.capture_plugin_states();
+        if self.error.is_some() {
+            return;
+        }
+        self.error = previous_error;
         if self.store.dirty() {
             self.intent = Some(intent);
         } else {
@@ -1116,27 +1372,36 @@ impl Ondera {
                     return;
                 }
                 self.library.clear();
+                self.recovery.new_document();
                 self.path = None;
+                self.session_file = None;
                 self.position = 0.0;
                 self.scroll = 0.0;
                 self.sync_needed = true;
                 self.synced_revision = None;
                 self.locate(0.0);
             }
-            Intent::Open => self.spawn("Opening session…", || {
-                let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Ondera session", &["ondera"])
-                    .pick_file()
-                else {
-                    return Ok(JobResult::Cancelled);
-                };
-                let (session, library) = document::load(&path)?;
-                Ok(JobResult::Loaded {
-                    session: Box::new(session),
-                    library,
-                    path,
+            Intent::Recover => self.restore_recovery(),
+            Intent::Open => {
+                let current = self.session_file.clone();
+                self.spawn("Opening session…", move || {
+                    let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Ondera session", &["ondera"])
+                        .pick_file()
+                    else {
+                        return Ok(JobResult::Cancelled);
+                    };
+                    let ownership = SessionFileLock::acquire_or_reuse(&path, current.as_ref())?;
+                    let path = ownership.path().to_path_buf();
+                    let (session, library) = document::load(&path)?;
+                    Ok(JobResult::Loaded {
+                        session: Box::new(session),
+                        library,
+                        path,
+                        ownership,
+                    })
                 })
-            }),
+            }
         }
     }
     pub(crate) fn keyboard(&mut self, ctx: &egui::Context) {
@@ -1512,6 +1777,9 @@ impl eframe::App for Ondera {
         self.store.set_gesture(gesture);
         self.frames += 1;
         self.poll();
+        self.poll_control_job();
+        self.poll_recovery(ctx);
+        self.poll_agent(ctx);
         self.serve_control(gesture);
         self.poll_updates();
         self.keyboard(ctx);
@@ -1547,6 +1815,8 @@ impl eframe::App for Ondera {
             });
         self.dialogs(ctx);
         self.plugin_windows(ctx);
+        self.automation_window(ctx);
+        self.export_dialog(ctx);
         self.update_dialog(ctx);
         let dropped: Vec<_> = ctx.input(|i| {
             i.raw
@@ -1558,7 +1828,12 @@ impl eframe::App for Ondera {
         if !dropped.is_empty() {
             self.import(Some(dropped));
         }
-        if self.playing || self.job.is_some() || self.scan_job.is_some() || self.midi_recording || self.updates.busy() {
+        if self.playing
+            || self.job.is_some()
+            || self.scan_job.is_some()
+            || self.midi_recording
+            || self.updates.busy()
+        {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else {
             ctx.request_repaint_after(Duration::from_millis(100));
@@ -1638,6 +1913,52 @@ mod tests {
             panic!()
         };
         notes
+    }
+
+    #[test]
+    fn switching_sessions_waits_for_agent_cleanup_and_rejects_queued_edits() {
+        use ondera_engine::control::wire;
+        let (mut app, ctx) = setup();
+        app.store.mark_unsaved();
+        let before = serde_json::to_value(app.store.session()).unwrap();
+        let directory = std::env::temp_dir().join(id("ondera-agent-stop"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("control.json");
+        let (wake_tx, wake_rx) = mpsc::channel();
+        app.control = Some(
+            wire::Server::start_at(path.clone(), move || {
+                let _ = wake_tx.send(());
+            })
+            .unwrap(),
+        );
+        let complete = app.agents.mock_running_task();
+        app.request(Intent::New);
+        assert!(app.agents.runner_busy());
+        assert!(app.intent.is_none());
+        let client = std::thread::spawn(move || {
+            let mut client = wire::Client::connect_at(&path).unwrap();
+            client.call(
+                "track.add",
+                &serde_json::json!({"kind":"midi", "name":"Late agent edit"}),
+                true,
+            )
+        });
+        wake_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        app.poll_agent(&ctx);
+        assert!(app.intent.is_none());
+        complete();
+        app.poll_agent(&ctx);
+        assert!(matches!(app.intent, Some(Intent::New)));
+        assert!(client
+            .join()
+            .unwrap()
+            .unwrap_err()
+            .contains("Agent stopped"));
+        app.serve_control(false);
+        assert_eq!(serde_json::to_value(app.store.session()).unwrap(), before);
+        assert!(app.after_agent.is_none());
+        drop(app);
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]
@@ -1785,9 +2106,11 @@ mod tests {
         assert!(!app.closing);
         assert!(app.intent.is_none());
         assert!(app.store.session().clips.is_empty());
-        tx.send(Ok(
-            audio::AudioBuffer::new(48000, vec![[0.1; 2]; 4800]).unwrap()
-        ))
+        tx.send(Ok(RecordedAudio {
+            buffer: audio::AudioBuffer::new(48000, vec![[0.1; 2]; 4800]).unwrap(),
+            warning: None,
+            recovery_path: None,
+        }))
         .unwrap();
         app.poll();
         // Plugin reconciliation schedules an audio update; the quit waits for it too.
@@ -1847,6 +2170,91 @@ mod tests {
             "open notes close when recording stops"
         );
         assert!(!app.midi_recording);
+        app.dispatch(Command::Undo);
+        assert!(app.store.session().clips.is_empty());
+    }
+    #[test]
+    fn musical_typing_taps_in_one_frame_are_recorded_and_undoable() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        let track = app
+            .store
+            .session()
+            .tracks
+            .iter()
+            .find(|track| track.kind == "midi")
+            .unwrap()
+            .id
+            .clone();
+        app.recording_midi_tracks = vec![track];
+        app.midi_recording = true;
+        app.record_start = 4.0;
+        app.position = 4.0;
+        app.record_note(true, 60, 100, 4.0);
+        app.record_note(false, 60, 0, 4.0);
+        app.record_note(true, 64, 90, 4.0);
+        app.commit_midi_take();
+        let ClipData::Midi { notes } = &app.store.session().clips[0].data else {
+            panic!()
+        };
+        assert_eq!(notes.len(), 2);
+        for note in notes {
+            assert!(
+                (note.length * 60.0 / app.store.session().transport.tempo - 0.001).abs() < 1e-9
+            );
+        }
+        app.dispatch(Command::Undo);
+        assert!(app.store.session().clips.is_empty());
+    }
+
+    #[test]
+    fn live_sustain_records_pedal_length_and_stop_finishes_held_notes() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.recording_midi_tracks = vec![app
+            .store
+            .session()
+            .tracks
+            .iter()
+            .find(|track| track.kind == "midi")
+            .unwrap()
+            .id
+            .clone()];
+        app.midi_recording = true;
+        let mut parser = midi::MidiNotes::default();
+        for (beat, bytes) in [
+            (0.0, [0x90, 60, 100]),
+            (0.5, [0xb0, 64, 127]),
+            (1.0, [0x80, 60, 0]),
+            (2.0, [0x91, 60, 80]),
+            (2.5, [0x81, 60, 0]),
+            (3.0, [0xb0, 64, 0]),
+            (4.0, [0x90, 67, 100]),
+            (4.5, [0xb0, 64, 127]),
+            (5.0, [0x80, 67, 0]),
+        ] {
+            parser.receive(&bytes, midi::route_id("track"), |event| {
+                app.record_note_channel(event.on, event.pitch, event.velocity, beat, event.channel)
+            });
+        }
+        app.position = 6.0;
+        app.stop();
+        let ClipData::Midi { notes } = &app.store.session().clips[0].data else {
+            panic!()
+        };
+        assert_eq!(
+            notes
+                .iter()
+                .map(|note| (note.pitch, note.start, note.length))
+                .collect::<Vec<_>>(),
+            vec![(60, 0.0, 3.0), (60, 2.0, 0.5), (67, 4.0, 2.0)]
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sustain.ondera");
+        document::save(app.store.session(), &app.library, &path).unwrap();
+        let (loaded, _) = document::load(&path).unwrap();
+        let ClipData::Midi { notes } = &loaded.clips[0].data else {
+            panic!()
+        };
+        assert_eq!(notes[0].length, 3.0);
         app.dispatch(Command::Undo);
         assert!(app.store.session().clips.is_empty());
     }
@@ -1940,6 +2348,92 @@ mod tests {
         assert!(app.intent.is_none());
         assert_eq!(app.error.as_deref(), Some("Input disconnected"));
         assert_eq!(serde_json::to_value(app.store.session()).unwrap(), before);
+    }
+
+    #[test]
+    fn interrupted_take_imports_recovered_audio_warns_and_cancels_deferred_quit() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.sync_needed = false;
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.record_finishing = Some(rx);
+        app.request(Intent::Quit);
+        tx.send(Ok(RecordedAudio {
+            buffer: audio::AudioBuffer::new(48000, vec![[0.125; 2]; 4800]).unwrap(),
+            warning: Some("Input disconnected; partial take was recovered".into()),
+            recovery_path: None,
+        }))
+        .unwrap();
+        app.poll();
+        assert!(!app.closing);
+        assert!(app.after_take.is_none());
+        assert!(app.intent.is_none());
+        assert!(app.store.dirty());
+        let clip = app.store.session().clips.last().unwrap();
+        let ClipData::Audio { source_id, .. } = &clip.data else {
+            panic!("Recovered take must be audio")
+        };
+        assert_eq!(app.library[source_id].frames, vec![[0.125; 2]; 4800]);
+        assert!(app
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("partial take was recovered"));
+        app.dispatch(Command::Undo);
+        assert!(app.store.session().clips.is_empty());
+    }
+
+    #[test]
+    fn unplaceable_take_keeps_memory_blocks_close_and_failed_backup_retry_keeps_ownership() {
+        let mut session = store::empty();
+        let track = session.tracks[0].clone();
+        session.tracks = (0..128)
+            .map(|i| Track {
+                id: format!("track-{i}"),
+                ..track.clone()
+            })
+            .collect();
+        session.strips.clear();
+        session.view.selected_track_id = None;
+        let mut app = Ondera::from_session(session, None);
+        app.sync_needed = false;
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.record_finishing = Some(rx);
+        tx.send(Ok(RecordedAudio {
+            buffer: audio::AudioBuffer::new(48000, vec![[0.25; 2]; 100]).unwrap(),
+            warning: Some("Disk full".into()),
+            recovery_path: None,
+        }))
+        .unwrap();
+        app.poll();
+        assert_eq!(
+            app.unplaced_recording.as_ref().unwrap().frames,
+            vec![[0.25; 2]; 100]
+        );
+        app.request(Intent::Quit);
+        assert!(!app.closing);
+        assert!(app.intent.is_none());
+        app.request(Intent::New);
+        assert_eq!(app.store.session().tracks.len(), 128);
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.recovered_recording_write = Some(rx);
+        tx.send(Err("Disk remains full".into())).unwrap();
+        app.poll();
+        assert!(app.unplaced_recording.is_some());
+        assert!(app.error.as_deref().unwrap().contains("remains in memory"));
+    }
+
+    #[test]
+    fn typing_release_uses_original_owner_after_track_selection_changes() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.midi_route
+            .store(midi::route_id("first"), Ordering::Relaxed);
+        app.live_note(true, 60, 100);
+        app.midi_route
+            .store(midi::route_id("second"), Ordering::Relaxed);
+        assert_eq!(
+            app.typing_owners.event(false, 60, 0, midi::UNROUTED),
+            (None, Some(midi::route_id("first")))
+        );
     }
 
     #[test]

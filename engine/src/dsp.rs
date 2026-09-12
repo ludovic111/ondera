@@ -122,6 +122,11 @@ pub struct Voice {
     phase2: f64,
     low: f32,
     seed: u32,
+    frequency_pitch: u8,
+    frequency: f64,
+    pad_rate: f64,
+    pad_cutoff: f64,
+    pad_alpha: f32,
 }
 impl Voice {
     pub fn new(preset: Preset, pitch: u8, velocity: u8, serial: u64) -> Self {
@@ -136,6 +141,11 @@ impl Voice {
             phase2: 0.0,
             low: 0.0,
             seed: 12345 + pitch as u32 + serial as u32 * 7,
+            frequency_pitch: pitch,
+            frequency: 440.0 * 2.0_f64.powf((pitch as f64 - 69.0) / 12.0),
+            pad_rate: 0.0,
+            pad_cutoff: 0.0,
+            pad_alpha: 0.0,
         }
     }
     pub fn release(&mut self) {
@@ -155,11 +165,34 @@ impl Voice {
         }
     }
     /// One mono sample; advances the voice by one frame.
+    #[inline]
     pub fn sample(&mut self, p: &InstrumentParams, rate: f64) -> f32 {
+        // Pitch and pad cutoff stay constant for many samples. Keep the same
+        // formulas and invalidate on changes, including public pitch edits and
+        // sample-rate changes; modulation and envelopes remain sample-accurate.
+        if self.frequency_pitch != self.pitch {
+            self.frequency_pitch = self.pitch;
+            self.frequency = 440.0 * 2.0_f64.powf((self.pitch as f64 - 69.0) / 12.0);
+        }
+        if self.preset == Preset::Pad && (self.pad_rate != rate || self.pad_cutoff != p.cutoff) {
+            self.pad_rate = rate;
+            self.pad_cutoff = p.cutoff;
+            self.pad_alpha = (1.0 - (-TAU * p.cutoff.min(rate * 0.45) / rate).exp()) as f32;
+        }
+        let hz = self.frequency.min(rate * 0.4);
+        self.sample_with_coefficients(p, rate, hz, self.pad_alpha)
+    }
+    #[inline]
+    fn sample_with_coefficients(
+        &mut self,
+        p: &InstrumentParams,
+        rate: f64,
+        hz: f64,
+        pad_alpha: f32,
+    ) -> f32 {
         let age = self.age;
         self.age += 1.0 / rate;
         let cents = 1.0 + p.detune / 100.0 / 12.0 * 0.06;
-        let hz = (440.0 * 2.0_f64.powf((self.pitch as f64 - 69.0) / 12.0)).min(rate * 0.4);
         let dt = hz / rate;
         self.phase = (self.phase + dt).fract();
         self.phase2 = (self.phase2 + dt * cents).fract();
@@ -191,8 +224,7 @@ impl Voice {
             }
             Preset::Pad => {
                 let osc = saw(self.phase, dt) + saw(self.phase2, dt * cents) * 0.5;
-                let alpha = (1.0 - (-TAU * p.cutoff.min(rate * 0.45) / rate).exp()) as f32;
-                self.low += alpha * (osc as f32 - self.low);
+                self.low += pad_alpha * (osc as f32 - self.low);
                 (
                     self.low as f64,
                     attack * (0.6 + 0.4 * (-age * 8.0).exp()),
@@ -485,5 +517,67 @@ pub fn db(gain: f32) -> f32 {
         20.0 * gain.log10()
     } else {
         -180.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_voices_match_per_sample_coefficients_through_note_and_parameter_changes() {
+        for preset in [
+            Preset::Synth,
+            Preset::Piano,
+            Preset::Drums,
+            Preset::Pluck,
+            Preset::Sub,
+            Preset::Bell,
+            Preset::Pad,
+            Preset::Riser,
+        ] {
+            for pitch in [0, 35, 38, 42, 60, 69, 84, 127] {
+                let mut cached = Voice::new(preset, pitch, 97, 11);
+                let mut reference = cached;
+                let mut params = InstrumentParams::for_preset(preset);
+                for frame in 0..8192 {
+                    // Invalidate at non-block-aligned positions and while released.
+                    // High notes also exercise the sample-rate frequency clamp.
+                    let rate = if frame < 1537 {
+                        44100.0
+                    } else if frame < 4099 {
+                        96000.0
+                    } else {
+                        48000.0
+                    };
+                    if frame == 257 || frame == 5003 {
+                        params.cutoff = if frame == 257 { 731.25 } else { 19000.0 };
+                        params.detune = 31.5;
+                        params.attack = 0.007;
+                        params.release = 0.12;
+                    }
+                    if frame == 2017 {
+                        cached.pitch = pitch.wrapping_add(7);
+                        reference.pitch = cached.pitch;
+                    }
+                    if frame == 3001 {
+                        cached.release();
+                        reference.release();
+                    }
+                    // This is the original per-sample coefficient calculation;
+                    // both paths feed the unchanged synthesis arithmetic.
+                    let hz = (440.0 * 2.0_f64.powf((reference.pitch as f64 - 69.0) / 12.0))
+                        .min(rate * 0.4);
+                    let alpha = (1.0 - (-TAU * params.cutoff.min(rate * 0.45) / rate).exp()) as f32;
+                    let expected = reference.sample_with_coefficients(&params, rate, hz, alpha);
+                    let actual = cached.sample(&params, rate);
+                    assert_eq!(
+                        actual.to_bits(),
+                        expected.to_bits(),
+                        "{preset:?}, pitch {pitch}, frame {frame}"
+                    );
+                }
+            }
+        }
     }
 }

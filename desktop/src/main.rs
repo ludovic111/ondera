@@ -1,10 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod agent_runner;
+mod agents;
 mod app;
+mod automation;
 mod chrome;
 mod control;
 mod editor;
+mod export;
 mod native;
 mod plugins;
+mod recovery;
 mod theme;
 mod timeline;
 mod update;
@@ -15,9 +20,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut path = None;
     let mut screenshot = None;
     let mut control = true;
+    let mut show_agents = false;
     let mut check_updates = std::env::var_os("ONDERA_NO_UPDATE").is_none_or(|v| v.is_empty());
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--version" | "-V" => {
+                println!("ondera {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "--validate" => {
                 let file = args
                     .next()
@@ -88,6 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ))
             }
             "--no-control" => control = false,
+            "--agents" => show_agents = true,
             "--update" => {
                 match update::check()? {
                     None => println!("Ondera {} is up to date", update::current_version()),
@@ -105,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--no-update-check" => check_updates = false,
             "--help" | "-h" => {
-                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --scan-plugins\n  ondera --plugins\n  ondera --no-control   disable CLI / MCP connections\n  ondera --screenshot image.png\n  ondera --update            install the latest GitHub release\n  ondera --no-update-check   skip the startup update check (or set ONDERA_NO_UPDATE=1)");
+                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --scan-plugins\n  ondera --plugins\n  ondera --agents       open the Agents tab\n  ondera --no-control   disable CLI / MCP connections\n  ondera --screenshot image.png\n  ondera --update            install the latest GitHub release\n  ondera --no-update-check   skip the startup update check (or set ONDERA_NO_UPDATE=1)");
                 return Ok(());
             }
             _ => {
@@ -128,12 +139,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Ondera",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(app::Ondera::new(
-                cc,
-                path,
-                screenshot,
-                check_updates,
-            )))
+            let mut app = app::Ondera::new(cc, path, screenshot, control, check_updates);
+            app.agents.open = show_agents;
+            Ok(Box::new(app))
         }),
     )?;
     Ok(())

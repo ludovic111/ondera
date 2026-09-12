@@ -15,6 +15,7 @@ use crate::{
     audio::{self, AudioBuffer, Library},
     document,
     dsp::{EFFECTS, INSTRUMENTS},
+    host as plugin_host,
     model::*,
     render,
     store::{self, Command, Store},
@@ -63,7 +64,7 @@ pub struct Param {
     pub required: bool,
     pub doc: &'static str,
 }
-const fn req(name: &'static str, kind: Kind, doc: &'static str) -> Param {
+pub(crate) const fn req(name: &'static str, kind: Kind, doc: &'static str) -> Param {
     Param {
         name,
         kind,
@@ -71,7 +72,7 @@ const fn req(name: &'static str, kind: Kind, doc: &'static str) -> Param {
         doc,
     }
 }
-const fn opt(name: &'static str, kind: Kind, doc: &'static str) -> Param {
+pub(crate) const fn opt(name: &'static str, kind: Kind, doc: &'static str) -> Param {
     Param {
         name,
         kind,
@@ -88,7 +89,7 @@ pub struct Spec {
     /// False for queries; true when the command can change the document, transport or files.
     pub mutates: bool,
 }
-const fn query(name: &'static str, doc: &'static str, params: &'static [Param]) -> Spec {
+pub(crate) const fn query(name: &'static str, doc: &'static str, params: &'static [Param]) -> Spec {
     Spec {
         name,
         doc,
@@ -96,7 +97,7 @@ const fn query(name: &'static str, doc: &'static str, params: &'static [Param]) 
         mutates: false,
     }
 }
-const fn edit(name: &'static str, doc: &'static str, params: &'static [Param]) -> Spec {
+pub(crate) const fn edit(name: &'static str, doc: &'static str, params: &'static [Param]) -> Spec {
     Spec {
         name,
         doc,
@@ -115,10 +116,19 @@ const NOTES_DOC: &str = "Array of {start, length, pitch, velocity?} with start/l
 
 /// Every public command. Names use `family.action` and map one-to-one to CLI commands and MCP
 /// tools (`family_action`).
-pub const COMMANDS: &[Spec] = &[
+pub const BASE_COMMANDS: &[Spec] = &[
     query("session.info", "Summarise the open session: name, file, transport, counts, selection and history state.", &[]),
     query("session.get", "Return the complete session document as JSON (tracks, clips with notes, sources, strips, transport, view).", &[]),
+    query("session.inspect", "Inspect the arrangement, mixer and automation without opaque plugin state. Clips are summaries by default; use clip.get for individual notes.", &[opt("includeNotes",Kind::Boolean,"Include all MIDI notes instead of clip summaries (default false).")]),
     query("session.catalog", "List built-in instruments, effects and bundled MIDI loops.", &[]),
+    query("plugin.list", "Search a page of installed plugins from the scanner cache. Use query/kind/format to avoid returning a large library; follow nextOffset for more.", &[
+        opt("query",Kind::String,"Case-insensitive name, vendor or plugin ID search."),
+        opt("format",Kind::String,"stock, clap, vst3 or au."),
+        opt("kind",Kind::String,"instrument or effect."),
+        opt("offset",Kind::Integer,"Zero-based result offset, default 0."),
+        opt("limit",Kind::Integer,"Page size 1-200, default 50."),
+    ]),
+    edit("plugin.scan", "Scan installed plugin directories in isolated child processes and refresh the plugin cache. May take several minutes.", &[]),
     query("session.commands", "Describe every command with its parameters.", &[]),
     edit("session.new", "Replace the open session with an empty one (or the bundled Nightfall demo). Unsaved changes are discarded.", &[
         opt("demo", Kind::Boolean, "Load the Nightfall demo instead of an empty session."),
@@ -139,6 +149,7 @@ pub const COMMANDS: &[Spec] = &[
         opt("startBar", Kind::Number, "Bar to place the clip at. Defaults to the playhead."),
     ]),
     edit("transport.play", "Start playback from the playhead. Needs the Ondera app (live mode).", &[]),
+    edit("transport.record", "Record armed audio and MIDI tracks in the running app. Disable cycle before recording.", &[]),
     edit("transport.stop", "Stop playback and recording.", &[]),
     edit("transport.locate", "Move the playhead. Give either bar or beats.", &[
         opt("bar", Kind::Number, "Zero-based bar position."),
@@ -169,7 +180,7 @@ pub const COMMANDS: &[Spec] = &[
     edit("track.rename", "Rename a track.", &[TRACK_ID, req("name", Kind::String, "New name.")]),
     edit("track.setMute", "Mute or unmute a track.", &[TRACK_ID, req("muted", Kind::Boolean, "Muted or not.")]),
     edit("track.setSolo", "Solo or unsolo a track.", &[TRACK_ID, req("solo", Kind::Boolean, "Soloed or not.")]),
-    edit("track.setArmed", "Arm or disarm an audio track for recording.", &[TRACK_ID, req("armed", Kind::Boolean, "Armed or not.")]),
+    edit("track.setArmed", "Arm or disarm an audio or MIDI track for recording.", &[TRACK_ID, req("armed", Kind::Boolean, "Armed or not.")]),
     edit("track.setVolume", "Set the fader.", &[TRACK_ID, req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity.")]),
     edit("track.setPan", "Set stereo pan.", &[TRACK_ID, req("pan", Kind::Number, "-100 (left) to 100 (right).")]),
     edit("track.setColor", "Set the track colour.", &[TRACK_ID, req("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h).")]),
@@ -228,14 +239,14 @@ pub const COMMANDS: &[Spec] = &[
         opt("velocity", Kind::Integer, "1-127."),
     ]),
     edit("note.remove", "Delete a note.", &[CLIP_ID, req("noteId", Kind::String, "Note id from note.list.")]),
-    query("strip.get", "Return a track's channel strip: instrument, four inserts and two sends.", &[TRACK_ID]),
+    query("strip.get", "Return a track or bus channel strip: instrument, eight inserts and two sends. Bus IDs: master, bus-a, bus-b.", &[TRACK_ID]),
     edit("strip.setInstrument", "Choose the instrument of a MIDI track.", &[
         TRACK_ID,
         req("instrument", Kind::String, "Instrument name from session.catalog."),
     ]),
     edit("strip.setInsert", "Load, bypass or clear an insert effect slot.", &[
         TRACK_ID,
-        req("slot", Kind::Integer, "Insert slot 0-3."),
+        req("slot", Kind::Integer, "Insert slot 0-7."),
         opt("effect", Kind::String, "Effect name from session.catalog. Omit or null to empty the slot."),
         opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false)."),
     ]),
@@ -244,10 +255,46 @@ pub const COMMANDS: &[Spec] = &[
         req("send", Kind::Integer, "0 for A · Reverb, 1 for B · Delay."),
         opt("levelDb", Kind::Number, "Level in dB, -100 to 0. Omit or null for off."),
     ]),
+    edit("strip.setPlugin", "Load a stock or installed external plugin. Omit slot for a MIDI instrument; pass slot 0-7 for an insert on a track or bus.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+        req("pluginId", Kind::String, "Stable descriptor ID from plugin.list, for example stock:Space."),
+    ]),
+    query("strip.parameters", "Read a plugin's parameter IDs, plain values, bounds and units. Omit slot for the MIDI instrument.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+    ]),
+    edit("strip.setParameter", "Set a plugin parameter using its plain value and ID from strip.parameters, in one undo step.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+        req("parameterId", Kind::Integer, "Parameter ID from strip.parameters."),
+        req("value", Kind::Number, "Plain parameter value within its min and max."),
+    ]),
+    edit("strip.setBypass", "Bypass or enable a plugin without replacing its settings.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+        req("bypassed", Kind::Boolean, "Whether to bypass the processor."),
+    ]),
+    query("strip.getState", "Read the selected plugin's persisted parameters and base64 state. Saving first captures changes from its native editor.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+    ]),
+    edit("strip.setState", "Restore base64 state previously captured from this plugin, replacing its explicit parameter overrides.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+        req("blob", Kind::String, "Base64 plugin state from strip.getState or session.get."),
+    ]),
+    edit("master.setVolume", "Set the stereo output fader, including offline exports.", &[
+        req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity."),
+    ]),
     edit("history.undo", "Undo the last document edit.", &[]),
     edit("history.redo", "Redo the last undone edit.", &[]),
     query("history.info", "Report whether undo and redo are available and the current revision.", &[]),
 ];
+
+/// One registry for native UI, CLI, MCP, MIDI/export and automation commands.
+pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|| {
+    BASE_COMMANDS
+        .iter()
+        .chain(crate::control_media::SPECS)
+        .chain(crate::control_automation::SPECS)
+        .copied()
+        .collect()
+});
 
 pub fn spec(name: &str) -> Option<&'static Spec> {
     COMMANDS.iter().find(|s| s.name == name)
@@ -339,6 +386,30 @@ pub trait Host {
         self.store_mut().dispatch(command)
     }
     fn play(&mut self) -> Result<()>;
+    fn record(&mut self) -> Result<()> {
+        Err("Recording needs the Ondera app in live mode.".into())
+    }
+    fn recording(&self) -> bool {
+        false
+    }
+    fn plugin_parameters(&mut self, track: &str, slot: Option<usize>) -> Result<Value> {
+        let insert = selected_plugin(self.store().session(), track, slot)?;
+        let mut instance = plugin_host::instantiate(&insert.plugin_id(), &insert.name, 48000)?;
+        if !insert.blob.is_empty() {
+            instance
+                .editor
+                .load(&plugin_host::decode_blob(&insert.blob)?)?;
+        }
+        Ok(json!({
+            "pluginId": insert.plugin_id(),
+            "parameters": instance.editor.params().iter().map(|p| json!({
+                "id": p.id, "name": p.name, "min": p.min, "max": p.max,
+                "default": p.default, "unit": p.unit, "steps": p.steps,
+                "logarithmic": p.log, "labels": p.labels,
+                "value": insert.params.get(&p.id).copied().or_else(|| instance.editor.value(p.id)).unwrap_or(p.default),
+            })).collect::<Vec<_>>()
+        }))
+    }
     fn stop(&mut self) -> Result<()>;
     fn locate(&mut self, beats: f64) -> Result<()>;
     fn new_session(&mut self, demo: bool) -> Result<()>;
@@ -553,6 +624,13 @@ fn validate<'a>(spec: &'static Spec, params: &'a Value) -> Result<Args<'a>> {
     Ok(Args { spec, map })
 }
 
+/// Validate an invocation without touching the store, audio devices or files.
+pub fn validate_request(name: &str, params: &Value) -> Result<()> {
+    let command = spec(name)
+        .ok_or_else(|| format!("Unknown command `{name}`. Use session.commands to list them."))?;
+    validate(command, params).map(|_| ())
+}
+
 /// Run one named command. `agent` marks created clips and notes so the interface can show
 /// what an assistant changed.
 pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Result<Value> {
@@ -576,10 +654,32 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         }
     })?;
     let a = validate(spec, params)?;
+    if matches!(
+        name,
+        "session.bounce" | "session.exportMidi" | "session.exportAudio"
+    ) {
+        protect_session_file(host.path(), Path::new(a.str("path")?))?;
+    }
+    if name.starts_with("automation.") {
+        return crate::control_automation::call(host, name, params, agent);
+    }
+    if crate::control_media::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_media::call(host, name, params, agent);
+    }
     match name {
         "session.info" => Ok(info(host)),
         "session.get" => serde_json::to_value(host.store().session()).map_err(|e| e.to_string()),
+        "session.inspect" => Ok(inspect(host, a.opt_bool("includeNotes").unwrap_or(false))),
         "session.catalog" => Ok(catalog()),
+        "plugin.list" => plugin_page(&a, plugin_host::scan::installed()),
+        "plugin.scan" => {
+            let cache = plugin_host::scan::scan_all(|_| {});
+            plugin_host::scan::store_cache(&cache)?;
+            Ok(
+                json!({ "pluginCount": plugin_host::scan::installed().len(), "scannedAt": cache.scanned_at,
+                "errors": cache.entries.iter().filter(|e| e.error.is_some()).collect::<Vec<_>>() }),
+            )
+        }
         "session.commands" => Ok(describe()),
         "session.new" => {
             host.new_session(a.opt_bool("demo").unwrap_or(false))?;
@@ -613,6 +713,10 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             host.play()?;
             Ok(transport(host))
         }
+        "transport.record" => {
+            host.record()?;
+            Ok(transport(host))
+        }
         "transport.stop" => {
             host.stop()?;
             Ok(transport(host))
@@ -620,7 +724,8 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         "transport.locate" => {
             let bpb = host.store().session().beats_per_bar();
             let beats = match (a.opt_f64("bar"), a.opt_f64("beats")) {
-                (Some(bar), _) => bar * bpb,
+                (Some(_), Some(_)) => return Err("Give either `bar` or `beats`, not both".into()),
+                (Some(bar), None) => bar * bpb,
                 (None, Some(beats)) => beats,
                 (None, None) => return Err("transport.locate needs `bar` or `beats`".into()),
             };
@@ -726,12 +831,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "track.rename" => track.name = a.str("name")?.into(),
                 "track.setMute" => track.mute = a.bool("muted")?,
                 "track.setSolo" => track.solo = a.bool("solo")?,
-                "track.setArmed" => {
-                    if track.kind != "audio" {
-                        return Err("Only audio tracks can be armed".into());
-                    }
-                    track.armed = a.bool("armed")?
-                }
+                "track.setArmed" => track.armed = a.bool("armed")?,
                 "track.setVolume" => {
                     let v = a.f64("volume")?;
                     if !(0.0..=1.0).contains(&v) {
@@ -1004,35 +1104,118 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             }
         }
         "strip.get" => {
-            let s = host.store().session();
-            let track = find_track(s, a.str("trackId")?)?;
-            Ok(strip_json(s, track))
+            let id = a.str("trackId")?;
+            check_strip(host.store().session(), id)?;
+            Ok(strip_json(host.store().session(), id))
+        }
+        "strip.parameters" => host.plugin_parameters(a.str("trackId")?, plugin_slot(&a)?),
+        "strip.getState" => Ok(json!(selected_plugin(
+            host.store().session(),
+            a.str("trackId")?,
+            plugin_slot(&a)?
+        )?)),
+        "strip.setPlugin" | "strip.setParameter" | "strip.setBypass" | "strip.setState" => {
+            let id = a.str("trackId")?;
+            let slot = plugin_slot(&a)?;
+            check_strip(host.store().session(), id)?;
+            if slot.is_none() && find_track(host.store().session(), id)?.kind != "midi" {
+                return Err("Only MIDI tracks have an instrument".into());
+            }
+            let mut strip = full_strip(host.store().session(), id);
+            let mut insert = if name == "strip.setPlugin" {
+                let plugin_id = a.str("pluginId")?;
+                let descriptor = plugin_host::scan::installed()
+                    .into_iter()
+                    .find(|d| d.id == plugin_id)
+                    .ok_or_else(|| {
+                        format!("Unknown plugin `{plugin_id}`. Run plugin.scan, then plugin.list.")
+                    })?;
+                if (slot.is_none() && !descriptor.instrument)
+                    || (slot.is_some() && !descriptor.effect)
+                {
+                    return Err(
+                        "The plugin is not compatible with this instrument or effect slot".into(),
+                    );
+                }
+                // Verify loading before accepting an unusable plugin into the song.
+                plugin_host::instantiate(&descriptor.id, &descriptor.name, 48000)?;
+                Insert::new(new_id("plugin"), &descriptor.id, &descriptor.name)
+            } else {
+                selected_plugin(host.store().session(), id, slot)?
+            };
+            match name {
+                "strip.setParameter" => {
+                    let parameter = whole(a.int("parameterId")?, "parameterId")?;
+                    let metadata = host.plugin_parameters(id, slot)?;
+                    let param = metadata["parameters"]
+                        .as_array()
+                        .and_then(|p| p.iter().find(|p| p["id"] == parameter))
+                        .ok_or_else(|| {
+                            format!("Unknown parameter `{parameter}`. Use strip.parameters.")
+                        })?;
+                    let value = a.f64("value")?;
+                    let min = param["min"]
+                        .as_f64()
+                        .ok_or("Plugin parameter has invalid bounds")?;
+                    let max = param["max"]
+                        .as_f64()
+                        .ok_or("Plugin parameter has invalid bounds")?;
+                    if !(min..=max).contains(&value) {
+                        return Err(format!("Parameter value must be between {min} and {max}"));
+                    }
+                    insert.params.insert(parameter, value);
+                }
+                "strip.setBypass" => {
+                    insert.state = if a.bool("bypassed")? {
+                        "bypassed"
+                    } else {
+                        "active"
+                    }
+                    .into()
+                }
+                "strip.setState" => {
+                    let blob = a.str("blob")?;
+                    if blob.len() > 64 * 1024 * 1024 {
+                        return Err("Plugin state exceeds 64 MiB".into());
+                    }
+                    let bytes = plugin_host::decode_blob(blob)?;
+                    let mut instance =
+                        plugin_host::instantiate(&insert.plugin_id(), &insert.name, 48000)?;
+                    instance.editor.load(&bytes)?;
+                    insert.blob = blob.into();
+                    insert.params.clear();
+                }
+                _ => {}
+            }
+            if let Some(slot) = slot {
+                strip.inserts[slot] = insert;
+            } else {
+                strip.synth = Some(insert);
+            }
+            host.dispatch(Command::SetStrip {
+                track: id.into(),
+                strip,
+            })?;
+            Ok(strip_json(host.store().session(), id))
         }
         "strip.setInstrument" | "strip.setInsert" | "strip.setSendLevel" => {
-            let s = host.store().session();
-            let track = find_track(s, a.str("trackId")?)?.clone();
-            let mut strip = full_strip(s, &track.id);
+            let id = a.str("trackId")?;
+            check_strip(host.store().session(), id)?;
+            let mut strip = full_strip(host.store().session(), id);
             match name {
                 "strip.setInstrument" => {
-                    if track.kind != "midi" {
+                    if find_track(host.store().session(), id)?.kind != "midi" {
                         return Err("Only MIDI tracks have an instrument".into());
                     }
-                    let i = a.str("instrument")?;
-                    check_instrument(i)?;
-                    strip.instrument = i.into();
+                    let instrument = a.str("instrument")?;
+                    check_instrument(instrument)?;
+                    strip.instrument = instrument.into();
+                    strip.synth = None;
                 }
                 "strip.setInsert" => {
-                    let slot = a.int("slot")?;
-                    let slots = strip.inserts.len() as i64;
-                    if !(0..slots).contains(&slot) {
-                        return Err(format!("Insert slot must be 0-{}", slots - 1));
-                    }
-                    strip.inserts[slot as usize] = match a.opt_str("effect") {
-                        None => Insert {
-                            name: "Empty slot".into(),
-                            state: "empty".into(),
-                            ..Default::default()
-                        },
+                    let slot = plugin_slot(&a)?.ok_or("Insert slot required")?;
+                    strip.inserts[slot] = match a.opt_str("effect") {
+                        None => Insert::empty_slot(),
                         Some(effect) => {
                             if !EFFECTS.contains(&effect) {
                                 return Err(format!(
@@ -1040,20 +1223,21 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                                     EFFECTS.join(", ")
                                 ));
                             }
-                            Insert {
-                                name: effect.into(),
-                                state: if a.opt_bool("bypassed").unwrap_or(false) {
-                                    "bypassed"
-                                } else {
-                                    "active"
-                                }
-                                .into(),
-                                ..Default::default()
+                            let mut insert =
+                                Insert::new(new_id("plugin"), &format!("stock:{effect}"), effect);
+                            if a.opt_bool("bypassed").unwrap_or(false) {
+                                insert.state = "bypassed".into();
                             }
+                            insert
                         }
                     };
                 }
                 _ => {
+                    if is_bus(id) {
+                        return Err(
+                            "Sends are available on tracks; bus sends would create feedback".into(),
+                        );
+                    }
                     let send = a.int("send")?;
                     if !(0..2).contains(&send) {
                         return Err("Send must be 0 (A · Reverb) or 1 (B · Delay)".into());
@@ -1066,10 +1250,18 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 }
             }
             host.dispatch(Command::SetStrip {
-                track: track.id.clone(),
+                track: id.into(),
                 strip,
             })?;
-            Ok(strip_json(host.store().session(), &track))
+            Ok(strip_json(host.store().session(), id))
+        }
+        "master.setVolume" => {
+            let volume = a.f64("volume")?;
+            if !(0.0..=1.0).contains(&volume) {
+                return Err("Volume must be between 0.0 and 1.0".into());
+            }
+            host.dispatch(Command::SetMasterVolume(volume as f32))?;
+            Ok(json!({ "volume": host.store().session().master_volume }))
         }
         "history.undo" | "history.redo" => {
             let done = host.dispatch(if name == "history.undo" {
@@ -1086,6 +1278,34 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             "Command `{name}` is registered but not implemented"
         )),
     }
+}
+
+/// Exports must not replace the document that the host is currently editing,
+/// including through a relative path or a symlink alias.
+fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
+    fn identity(path: &Path) -> Result<PathBuf> {
+        if path.exists() {
+            return std::fs::canonicalize(path).map_err(|e| e.to_string());
+        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let name = path.file_name().ok_or("Export path needs a filename")?;
+        Ok(std::fs::canonicalize(parent)
+            .or_else(|_| std::path::absolute(parent))
+            .map_err(|e| e.to_string())?
+            .join(name))
+    }
+    if let Some(session) = session_path {
+        if identity(session)? == identity(output)? {
+            return Err(
+                "Export cannot overwrite the open session file; choose a different output path"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn whole(v: i64, key: &str) -> Result<u32> {
@@ -1232,10 +1452,10 @@ fn new_track(s: &Session, kind: &str, name: Option<String>, color: String) -> Tr
         solo: false,
     }
 }
-/// A strip padded to its four inserts and two sends, as the inspector shows it.
+/// A strip padded to its eight inserts and two sends, as the inspector shows it.
 fn full_strip(s: &Session, track: &str) -> Strip {
     let mut strip = s.strips.get(track).cloned().unwrap_or_default();
-    while strip.inserts.len() < 4 {
+    while strip.inserts.len() < MAX_INSERTS {
         strip.inserts.push(Insert {
             name: "Empty slot".into(),
             state: "empty".into(),
@@ -1360,6 +1580,7 @@ fn add_loop(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
     });
     let mut strip = full_strip(s, &track);
     strip.instrument = instrument.into();
+    strip.synth = None;
     commands.push(Command::SetStrip {
         track: track.clone(),
         strip,
@@ -1415,6 +1636,75 @@ fn catalog() -> Value {
             "bars": patterns[n]["bars"],
         })).collect::<Vec<_>>(),
         "sends": SEND_NAMES,
+        "plugins": crate::stock::descriptors(),
+        "buses": [MASTER, BUS_A, BUS_B],
+        "insertSlots": MAX_INSERTS,
+    })
+}
+fn plugin_page(args: &Args, plugins: Vec<crate::plugin::Descriptor>) -> Result<Value> {
+    let format = args.opt_str("format");
+    if format.is_some_and(|format| !["stock", "clap", "vst3", "au"].contains(&format)) {
+        return Err("Plugin format must be stock, clap, vst3 or au".into());
+    }
+    let kind = args.opt_str("kind");
+    if kind.is_some_and(|kind| !["instrument", "effect"].contains(&kind)) {
+        return Err("Plugin kind must be instrument or effect".into());
+    }
+    let limit = args.opt_int("limit").unwrap_or(50);
+    let offset = args.opt_int("offset").unwrap_or(0);
+    if !(1..=200).contains(&limit) || offset < 0 {
+        return Err("Plugin limit must be 1-200 and offset must be non-negative".into());
+    }
+    let query = args.opt_str("query").unwrap_or("").to_lowercase();
+    let filtered: Vec<_> = plugins
+        .into_iter()
+        .filter(|plugin| {
+            let format_name = plugin.format.prefix();
+            format.is_none_or(|format| format == format_name)
+                && kind.is_none_or(|kind| {
+                    if kind == "instrument" {
+                        plugin.instrument
+                    } else {
+                        plugin.effect
+                    }
+                })
+                && (query.is_empty()
+                    || plugin.name.to_lowercase().contains(&query)
+                    || plugin.vendor.to_lowercase().contains(&query)
+                    || plugin.id.to_lowercase().contains(&query))
+        })
+        .collect();
+    let total = filtered.len();
+    let offset = usize::try_from(offset).map_err(|_| "Plugin offset is too large")?;
+    let end = offset.saturating_add(limit as usize).min(total);
+    let page = &filtered[offset.min(total)..end];
+    Ok(
+        json!({"plugins":page,"total":total,"offset":offset,"limit":limit,"nextOffset":if end<total {Some(end)} else {None},"cachePath":plugin_host::scan::cache_path()}),
+    )
+}
+fn inspect(host: &dyn Host, include_notes: bool) -> Value {
+    let session = host.store().session();
+    let insert = |insert: &Insert| {
+        json!({
+            "id":insert.id,"name":insert.name,"pluginId":insert.plugin_id(),
+            "state":insert.state,"params":insert.params,"hasSavedState":!insert.blob.is_empty()
+        })
+    };
+    let strips: Map<String, Value> = session.strips.iter().map(|(id,strip)| {
+        (id.clone(),json!({
+            "instrument":strip.instrument_name(),"synth":strip.synth.as_ref().map(insert),
+            "inserts":strip.inserts.iter().map(&insert).collect::<Vec<_>>(),"sends":strip.sends
+        }))
+    }).collect();
+    let clips = if include_notes {
+        json!(session.clips)
+    } else {
+        json!(session.clips.iter().map(clip_summary).collect::<Vec<_>>())
+    };
+    json!({
+        "info":info(host),"tracks":session.tracks,"clips":clips,"sources":session.sources,
+        "strips":strips,"automation":session.automation,"masterVolume":session.master_volume,
+        "includesNotes":include_notes,"includesPluginState":false
     })
 }
 fn transport(host: &dyn Host) -> Value {
@@ -1423,6 +1713,7 @@ fn transport(host: &dyn Host) -> Value {
     let beats = host.position();
     json!({
         "playing": host.playing(),
+        "recording": host.recording(),
         "positionBeats": beats,
         "positionBar": beats / s.beats_per_bar(),
         "tempo": t.tempo,
@@ -1477,7 +1768,7 @@ fn track_json(s: &Session, t: &Track) -> Value {
         "mute": t.mute,
         "solo": t.solo,
         "armed": t.armed,
-        "instrument": if t.kind == "midi" { Some(full_strip(s, &t.id).instrument) } else { None },
+        "instrument": if t.kind == "midi" { Some(full_strip(s, &t.id).instrument_name()) } else { None },
         "clipCount": s.clips.iter().filter(|c| c.track_id == t.id).count(),
         "index": s.tracks.iter().position(|x| x.id == t.id),
     })
@@ -1508,15 +1799,20 @@ fn clip_summary(c: &Clip) -> Value {
     }
     v
 }
-fn strip_json(s: &Session, t: &Track) -> Value {
-    let strip = full_strip(s, &t.id);
+fn strip_json(s: &Session, id: &str) -> Value {
+    let strip = full_strip(s, id);
+    let midi = s.tracks.iter().any(|t| t.id == id && t.kind == "midi");
     json!({
-        "trackId": t.id,
-        "instrument": if t.kind == "midi" { Some(&strip.instrument) } else { None },
+        "trackId": id,
+        "instrument": if midi { Some(strip.instrument_name()) } else { None },
+        "synth": strip.synth,
         "inserts": strip.inserts.iter().enumerate().map(|(i, ins)| json!({
             "slot": i,
             "effect": if ins.state == "empty" { None } else { Some(&ins.name) },
             "state": ins.state,
+            "pluginId": if ins.is_empty() { None } else { Some(ins.plugin_id()) },
+            "id": ins.id,
+            "params": ins.params,
         })).collect::<Vec<_>>(),
         "sends": strip.sends.iter().enumerate().map(|(i, send)| json!({
             "send": i,
@@ -1524,4 +1820,51 @@ fn strip_json(s: &Session, t: &Track) -> Value {
             "levelDb": send.level_db,
         })).collect::<Vec<_>>(),
     })
+}
+
+fn check_strip(s: &Session, id: &str) -> Result<()> {
+    if is_bus(id) {
+        Ok(())
+    } else {
+        find_track(s, id).map(|_| ())
+    }
+}
+fn plugin_slot(args: &Args) -> Result<Option<usize>> {
+    args.opt_int("slot")
+        .map(|slot| {
+            if (0..MAX_INSERTS as i64).contains(&slot) {
+                Ok(slot as usize)
+            } else {
+                Err(format!("Insert slot must be 0-{}", MAX_INSERTS - 1))
+            }
+        })
+        .transpose()
+}
+/// Resolve a slot, including the implicit stock instrument, using the same stable
+/// instance key as the renderer and native plugin rack.
+pub fn selected_plugin(s: &Session, track: &str, slot: Option<usize>) -> Result<Insert> {
+    check_strip(s, track)?;
+    let strip = full_strip(s, track);
+    let insert = if let Some(slot) = slot {
+        strip
+            .inserts
+            .get(slot)
+            .cloned()
+            .ok_or("Invalid insert slot")?
+    } else {
+        if find_track(s, track)?.kind != "midi" {
+            return Err("Only MIDI tracks have an instrument".into());
+        }
+        strip.synth.clone().unwrap_or_else(|| {
+            Insert::new(
+                strip.synth_key(track),
+                &format!("stock:{}", strip.instrument),
+                &strip.instrument,
+            )
+        })
+    };
+    if insert.is_empty() {
+        return Err("This insert slot is empty".into());
+    }
+    Ok(insert)
 }

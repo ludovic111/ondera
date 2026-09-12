@@ -137,9 +137,20 @@ impl Ondera {
             if ui.button("Import audio…").clicked() {
                 self.import(None);
             }
-            if ui.button("Bounce mix to WAV…").clicked() {
+            if ui.button("Import MIDI…").clicked() {
+                self.import_midi_dialog();
+            }
+            if ui.button("Export audio…").clicked() {
                 self.bounce();
             }
+            if ui.button("Export MIDI…").clicked() {
+                self.export_midi_dialog();
+            }
+            ui.separator();
+            if ui.button("Recover session…").clicked() {
+                self.open_recovery();
+            }
+            ui.label(mono(self.recovery.status(), FS_SMALL, DIM));
             ui.separator();
             if ui.button("Quit").clicked() {
                 self.request(Intent::Quit);
@@ -208,6 +219,10 @@ impl Ondera {
             }
         });
         ui.menu_button("Audio", |ui| {
+            if self.unplaced_recording.is_some() && ui.button("Save recovered take…").clicked() {
+                self.save_recovered_take();
+                ui.close();
+            }
             if ui.button("Reconnect output").clicked() {
                 self.connect();
             }
@@ -310,6 +325,20 @@ impl Ondera {
             ));
         });
         ui.menu_button("View", |ui| {
+            if ui.button("Automation").clicked() {
+                self.automation.open = true;
+            }
+            if ui
+                .button(if self.agents.open {
+                    "Show library"
+                } else {
+                    "Show agents"
+                })
+                .clicked()
+            {
+                self.agents.open = !self.agents.open;
+            }
+            ui.separator();
             let view = self.store.session().view.clone();
             if ui
                 .button(if view.follow_playhead {
@@ -683,6 +712,10 @@ impl Ondera {
     }
 
     pub fn browser(&mut self, ctx: &egui::Context) {
+        if self.agents.open {
+            self.agents_panel(ctx);
+            return;
+        }
         egui::SidePanel::left("browser")
             .exact_width(BROWSER)
             .resizable(false)
@@ -703,6 +736,13 @@ impl Ondera {
                 }
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    if segmented(ui, &["Library", "Agents"], 0, (BROWSER - 24.0) / 2.0) == Some(1) {
+                        self.agents.open = true;
+                    }
+                });
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
                     if let Some(tab) = segmented(

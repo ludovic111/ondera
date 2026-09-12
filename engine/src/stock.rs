@@ -2,7 +2,13 @@
 //! all exposed through the same `Editor` / `Processor` pair as external plugins.
 
 use crate::{dsp::*, plugin::*, Result};
-use std::f64::consts::TAU;
+use std::{
+    f64::consts::TAU,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 struct Spec {
     name: &'static str,
@@ -265,8 +271,13 @@ trait Dsp: Send {
         0
     }
 }
+struct RestoredState {
+    values: Vec<AtomicU64>,
+    pending: AtomicBool,
+}
 struct StockProcessor {
     dsp: Box<dyn Dsp>,
+    restored: Arc<RestoredState>,
 }
 impl Processor for StockProcessor {
     fn reset(&mut self) {
@@ -279,6 +290,12 @@ impl Processor for StockProcessor {
         params: &[ParamChange],
         ctx: &ProcessContext,
     ) {
+        if self.restored.pending.swap(false, Ordering::Acquire) {
+            for (index, value) in self.restored.values.iter().enumerate() {
+                self.dsp
+                    .set(index, f64::from_bits(value.load(Ordering::Relaxed)));
+            }
+        }
         for change in params {
             self.dsp.set(change.id as usize, change.value);
         }
@@ -292,10 +309,15 @@ struct StockEditor {
     desc: Descriptor,
     params: Vec<ParamInfo>,
     values: Vec<f64>,
+    latency: u32,
+    restored: Arc<RestoredState>,
 }
 impl Editor for StockEditor {
     fn descriptor(&self) -> &Descriptor {
         &self.desc
+    }
+    fn latency(&self) -> u32 {
+        self.latency
     }
     fn params(&self) -> &[ParamInfo] {
         &self.params
@@ -320,6 +342,10 @@ impl Editor for StockEditor {
                 }
             }
         }
+        for (value, shared) in self.values.iter().zip(&self.restored.values) {
+            shared.store(value.to_bits(), Ordering::Relaxed);
+        }
+        self.restored.pending.store(true, Ordering::Release);
         Ok(())
     }
 }
@@ -336,14 +362,23 @@ pub fn create(name: &str, rate: u32) -> Option<Instance> {
     for (i, param) in params.iter().enumerate() {
         dsp.set(i, param.default);
     }
-    let values = params.iter().map(|p| p.default).collect();
+    let values: Vec<f64> = params.iter().map(|p| p.default).collect();
+    let restored = Arc::new(RestoredState {
+        values: values
+            .iter()
+            .map(|value| AtomicU64::new(value.to_bits()))
+            .collect(),
+        pending: AtomicBool::new(false),
+    });
     Some(Instance {
         editor: Box::new(StockEditor {
             desc,
             params,
             values,
+            latency: dsp.latency(),
+            restored: restored.clone(),
         }),
-        processor: Some(Box::new(StockProcessor { dsp })),
+        processor: Some(Box::new(StockProcessor { dsp, restored })),
     })
 }
 fn effect(name: &str, rate: u32) -> Option<Box<dyn Dsp>> {

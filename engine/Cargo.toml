@@ -14,10 +14,12 @@ symphonia = { version = "0.5", features = ["all"] }
 hound = "3.5"
 tempfile = "3"
 base64 = "0.22"
+fs2 = "0.4.3"
 clap-sys = "0.5"
 vst3 = "0.3"
 libloading = "0.8"
 midir = "0.11"
+midly = { version = "0.5.3", default-features = false, features = ["std", "strict"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

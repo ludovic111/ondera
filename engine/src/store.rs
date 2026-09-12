@@ -22,6 +22,8 @@ pub enum Command {
     },
     SetTransport(Transport),
     SetMasterVolume(f32),
+    PutAutomation(crate::automation::AutomationLane),
+    RemoveAutomation(String),
     Select {
         track: Option<String>,
         clip: Option<String>,
@@ -41,7 +43,7 @@ pub struct Store {
     future: Vec<(Arc<Session>, u64)>,
     pub revision: u64,
     document_id: u64,
-    saved_id: u64,
+    saved_id: Option<u64>,
     gesture: bool,
     gesture_recorded: bool,
 }
@@ -52,7 +54,7 @@ impl Store {
         let session = Arc::new(session);
         Ok(Self {
             document_id: 0,
-            saved_id: 0,
+            saved_id: Some(0),
             gesture: false,
             gesture_recorded: false,
             session,
@@ -74,12 +76,17 @@ impl Store {
         !self.future.is_empty()
     }
     pub fn dirty(&self) -> bool {
-        self.document_id != self.saved_id
+        Some(self.document_id) != self.saved_id
     }
     pub fn mark_saved(&mut self, revision: u64) {
         if self.revision == revision {
-            self.saved_id = self.document_id;
+            self.saved_id = Some(self.document_id);
         }
+    }
+    /// A recovered/imported copy has no saved project counterpart. This leaves
+    /// history untouched and remains dirty through undo until a save succeeds.
+    pub fn mark_unsaved(&mut self) {
+        self.saved_id = None;
     }
     pub fn load(&mut self, mut session: Session) -> Result<()> {
         session.normalize();
@@ -89,7 +96,7 @@ impl Store {
         self.future.clear();
         self.revision += 1;
         self.document_id = self.revision;
-        self.saved_id = self.document_id;
+        self.saved_id = Some(self.document_id);
         self.gesture_recorded = false;
         Ok(())
     }
@@ -180,6 +187,7 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             s.tracks.retain(|t| t.id != id);
             s.clips.retain(|c| c.track_id != id);
             s.strips.remove(&id);
+            crate::automation::retain_targets(s);
             if s.view.selected_track_id.as_ref() == Some(&id) {
                 s.view.selected_track_id = s.tracks.first().map(|t| t.id.clone());
             }
@@ -213,7 +221,17 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
                 return Err("Track not found".into());
             }
             s.strips.insert(track, strip);
+            crate::automation::retain_targets(s);
         }
+        Command::PutAutomation(mut lane) => {
+            lane.points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+            if let Some(old) = s.automation.iter_mut().find(|old| old.id == lane.id) {
+                *old = lane;
+            } else {
+                s.automation.push(lane);
+            }
+        }
+        Command::RemoveAutomation(id) => s.automation.retain(|lane| lane.id != id),
         Command::SetTransport(t) => s.transport = t,
         Command::SetMasterVolume(v) => s.master_volume = v,
         Command::Select { track, clip, note } => {

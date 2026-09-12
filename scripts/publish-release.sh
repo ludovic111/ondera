@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Upload only to a draft; published releases and their checksums are immutable.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+bash scripts/verify-release.sh
+tag=${GITHUB_REF_NAME:?Missing release tag}
+notes="docs/releases/${tag#v}.md"
+assets=(Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip)
+for asset in "${assets[@]}" SHA256SUMS; do
+  test -s "dist/$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
+done
+(cd dist && sha256sum --check SHA256SUMS)
+metadata=$(mktemp)
+existing_sums=$(mktemp)
+trap 'rm -f "$metadata" "$existing_sums"' EXIT
+if gh release view "$tag" --json isDraft,assets > "$metadata"; then
+  draft=$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["isDraft"]).lower())' "$metadata")
+  if [ "$draft" != true ]; then
+    # Rebuilding a signed archive can change its bytes. Fail, rather than replacing a
+    # version people have installed. A new payload requires a new version/tag.
+    gh release download "$tag" --pattern SHA256SUMS --output "$existing_sums" --clobber
+    cmp -s dist/SHA256SUMS "$existing_sums" || {
+      echo "$tag is already published with different checksums. Publish changes under a new version." >&2
+      exit 1
+    }
+    python3 - "$metadata" "${assets[@]}" SHA256SUMS <<'PY'
+import json, sys
+present = {asset['name'] for asset in json.load(open(sys.argv[1]))['assets']}
+missing = set(sys.argv[2:]) - present
+if missing:
+    raise SystemExit('Published release is missing assets; repair requires explicit review: ' + ', '.join(sorted(missing)))
+PY
+    echo "$tag is already published with the same complete asset manifest; nothing changed."
+    exit 0
+  fi
+else
+  # A network/auth failure cannot overwrite anything: create will fail if the release exists.
+  gh release create "$tag" --verify-tag --draft --title "Ondera ${tag#v}" --notes-file "$notes"
+fi
+uploads=(dist/SHA256SUMS)
+for asset in "${assets[@]}"; do uploads+=("dist/$asset"); done
+# Confirm it is still a draft immediately before the only replace operation.
+test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true || {
+  echo 'The release was published while this job was preparing; refusing to replace its assets.' >&2
+  exit 1
+}
+gh release upload "$tag" "${uploads[@]}" --clobber
+# The tag is checked again after uploading, before making this draft available to updaters.
+bash scripts/verify-release.sh
+gh release edit "$tag" --draft=false --latest --title "Ondera ${tag#v}" --notes-file "$notes"

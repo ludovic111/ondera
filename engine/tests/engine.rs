@@ -104,7 +104,7 @@ fn audio_session() -> (Session, Library) {
     });
     (s, Library::from([("src".into(), buffer)]))
 }
-fn offline(s: Session, library: &Library, rate: u32) -> (Renderer, Rack) {
+fn offline(s: Session, library: &Library, rate: u32) -> (Renderer, render::OfflineRack) {
     render::offline(&s, library, rate).unwrap()
 }
 fn energy(r: &mut Renderer, rack: &mut Rack, frames: usize) -> f64 {
@@ -641,12 +641,105 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
         ));
     }
     s.strips.insert(s.tracks[0].id.clone(), strip);
+    use ondera_engine::automation::{
+        AutomationLane, AutomationPoint, AutomationTarget, Interpolation,
+    };
+    for (id, target, min, max, start, end) in [
+        (
+            "volume",
+            AutomationTarget::TrackVolume {
+                track_id: s.tracks[0].id.clone(),
+            },
+            0.0,
+            1.0,
+            0.25,
+            0.75,
+        ),
+        (
+            "pan",
+            AutomationTarget::TrackPan {
+                track_id: s.tracks[0].id.clone(),
+            },
+            -100.0,
+            100.0,
+            -50.0,
+            50.0,
+        ),
+        (
+            "master",
+            AutomationTarget::MasterVolume,
+            0.0,
+            1.0,
+            0.5,
+            0.75,
+        ),
+        (
+            "plugin",
+            AutomationTarget::PluginParameter {
+                track_id: s.tracks[0].id.clone(),
+                insert_id: "fx3".into(),
+                plugin_id: "stock:Limiter".into(),
+                parameter_id: 0,
+            },
+            -24.0,
+            24.0,
+            0.0,
+            3.0,
+        ),
+    ] {
+        s.automation.push(AutomationLane {
+            id: id.into(),
+            name: id.into(),
+            target,
+            min,
+            max,
+            manual_value: start,
+            interpolation: Interpolation::Linear,
+            enabled: true,
+            points: vec![
+                AutomationPoint {
+                    id: "a".into(),
+                    beat: 0.0,
+                    value: start,
+                },
+                AutomationPoint {
+                    id: "b".into(),
+                    beat: 4.0,
+                    value: end,
+                },
+            ],
+        });
+    }
     let (mut r, mut rack) = offline(s, &Library::new(), 48000);
     r.playing = true;
     let mut block = [[0.0f32; 2]; 256];
+    let mut midi = ondera_engine::midi::MidiNotes::default();
+    let mut midi_events = 0;
     ALLOCATIONS.with(|n| n.set(0));
     DEALLOCATIONS.with(|n| n.set(0));
     COUNTING.with(|v| v.set(true));
+    midi.receive(&[0xb0, 64, 127], 0, |event| {
+        std::hint::black_box(event);
+        midi_events += 1;
+    });
+    for pitch in 0..128 {
+        midi.receive(&[0x90, pitch, 100], 0, |event| {
+            std::hint::black_box(event);
+            midi_events += 1;
+        });
+        midi.receive(&[0x80, pitch, 0], 0, |event| {
+            std::hint::black_box(event);
+            midi_events += 1;
+        });
+    }
+    midi.receive(&[0xb0, 64, 0], 1, |event| {
+        std::hint::black_box(event);
+        midi_events += 1;
+    });
+    midi.reset(|event| {
+        std::hint::black_box(event);
+        midi_events += 1;
+    });
     for i in 0..64 {
         if i == 20 {
             r.locate(0.5);
@@ -665,6 +758,7 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
     COUNTING.with(|v| v.set(false));
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
     assert_eq!(DEALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(midi_events, 256);
 }
 #[test]
 fn offline_wav_uses_same_samples_as_playback() {

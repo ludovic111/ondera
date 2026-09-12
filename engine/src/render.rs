@@ -4,6 +4,7 @@
 
 use crate::{
     audio::{AudioBuffer, Library},
+    automation::AutomationTarget,
     model::{fader_gain, is_bus, ClipData, Session, BUS_A, BUS_B, MASTER},
     plugin::{NoteEvent, ProcessContext, Rack, MAX_BLOCK},
     Result,
@@ -14,6 +15,15 @@ const MAX_VOICES: usize = 256;
 const NOTE_CAPACITY: usize = 512;
 const QUEUE_CAPACITY: usize = 2048;
 const PREVIEW_SECONDS: f64 = 0.3;
+
+fn automation_beat(beat: f64, cycle: Option<(f64, f64)>) -> f64 {
+    if let Some((start, end)) = cycle {
+        if beat < start {
+            return start + (beat - start).rem_euclid(end - start);
+        }
+    }
+    beat
+}
 
 enum Sound {
     Midi {
@@ -31,7 +41,41 @@ struct Event {
     track: usize,
     sound: Sound,
 }
+#[derive(Default)]
+struct DelayLine {
+    frames: Vec<[f32; 2]>,
+    position: usize,
+}
+impl DelayLine {
+    fn new(samples: usize) -> Self {
+        Self {
+            frames: vec![[0.0; 2]; samples],
+            position: 0,
+        }
+    }
+    fn process(&mut self, audio: &mut [[f32; 2]]) {
+        if self.frames.is_empty() {
+            return;
+        }
+        for frame in audio {
+            std::mem::swap(frame, &mut self.frames[self.position]);
+            self.position = (self.position + 1) % self.frames.len();
+        }
+    }
+    fn adopt(&mut self, old: &Self) {
+        if self.frames.len() == old.frames.len() {
+            self.frames.copy_from_slice(&old.frames);
+            self.position = old.position;
+        }
+    }
+}
 struct Channel {
+    route: usize,
+    delay: DelayLine,
+    automation_offset: u32,
+    volume_lane: Option<usize>,
+    pan_lane: Option<usize>,
+    muted: bool,
     gain: f32,
     pan: f32,
     midi: bool,
@@ -45,7 +89,14 @@ struct Preview {
     pitch: u8,
     remaining: u32,
 }
-type Held = [u8; 128];
+type Held = [u16; 128];
+struct PluginAutomation {
+    lane: usize,
+    slot: u32,
+    parameter: u32,
+    offset: u32,
+    manual_value: f64,
+}
 
 /// All allocations and source resolution happen in `new`, off the audio thread.
 pub struct Renderer {
@@ -56,8 +107,18 @@ pub struct Renderer {
     buses: [Vec<u32>; 2],
     master: Vec<u32>,
     master_gain: f32,
+    master_volume_lane: Option<usize>,
+    plugin_automation: Vec<PluginAutomation>,
+    plugin_instances: HashMap<String, (String, u32)>,
+    manual_parameters: HashMap<(u32, u32), f64>,
+    automation_resets: Vec<(u32, u32, f64)>,
+    dry_delay: DelayLine,
+    bus_delays: [DelayLine; 2],
+    latency_samples: u32,
+    automation_looped: bool,
     active: [Option<usize>; MAX_VOICES],
     held: Vec<Held>,
+    expected: Vec<Held>,
     live: Vec<Held>,
     queued: Vec<(usize, NoteEvent)>,
     notes: Vec<Vec<NoteEvent>>,
@@ -105,6 +166,22 @@ impl Renderer {
             let strip = session.strips.get(&track.id).cloned().unwrap_or_default();
             let muted = track.mute || (solo && !track.solo);
             channels.push(Channel {
+                route: crate::midi::route_id(&track.id),
+                delay: DelayLine::default(),
+                automation_offset: 0,
+                volume_lane: session.automation.iter().position(|lane| {
+                    lane.target
+                        == AutomationTarget::TrackVolume {
+                            track_id: track.id.clone(),
+                        }
+                }),
+                pan_lane: session.automation.iter().position(|lane| {
+                    lane.target
+                        == AutomationTarget::TrackPan {
+                            track_id: track.id.clone(),
+                        }
+                }),
+                muted,
                 gain: if muted { 0.0 } else { fader_gain(track.volume) },
                 pan: track.pan / 100.0,
                 midi: track.kind == "midi",
@@ -182,6 +259,57 @@ impl Renderer {
         Ok(Self {
             rate,
             master_gain: fader_gain(session.master_volume),
+            master_volume_lane: session
+                .automation
+                .iter()
+                .position(|lane| lane.target == AutomationTarget::MasterVolume),
+            plugin_automation: session
+                .automation
+                .iter()
+                .enumerate()
+                .filter_map(|(index, lane)| {
+                    if let AutomationTarget::PluginParameter {
+                        insert_id,
+                        parameter_id,
+                        ..
+                    } = &lane.target
+                    {
+                        slots.get(insert_id).map(|slot| PluginAutomation {
+                            lane: index,
+                            slot: *slot,
+                            parameter: *parameter_id,
+                            offset: 0,
+                            manual_value: lane.manual_value,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            manual_parameters: session
+                .needs()
+                .iter()
+                .filter_map(|need| slots.get(&need.key).map(|slot| (slot, need)))
+                .flat_map(|(slot, need)| {
+                    need.params
+                        .iter()
+                        .map(move |(param, value)| ((*slot, *param), *value))
+                })
+                .collect(),
+            plugin_instances: session
+                .needs()
+                .into_iter()
+                .filter_map(|need| {
+                    slots
+                        .get(&need.key)
+                        .map(|slot| (need.key, (need.plugin, *slot)))
+                })
+                .collect(),
+            automation_resets: Vec::with_capacity(crate::automation::MAX_LANES * 2),
+            dry_delay: DelayLine::default(),
+            bus_delays: std::array::from_fn(|_| DelayLine::default()),
+            latency_samples: 0,
+            automation_looped: false,
             buses: [bus(BUS_A), bus(BUS_B)],
             master: bus(MASTER),
             session,
@@ -189,6 +317,7 @@ impl Renderer {
             channels,
             active: [None; MAX_VOICES],
             held: vec![[0; 128]; count],
+            expected: vec![[0; 128]; count],
             live: vec![[0; 128]; count],
             queued: Vec::with_capacity(QUEUE_CAPACITY),
             notes: (0..count)
@@ -212,6 +341,83 @@ impl Renderer {
             selected,
         })
     }
+    /// Prepare static plugin delay compensation off the audio thread. Input
+    /// paths meet at the same sample before buses and again before the master.
+    /// Rebuild this plan when a plugin reports changed latency.
+    pub fn set_latencies(&mut self, latencies: &HashMap<u32, u32>) -> Result<()> {
+        let sum = |slots: &[u32]| -> Result<u32> {
+            slots.iter().try_fold(0u32, |total, slot| {
+                total
+                    .checked_add(*latencies.get(slot).unwrap_or(&0))
+                    .ok_or_else(|| "Plugin latency overflow".to_string())
+            })
+        };
+        let tracks: Vec<u32> = self
+            .channels
+            .iter()
+            .map(|channel| {
+                sum(&channel.inserts)?
+                    .checked_add(
+                        channel
+                            .synth
+                            .and_then(|slot| latencies.get(&slot).copied())
+                            .unwrap_or(0),
+                    )
+                    .ok_or_else(|| "Plugin latency overflow".to_string())
+            })
+            .collect::<Result<_>>()?;
+        let track_max = tracks.iter().copied().max().unwrap_or(0);
+        let buses = [sum(&self.buses[0])?, sum(&self.buses[1])?];
+        let bus_max = buses.into_iter().max().unwrap_or(0);
+        let total = track_max
+            .checked_add(bus_max)
+            .and_then(|n| n.checked_add(sum(&self.master).ok()?))
+            .ok_or("Plugin latency overflow")?;
+        let allocations = tracks.iter().map(|n| (track_max - n) as u64).sum::<u64>()
+            + bus_max as u64
+            + buses.iter().map(|n| (bus_max - n) as u64).sum::<u64>();
+        if total > self.rate * 10 || allocations > 8_388_608 {
+            return Err("Plugin delay compensation exceeds ten seconds or 64 MiB".into());
+        }
+        let mut offsets = HashMap::new();
+        for channel in &self.channels {
+            let mut offset = 0;
+            if let Some(slot) = channel.synth {
+                offsets.insert(slot, offset);
+                offset += latencies.get(&slot).copied().unwrap_or(0);
+            }
+            for slot in &channel.inserts {
+                offsets.insert(*slot, offset);
+                offset += latencies.get(slot).copied().unwrap_or(0);
+            }
+        }
+        for bus in &self.buses {
+            let mut offset = track_max;
+            for slot in bus {
+                offsets.insert(*slot, offset);
+                offset += latencies.get(slot).copied().unwrap_or(0);
+            }
+        }
+        let mut offset = track_max + bus_max;
+        for slot in &self.master {
+            offsets.insert(*slot, offset);
+            offset += latencies.get(slot).copied().unwrap_or(0);
+        }
+        for automation in &mut self.plugin_automation {
+            automation.offset = offsets.get(&automation.slot).copied().unwrap_or(0);
+        }
+        for (channel, latency) in self.channels.iter_mut().zip(tracks) {
+            channel.automation_offset = latency;
+            channel.delay = DelayLine::new((track_max - latency) as usize);
+        }
+        self.dry_delay = DelayLine::new(bus_max as usize);
+        self.bus_delays = std::array::from_fn(|i| DelayLine::new((bus_max - buses[i]) as usize));
+        self.latency_samples = total;
+        Ok(())
+    }
+    pub fn latency_samples(&self) -> u32 {
+        self.latency_samples
+    }
     pub fn position(&self) -> f64 {
         self.position
     }
@@ -224,15 +430,87 @@ impl Renderer {
     /// Take over transport and held notes from the renderer being replaced.
     /// Notes that no longer exist are released; new ones are chased.
     pub fn adopt(&mut self, old: &Renderer) {
+        for previous in &old.plugin_automation {
+            let lane = &old.session.automation[previous.lane];
+            if !lane.enabled || lane.points.is_empty() {
+                continue;
+            }
+            let remains = self.session.automation.iter().any(|current| {
+                current.target == lane.target && current.enabled && !current.points.is_empty()
+            });
+            if !remains {
+                let AutomationTarget::PluginParameter {
+                    insert_id,
+                    plugin_id,
+                    ..
+                } = &lane.target
+                else {
+                    continue;
+                };
+                let Some((current_plugin, slot)) = self.plugin_instances.get(insert_id) else {
+                    continue;
+                };
+                if current_plugin != plugin_id {
+                    continue;
+                }
+                let value = self
+                    .manual_parameters
+                    .get(&(*slot, previous.parameter))
+                    .copied()
+                    .unwrap_or(previous.manual_value);
+                if self.automation_resets.len() < self.automation_resets.capacity() {
+                    self.automation_resets
+                        .push((*slot, previous.parameter, value));
+                }
+            }
+        }
         self.position = old.position;
+        self.automation_looped = old.automation_looped
+            && self.session.transport.cycle == old.session.transport.cycle
+            && self.session.transport.cycle_start_bar == old.session.transport.cycle_start_bar
+            && self.session.transport.cycle_end_bar == old.session.transport.cycle_end_bar;
         self.playing = old.playing;
         self.recording = old.recording;
         self.sample_time = old.sample_time;
         self.idle_frames = old.idle_frames;
-        for (index, track) in self.session.tracks.iter().enumerate() {
-            if let Some(prev) = old.session.tracks.iter().position(|t| t.id == track.id) {
-                self.held[index] = old.held[prev];
+        self.dry_delay.adopt(&old.dry_delay);
+        for (delay, old_delay) in self.bus_delays.iter_mut().zip(&old.bus_delays) {
+            delay.adopt(old_delay);
+        }
+        for index in 0..self.session.tracks.len() {
+            if let Some(prev) = old
+                .session
+                .tracks
+                .iter()
+                .position(|t| t.id == self.session.tracks[index].id)
+            {
+                self.channels[index].delay.adopt(&old.channels[prev].delay);
+                let same_instrument = self.channels[index].synth == old.channels[prev].synth;
+                if same_instrument {
+                    self.held[index] = old.held[prev];
+                    for &(track, event) in &old.queued {
+                        if track == prev {
+                            self.queue(index, event);
+                        }
+                    }
+                }
                 self.live[index] = old.live[prev];
+                if !same_instrument {
+                    for pitch in 0..128 {
+                        for _ in 0..self.live[index][pitch] {
+                            self.queue(
+                                index,
+                                NoteEvent {
+                                    frame: 0,
+                                    on: true,
+                                    pitch: pitch as u8,
+                                    velocity: 96,
+                                    channel: 0,
+                                },
+                            );
+                        }
+                    }
+                }
                 self.live_total += old.live[prev].iter().map(|&c| c as u32).sum::<u32>();
                 for preview in old.previews.iter().flatten() {
                     if preview.track == prev {
@@ -248,7 +526,19 @@ impl Renderer {
         }
         self.resync();
     }
-    fn queue(&mut self, track: usize, event: NoteEvent) {
+    fn queue(&mut self, track: usize, mut event: NoteEvent) {
+        // UI taps and MIDI callbacks can enqueue a complete note before one
+        // audio block. Preserve its order and at least one audible sample;
+        // sorting a zero-frame release before its attack would leave it stuck.
+        if let Some((_, previous)) = self.queued.iter().rev().find(|(previous_track, previous)| {
+            *previous_track == track
+                && previous.pitch == event.pitch
+                && previous.channel == event.channel
+        }) {
+            event.frame = event
+                .frame
+                .max(previous.frame + u32::from(previous.on && !event.on));
+        }
         if self.queued.len() < self.queued.capacity() {
             self.queued.push((track, event));
         } else {
@@ -260,34 +550,43 @@ impl Renderer {
     fn resync(&mut self) {
         self.active.fill(None);
         self.next = self.events.partition_point(|e| e.start < self.position);
-        // Expected counts live on the stack per track to stay allocation-free.
-        for track in 0..self.channels.len() {
-            let mut expected: Held = [0; 128];
-            for i in 0..self.next {
-                let e = &self.events[i];
-                if e.track != track || e.end <= self.position {
-                    continue;
-                }
-                if let Sound::Midi { pitch, velocity } = e.sound {
-                    let p = pitch as usize;
-                    expected[p] = expected[p].saturating_add(1);
-                    if expected[p] > self.held[track][p] {
-                        self.held[track][p] += 1;
-                        self.queue(
-                            track,
-                            NoteEvent {
-                                frame: 0,
-                                on: true,
-                                pitch,
-                                velocity,
-                                channel: 0,
-                            },
-                        );
-                    }
+        // Each historical event is examined once, independent of track count.
+        // Storage is reserved with the graph, not allocated during a seek.
+        self.expected.fill([0; 128]);
+        let mut active = 0;
+        for i in 0..self.next {
+            let e = &self.events[i];
+            if e.end <= self.position {
+                continue;
+            }
+            if active == MAX_VOICES {
+                self.voice_overflows += 1;
+                continue;
+            }
+            self.active[active] = Some(i);
+            active += 1;
+            if let Sound::Midi { pitch, velocity } = e.sound {
+                let track = e.track;
+                let p = pitch as usize;
+                self.expected[track][p] += 1;
+                if self.expected[track][p] > self.held[track][p] {
+                    self.held[track][p] += 1;
+                    self.queue(
+                        track,
+                        NoteEvent {
+                            frame: 0,
+                            on: true,
+                            pitch,
+                            velocity,
+                            channel: 0,
+                        },
+                    );
                 }
             }
-            for (p, want) in expected.iter().enumerate() {
-                while self.held[track][p] > *want {
+        }
+        for track in 0..self.channels.len() {
+            for p in 0..128 {
+                while self.held[track][p] > self.expected[track][p] {
                     self.held[track][p] -= 1;
                     self.queue(
                         track,
@@ -302,11 +601,6 @@ impl Renderer {
                 }
             }
         }
-        for i in 0..self.next {
-            if self.events[i].end > self.position {
-                self.activate_slot(i);
-            }
-        }
     }
     fn activate_slot(&mut self, i: usize) -> bool {
         let Some(slot) = self.active.iter_mut().find(|v| v.is_none()) else {
@@ -317,6 +611,7 @@ impl Renderer {
         true
     }
     pub fn locate(&mut self, beats: f64) {
+        self.automation_looped = false;
         self.position = beats.max(0.0);
         self.resync();
     }
@@ -358,6 +653,15 @@ impl Renderer {
         }
     }
     /// Live note input (keyboard or MIDI port) routed to a track's instrument.
+    pub fn routed_note(&mut self, route: usize, on: bool, pitch: u8, velocity: u8) {
+        if let Some(track) = self
+            .channels
+            .iter()
+            .position(|channel| channel.route == route)
+        {
+            self.note(track, on, pitch, velocity);
+        }
+    }
     pub fn note(&mut self, track: usize, on: bool, pitch: u8, velocity: u8) {
         self.idle_frames = 0;
         if !self.channels.get(track).is_some_and(|c| c.midi) {
@@ -448,6 +752,7 @@ impl Renderer {
                 let start = self.session.transport.cycle_start_bar * bpb;
                 if self.position >= end {
                     self.locate(start + (self.position - end).rem_euclid(end - start));
+                    self.automation_looped = true;
                 }
                 let dpb = 1.0 / (self.rate as f64 * 60.0 / self.session.transport.tempo);
                 let frames_left = ((end - self.position) / dpb).ceil().max(1.0) as usize;
@@ -481,12 +786,20 @@ impl Renderer {
         self.sends[0][..n].fill([0.0; 2]);
         self.sends[1][..n].fill([0.0; 2]);
         self.mix[..n].fill([0.0; 2]);
-        // Queued notes (chase, live input, previews, all-notes-off) land at frame 0.
+        // Most queued notes land at frame zero. A same-callback tap's release
+        // follows its attack; carry it into the next block when necessary.
+        let mut remaining = 0;
         for i in 0..self.queued.len() {
-            let (track, event) = self.queued[i];
-            self.push_note(track, event);
+            let (track, mut event) = self.queued[i];
+            if event.frame < n as u32 {
+                self.push_note(track, event);
+            } else {
+                event.frame -= n as u32;
+                self.queued[remaining] = (track, event);
+                remaining += 1;
+            }
         }
-        self.queued.clear();
+        self.queued.truncate(remaining);
         for i in 0..self.previews.len() {
             let Some(p) = self.previews[i] else {
                 continue;
@@ -582,6 +895,12 @@ impl Renderer {
                 self.position += dpb;
             }
         }
+        // Previews may finish later in this block than sequenced note starts.
+        // Every host expects chronological events; note-offs win ties so a
+        // repeated pitch can start again at the same sample.
+        for notes in &mut self.notes {
+            notes.sort_unstable_by_key(|note| (note.frame, note.on));
+        }
         let ctx = ProcessContext {
             playing: self.playing,
             recording: self.recording,
@@ -601,7 +920,26 @@ impl Renderer {
             },
             bar_start_beats: (block_start / bpb).floor() * bpb,
         };
-        for (index, channel) in self.channels.iter().enumerate() {
+        let automation_step = if self.playing { dpb } else { 0.0 };
+        let automation_cycle =
+            (self.automation_looped && self.session.transport.cycle).then_some((
+                self.session.transport.cycle_start_bar * bpb,
+                self.session.transport.cycle_end_bar * bpb,
+            ));
+        for &(slot, parameter, value) in &self.automation_resets {
+            rack.set_param(slot, parameter, value);
+        }
+        self.automation_resets.clear();
+        for automation in &self.plugin_automation {
+            let beat = automation_beat(
+                block_start - automation.offset as f64 * dpb,
+                automation_cycle,
+            );
+            if let Some(value) = self.session.automation[automation.lane].value_at(beat) {
+                rack.set_param(automation.slot, automation.parameter, value);
+            }
+        }
+        for (index, channel) in self.channels.iter_mut().enumerate() {
             let buffer = &mut self.buffers[index][..n];
             if channel.midi {
                 if let Some(slot) = channel.synth {
@@ -611,12 +949,34 @@ impl Renderer {
             for &slot in &channel.inserts {
                 rack.process(slot, buffer, &[], &ctx);
             }
-            // Stereo balance preserves channels at centre; mono source duplicates are -3 dB.
-            let left = channel.gain * (1.0 - channel.pan.max(0.0)).sqrt();
-            let right = channel.gain * (1.0 + channel.pan.min(0.0)).sqrt();
+            let start_beat = block_start - channel.automation_offset as f64 * dpb;
+            let mut volume = channel.volume_lane.map(|lane| {
+                self.session.automation[lane].cursor(automation_beat(start_beat, automation_cycle))
+            });
+            let mut pan = channel.pan_lane.map(|lane| {
+                self.session.automation[lane].cursor(automation_beat(start_beat, automation_cycle))
+            });
+            for (i, frame) in buffer.iter_mut().enumerate() {
+                let beat =
+                    automation_beat(start_beat + i as f64 * automation_step, automation_cycle);
+                let gain = if channel.muted {
+                    0.0
+                } else {
+                    volume
+                        .as_mut()
+                        .and_then(|lane| lane.value(beat))
+                        .map_or(channel.gain, |value| fader_gain(value as f32))
+                };
+                let pan = pan
+                    .as_mut()
+                    .and_then(|lane| lane.value(beat))
+                    .map_or(channel.pan, |value| value as f32 / 100.0);
+                frame[0] *= gain * (1.0 - pan.max(0.0)).sqrt();
+                frame[1] *= gain * (1.0 + pan.min(0.0)).sqrt();
+            }
+            channel.delay.process(buffer);
             let selected = self.selected == Some(index);
-            for (i, frame) in buffer.iter().enumerate() {
-                let v = [frame[0] * left, frame[1] * right];
+            for (i, v) in buffer.iter().enumerate() {
                 for (c, value) in v.iter().enumerate() {
                     self.mix[i][c] += value;
                     self.sends[0][i][c] += value * channel.sends[0];
@@ -627,11 +987,13 @@ impl Renderer {
                 }
             }
         }
+        self.dry_delay.process(&mut self.mix[..n]);
         for bus in 0..2 {
             let send = &mut self.sends[bus][..n];
             for &slot in &self.buses[bus] {
                 rack.process(slot, send, &[], &ctx);
             }
+            self.bus_delays[bus].process(send);
             for (i, frame) in send.iter().enumerate() {
                 self.mix[i][0] += frame[0];
                 self.mix[i][1] += frame[1];
@@ -643,9 +1005,22 @@ impl Renderer {
         }
         let metronome = self.playing && self.session.transport.metronome;
         let tick_unit = 4.0 / self.session.transport.time_signature.denominator as f64;
+        let master_beat = block_start - self.latency_samples as f64 * dpb;
+        let mut master_volume = self.master_volume_lane.map(|lane| {
+            self.session.automation[lane].cursor(automation_beat(master_beat, automation_cycle))
+        });
         for (i, frame) in mix.iter_mut().enumerate() {
-            frame[0] *= self.master_gain;
-            frame[1] *= self.master_gain;
+            let gain = master_volume
+                .as_mut()
+                .and_then(|lane| {
+                    lane.value(automation_beat(
+                        master_beat + i as f64 * automation_step,
+                        automation_cycle,
+                    ))
+                })
+                .map_or(self.master_gain, |value| fader_gain(value as f32));
+            frame[0] *= gain;
+            frame[1] *= gain;
             if metronome {
                 let position = block_start + i as f64 * dpb;
                 let time = position.rem_euclid(tick_unit) * spb;
@@ -663,16 +1038,7 @@ impl Renderer {
                 }
             }
             for (c, sample) in frame.iter_mut().enumerate() {
-                *sample = if sample.is_finite() {
-                    let x = *sample * 0.7;
-                    if x.abs() <= 0.7 {
-                        x
-                    } else {
-                        x.signum() * (0.7 + 0.28 * ((x.abs() - 0.7) / 0.28).tanh())
-                    }
-                } else {
-                    0.0
-                };
+                *sample = if sample.is_finite() { *sample } else { 0.0 };
                 self.peak[c] = self.peak[c].max(sample.abs());
             }
             out[i] = *frame;
@@ -681,18 +1047,52 @@ impl Renderer {
     }
 }
 
+/// Offline processing stays on its calling thread, retaining editors for
+/// state ownership and host callbacks until after the processors stop.
+pub struct OfflineRack {
+    rack: Rack,
+    editors: Vec<Box<dyn crate::plugin::Editor>>,
+}
+impl std::ops::Deref for OfflineRack {
+    type Target = Rack;
+    fn deref(&self) -> &Rack {
+        &self.rack
+    }
+}
+impl std::ops::DerefMut for OfflineRack {
+    fn deref_mut(&mut self) -> &mut Rack {
+        &mut self.rack
+    }
+}
+impl OfflineRack {
+    pub fn idle(&mut self) {
+        for editor in &mut self.editors {
+            editor.idle();
+        }
+    }
+}
+
 /// Instantiate every plugin a session needs into a fresh rack, for offline
 /// rendering and tests. External plugins are loaded on the calling thread.
-pub fn offline(session: &Session, library: &Library, rate: u32) -> Result<(Renderer, Rack)> {
+pub fn offline(session: &Session, library: &Library, rate: u32) -> Result<(Renderer, OfflineRack)> {
     let needs = session.needs();
-    let mut rack = Rack::new(needs.len().max(1));
+    let parameter_capacity = needs
+        .iter()
+        .map(|need| need.params.len())
+        .max()
+        .unwrap_or(0);
+    if parameter_capacity > 8192 {
+        return Err("A plugin has more than 8192 saved parameters".into());
+    }
+    let mut rack = Rack::with_parameter_capacity(needs.len().max(1), parameter_capacity.max(512));
+    let mut editors = Vec::with_capacity(needs.len());
     let mut slots = HashMap::new();
+    let mut latencies = HashMap::new();
     for (slot, need) in needs.iter().enumerate() {
         let mut instance = crate::host::instantiate(&need.plugin, &need.name, rate)?;
         if !need.blob.is_empty() {
-            if let Ok(bytes) = crate::host::decode_blob(&need.blob) {
-                instance.editor.load(&bytes)?;
-            }
+            let bytes = crate::host::decode_blob(&need.blob)?;
+            instance.editor.load(&bytes)?;
         }
         if let Some(processor) = instance.processor.take() {
             rack.mount(slot as u32, processor);
@@ -700,12 +1100,13 @@ pub fn offline(session: &Session, library: &Library, rate: u32) -> Result<(Rende
                 rack.set_param(slot as u32, id, value);
             }
         }
+        latencies.insert(slot as u32, instance.editor.latency());
         slots.insert(need.key.clone(), slot as u32);
-        // Editors are dropped here; offline rendering keeps only processors.
-        drop(instance);
+        editors.push(instance.editor);
     }
-    let renderer = Renderer::new(session.clone(), library, rate, &slots)?;
-    Ok((renderer, rack))
+    let mut renderer = Renderer::new(session.clone(), library, rate, &slots)?;
+    renderer.set_latencies(&latencies)?;
+    Ok((renderer, OfflineRack { rack, editors }))
 }
 
 /// Streaming offline bounce shares exactly the same renderer as device playback.
@@ -736,14 +1137,22 @@ pub fn bounce(
             .map_err(|e| e.to_string())?;
         let total = (seconds * rate as f64).ceil() as usize;
         let mut block = [[0.0f32; 2]; MAX_BLOCK];
+        let mut warmup = renderer.latency_samples() as usize;
+        while warmup > 0 {
+            let n = warmup.min(MAX_BLOCK);
+            renderer.render(&mut rack, &mut block[..n]);
+            rack.idle();
+            warmup -= n;
+        }
         let mut written = 0;
         while written < total {
             let n = (total - written).min(MAX_BLOCK);
             renderer.render(&mut rack, &mut block[..n]);
+            rack.idle();
             for frame in &block[..n] {
                 for sample in frame {
                     writer
-                        .write_sample((sample * 8_388_607.0).round() as i32)
+                        .write_sample((sample.clamp(-1.0, 1.0) * 8_388_607.0).round() as i32)
                         .map_err(|e| e.to_string())?;
                 }
             }

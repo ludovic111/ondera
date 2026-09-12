@@ -192,6 +192,18 @@ struct HostData {
 thread_local! {
     static IN_AUDIO_THREAD: Cell<bool> = const { Cell::new(false) };
 }
+struct AudioThreadScope(bool);
+impl AudioThreadScope {
+    fn enter() -> Self {
+        Self(IN_AUDIO_THREAD.with(|flag| flag.replace(true)))
+    }
+}
+impl Drop for AudioThreadScope {
+    fn drop(&mut self) {
+        IN_AUDIO_THREAD.with(|flag| flag.set(self.0));
+    }
+}
+
 unsafe fn data<'a>(host: *const clap_host) -> &'a HostData {
     &*((*host).host_data as *const HostData)
 }
@@ -276,7 +288,7 @@ unsafe extern "C" fn log_log(
     }
 }
 unsafe extern "C" fn thread_is_main(host: *const clap_host) -> bool {
-    std::thread::current().id() == data(host).main_thread
+    !IN_AUDIO_THREAD.with(Cell::get) && std::thread::current().id() == data(host).main_thread
 }
 unsafe extern "C" fn thread_is_audio(_host: *const clap_host) -> bool {
     IN_AUDIO_THREAD.with(Cell::get)
@@ -335,11 +347,28 @@ struct Ext {
     gui: *const clap_plugin_gui,
     latency: *const clap_plugin_latency,
 }
+/// MIDI-only CLAP instruments must receive raw MIDI events, never CLAP notes.
+fn note_dialect(
+    supported: clap_note_dialect,
+    preferred: clap_note_dialect,
+) -> Option<clap_note_dialect> {
+    let supported =
+        supported & (CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE);
+    [
+        preferred,
+        CLAP_NOTE_DIALECT_CLAP,
+        CLAP_NOTE_DIALECT_MIDI,
+        CLAP_NOTE_DIALECT_MIDI_MPE,
+    ]
+    .into_iter()
+    .find(|&dialect| dialect.count_ones() == 1 && supported & dialect != 0)
+}
+
 struct PortLayout {
     /// Channel counts of every input port, main port first.
     inputs: Vec<u32>,
     outputs: Vec<u32>,
-    has_note_input: bool,
+    note_input: Option<(u16, clap_note_dialect)>,
 }
 struct Shared {
     _loaded: Arc<Loaded>,
@@ -427,16 +456,31 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
         let mut layout = PortLayout {
             inputs: vec![],
             outputs: vec![],
-            has_note_input: false,
+            note_input: None,
         };
         if !audio_ports.is_null() {
             let ap = &*audio_ports;
             for (is_input, list) in [(true, &mut layout.inputs), (false, &mut layout.outputs)] {
                 let count = ap.count.map_or(0, |c| c(plugin, is_input));
+                if count > 64 {
+                    if let Some(destroy) = p.destroy {
+                        destroy(plugin);
+                    }
+                    return Err(format!("{} declares more than 64 audio ports", desc.name));
+                }
                 for i in 0..count {
                     let mut info: clap_audio_port_info = std::mem::zeroed();
                     if ap.get.is_some_and(|g| g(plugin, i, is_input, &mut info)) {
-                        list.push(info.channel_count.min(16));
+                        if !(1..=16).contains(&info.channel_count) {
+                            if let Some(destroy) = p.destroy {
+                                destroy(plugin);
+                            }
+                            return Err(format!(
+                                "{} requires an unsupported {}-channel audio port",
+                                desc.name, info.channel_count
+                            ));
+                        }
+                        list.push(info.channel_count);
                     } else {
                         list.push(2);
                     }
@@ -445,7 +489,21 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
         }
         let note_ports = get(CLAP_EXT_NOTE_PORTS) as *const clap_plugin_note_ports;
         if !note_ports.is_null() {
-            layout.has_note_input = (*note_ports).count.map_or(0, |c| c(plugin, true)) > 0;
+            let ports = &*note_ports;
+            for index in 0..ports.count.map_or(0, |c| c(plugin, true)) {
+                let mut info: clap_note_port_info = std::mem::zeroed();
+                if ports
+                    .get
+                    .is_some_and(|get| get(plugin, index, true, &mut info))
+                {
+                    if let Some(dialect) =
+                        note_dialect(info.supported_dialects, info.preferred_dialect)
+                    {
+                        layout.note_input = Some((index as u16, dialect));
+                        break;
+                    }
+                }
+            }
         }
         let shared = Arc::new(Shared {
             _loaded: loaded,
@@ -831,6 +889,7 @@ unsafe extern "C" fn events_push_ignore(
 union ClapEvent {
     header: clap_event_header,
     note: clap_event_note,
+    midi: clap_event_midi,
     param: clap_event_param_value,
 }
 struct Port {
@@ -875,13 +934,23 @@ impl ClapProcessor {
         };
         let input_buffers = inputs.iter_mut().map(buffer).collect();
         let output_buffers = outputs.iter_mut().map(buffer).collect();
+        let parameter_count = if shared.ext.params.is_null() {
+            0
+        } else {
+            unsafe {
+                (*shared.ext.params)
+                    .count
+                    .map_or(0, |count| count(shared.plugin))
+                    .min(8192) as usize
+            }
+        };
         Self {
             shared,
             inputs,
             outputs,
             input_buffers,
             output_buffers,
-            events: Vec::with_capacity(1024),
+            events: Vec::with_capacity(parameter_count.max(64) + 512),
             transport: unsafe { std::mem::zeroed() },
             steady_time: 0,
             started: false,
@@ -907,6 +976,7 @@ unsafe extern "C" fn events_get(
 }
 impl Processor for ClapProcessor {
     fn start(&mut self) {
+        let _audio_thread = AudioThreadScope::enter();
         if self.started || !self.shared.activated.load(Ordering::Acquire) {
             return;
         }
@@ -917,6 +987,7 @@ impl Processor for ClapProcessor {
         }
     }
     fn stop(&mut self) {
+        let _audio_thread = AudioThreadScope::enter();
         if !self.started {
             return;
         }
@@ -928,6 +999,7 @@ impl Processor for ClapProcessor {
         }
     }
     fn reset(&mut self) {
+        let _audio_thread = AudioThreadScope::enter();
         unsafe {
             if let Some(reset) = (*self.shared.plugin).reset {
                 reset(self.shared.plugin);
@@ -975,8 +1047,28 @@ impl Processor for ClapProcessor {
                 },
             });
         }
-        if self.shared.layout.has_note_input {
+        if let Some((port, dialect)) = self.shared.layout.note_input {
             for note in notes {
+                if dialect != CLAP_NOTE_DIALECT_CLAP {
+                    self.push(ClapEvent {
+                        midi: clap_event_midi {
+                            header: clap_event_header {
+                                size: std::mem::size_of::<clap_event_midi>() as u32,
+                                time: (note.frame as usize).min(n - 1) as u32,
+                                space_id: CLAP_CORE_EVENT_SPACE_ID,
+                                type_: CLAP_EVENT_MIDI,
+                                flags: 0,
+                            },
+                            port_index: port,
+                            data: [
+                                (if note.on { 0x90 } else { 0x80 }) | (note.channel & 0x0f),
+                                note.pitch.min(127),
+                                note.velocity.min(127),
+                            ],
+                        },
+                    });
+                    continue;
+                }
                 self.push(ClapEvent {
                     note: clap_event_note {
                         header: clap_event_header {
@@ -991,7 +1083,7 @@ impl Processor for ClapProcessor {
                             flags: 0,
                         },
                         note_id: -1,
-                        port_index: 0,
+                        port_index: port as i16,
                         channel: note.channel as i16,
                         key: note.pitch as i16,
                         velocity: note.velocity as f64 / 127.0,
@@ -1085,12 +1177,10 @@ impl Processor for ClapProcessor {
             out_events: &out_events,
         };
         let status = unsafe {
-            IN_AUDIO_THREAD.with(|f| f.set(true));
-            let status = (*self.shared.plugin)
+            let _audio_thread = AudioThreadScope::enter();
+            (*self.shared.plugin)
                 .process
-                .map_or(CLAP_PROCESS_ERROR, |p| p(self.shared.plugin, &process));
-            IN_AUDIO_THREAD.with(|f| f.set(false));
-            status
+                .map_or(CLAP_PROCESS_ERROR, |p| p(self.shared.plugin, &process))
         };
         self.steady_time += n as i64;
         if status == CLAP_PROCESS_ERROR {
@@ -1115,5 +1205,32 @@ impl Drop for ClapProcessor {
         // stop_processing belongs to the audio thread; the rack calls `stop`
         // before handing the processor back.
         let _ = CLAP_INVALID_ID;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn negotiates_supported_note_dialect() {
+        assert_eq!(
+            note_dialect(CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI),
+            Some(CLAP_NOTE_DIALECT_MIDI)
+        );
+        assert_eq!(
+            note_dialect(
+                CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI,
+                CLAP_NOTE_DIALECT_MIDI
+            ),
+            Some(CLAP_NOTE_DIALECT_MIDI)
+        );
+        assert_eq!(
+            note_dialect(CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_MIDI),
+            Some(CLAP_NOTE_DIALECT_CLAP)
+        );
+        assert_eq!(
+            note_dialect(CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2),
+            None
+        );
     }
 }

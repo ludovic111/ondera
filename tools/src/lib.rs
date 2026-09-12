@@ -3,6 +3,7 @@
 
 use ondera_engine::{
     control::{self, wire::Client, Headless, Host},
+    session_file::SessionFileLock,
     Result,
 };
 use serde_json::{Map, Value};
@@ -11,7 +12,7 @@ use std::path::{Path, PathBuf};
 pub enum Backend {
     /// Talks to the desktop app. The client reconnects on the next call after a lost connection.
     Live(Option<Client>),
-    Headless(Headless),
+    Headless(Headless, bool, Option<SessionFileLock>),
 }
 impl Backend {
     pub fn live() -> Result<Self> {
@@ -19,20 +20,24 @@ impl Backend {
     }
     /// A headless host on `path` (which must exist unless `create` is set) or on an empty session.
     pub fn headless(path: Option<&Path>, create: bool) -> Result<Self> {
-        Ok(Backend::Headless(match path {
+        let lock = path.map(SessionFileLock::acquire).transpose()?;
+        let resolved = lock.as_ref().map(|lock| lock.path());
+        let host = match resolved {
             Some(p) if p.exists() || !create => Headless::open(p)?,
             Some(p) => {
-                let mut h = Headless::new();
-                h.path = Some(p.to_path_buf());
-                h
+                let mut host = Headless::new();
+                host.path = Some(p.to_path_buf());
+                host
             }
             None => Headless::new(),
-        }))
+        };
+        Ok(Backend::Headless(host, false, lock))
     }
+
     pub fn mode(&self) -> &'static str {
         match self {
             Backend::Live(_) => "live",
-            Backend::Headless(_) => "headless",
+            Backend::Headless(_, _, _) => "headless",
         }
     }
     pub fn call(&mut self, name: &str, params: &Value, agent: bool) -> Result<Value> {
@@ -53,11 +58,62 @@ impl Backend {
                 }
                 result
             }
-            Backend::Headless(host) => {
-                // In file mode the file stays the state: session.new resets its contents
-                // instead of detaching from it.
+            Backend::Headless(host, changed, ownership) => {
+                control::validate_request(name, params)?;
                 let pinned = host.path.clone();
-                let result = control::call(host, name, params, agent);
+                let before = host.store.revision;
+                let mut params = params.clone();
+                let requested_path = if matches!(name, "session.open" | "session.save") {
+                    params
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .map(PathBuf::from)
+                        .or_else(|| {
+                            if name == "session.save" {
+                                pinned.clone()
+                            } else {
+                                None
+                            }
+                        })
+                } else {
+                    None
+                };
+                let mut replacement = None;
+                if let Some(path) = requested_path {
+                    let resolved = SessionFileLock::resolve(&path)?;
+                    if ownership
+                        .as_ref()
+                        .is_none_or(|lock| lock.path() != resolved)
+                    {
+                        replacement = Some(SessionFileLock::acquire(&resolved)?);
+                    }
+                    // Resolve symlinks consistently: locking a target and replacing its
+                    // symlink would otherwise create two distinct session identities.
+                    if !params.is_object() {
+                        params = Value::Object(Map::new());
+                    }
+                    params["path"] = Value::String(resolved.to_string_lossy().into_owned());
+                }
+                let result = control::call(host, name, &params, agent);
+                if result.is_ok() {
+                    if replacement.is_some() {
+                        *ownership = replacement;
+                    }
+                    if matches!(name, "session.open" | "session.save") {
+                        *changed = false;
+                    } else if host.store.revision != before
+                        || matches!(
+                            name,
+                            "session.new"
+                                | "transport.locate"
+                                | "transport.returnToStart"
+                                | "track.select"
+                                | "clip.select"
+                        )
+                    {
+                        *changed = true;
+                    }
+                }
                 if name == "session.new" && host.path.is_none() {
                     host.path = pinned;
                 }
@@ -69,19 +125,21 @@ impl Backend {
     /// that does not exist yet (`session.new`) is written even though the store is clean.
     pub fn autosave(&mut self) -> Result<Option<PathBuf>> {
         match self {
-            Backend::Headless(h)
+            Backend::Headless(h, changed, _)
                 if h.path
                     .as_deref()
-                    .is_some_and(|p| h.store.dirty() || !p.exists()) =>
+                    .is_some_and(|p| *changed || h.store.dirty() || !p.exists()) =>
             {
-                Host::save(h, None).map(Some)
+                let path = Host::save(h, None)?;
+                *changed = false;
+                Ok(Some(path))
             }
             _ => Ok(None),
         }
     }
     pub fn path(&self) -> Option<PathBuf> {
         match self {
-            Backend::Headless(h) => h.path.clone(),
+            Backend::Headless(h, _, _) => h.path.clone(),
             Backend::Live(_) => None,
         }
     }
@@ -96,10 +154,14 @@ pub fn coerce(command: &str, key: &str, raw: &str) -> Result<Value> {
     let json = || serde_json::from_str::<Value>(raw);
     Ok(match kind {
         Some(control::Kind::String) => Value::String(raw.into()),
-        Some(control::Kind::Number) => Value::from(
-            raw.parse::<f64>()
-                .map_err(|_| format!("`{key}` must be a number, got `{raw}`"))?,
-        ),
+        Some(control::Kind::Number) => {
+            let number = raw
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite())
+                .ok_or_else(|| format!("`{key}` must be a number (finite), got `{raw}`"))?;
+            Value::from(number)
+        }
         Some(control::Kind::Integer) => Value::from(
             raw.parse::<i64>()
                 .map_err(|_| format!("`{key}` must be an integer, got `{raw}`"))?,
@@ -131,4 +193,26 @@ pub fn merge(base: Option<&str>, pairs: &[(String, Value)]) -> Result<Value> {
         map.insert(k.clone(), v.clone());
     }
     Ok(Value::Object(map))
+}
+
+/// Scanner subprocess mode must be available in both tools: the isolated scanner
+/// re-executes the binary that owns the headless host.
+pub fn scan_child(args: &[String]) -> Option<Result<()>> {
+    if args.first().map(String::as_str) != Some("--scan-plugin") {
+        return None;
+    }
+    Some((|| {
+        if args.len() != 3 {
+            return Err("Usage: --scan-plugin <clap|vst3> <bundle>".into());
+        }
+        let format = ondera_engine::plugin::Format::parse(&format!("{}:x", args[1]))
+            .map(|(f, _)| f)
+            .ok_or("Unknown plugin format")?;
+        let result = ondera_engine::host::scan::probe(format, Path::new(&args[2]));
+        println!(
+            "{}",
+            serde_json::to_string(&result).map_err(|e| e.to_string())?
+        );
+        Ok(())
+    })())
 }

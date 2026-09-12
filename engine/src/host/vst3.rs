@@ -773,6 +773,12 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             MediaTypes_::kEvent as MediaType,
             BusDirections_::kInput as BusDirection,
         );
+        if !(0..=64).contains(&audio_in) || !(0..=64).contains(&audio_out) {
+            return Err(format!(
+                "{} declares an unsupported number of audio buses",
+                desc.name
+            ));
+        }
         let mut ins = vec![SpeakerArr::kStereo; audio_in.max(0) as usize];
         let mut outs = vec![SpeakerArr::kStereo; audio_out.max(0) as usize];
         processor.setBusArrangements(
@@ -781,7 +787,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             outs.as_mut_ptr(),
             outs.len() as i32,
         );
-        let channels = |dir: BusDirections| -> usize {
+        let channels = |dir: BusDirections| -> Result<usize> {
             let mut info: BusInfo = std::mem::zeroed();
             if component.getBusInfo(
                 MediaTypes_::kAudio as MediaType,
@@ -790,18 +796,24 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
                 &mut info,
             ) == kResultOk
             {
-                info.channelCount.clamp(0, 16) as usize
+                if !(0..=16).contains(&info.channelCount) {
+                    return Err(format!(
+                        "{} requires an unsupported {}-channel audio bus",
+                        desc.name, info.channelCount
+                    ));
+                }
+                Ok(info.channelCount as usize)
             } else {
-                0
+                Err(format!("{} did not describe its audio bus", desc.name))
             }
         };
         let in_channels = if audio_in > 0 {
-            channels(BusDirections_::kInput)
+            channels(BusDirections_::kInput)?
         } else {
             0
         };
         let out_channels = if audio_out > 0 {
-            channels(BusDirections_::kOutput)
+            channels(BusDirections_::kOutput)?
         } else {
             0
         };
@@ -1169,6 +1181,8 @@ impl Vst3Processor {
                 })
                 .collect()
         };
+        let parameter_count =
+            unsafe { shared.controller.getParameterCount().clamp(0, 8192) as usize };
         Self {
             shared,
             rate,
@@ -1177,7 +1191,7 @@ impl Vst3Processor {
             in_ptrs,
             out_ptrs,
             changes: ComWrapper::new(ParameterChanges {
-                queues: queues(128),
+                queues: queues(parameter_count.max(128)),
                 count: AtomicUsize::new(0),
             }),
             out_changes: ComWrapper::new(ParameterChanges {

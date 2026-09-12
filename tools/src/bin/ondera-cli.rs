@@ -57,6 +57,9 @@ impl From<String> for Failure {
 }
 
 fn run(args: &[String]) -> Result<(), Failure> {
+    if let Some(result) = ondera_tools::scan_child(args) {
+        return result.map_err(Failure::Command);
+    }
     let mut file: Option<PathBuf> = None;
     let mut live = false;
     let mut params_json: Option<String> = None;
@@ -116,7 +119,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
         return Err(Failure::Usage("Missing command".into()));
     };
     if command == "commands" {
-        for spec in control::COMMANDS {
+        for spec in control::COMMANDS.iter() {
             let params: Vec<String> = spec
                 .params
                 .iter()
@@ -152,6 +155,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
     }
     let params = merge(params_json.as_deref(), &params)?;
 
+    control::validate_request(&command, &params)?;
     let mut backend = match (&file, live) {
         (Some(_), true) => {
             return Err(Failure::Usage("--file and --live are exclusive".into()));
