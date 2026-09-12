@@ -100,7 +100,7 @@ fn default_instrument() -> String {
     "Ondera Synth".into()
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Insert {
     pub name: String,
     pub state: String,

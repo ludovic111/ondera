@@ -20,17 +20,23 @@ impl Ondera {
             Err(e) => self.status = format!("Live control unavailable: {e}"),
         }
     }
-    /// Answer every queued request. Called once per frame with no gesture in progress, so each
-    /// command is its own undo step and a drag that spans it is split around it.
-    pub(crate) fn serve_control(&mut self) {
+    /// Answer every queued request once per frame. Requests run with no gesture in progress,
+    /// so each command is its own undo step and a drag that spans them is split around them;
+    /// an idle server leaves the gesture untouched so a drag stays one undo step.
+    pub(crate) fn serve_control(&mut self, gesture: bool) {
         let pending = self
             .control
             .as_ref()
             .map(wire::Server::drain)
             .unwrap_or_default();
+        if pending.is_empty() {
+            return;
+        }
+        self.store.set_gesture(false);
         for request in pending {
             wire::serve(self, request);
         }
+        self.store.set_gesture(gesture);
     }
     fn available(&self) -> Result<()> {
         if self.job.is_some() {

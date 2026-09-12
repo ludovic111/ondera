@@ -1184,16 +1184,11 @@ impl Ondera {
 }
 impl eframe::App for Ondera {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.store
-            .set_gesture(ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input());
+        let gesture = ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input();
+        self.store.set_gesture(gesture);
         self.frames += 1;
         self.poll();
-        if self.control.is_some() {
-            self.store.set_gesture(false);
-            self.serve_control();
-            self.store
-                .set_gesture(ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input());
-        }
+        self.serve_control(gesture);
         self.keyboard(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1489,5 +1484,32 @@ mod tests {
         assert!(app.intent.is_none());
         assert_eq!(app.error.as_deref(), Some("Input disconnected"));
         assert_eq!(serde_json::to_value(app.store.session()).unwrap(), before);
+    }
+
+    #[test]
+    fn idle_control_keeps_a_drag_as_one_undo_step() {
+        let (mut app, _ctx) = setup();
+        let dir = std::env::temp_dir().join(format!("ondera-gesture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        app.control = Some(
+            ondera_engine::control::wire::Server::start_at(dir.join("control.json"), || {})
+                .unwrap(),
+        );
+        let tempo = |app: &Ondera| app.store.session().transport.tempo;
+        let start = tempo(&app);
+        let set = |app: &mut Ondera, bpm: f64| {
+            let mut t = app.store.session().transport.clone();
+            t.tempo = bpm;
+            app.dispatch(Command::SetTransport(t));
+        };
+        app.store.set_gesture(true);
+        set(&mut app, start + 1.0);
+        app.serve_control(true);
+        set(&mut app, start + 2.0);
+        app.store.set_gesture(false);
+        app.dispatch(Command::Undo);
+        assert_eq!(tempo(&app), start, "the whole drag is one undo step");
+        app.control = None;
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

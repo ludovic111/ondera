@@ -1023,14 +1023,15 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 }
                 "strip.setInsert" => {
                     let slot = a.int("slot")?;
-                    if !(0..4).contains(&slot) {
-                        return Err("Insert slot must be 0-3".into());
+                    let slots = strip.inserts.len() as i64;
+                    if !(0..slots).contains(&slot) {
+                        return Err(format!("Insert slot must be 0-{}", slots - 1));
                     }
                     strip.inserts[slot as usize] = match a.opt_str("effect") {
                         None => Insert {
                             name: "Empty slot".into(),
                             state: "empty".into(),
-                            meta: String::new(),
+                            ..Default::default()
                         },
                         Some(effect) => {
                             if !EFFECTS.contains(&effect) {
@@ -1047,7 +1048,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                                     "active"
                                 }
                                 .into(),
-                                meta: String::new(),
+                                ..Default::default()
                             }
                         }
                     };
@@ -1238,7 +1239,7 @@ fn full_strip(s: &Session, track: &str) -> Strip {
         strip.inserts.push(Insert {
             name: "Empty slot".into(),
             state: "empty".into(),
-            meta: String::new(),
+            ..Default::default()
         });
     }
     while strip.sends.len() < 2 {
