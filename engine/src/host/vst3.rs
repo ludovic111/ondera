@@ -20,6 +20,13 @@ use std::{
 };
 use vst3::{Class, ComPtr, ComWrapper, Interface, Steinberg::Vst::*, Steinberg::*};
 
+// The bindings type these enums as `c_uint` on Unix and `c_int` on Windows, so the cast is
+// required on one platform and a no-op on the other.
+#[allow(clippy::unnecessary_cast)]
+const REALTIME: int32 = ProcessModes_::kRealtime as int32;
+#[allow(clippy::unnecessary_cast)]
+const SAMPLE32: int32 = SymbolicSampleSizes_::kSample32 as int32;
+
 // ---------------------------------------------------------------------------
 // Module loading
 // ---------------------------------------------------------------------------
@@ -823,8 +830,8 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             );
         }
         let mut setup = ProcessSetup {
-            processMode: ProcessModes_::kRealtime as i32,
-            symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
+            processMode: REALTIME,
+            symbolicSampleSize: SAMPLE32,
             maxSamplesPerBlock: MAX_BLOCK as i32,
             sampleRate: rate as f64,
         };
@@ -1364,8 +1371,8 @@ impl Processor for Vst3Processor {
             .as_com_ref::<IEventList>()
             .map_or(std::ptr::null_mut(), |r| r.as_ptr());
         let mut data = ProcessData {
-            processMode: ProcessModes_::kRealtime as i32,
-            symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
+            processMode: REALTIME,
+            symbolicSampleSize: SAMPLE32,
             numSamples: n as i32,
             numInputs: if self.in_channels.is_empty() { 0 } else { 1 },
             numOutputs: if self.out_channels.is_empty() { 0 } else { 1 },
