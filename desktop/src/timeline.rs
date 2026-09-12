@@ -1,8 +1,13 @@
+//! Arrangement: toolbar, bar ruler, track headers and lanes.
+//!
+//! Drag previews stay local (`ClipDrag`); the store receives one `PutClip`
+//! when the pointer is released, so undo restores the whole gesture.
+
 use crate::{
     app::{id, Ondera},
     theme::*,
 };
-use eframe::egui::{self, pos2, vec2, Align2, FontId, Pos2, Rect, Sense, Stroke};
+use eframe::egui::{self, pos2, vec2, Align2, Pos2, Rect, Sense, Stroke, Vec2};
 use ondera_engine::{
     model::*,
     store::{self, Command},
@@ -22,46 +27,22 @@ fn snap(v: f64, step: f64, free: bool) -> f64 {
         (v / step).round() * step
     }
 }
+const ZOOM_MIN: f32 = 12.0;
+const ZOOM_MAX: f32 = 480.0;
+fn zoom_to_t(zoom: f32) -> f32 {
+    ((zoom / ZOOM_MIN).ln() / (ZOOM_MAX / ZOOM_MIN).ln()).clamp(0.0, 1.0)
+}
+fn t_to_zoom(t: f32) -> f32 {
+    ZOOM_MIN * (ZOOM_MAX / ZOOM_MIN).powf(t.clamp(0.0, 1.0))
+}
 
 impl Ondera {
     pub fn arrangement(&mut self, ui: &mut egui::Ui) {
         let state = self.store.snapshot();
         let bpb = state.beats_per_bar();
-        ui.horizontal(|ui| {
-            ui.add_space(GAP);
-            if ui.button("+ MIDI").clicked() {
-                self.add_track("midi");
-            }
-            if ui.button("+ Audio").clicked() {
-                self.add_track("audio");
-            }
-            ui.separator();
-            for (i, label) in ["Pointer", "Pencil", "Scissors"].iter().enumerate() {
-                ui.selectable_value(&mut self.tool, i, *label);
-            }
-            ui.separator();
-            let mut t = state.transport.clone();
-            let mut changed = false;
-            egui::ComboBox::from_id_salt("snap")
-                .selected_text(format!("1/{}", t.snap_division))
-                .width(50.0)
-                .show_ui(ui, |ui| {
-                    for d in [1, 2, 4, 8, 16, 32, 64] {
-                        changed |= ui
-                            .selectable_value(&mut t.snap_division, d, format!("1/{d}"))
-                            .changed();
-                    }
-                });
-            if changed {
-                self.dispatch(Command::SetTransport(t));
-            }
-            ui.add(
-                egui::Slider::new(&mut self.zoom, 12.0..=480.0)
-                    .logarithmic(true)
-                    .show_value(false)
-                    .text("Zoom"),
-            );
-        });
+        let full = ui.max_rect();
+        ui.spacing_mut().item_spacing = Vec2::ZERO;
+        self.arrangement_toolbar(ui, &state);
         let width = ui.available_width();
         let ruler_y = ui.cursor().top();
         let (ruler_rect, _) = ui.allocate_exact_size(vec2(width, RULER), Sense::hover());
@@ -73,42 +54,109 @@ impl Ondera {
                 self.scroll = (bar - visible_bars * 0.15).max(0.0);
             }
         }
-        let painter = ui.painter_at(ruler_rect);
-        painter.rect_filled(ruler_rect, 0, PANEL);
+        let first = self.scroll.floor() as u64;
+        let last = first + (visible_bars.ceil() as u64) + 1;
+        let (zoom, scroll) = (self.zoom, self.scroll);
+        let bar_x = move |bar: u64| lane_x + ((bar as f64 - scroll) as f32) * zoom;
+
+        // Ruler corner: "+" and TRACKS.
+        let corner = Rect::from_min_size(ruler_rect.min, vec2(HEADER, RULER));
+        {
+            let p = ui.painter();
+            p.rect_filled(corner, 0.0, PANEL);
+            vline(
+                p,
+                corner.right() - 1.0,
+                corner.top(),
+                corner.bottom(),
+                black(0.6),
+            );
+            hline(
+                p,
+                corner.left(),
+                corner.right(),
+                corner.bottom() - 1.0,
+                black(0.6),
+            );
+            caps_at(
+                p,
+                pos2(corner.left() + 40.0, corner.center().y),
+                Align2::LEFT_CENTER,
+                "Tracks",
+                FAINT,
+            );
+        }
+        ui.scope_builder(
+            egui::UiBuilder::new().max_rect(Rect::from_min_size(
+                corner.min + vec2(10.0, 5.0),
+                vec2(22.0, 18.0),
+            )),
+            |ui| {
+                let add = button(ui, vec2(22.0, 18.0), Face::Raised, R_BUTTON, |p, r, ink| {
+                    icon(p, r, Icon::Plus, ink)
+                })
+                .on_hover_text("Add a track");
+                egui::Popup::menu(&add).show(|ui| {
+                    if ui.button("Instrument track").clicked() {
+                        self.add_track("midi");
+                    }
+                    if ui.button("Audio track").clicked() {
+                        self.add_track("audio");
+                    }
+                });
+            },
+        );
+        // Ruler.
+        let ruler = Rect::from_min_max(pos2(lane_x, ruler_y), ruler_rect.max);
+        let painter = ui.painter_at(ruler);
+        painter.rect_filled(ruler, 0.0, RULER_BG);
         if state.transport.cycle {
             let a = lane_x + ((state.transport.cycle_start_bar - self.scroll) as f32) * self.zoom;
             let b = lane_x + ((state.transport.cycle_end_bar - self.scroll) as f32) * self.zoom;
             let cycle = Rect::from_min_max(
                 pos2(a.max(lane_x), ruler_y),
-                pos2(b.min(ruler_rect.right()), ruler_y + RULER),
+                pos2(b.min(ruler.right()), ruler.bottom()),
             );
             if cycle.is_positive() {
-                painter.rect_filled(cycle, 0, GOLD.gamma_multiply(0.3));
+                painter.rect_filled(cycle, 0.0, white(0.09));
+                vline(&painter, a, ruler.top(), ruler.bottom(), white(0.2));
+                vline(&painter, b - 1.0, ruler.top(), ruler.bottom(), white(0.2));
             }
         }
-        let first = self.scroll.floor() as u64;
-        for bar in first..=first + (visible_bars.ceil() as u64) + 1 {
-            let x = lane_x + ((bar as f64 - self.scroll) as f32) * self.zoom;
-            if x < lane_x {
+        for bar in first..=last {
+            let x = bar_x(bar);
+            if x < lane_x - 1.0 {
                 continue;
             }
-            painter.line_segment(
-                [pos2(x, ruler_y + RULER - 7.0), pos2(x, ruler_y + RULER)],
-                Stroke::new(1.0, FAINT),
-            );
+            vline(&painter, x, ruler.top(), ruler.bottom(), white(0.16));
             painter.text(
-                pos2(x + 5.0, ruler_y + 7.0),
+                pos2(x + 5.0, ruler.top() + 4.0),
                 Align2::LEFT_TOP,
                 format!("{}", bar + 1),
-                FontId::monospace(SMALL),
+                mono_font(FS_VALUE),
                 DIM,
             );
+            if self.zoom >= 24.0 {
+                for beat in 1..bpb.round() as u64 {
+                    let bx = x + beat as f32 / bpb as f32 * self.zoom;
+                    vline(
+                        &painter,
+                        bx,
+                        ruler.bottom() - 6.0,
+                        ruler.bottom(),
+                        white(0.07),
+                    );
+                }
+            }
         }
-        let ruler_hit = ui.interact(
-            Rect::from_min_max(pos2(lane_x, ruler_y), ruler_rect.max),
-            egui::Id::new("ruler-drag"),
-            Sense::click_and_drag(),
+        hline(
+            &painter,
+            ruler.left(),
+            ruler.right(),
+            ruler.bottom() - 1.0,
+            black(0.6),
         );
+        let ruler_hit = ui.interact(ruler, egui::Id::new("ruler-drag"), Sense::click_and_drag());
         if ruler_hit.clicked() {
             if let Some(p) = ruler_hit.interact_pointer_pos() {
                 self.locate((self.scroll + ((p.x - lane_x) / self.zoom) as f64).max(0.0) * bpb);
@@ -130,9 +178,29 @@ impl Ondera {
                 self.dispatch(Command::SetTransport(t));
             }
         }
+        // Playhead in the ruler: line, flag and a glass readout.
+        {
+            let x = lane_x + ((self.position / bpb - self.scroll) as f32) * self.zoom;
+            if x >= lane_x && x <= ruler.right() {
+                playhead(&painter, x, ruler.top(), ruler.bottom());
+                playhead_flag(&painter, x, ruler.top());
+                let (bar, beat, sixteenth, _) = crate::chrome::position_parts(self.position, bpb);
+                let label = format!("{bar}.{beat}.{sixteenth}");
+                let galley = painter.layout_no_wrap(label, mono_font(FS_VALUE), INK_BRIGHT);
+                let bubble = Rect::from_min_size(
+                    pos2(x + 9.0, ruler.top() + 4.0),
+                    galley.size() + vec2(14.0, 4.0),
+                );
+                glass(&painter, bubble, R_BUTTON);
+                painter.galley(bubble.min + vec2(7.0, 2.0), galley, INK_BRIGHT);
+            }
+        }
+
+        // Tracks.
+        let scroll_h = (ui.available_height() - 20.0).max(ROW);
         let mut timeline_rect = Rect::NOTHING;
         egui::ScrollArea::vertical()
-            .max_height((ui.available_height() - 26.0).max(70.0))
+            .max_height(scroll_h)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let row_top = ui.cursor().top();
@@ -143,33 +211,75 @@ impl Ondera {
                         row_top + state.tracks.len() as f32 * ROW,
                     ),
                 );
-                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.spacing_mut().item_spacing = Vec2::ZERO;
                 for (index, track) in state.tracks.iter().enumerate() {
                     let (row, _) = ui.allocate_exact_size(vec2(width, ROW), Sense::hover());
                     let selected = Some(&track.id) == state.view.selected_track_id.as_ref();
                     let color = track_color(&track.color, index);
-                    let p = ui.painter();
-                    p.rect_filled(row, 0, if selected { LANE_SELECTED } else { LANE });
-                    p.line_segment(
-                        [row.left_bottom(), row.right_bottom()],
-                        Stroke::new(1.0, DESK),
-                    );
                     let header = Rect::from_min_size(row.min, vec2(HEADER, ROW));
-                    p.rect_filled(header, 0, if selected { RAISED } else { PANEL });
-                    p.rect_filled(Rect::from_min_size(row.min, vec2(4.0, ROW)), 0, color);
-                    let title = Rect::from_min_max(
-                        row.min + vec2(12.0, 5.0),
-                        pos2(header.right() - 8.0, row.top() + 25.0),
+                    let lane = Rect::from_min_max(pos2(lane_x, row.top()), row.max);
+                    let p = ui.painter();
+                    // Header material.
+                    let (top, bottom) = if selected {
+                        (HEADER_SELECTED_TOP, HEADER_SELECTED_BOTTOM)
+                    } else {
+                        (HEADER_TOP, HEADER_BOTTOM)
+                    };
+                    shade_rect(p, header, 0.0, vertical(header, top, bottom));
+                    hline(p, header.left(), header.right(), header.top(), white(0.04));
+                    hline(
+                        p,
+                        header.left(),
+                        header.right(),
+                        header.bottom() - 1.0,
+                        black(0.55),
                     );
-                    let response =
-                        ui.interact(title, egui::Id::new(("track", &track.id)), Sense::click());
-                    ui.painter().text(
+                    vline(
+                        p,
+                        header.right() - 1.0,
+                        header.top(),
+                        header.bottom(),
+                        black(0.6),
+                    );
+                    let strip = Rect::from_min_size(header.min, vec2(COLOR_STRIP, ROW));
+                    p.rect_filled(strip, 0.0, color);
+                    vline(p, strip.left(), strip.top(), strip.bottom(), white(0.15));
+                    vline(
+                        p,
+                        strip.right() - 1.0,
+                        strip.top(),
+                        strip.bottom(),
+                        black(0.4),
+                    );
+                    let title = Rect::from_min_max(
+                        pos2(header.left() + 16.0, header.top() + 10.0),
+                        pos2(header.right() - 8.0, header.top() + 32.0),
+                    );
+                    let kind = if track.kind == "audio" { "AUD" } else { "MIDI" };
+                    let kind_w = p
+                        .layout_no_wrap(kind.into(), mono_font(FS_KIND), FAINT)
+                        .size()
+                        .x;
+                    p.text(
+                        pos2(header.right() - 10.0, title.center().y),
+                        Align2::RIGHT_CENTER,
+                        kind,
+                        mono_font(FS_KIND),
+                        FAINT,
+                    );
+                    let name_clip = Rect::from_min_max(
+                        title.min,
+                        pos2(header.right() - 17.0 - kind_w, title.bottom()),
+                    );
+                    p.with_clip_rect(name_clip).text(
                         title.left_center(),
                         Align2::LEFT_CENTER,
                         &track.name,
-                        FontId::proportional(BODY),
+                        font(FS_BODY, Weight::SemiBold),
                         INK,
                     );
+                    let response =
+                        ui.interact(title, egui::Id::new(("track", &track.id)), Sense::click());
                     if response.clicked() {
                         self.dispatch(Command::Select {
                             track: Some(track.id.clone()),
@@ -193,72 +303,116 @@ impl Ondera {
                             ui.close();
                         }
                         ui.menu_button("Colour", |ui| {
-                            for color in TRACKS {
-                                if ui.add(egui::Button::new("    ").fill(color)).clicked() {
-                                    let mut t = track.clone();
-                                    t.color = format!(
-                                        "#{:02x}{:02x}{:02x}",
-                                        color.r(),
-                                        color.g(),
-                                        color.b()
-                                    );
-                                    self.dispatch(Command::UpdateTrack(t));
-                                    ui.close();
+                            ui.horizontal(|ui| {
+                                for swatch_color in TRACKS {
+                                    let (r, resp) =
+                                        ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
+                                    swatch(ui.painter(), r.shrink(2.0), swatch_color);
+                                    if resp.clicked() {
+                                        let mut t = track.clone();
+                                        t.color = format!(
+                                            "#{:02x}{:02x}{:02x}",
+                                            swatch_color.r(),
+                                            swatch_color.g(),
+                                            swatch_color.b()
+                                        );
+                                        self.dispatch(Command::UpdateTrack(t));
+                                        ui.close();
+                                    }
                                 }
-                            }
+                            });
                         });
                         if ui.button("Delete track").clicked() {
                             self.dispatch(Command::RemoveTrack(track.id.clone()));
                             ui.close();
                         }
                     });
+                    // Header controls: M S R, volume, pan.
                     ui.scope_builder(
                         egui::UiBuilder::new().max_rect(Rect::from_min_size(
-                            row.min + vec2(10.0, 29.0),
-                            vec2(HEADER - 20.0, 34.0),
+                            header.min + vec2(16.0, 34.0),
+                            vec2(HEADER - 26.0, 26.0),
                         )),
                         |ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 3.0;
+                            ui.horizontal_centered(|ui| {
                                 let mut t = track.clone();
                                 let mut changed = false;
-                                if ui.selectable_label(t.mute, "M").clicked() {
+                                if toggle_small(ui, "M", t.mute, false).clicked() {
                                     t.mute = !t.mute;
                                     changed = true;
                                 }
-                                if ui.selectable_label(t.solo, "S").clicked() {
+                                if toggle_small(ui, "S", t.solo, false).clicked() {
                                     t.solo = !t.solo;
                                     changed = true;
                                 }
-                                if ui
-                                    .selectable_label(t.armed, egui::RichText::new("R").color(RED))
-                                    .clicked()
-                                {
+                                if toggle_small(ui, "R", t.armed, true).clicked() {
                                     t.armed = !t.armed;
                                     changed = true;
                                 }
-                                ui.spacing_mut().slider_width = 55.0;
-                                changed |= ui
-                                    .add(
-                                        egui::Slider::new(&mut t.volume, 0.0..=1.0)
-                                            .show_value(false),
-                                    )
-                                    .changed();
+                                ui.add_space(5.0);
+                                let mut volume = t.volume;
+                                if hslider(ui, &mut volume, 0.0..=1.0, 56.0).changed() {
+                                    t.volume = volume;
+                                    changed = true;
+                                }
+                                ui.add_space(5.0);
+                                let mut pan = t.pan;
+                                if knob_widget(ui, &mut pan, -100.0..=100.0, 0.0, KNOB_SM)
+                                    .on_hover_text("Pan")
+                                    .changed()
+                                {
+                                    t.pan = pan.round();
+                                    changed = true;
+                                }
                                 if changed {
                                     self.dispatch(Command::UpdateTrack(t));
                                 }
                             });
                         },
                     );
-                    let lane = Rect::from_min_max(pos2(lane_x, row.top()), row.max);
+                    // Lane.
                     let p = ui.painter_at(lane);
-                    for bar in first..=first + (visible_bars.ceil() as u64) + 1 {
-                        let x = lane_x + ((bar as f64 - self.scroll) as f32) * self.zoom;
-                        p.line_segment(
-                            [pos2(x, row.top()), pos2(x, row.bottom())],
-                            Stroke::new(1.0, GRID),
+                    p.rect_filled(
+                        lane,
+                        0.0,
+                        if selected {
+                            TIMELINE_SELECTED
+                        } else {
+                            TIMELINE
+                        },
+                    );
+                    if state.transport.cycle {
+                        let a = lane_x
+                            + ((state.transport.cycle_start_bar - self.scroll) as f32) * self.zoom;
+                        let b = lane_x
+                            + ((state.transport.cycle_end_bar - self.scroll) as f32) * self.zoom;
+                        let cycle = Rect::from_min_max(
+                            pos2(a.max(lane_x), lane.top()),
+                            pos2(b.min(lane.right()), lane.bottom()),
                         );
+                        if cycle.is_positive() {
+                            p.rect_filled(cycle, 0.0, white(0.025));
+                        }
                     }
+                    for bar in first..=last {
+                        let x = bar_x(bar);
+                        vline(&p, x, lane.top(), lane.bottom(), white(0.075));
+                        if self.zoom >= 24.0 {
+                            for beat in 1..bpb.round() as u64 {
+                                let bx = x + beat as f32 / bpb as f32 * self.zoom;
+                                vline(&p, bx, lane.top(), lane.bottom(), white(0.025));
+                            }
+                        }
+                    }
+                    hline(&p, lane.left(), lane.right(), lane.top(), white(0.02));
+                    hline(
+                        &p,
+                        lane.left(),
+                        lane.right(),
+                        lane.bottom() - 1.0,
+                        black(0.45),
+                    );
                     let hit = ui.interact(
                         lane,
                         egui::Id::new(("lane", &track.id)),
@@ -306,6 +460,30 @@ impl Ondera {
                             }
                         }
                     }
+                    if self.tool == 1 && self.clip_drag.is_none() {
+                        if let (Some((anchor_track, start)), Some(pt)) =
+                            (&self.draw_clip_anchor, pointer)
+                        {
+                            if anchor_track == &track.id && hit.dragged() {
+                                let end = self.scroll + ((pt.x - lane_x) / self.zoom) as f64;
+                                let a =
+                                    lane_x + ((start.min(end) - self.scroll) as f32) * self.zoom;
+                                let b =
+                                    lane_x + ((start.max(end) - self.scroll) as f32) * self.zoom;
+                                let preview = Rect::from_min_max(
+                                    pos2(a, lane.top() + CLIP_INSET),
+                                    pos2(b.max(a + 4.0), lane.bottom() - CLIP_INSET),
+                                );
+                                p.rect_filled(preview, R_CLIP, accent(0.25));
+                                p.rect_stroke(
+                                    preview,
+                                    R_CLIP,
+                                    Stroke::new(1.0, accent(0.9)),
+                                    egui::StrokeKind::Inside,
+                                );
+                            }
+                        }
+                    }
                     if hit.drag_stopped()
                         && self.tool == 1
                         && self.clip_drag.is_none()
@@ -336,22 +514,32 @@ impl Ondera {
                             continue;
                         }
                         let chosen = Some(&original.id) == state.view.selected_clip_id.as_ref();
-                        bevel(&p, rect, color, chosen);
+                        let strip = clip_slab(&p, rect, color, chosen, c.agent);
                         let text_rect = Rect::from_min_max(
-                            rect.min + vec2(6.0, 3.0),
-                            pos2(rect.right() - 4.0, rect.top() + 17.0),
+                            strip.min + vec2(6.0, 0.0),
+                            strip.max - vec2(4.0, 0.0),
                         );
                         if text_rect.width() > 10.0 {
-                            p.with_clip_rect(text_rect.intersect(lane)).text(
-                                text_rect.min,
-                                Align2::LEFT_TOP,
+                            let name_painter = p.with_clip_rect(text_rect.intersect(lane));
+                            name_painter.text(
+                                text_rect.left_center(),
+                                Align2::LEFT_CENTER,
                                 &c.name,
-                                FontId::proportional(SMALL),
-                                INK,
+                                font(FS_SMALL, Weight::SemiBold),
+                                white(0.88),
                             );
+                            if c.agent && text_rect.width() > 80.0 {
+                                name_painter.text(
+                                    text_rect.right_center(),
+                                    Align2::RIGHT_CENTER,
+                                    "AGENT",
+                                    mono_font(FS_KIND),
+                                    ACCENT,
+                                );
+                            }
                         }
                         let body = Rect::from_min_max(
-                            rect.min + vec2(3.0, 20.0),
+                            pos2(rect.left() + 3.0, strip.bottom() + 4.0),
                             rect.max - vec2(3.0, 4.0),
                         );
                         match &c.data {
@@ -361,12 +549,19 @@ impl Ondera {
                                     let w = (n.length / bpb) as f32 * self.zoom;
                                     let y = body.bottom()
                                         - (n.pitch as f32 - 24.0) / 84.0 * body.height();
-                                    p.rect_filled(
-                                        Rect::from_min_size(pos2(x, y), vec2(w.max(2.0), 2.0))
-                                            .intersect(body),
-                                        0,
-                                        color,
-                                    );
+                                    let r = Rect::from_min_size(
+                                        pos2(x, y - 1.5),
+                                        vec2((w - 1.0).max(3.0), 3.0),
+                                    )
+                                    .intersect(body);
+                                    if r.is_positive() {
+                                        if n.agent {
+                                            p.rect_filled(r.expand(1.5), 2.0, accent(0.35));
+                                            p.rect_filled(r, 1.0, ACCENT);
+                                        } else {
+                                            p.rect_filled(r, 1.0, white(0.78));
+                                        }
+                                    }
                                 }
                             }
                             ClipData::Audio {
@@ -375,9 +570,16 @@ impl Ondera {
                             } => {
                                 if let Some(buffer) = self.library.get(source_id) {
                                     let visible = body.intersect(lane).intersect(ui.clip_rect());
+                                    hline(
+                                        &p,
+                                        visible.left(),
+                                        visible.right(),
+                                        body.center().y,
+                                        white(0.35),
+                                    );
                                     let start_x = (visible.left() - body.left()).max(0.0) as usize;
                                     let end_x = (visible.right() - body.left()).max(0.0) as usize;
-                                    for x in (start_x..end_x).step_by(2) {
+                                    for x in start_x..end_x {
                                         let seconds = *offset_seconds
                                             + x as f64 / self.zoom as f64 * bpb * 60.0
                                                 / state.transport.tempo;
@@ -385,19 +587,20 @@ impl Ondera {
                                             / (buffer.sample_rate / 400).max(1) as f64)
                                             as usize;
                                         let peak = buffer.peaks.get(index).copied().unwrap_or(0.0);
-                                        let height = peak.min(1.0) * body.height() * 0.48;
+                                        let height =
+                                            (peak.min(1.0) * body.height() * 0.46).max(0.4);
                                         p.line_segment(
                                             [
                                                 pos2(
-                                                    body.left() + x as f32,
+                                                    body.left() + x as f32 + 0.5,
                                                     body.center().y - height,
                                                 ),
                                                 pos2(
-                                                    body.left() + x as f32,
+                                                    body.left() + x as f32 + 0.5,
                                                     body.center().y + height,
                                                 ),
                                             ],
-                                            Stroke::new(1.0, color),
+                                            Stroke::new(1.0, white(0.72)),
                                         );
                                     }
                                 }
@@ -425,6 +628,11 @@ impl Ondera {
                                 }
                             }
                         }
+                        if self.tool == 2 && response.hovered() {
+                            if let Some(pt) = pointer {
+                                vline(&p, pt.x, rect.top(), rect.bottom(), accent(0.9));
+                            }
+                        }
                         response.context_menu(|ui| {
                             if ui.button("Duplicate").clicked() {
                                 let mut c = c.clone();
@@ -441,9 +649,9 @@ impl Ondera {
                         if response.drag_started() {
                             if let Some(pt) = response.interact_pointer_pos() {
                                 let anchor = ui.input(|i| i.pointer.press_origin()).unwrap_or(pt);
-                                let mode = if anchor.x - rect.left() < 7.0 {
+                                let mode = if anchor.x - rect.left() < CLIP_EDGE_GRIP {
                                     1
-                                } else if rect.right() - anchor.x < 7.0 {
+                                } else if rect.right() - anchor.x < CLIP_EDGE_GRIP {
                                     2
                                 } else {
                                     0
@@ -463,12 +671,41 @@ impl Ondera {
                         }
                     }
                 }
+                // Below the last track.
+                let used = state.tracks.len() as f32 * ROW;
+                let rest_h = (scroll_h - used).max(0.0);
+                if rest_h > 0.0 {
+                    let (rest, _) = ui.allocate_exact_size(vec2(width, rest_h), Sense::hover());
+                    let p = ui.painter();
+                    p.rect_filled(rest, 0.0, TIMELINE_EMPTY);
+                    let column = Rect::from_min_size(rest.min, vec2(HEADER, rest_h));
+                    p.rect_filled(column, 0.0, EDITOR);
+                    vline(
+                        p,
+                        column.right() - 1.0,
+                        column.top(),
+                        column.bottom(),
+                        black(0.6),
+                    );
+                    if state.tracks.is_empty() {
+                        p.text(
+                            pos2(rest.left() + HEADER + 16.0, rest.top() + 24.0),
+                            Align2::LEFT_CENTER,
+                            "Add a track with + or drop audio files here.",
+                            font(FS_SECONDARY, Weight::Medium),
+                            FAINT,
+                        );
+                    }
+                }
                 let x = lane_x + ((self.position / bpb - self.scroll) as f32) * self.zoom;
-                let p = ui.painter_at(timeline_rect);
-                p.line_segment(
-                    [pos2(x, row_top), pos2(x, timeline_rect.bottom())],
-                    Stroke::new(1.5, ACCENT),
-                );
+                if x >= lane_x {
+                    playhead(
+                        &ui.painter_at(timeline_rect),
+                        x,
+                        row_top,
+                        timeline_rect.bottom(),
+                    );
+                }
             });
         if let Some(mut drag) = self.clip_drag.take() {
             if let Some(pt) = ui.input(|i| i.pointer.interact_pos()) {
@@ -516,27 +753,149 @@ impl Ondera {
                 self.clip_drag = Some(drag);
             }
         }
+        // Horizontal scroll rail.
         ui.horizontal(|ui| {
-            ui.add_space(HEADER);
-            let max = (state.end_bar() + 16.0 - visible_bars).max(0.0);
-            ui.add_sized(
-                [ui.available_width() - 8.0, 18.0],
-                egui::Slider::new(&mut self.scroll, 0.0..=max).show_value(false),
-            );
+            ui.add_space(HEADER + 4.0);
+            let max = (state.end_bar() + 16.0 - visible_bars).max(0.0) as f32;
+            let mut scroll = self.scroll as f32;
+            let rail_w = (ui.available_width() - 8.0).max(40.0);
+            if hslider(ui, &mut scroll, 0.0..=max.max(0.001), rail_w).changed() {
+                self.scroll = scroll.max(0.0) as f64;
+            }
         });
+        // The editor pane below casts a shadow up onto the arrangement.
+        inset(
+            ui.painter(),
+            Rect::from_min_max(pos2(full.left(), full.bottom() - 10.0), full.max),
+            0.0,
+            Side::Bottom,
+            10.0,
+            black(0.5),
+        );
         if ui.rect_contains_pointer(ui.max_rect()) {
             let delta = ui.input(|i| i.raw_scroll_delta);
             if ui.input(|i| i.modifiers.command) {
-                self.zoom = (self.zoom * (delta.y * 0.01).exp()).clamp(12.0, 480.0);
+                self.zoom = (self.zoom * (delta.y * 0.01).exp()).clamp(ZOOM_MIN, ZOOM_MAX);
             } else if delta.x != 0.0 {
                 self.scroll = (self.scroll - delta.x as f64 / self.zoom as f64).max(0.0);
             }
         }
     }
+    fn arrangement_toolbar(&mut self, ui: &mut egui::Ui, state: &Session) {
+        let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOLBAR), Sense::hover());
+        toolbar_bar(ui.painter(), bar);
+        ui.scope_builder(
+            egui::UiBuilder::new().max_rect(bar.shrink2(vec2(10.0, 0.0))),
+            |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    if let Some(tool) = segmented_icons(
+                        ui,
+                        &[
+                            (Icon::Pointer, "Pointer · 1"),
+                            (Icon::Pencil, "Pencil · 2"),
+                            (Icon::Scissors, "Scissors · 3"),
+                        ],
+                        self.tool,
+                    ) {
+                        self.tool = tool;
+                    }
+                    ui.add_space(4.0);
+                    let t = &state.transport;
+                    let grid = ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.label(text("Grid", FS_SECONDARY, Weight::Medium, FAINT));
+                        ui.label(text(
+                            format!("1/{}", t.snap_division),
+                            FS_SECONDARY,
+                            Weight::Medium,
+                            DIM,
+                        ));
+                    });
+                    let grid_hit =
+                        ui.interact(grid.response.rect, ui.id().with("grid"), Sense::click());
+                    egui::Popup::menu(&grid_hit).show(|ui| {
+                        for d in [1, 2, 4, 8, 16, 32, 64] {
+                            if ui
+                                .selectable_label(t.snap_division == d, format!("1/{d}"))
+                                .clicked()
+                            {
+                                let mut t = t.clone();
+                                t.snap_division = d;
+                                self.dispatch(Command::SetTransport(t));
+                            }
+                        }
+                    });
+                    ui.add_space(4.0);
+                    let cycle = ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.label(text("Cycle", FS_SECONDARY, Weight::Medium, FAINT));
+                        ui.label(text(
+                            if t.cycle {
+                                format!(
+                                    "{} – {}",
+                                    t.cycle_start_bar as u64 + 1,
+                                    t.cycle_end_bar as u64 + 1
+                                )
+                            } else {
+                                "off".into()
+                            },
+                            FS_SECONDARY,
+                            Weight::Medium,
+                            DIM,
+                        ));
+                    });
+                    if ui
+                        .interact(cycle.response.rect, ui.id().with("cycle"), Sense::click())
+                        .on_hover_text("Toggle cycle · C")
+                        .clicked()
+                    {
+                        let mut t = t.clone();
+                        t.cycle = !t.cycle;
+                        self.dispatch(Command::SetTransport(t));
+                    }
+                    ui.add_space(4.0);
+                    let follow = ui.label(text(
+                        if state.view.follow_playhead {
+                            "Follow"
+                        } else {
+                            "Free"
+                        },
+                        FS_SECONDARY,
+                        Weight::Medium,
+                        DIM,
+                    ));
+                    if ui
+                        .interact(follow.rect, ui.id().with("follow"), Sense::click())
+                        .on_hover_text("Follow the playhead while playing · F")
+                        .clicked()
+                    {
+                        let mut v = state.view.clone();
+                        v.follow_playhead = !v.follow_playhead;
+                        self.dispatch(Command::SetView(v));
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        let mut t = zoom_to_t(self.zoom);
+                        if hslider(ui, &mut t, 0.0..=1.0, ZOOM_RAIL_W).changed() {
+                            self.zoom = t_to_zoom(t);
+                        }
+                        ui.label(text("Zoom", FS_SECONDARY, Weight::Medium, FAINT));
+                    });
+                });
+            },
+        );
+    }
 }
 fn clip_rect(c: &Clip, x: f32, y: f32, zoom: f32, scroll: f64) -> Rect {
     Rect::from_min_size(
-        pos2(x + ((c.start_bar - scroll) as f32) * zoom, y + 5.0),
-        vec2((c.length_bars as f32 * zoom - 2.0).max(4.0), ROW - 10.0),
+        pos2(
+            x + ((c.start_bar - scroll) as f32) * zoom + 1.0,
+            y + CLIP_INSET,
+        ),
+        vec2(
+            (c.length_bars as f32 * zoom - 2.0).max(4.0),
+            ROW - 2.0 * CLIP_INSET,
+        ),
     )
 }

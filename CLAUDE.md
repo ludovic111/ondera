@@ -3,7 +3,12 @@
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
 
-- `desktop/`: native egui interface with wgpu, no webview. Use `desktop/src/theme.rs` for visual tokens.
+- `desktop/`: native egui interface with wgpu, no webview. `desktop/src/theme.rs` holds every visual
+  token and the skeuomorphic material recipes from `design/Ondera Arrangement.dc.html` (spec sheet 02:
+  raised, pressed, lit, groove, well, knob, fader cap, clip slab, glass). Paint with those helpers;
+  never introduce colours, gradients or shadows elsewhere. `chrome.rs` is the title bar, transport,
+  browser and inspector; `timeline.rs` the arrangement; `editor.rs` the region editor. Fonts are
+  Manrope and IBM Plex Mono (OFL) bundled in `desktop/assets/fonts`.
 - `engine/`: pure Rust command store, session model, DSP, audio devices and documents.
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
