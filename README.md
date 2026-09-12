@@ -41,8 +41,35 @@ cargo build --release --locked
 ```
 
 The executable is `target/release/ondera` (`ondera.exe` on Windows). On macOS,
-`bash scripts/package-macos.sh` creates `dist/Ondera.app` with its microphone usage declaration,
-and a ZIP. This is an ad-hoc signed test app, without Developer ID notarization.
+`bash scripts/package-macos.sh` creates `dist/Ondera.app` with its icon and microphone usage
+declaration, and `dist/Ondera-macos-<arch>.zip`. This is an ad-hoc signed test app, without
+Developer ID notarization.
+
+## Install and updates
+
+Download the build for your computer from the
+[latest release](https://github.com/ludovic111/ondera/releases/latest):
+`Ondera-macos-arm64.zip` (Apple Silicon), `Ondera-macos-x86_64.zip` (Intel Mac),
+`ondera-linux-x86_64` or `ondera-windows-x86_64.exe`. Every release ships a `SHA256SUMS` file.
+
+On macOS, unzip and drag `Ondera.app` into Applications. The app is ad-hoc signed, not
+notarized, so the first launch of a browser download is blocked by Gatekeeper: open
+**System Settings > Privacy & Security** and choose **Open Anyway**, or clear the quarantine
+flag from a terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Ondera.app
+```
+
+Ondera checks GitHub for a newer release when it starts and offers it in the title bar and in
+**Help > Check for updates…**. Installing downloads the release asset, verifies it against
+`SHA256SUMS`, replaces the installed copy in place and relaunches; the previous copy is kept
+until the new one is verified. `ondera --update` does the same from a terminal. Set
+`ONDERA_NO_UPDATE=1` or pass `--no-update-check` to skip the startup check.
+
+To publish a release: bump `version` in `Cargo.toml`, merge to `main`, then push a matching tag
+(`git tag v0.2.0 && git push origin v0.2.0`). The `Release` workflow builds all four platforms,
+writes `SHA256SUMS` and creates the GitHub release; installed apps pick it up on their next start.
 
 ## Working in Ondera
 

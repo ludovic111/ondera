@@ -38,6 +38,8 @@ pub enum Intent {
     Open,
     Demo,
     Quit,
+    /// Close this copy and start the freshly installed one.
+    Relaunch,
 }
 pub(crate) enum AfterTake {
     Save(bool),
@@ -120,6 +122,7 @@ pub struct Ondera {
     pub output_device: Option<String>,
     pub input_device: Option<String>,
     pub(crate) control: Option<ondera_engine::control::wire::Server>,
+    pub(crate) updates: crate::update::Updates,
 }
 pub fn id(prefix: &str) -> String {
     ondera_engine::control::new_id(prefix)
@@ -130,13 +133,18 @@ impl Ondera {
         path: Option<PathBuf>,
         screenshot: Option<PathBuf>,
         control: bool,
+        check_updates: bool,
     ) -> Self {
         install(&cc.egui_ctx);
+        let screenshot_run = screenshot.is_some();
         let mut app = Self::from_session(store::demo(), screenshot);
         app.catalog = host::scan::installed();
         app.connect();
         if control {
             app.start_control(&cc.egui_ctx);
+        }
+        if check_updates && !screenshot_run {
+            app.check_for_updates(false);
         }
         if let Some(path) = path {
             app.load_path(path);
@@ -201,6 +209,7 @@ impl Ondera {
             output_device: None,
             input_device: None,
             control: None,
+            updates: Default::default(),
         }
     }
     pub fn dispatch(&mut self, command: Command) {
@@ -1086,6 +1095,16 @@ impl Ondera {
                 self.shutdown_audio();
                 self.closing = true;
             }
+            Intent::Relaunch => {
+                if let Some(target) = self.updates.installed.take() {
+                    if let Err(e) = crate::update::relaunch(&target) {
+                        self.error = Some(e);
+                        return;
+                    }
+                }
+                self.shutdown_audio();
+                self.closing = true;
+            }
             Intent::New | Intent::Demo => {
                 let s = if matches!(intent, Intent::New) {
                     store::empty()
@@ -1494,6 +1513,7 @@ impl eframe::App for Ondera {
         self.frames += 1;
         self.poll();
         self.serve_control(gesture);
+        self.poll_updates();
         self.keyboard(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1527,6 +1547,7 @@ impl eframe::App for Ondera {
             });
         self.dialogs(ctx);
         self.plugin_windows(ctx);
+        self.update_dialog(ctx);
         let dropped: Vec<_> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -1537,7 +1558,7 @@ impl eframe::App for Ondera {
         if !dropped.is_empty() {
             self.import(Some(dropped));
         }
-        if self.playing || self.job.is_some() || self.scan_job.is_some() || self.midi_recording {
+        if self.playing || self.job.is_some() || self.scan_job.is_some() || self.midi_recording || self.updates.busy() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else {
             ctx.request_repaint_after(Duration::from_millis(100));

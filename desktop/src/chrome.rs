@@ -111,6 +111,8 @@ impl Ondera {
                         .insert(egui::TextStyle::Button, font(FS_LIST, Weight::Medium));
                     ui.visuals_mut().widgets.inactive.fg_stroke.color = DIM;
                     egui::MenuBar::new().ui(ui, |ui| self.menus(ui));
+                    ui.add_space(8.0);
+                    self.update_button(ui);
                 });
             });
     }
@@ -332,9 +334,21 @@ impl Ondera {
                 self.zoom = (self.zoom / 1.25).max(12.0);
             }
         });
-        if ui.button("Help").clicked() {
-            self.show_help = true;
-        }
+        ui.menu_button("Help", |ui| {
+            if ui.button("Working in Ondera").clicked() {
+                self.show_help = true;
+            }
+            if ui.button("Check for updates…").clicked() {
+                self.check_for_updates(true);
+            }
+            ui.separator();
+            ui.label(text(
+                format!("Ondera {}", crate::update::current_version()),
+                FS_SECONDARY,
+                Weight::Medium,
+                DIM,
+            ));
+        });
     }
 
     pub fn transport(&mut self, ctx: &egui::Context) {
