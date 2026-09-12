@@ -253,6 +253,7 @@ fn previous_bundle(bundle: &Path) -> PathBuf {
     bundle.with_file_name(".Ondera-previous.app")
 }
 
+#[cfg(target_os = "macos")]
 fn run(cmd: &mut std::process::Command, what: &str) -> Result<()> {
     let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
     if out.status.success() {
