@@ -37,7 +37,13 @@ pub fn decode_session(json: &str) -> Result<(Session, Library)> {
         let bytes = STANDARD
             .decode(data)
             .map_err(|e| format!("Invalid embedded audio: {e}"))?;
-        library.insert(id.clone(), Arc::new(audio::decode(bytes, Some("wav"))?));
+        let buffer = audio::decode(bytes, Some("wav"))?;
+        if audio::library_bytes(&library).saturating_add(buffer.frames.len() * 8)
+            > audio::MAX_LIBRARY_BYTES
+        {
+            return Err("Decoded session audio exceeds 1 GiB".into());
+        }
+        library.insert(id.clone(), Arc::new(buffer));
     }
     audio::prepare_sources(&file.session, &mut library)?;
     file.session.transport.playing = false;
@@ -52,6 +58,18 @@ pub fn load(path: &Path) -> Result<(Session, Library)> {
 }
 pub fn save(session: &Session, library: &Library, path: &Path) -> Result<()> {
     session.validate()?;
+    let encoded_bytes: usize = session
+        .sources
+        .values()
+        .filter(|s| s.origin != "generated")
+        .filter_map(|s| library.get(&s.id))
+        .map(|b| (b.frames.len() * 8 + 128).div_ceil(3) * 4)
+        .sum();
+    if encoded_bytes > 700 * 1024 * 1024 {
+        return Err(
+            "Embedded audio exceeds the single-file session limit (700 MiB encoded)".into(),
+        );
+    }
     let mut audio = HashMap::new();
     for src in session.sources.values().filter(|s| s.origin != "generated") {
         let buf = library

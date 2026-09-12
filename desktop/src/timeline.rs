@@ -114,10 +114,15 @@ impl Ondera {
                 self.locate((self.scroll + ((p.x - lane_x) / self.zoom) as f64).max(0.0) * bpb);
             }
         }
+        if ruler_hit.drag_started() {
+            self.ruler_anchor = ui
+                .input(|i| i.pointer.press_origin())
+                .map(|p| self.scroll + ((p.x - lane_x) / self.zoom) as f64);
+        }
         if ruler_hit.drag_stopped() {
             if let Some(p) = ruler_hit.interact_pointer_pos() {
                 let end = self.scroll + ((p.x - lane_x) / self.zoom) as f64;
-                let start = end - (ruler_hit.drag_delta().x / self.zoom) as f64;
+                let start = self.ruler_anchor.take().unwrap_or(end);
                 let mut t = state.transport.clone();
                 t.cycle_start_bar = start.min(end).floor().max(0.0);
                 t.cycle_end_bar = start.max(end).ceil().max(t.cycle_start_bar + 0.25);
@@ -285,15 +290,34 @@ impl Ondera {
                             note: None,
                         });
                     }
+                    if hit.drag_started()
+                        && self.tool == 1
+                        && self.clip_drag.is_none()
+                        && track.kind == "midi"
+                    {
+                        if let Some(pt) = ui.input(|i| i.pointer.press_origin()) {
+                            if !clips.iter().any(|c| {
+                                clip_rect(c, lane_x, row.top(), self.zoom, self.scroll).contains(pt)
+                            }) {
+                                self.draw_clip_anchor = Some((
+                                    track.id.clone(),
+                                    self.scroll + ((pt.x - lane_x) / self.zoom) as f64,
+                                ));
+                            }
+                        }
+                    }
                     if hit.drag_stopped()
                         && self.tool == 1
                         && self.clip_drag.is_none()
-                        && !over_clip
                         && track.kind == "midi"
                     {
                         if let Some(pt) = pointer {
                             let end = self.scroll + ((pt.x - lane_x) / self.zoom) as f64;
-                            let start = end - (hit.drag_delta().x / self.zoom) as f64;
+                            let start = self
+                                .draw_clip_anchor
+                                .take()
+                                .filter(|(id, _)| id == &track.id)
+                                .map_or(end, |(_, start)| start);
                             let step = 4.0 / state.transport.snap_division as f64 / bpb;
                             let a = snap(start.min(end), step, false).max(0.0);
                             let b = snap(start.max(end), step, false).max(a + step);
@@ -416,9 +440,10 @@ impl Ondera {
                         });
                         if response.drag_started() {
                             if let Some(pt) = response.interact_pointer_pos() {
-                                let mode = if pt.x - rect.left() < 7.0 {
+                                let anchor = ui.input(|i| i.pointer.press_origin()).unwrap_or(pt);
+                                let mode = if anchor.x - rect.left() < 7.0 {
                                     1
-                                } else if rect.right() - pt.x < 7.0 {
+                                } else if rect.right() - anchor.x < 7.0 {
                                     2
                                 } else {
                                     0
@@ -427,7 +452,7 @@ impl Ondera {
                                     original: original.clone(),
                                     current: original.clone(),
                                     mode,
-                                    anchor: pt - response.drag_delta(),
+                                    anchor,
                                 });
                                 self.dispatch(Command::Select {
                                     track: Some(track.id.clone()),

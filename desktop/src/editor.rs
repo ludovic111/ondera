@@ -242,12 +242,13 @@ impl Ondera {
                     }
                     if r.drag_started() {
                         if let Some(pt) = r.interact_pointer_pos() {
+                            let anchor = ui.input(|i| i.pointer.press_origin()).unwrap_or(pt);
                             self.note_drag = Some(NoteDrag {
                                 clip: clip.clone(),
                                 note: original.clone(),
                                 current: original.clone(),
-                                anchor: pt - r.drag_delta(),
-                                resize: nr.right() - pt.x < 6.0,
+                                anchor,
+                                resize: nr.right() - anchor.x < 6.0,
                             });
                         }
                     }
@@ -275,6 +276,11 @@ impl Ondera {
                         }
                     });
                 }
+                if grid_hit.drag_started() && self.note_drag.is_none() {
+                    self.draw_note_anchor = ui
+                        .input(|i| i.pointer.press_origin())
+                        .map(|pt| ((pt.x - origin.x) / beat_width) as f64);
+                }
                 if (grid_hit.clicked() || grid_hit.drag_stopped())
                     && !hit_note
                     && self.note_drag.is_none()
@@ -282,7 +288,7 @@ impl Ondera {
                     if let Some(pt) = pointer {
                         let end = ((pt.x - origin.x) / beat_width) as f64;
                         let delta = if grid_hit.drag_stopped() {
-                            (grid_hit.drag_delta().x / beat_width) as f64
+                            end - self.draw_note_anchor.take().unwrap_or(end)
                         } else {
                             0.0
                         };

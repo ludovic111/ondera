@@ -60,6 +60,9 @@ pub struct Ondera {
     pub path: Option<PathBuf>,
     pub clip_drag: Option<crate::timeline::ClipDrag>,
     pub note_drag: Option<crate::editor::NoteDrag>,
+    pub ruler_anchor: Option<f64>,
+    pub draw_clip_anchor: Option<(String, f64)>,
+    pub draw_note_anchor: Option<f64>,
     pub editor_low: u8,
     pub editor_zoom: f32,
     job: Option<Job>,
@@ -96,9 +99,16 @@ impl Ondera {
         screenshot: Option<PathBuf>,
     ) -> Self {
         install(&cc.egui_ctx);
-        let session = store::demo();
+        let mut app = Self::from_session(store::demo(), screenshot);
+        app.connect();
+        if let Some(path) = path {
+            app.load_path(path);
+        }
+        app
+    }
+    fn from_session(session: Session, screenshot: Option<PathBuf>) -> Self {
         let zoom = session.view.pixels_per_bar;
-        let mut app = Self {
+        Self {
             store: Store::new(session).expect("Validated demo"),
             library: Library::new(),
             device: None,
@@ -114,6 +124,9 @@ impl Ondera {
             path: None,
             clip_drag: None,
             note_drag: None,
+            ruler_anchor: None,
+            draw_clip_anchor: None,
+            draw_note_anchor: None,
             editor_low: 36,
             editor_zoom: 1.0,
             job: None,
@@ -131,14 +144,24 @@ impl Ondera {
             screenshot,
             frames: 0,
             show_help: false,
-        };
-        app.connect();
-        if let Some(path) = path {
-            app.load_path(path);
         }
-        app
     }
     pub fn dispatch(&mut self, command: Command) {
+        if self.recorder.is_some() || self.record_pending.is_some() {
+            if let Command::SetTransport(t) = &command {
+                let old = &self.store.session().transport;
+                if t.tempo != old.tempo
+                    || t.time_signature.numerator != old.time_signature.numerator
+                    || t.time_signature.denominator != old.time_signature.denominator
+                    || t.cycle
+                {
+                    self.error = Some(
+                        "Stop recording before changing tempo, time signature or cycle.".into(),
+                    );
+                    return;
+                }
+            }
+        }
         match self.store.dispatch(command) {
             Ok(changed) => {
                 if changed {
@@ -252,7 +275,12 @@ impl Ondera {
                     revision,
                 }) => {
                     self.library.extend(library);
-                    if revision == self.store.revision {
+                    if revision == self.store.revision
+                        && self
+                            .device
+                            .as_ref()
+                            .is_none_or(|d| d.sample_rate == renderer.rate())
+                    {
                         if let Some(device) = &mut self.device {
                             if let Err(e) = device.send(Message::Replace(renderer)) {
                                 self.error = Some(e);
@@ -538,10 +566,26 @@ impl Ondera {
         buffer: Arc<audio::AudioBuffer>,
         recorded: Option<(f64, Vec<String>)>,
     ) {
+        if audio::library_bytes(&self.library).saturating_add(buffer.frames.len() * 8)
+            > audio::MAX_LIBRARY_BYTES
+        {
+            self.error = Some(
+                "Decoded audio library exceeds 1 GiB. Save and reopen to release unused sources."
+                    .into(),
+            );
+            return;
+        }
         let mut targets = recorded
             .as_ref()
             .map(|(_, ts)| ts.clone())
             .unwrap_or_default();
+        targets.retain(|id| {
+            self.store
+                .session()
+                .tracks
+                .iter()
+                .any(|t| &t.id == id && t.kind == "audio")
+        });
         if recorded.is_none() {
             if let Some(t) = self.store.session().tracks.iter().find(|t| {
                 Some(&t.id) == self.store.session().view.selected_track_id.as_ref()
@@ -552,6 +596,9 @@ impl Ondera {
             if targets.is_empty() {
                 targets.push(self.add_track("audio"));
             }
+        }
+        if targets.is_empty() {
+            targets.push(self.add_track("audio"));
         }
         let source_id = id("source");
         let s = self.store.session();
@@ -609,6 +656,7 @@ impl Ondera {
                 return Ok(JobResult::Cancelled);
             };
             let mut files = vec![];
+            let mut decoded_bytes = 0usize;
             for path in paths {
                 if std::fs::metadata(&path).map_err(|e| e.to_string())?.len()
                     > audio::MAX_AUDIO_BYTES as u64
@@ -619,6 +667,10 @@ impl Ondera {
                     std::fs::read(&path).map_err(|e| e.to_string())?,
                     path.extension().and_then(|s| s.to_str()),
                 )?;
+                decoded_bytes = decoded_bytes.saturating_add(buffer.frames.len() * 8);
+                if decoded_bytes > audio::MAX_LIBRARY_BYTES {
+                    return Err("Imported batch exceeds 1 GiB of decoded audio".into());
+                }
                 files.push((path, Arc::new(buffer)));
             }
             Ok(JobResult::Imported(files))
@@ -736,11 +788,14 @@ impl Ondera {
         }
     }
     fn keyboard(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() || self.intent.is_some() {
+        let editing_text = ctx
+            .memory(|m| m.focused())
+            .is_some_and(|id| egui::TextEdit::load_state(ctx, id).is_some());
+        if editing_text || self.intent.is_some() {
             return;
         }
-        let pressed = |key| ctx.input(|i| i.key_pressed(key));
         let mods = ctx.input(|i| i.modifiers);
+        let pressed = |key| ctx.input_mut(|i| i.consume_key(mods, key));
         if mods.command {
             if pressed(egui::Key::S) {
                 self.save(mods.shift);
@@ -1627,4 +1682,193 @@ pub fn meter(ui: &mut egui::Ui, peak: f32, width: f32) {
     let active = egui::Rect::from_min_size(rect.min, egui::vec2(width * level, rect.height()));
     ui.painter()
         .rect_filled(active, 1, if peak >= 0.95 { RED } else { ACCENT });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{vec2, Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect};
+
+    fn frame(app: &mut Ondera, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
+            events,
+            time: Some(time),
+            focused: true,
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if editor {
+                    app.editor(ui);
+                } else {
+                    app.arrangement(ui);
+                }
+            });
+        });
+    }
+    fn pointer(pos: Pos2, pressed: bool) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(pos),
+            Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            },
+        ]
+    }
+    fn setup() -> (Ondera, egui::Context) {
+        let app = Ondera::from_session(store::demo(), None);
+        let ctx = egui::Context::default();
+        install(&ctx);
+        (app, ctx)
+    }
+    fn notes(app: &Ondera) -> &Vec<Note> {
+        let clip = app
+            .store
+            .session()
+            .clips
+            .iter()
+            .find(|c| c.id == "bass-2")
+            .unwrap();
+        let ClipData::Midi { notes } = &clip.data else {
+            panic!()
+        };
+        notes
+    }
+
+    #[test]
+    fn piano_click_draws_note_and_undo_restores_it() {
+        let (mut app, ctx) = setup();
+        frame(&mut app, &ctx, vec![], 0.0, true);
+        let rect = ctx
+            .read_response(Id::new(("piano-grid", "bass-2")))
+            .unwrap()
+            .rect;
+        let p = rect.min + vec2(100.0, 25.0);
+        let count = notes(&app).len();
+        frame(&mut app, &ctx, pointer(p, true), 0.1, true);
+        frame(&mut app, &ctx, pointer(p, false), 0.2, true);
+        assert_eq!(notes(&app).len(), count + 1);
+        assert!(app.error.is_none());
+        app.dispatch(Command::Undo);
+        assert_eq!(notes(&app).len(), count);
+    }
+    #[test]
+    fn piano_drag_creates_requested_length() {
+        let (mut app, ctx) = setup();
+        frame(&mut app, &ctx, vec![], 0.0, true);
+        let rect = ctx
+            .read_response(Id::new(("piano-grid", "bass-2")))
+            .unwrap()
+            .rect;
+        let p = rect.min + vec2(100.0, 25.0);
+        frame(&mut app, &ctx, pointer(p, true), 0.1, true);
+        frame(
+            &mut app,
+            &ctx,
+            vec![Event::PointerMoved(p + vec2(120.0, 0.0))],
+            0.2,
+            true,
+        );
+        frame(
+            &mut app,
+            &ctx,
+            pointer(p + vec2(120.0, 0.0), false),
+            0.3,
+            true,
+        );
+        assert!(
+            notes(&app).last().unwrap().length > 2.0,
+            "Drag should preserve its start across frames"
+        );
+    }
+    #[test]
+    fn dragging_region_body_moves_without_resizing() {
+        let (mut app, ctx) = setup();
+        frame(&mut app, &ctx, vec![], 0.0, false);
+        let rect = ctx.read_response(Id::new(("clip", "bass-1"))).unwrap().rect;
+        let p = rect.center();
+        frame(&mut app, &ctx, pointer(p, true), 0.1, false);
+        frame(
+            &mut app,
+            &ctx,
+            vec![Event::PointerMoved(p + vec2(240.0, 0.0))],
+            0.2,
+            false,
+        );
+        frame(
+            &mut app,
+            &ctx,
+            pointer(p + vec2(240.0, 0.0), false),
+            0.3,
+            false,
+        );
+        let c = app
+            .store
+            .session()
+            .clips
+            .iter()
+            .find(|c| c.id == "bass-1")
+            .unwrap();
+        assert_eq!(c.length_bars, 4.0);
+        assert_eq!(c.start_bar, 5.0);
+    }
+    #[test]
+    fn ruler_drag_sets_full_cycle_range() {
+        let (mut app, ctx) = setup();
+        frame(&mut app, &ctx, vec![], 0.0, false);
+        let rect = ctx.read_response(Id::new("ruler-drag")).unwrap().rect;
+        let p = rect.left_center() + vec2(48.0, 0.0);
+        frame(&mut app, &ctx, pointer(p, true), 0.1, false);
+        frame(
+            &mut app,
+            &ctx,
+            vec![Event::PointerMoved(p + vec2(144.0, 0.0))],
+            0.2,
+            false,
+        );
+        frame(
+            &mut app,
+            &ctx,
+            pointer(p + vec2(144.0, 0.0), false),
+            0.3,
+            false,
+        );
+        let t = &app.store.session().transport;
+        assert_eq!(t.cycle_start_bar, 1.0);
+        assert_eq!(t.cycle_end_bar, 4.0);
+    }
+    #[test]
+    fn ui_callbacks_can_use_sendable_device_handles() {
+        fn send<T: std::marker::Send>() {}
+        send::<DeviceEngine>();
+        send::<Recorder>();
+    }
+    #[test]
+    fn undo_shortcut_works_after_focusing_a_non_text_control() {
+        let (mut app, ctx) = setup();
+        let original = app.store.session().name.clone();
+        app.dispatch(Command::Rename("Edited".into()));
+        ctx.memory_mut(|m| m.request_focus(Id::new("combo")));
+        let mods = Modifiers {
+            command: true,
+            ctrl: true,
+            ..Default::default()
+        };
+        let input = RawInput {
+            modifiers: mods,
+            events: vec![Event::Key {
+                key: egui::Key::Z,
+                physical_key: Some(egui::Key::Z),
+                pressed: true,
+                repeat: false,
+                modifiers: mods,
+            }],
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| app.keyboard(ctx));
+        assert_eq!(app.store.session().name, original);
+    }
 }

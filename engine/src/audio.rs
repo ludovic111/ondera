@@ -14,6 +14,12 @@ pub struct AudioBuffer {
     pub peaks: Vec<f32>,
 }
 pub type Library = HashMap<String, Arc<AudioBuffer>>;
+pub fn library_bytes(library: &Library) -> usize {
+    library
+        .values()
+        .map(|b| b.frames.len() * 8 + b.peaks.len() * 4)
+        .sum()
+}
 
 impl AudioBuffer {
     pub fn new(sample_rate: u32, mut frames: Vec<[f32; 2]>) -> Result<Self> {
@@ -243,10 +249,17 @@ pub fn generate(src: &Source) -> Result<AudioBuffer> {
 
 pub fn prepare_sources(session: &crate::model::Session, library: &mut Library) -> Result<()> {
     session.validate()?;
+    if library_bytes(library) > MAX_LIBRARY_BYTES {
+        return Err("Decoded audio library exceeds 1 GiB".into());
+    }
     for src in session.sources.values() {
         if !library.contains_key(&src.id) {
             if src.origin != "generated" {
                 return Err(format!("Missing audio: {}", src.name));
+            }
+            let expected = (src.duration_seconds * 48000.0 * 8.0) as usize;
+            if library_bytes(library).saturating_add(expected) > MAX_LIBRARY_BYTES {
+                return Err("Decoded audio library exceeds 1 GiB".into());
             }
             library.insert(src.id.clone(), Arc::new(generate(src)?));
         }
