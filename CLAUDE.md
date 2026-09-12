@@ -12,8 +12,12 @@ Three layers. Every line of code belongs to exactly one of them.
 2. **Core command layer** (`packages/core`): pure TypeScript, no DOM, no Electron, no Node-only APIs.
    Owns the session model and every operation on it. This is the product's API.
 3. **Audio engine**: a separate native process written in Rust, talking to core over IPC.
-   It does not exist yet and is not written in Phase 1. Core talks to an `EngineClient` interface;
-   Phase 1 ships a `MockEngine` behind that interface (fake playhead timer, no audio).
+   It does not exist yet. Core talks to an `EngineClient` interface. Until the Rust process lands,
+   `packages/app/src/audio/` ships a **Web Audio implementation** of that interface (decided
+   2026-09-12 so the app can make a song end to end): synth presets for MIDI tracks, buffer playback
+   for audio clips, inserts, sends, metering, offline bounce, microphone recording. Core's
+   `MockEngine` stays for tests and headless clients. The Rust engine replaces the Web Audio one
+   behind the same interface; nothing above the interface changes.
 
 The GUI, the CLI and the MCP server are all *clients* of the core command layer. None of them is
 privileged. Anything the GUI can do, the CLI and an agent can do with the same command.
@@ -35,22 +39,36 @@ privileged. Anything the GUI can do, the CLI and an agent can do with the same c
 - If you are about to write `setState(...)` or mutate an object from the session model inside a
   component, stop and add a command instead.
 
-## Phase 1 scope (current)
+## Phase 1 scope
 
-Static UI shell, mock data, zero audio. Nothing else.
+Phase 1 proper (static shell, mock data) shipped in PR #1. **Phase 1.5, "usable" (decided
+2026-09-12):** almost everything visible does something, and a song can be made from A to Z:
 
-1. Electron + Vite + React + TypeScript, working dev build on macOS.
-2. Design tokens extracted from the design into a single tokens file. See the tokens rule.
-3. Layout: transport bar, browser sidebar, arrangement timeline with track headers, bottom piano
-   roll pane, right inspector, agent panel.
-4. 8 mock tracks with fake waveform and MIDI clip data. Timeline scrolls and zooms. Playhead moves on
-   a fake timer when you hit play.
-5. Everything else is inert. No file loading, no audio, no plugins, no persistence.
+1. Tracks: add, remove, reorder, rename, colour, mute/solo/arm, volume, pan.
+2. Clips: draw (pencil), move, trim, split (scissors or ⌘T), duplicate, rename, delete.
+3. Notes: piano roll (draw, move, resize, velocity), step view (toggle cells), score view (read).
+4. Transport: play/stop/record, cycle range drag in the ruler, tempo/signature/key/snap edits,
+   follow playhead, metronome, real meters.
+5. Sound: MIDI tracks play synth presets, audio tracks play imported files and recordings,
+   inserts and sends are live, bounce renders the mix to WAV.
+6. Sessions: single-file `.ondera` (JSON, imported/recorded audio embedded as base64 WAV).
+   Generated demo audio is rebuilt from its seed, never stored.
+7. Still inert on purpose: third-party plugins in the browser, the agent (the panel logs your
+   request and says no agent is connected), the File menu's Bounce is the only export.
 
-The bar: it looks like the design, and the layout holds up when the window is resized.
+Undo rule: commands that describe "now" rather than the document (selection, view, transport
+position, engine ticks, meters) are `transient` and never enter the undo stack. Every other
+command is one undo step, so a drag dispatches once on release, not on every pointer move.
 
 Rendering rule: **Canvas for the timeline, waveforms and piano-roll grid. DOM for chrome.**
 Canvas drawing code lives in pure functions that take a context and tokens; no React inside them.
+Drag previews are an `overlay` argument to those functions, never session state.
+
+Menus and shortcuts rule: one table (`packages/app/src/state/actions.ts`) defines every UI action
+with its label, shortcut and enabled/checked predicates. Title-bar menus, context menus and the
+keyboard handler are all generated from it. Add an action there; never bind a key or a menu row
+by hand. File operations (new/open/save/import/bounce) talk to the host and live in
+`state/document.ts`; they are the one thing that is not a command.
 
 ## Tokens rule
 

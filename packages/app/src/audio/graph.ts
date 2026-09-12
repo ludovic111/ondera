@@ -150,7 +150,7 @@ export class Graph {
 
   constructor(readonly ctx: BaseAudioContext) {
     this.master = ctx.createGain();
-    this.master.gain.value = 0.9;
+    this.master.gain.value = 0.7;
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -3;
     limiter.ratio.value = 12;

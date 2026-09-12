@@ -85,7 +85,8 @@ function fromBase64(b64: string): ArrayBuffer {
   return out.buffer;
 }
 
-function serialize(state: Session): string {
+/** The `.ondera` file: session JSON plus base64 WAV for imported and recorded sources. */
+export function serializeSession(state: Session): string {
   const audio: Record<string, string> = {};
   for (const src of Object.values(state.sources)) {
     if (src.origin === 'generated') continue;
@@ -101,7 +102,7 @@ function serialize(state: Session): string {
   return JSON.stringify(file);
 }
 
-async function loadInto(store: SessionStore, json: string): Promise<void> {
+export async function loadSessionJson(store: SessionStore, json: string): Promise<void> {
   const file = JSON.parse(json) as SessionFile;
   if (file.format !== FORMAT) throw new Error('Not an Ondera session file');
   for (const [id, b64] of Object.entries(file.audio ?? {})) {
@@ -154,12 +155,12 @@ export async function openSession(store: SessionStore): Promise<void> {
     currentPath = null;
   }
   if (store.getState().transport.playing) store.dispatch(commands.transport.stop({}));
-  await loadInto(store, json);
+  await loadSessionJson(store, json);
 }
 
 export async function saveSession(store: SessionStore, saveAs = false): Promise<void> {
   const state = store.getState();
-  const json = serialize(state);
+  const json = serializeSession(state);
   const fs = bridge();
   if (fs) {
     const path = await fs.saveSession(saveAs ? null : currentPath, state.name, json);
