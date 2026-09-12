@@ -1,10 +1,9 @@
 use crate::theme::*;
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use ondera_engine::{
     audio::{self, Library},
     device::{DeviceEngine, Message, Recorder},
     document,
-    dsp::{EFFECTS, INSTRUMENTS},
     model::*,
     render::{self, Renderer},
     store::{self, Command, Store},
@@ -24,12 +23,12 @@ pub enum Intent {
     Demo,
     Quit,
 }
-enum AfterTake {
+pub(crate) enum AfterTake {
     Save(bool),
     Bounce,
     Request(Intent),
 }
-enum JobResult {
+pub(crate) enum JobResult {
     Prepared {
         renderer: Box<Renderer>,
         library: Library,
@@ -60,6 +59,8 @@ pub struct Ondera {
     pub scroll: f64,
     pub tool: usize,
     pub browser_tab: usize,
+    pub browser_filter: String,
+    pub browser_selected: Option<String>,
     pub error: Option<String>,
     pub status: String,
     pub path: Option<PathBuf>,
@@ -68,25 +69,25 @@ pub struct Ondera {
     pub ruler_anchor: Option<f64>,
     pub draw_clip_anchor: Option<(String, f64)>,
     pub draw_note_anchor: Option<f64>,
-    pending_preview: Option<(String, u8, u8)>,
+    pub(crate) pending_preview: Option<(String, u8, u8)>,
     pub editor_low: u8,
     pub editor_zoom: f32,
-    job: Option<Job>,
-    preparing: bool,
-    sync_needed: bool,
-    synced_revision: Option<u64>,
-    recorder: Option<Recorder>,
-    device_pending: Option<mpsc::Receiver<Result<DeviceEngine>>>,
-    record_pending: Option<mpsc::Receiver<Result<Recorder>>>,
-    record_finishing: Option<mpsc::Receiver<Result<audio::AudioBuffer>>>,
-    after_take: Option<AfterTake>,
-    recording_tracks: Vec<String>,
-    record_start: f64,
-    intent: Option<Intent>,
-    after_save: Option<Intent>,
-    closing: bool,
+    pub(crate) job: Option<Job>,
+    pub(crate) preparing: bool,
+    pub(crate) sync_needed: bool,
+    pub(crate) synced_revision: Option<u64>,
+    pub(crate) recorder: Option<Recorder>,
+    pub(crate) device_pending: Option<mpsc::Receiver<Result<DeviceEngine>>>,
+    pub(crate) record_pending: Option<mpsc::Receiver<Result<Recorder>>>,
+    pub(crate) record_finishing: Option<mpsc::Receiver<Result<audio::AudioBuffer>>>,
+    pub(crate) after_take: Option<AfterTake>,
+    pub(crate) recording_tracks: Vec<String>,
+    pub(crate) record_start: f64,
+    pub(crate) intent: Option<Intent>,
+    pub(crate) after_save: Option<Intent>,
+    pub(crate) closing: bool,
     pub screenshot: Option<PathBuf>,
-    frames: usize,
+    pub(crate) frames: usize,
     pub show_help: bool,
 }
 pub fn id(prefix: &str) -> String {
@@ -114,7 +115,7 @@ impl Ondera {
         }
         app
     }
-    fn from_session(session: Session, screenshot: Option<PathBuf>) -> Self {
+    pub(crate) fn from_session(session: Session, screenshot: Option<PathBuf>) -> Self {
         let zoom = session.view.pixels_per_bar;
         Self {
             store: Store::new(session).expect("Validated demo"),
@@ -127,6 +128,8 @@ impl Ondera {
             scroll: 0.0,
             tool: 0,
             browser_tab: 0,
+            browser_filter: String::new(),
+            browser_selected: None,
             error: None,
             status: "Preparing audio…".into(),
             path: None,
@@ -208,7 +211,7 @@ impl Ondera {
             let _ = tx.send(result);
         });
     }
-    fn connect(&mut self) {
+    pub(crate) fn connect(&mut self) {
         if self.device_pending.is_some() {
             return;
         }
@@ -224,7 +227,7 @@ impl Ondera {
             }));
         });
     }
-    fn poll(&mut self) {
+    pub(crate) fn poll(&mut self) {
         if let Some(result) = self
             .device_pending
             .as_ref()
@@ -481,7 +484,7 @@ impl Ondera {
             self.start_recording();
         }
     }
-    fn start_recording(&mut self) {
+    pub(crate) fn start_recording(&mut self) {
         if self.recorder.is_some()
             || self.record_pending.is_some()
             || self.record_finishing.is_some()
@@ -526,7 +529,7 @@ impl Ondera {
         }
         self.finish_recording();
     }
-    fn finish_recording(&mut self) {
+    pub(crate) fn finish_recording(&mut self) {
         if let Some(r) = self.recorder.take() {
             let first = f64::from_bits(r.first_beat.load(Ordering::Relaxed));
             self.record_start = if first.is_finite() {
@@ -751,7 +754,7 @@ impl Ondera {
             Ok(JobResult::Imported(files))
         });
     }
-    fn save(&mut self, save_as: bool) {
+    pub(crate) fn save(&mut self, save_as: bool) {
         if self.job.is_some() {
             self.status = "Wait for the current operation before saving".into();
             return;
@@ -785,7 +788,7 @@ impl Ondera {
             Ok(JobResult::Saved { path, revision })
         });
     }
-    fn bounce(&mut self) {
+    pub(crate) fn bounce(&mut self) {
         if self.job.is_some() {
             return;
         }
@@ -811,7 +814,7 @@ impl Ondera {
             Ok(JobResult::Bounced)
         });
     }
-    fn load_path(&mut self, path: PathBuf) {
+    pub(crate) fn load_path(&mut self, path: PathBuf) {
         self.stop();
         self.spawn("Opening session…", move || {
             let (session, library) = document::load(&path)?;
@@ -822,7 +825,7 @@ impl Ondera {
             })
         });
     }
-    fn request(&mut self, intent: Intent) {
+    pub(crate) fn request(&mut self, intent: Intent) {
         if self.job.is_some() {
             return;
         }
@@ -837,7 +840,7 @@ impl Ondera {
             self.execute(intent);
         }
     }
-    fn execute(&mut self, intent: Intent) {
+    pub(crate) fn execute(&mut self, intent: Intent) {
         match intent {
             Intent::Quit => self.closing = true,
             Intent::New | Intent::Demo => {
@@ -874,7 +877,7 @@ impl Ondera {
             }),
         }
     }
-    fn keyboard(&mut self, ctx: &egui::Context) {
+    pub(crate) fn keyboard(&mut self, ctx: &egui::Context) {
         let editing_text = ctx
             .memory(|m| m.focused())
             .is_some_and(|id| egui::TextEdit::load_state(ctx, id).is_some());
@@ -1014,310 +1017,8 @@ impl Ondera {
             }
         }
     }
-    fn menus(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("menu")
-            .exact_height(32.0)
-            .show(ctx, |ui| {
-                egui::MenuBar::new().ui(ui, |ui| {
-                    ui.label(RichText::new("ONDERA").strong().color(INK));
-                    ui.separator();
-                    ui.menu_button("File", |ui| {
-                        for (label, intent) in [
-                            ("New session", Intent::New),
-                            ("Open…", Intent::Open),
-                            ("Open demo", Intent::Demo),
-                        ] {
-                            if ui.button(label).clicked() {
-                                self.request(intent);
-                                ui.close();
-                            }
-                        }
-                        ui.separator();
-                        if ui.button("Save").clicked() {
-                            self.save(false);
-                            ui.close();
-                        }
-                        if ui.button("Save as…").clicked() {
-                            self.save(true);
-                            ui.close();
-                        }
-                        if ui.button("Import audio…").clicked() {
-                            self.import(None);
-                            ui.close();
-                        }
-                        if ui.button("Bounce mix to WAV…").clicked() {
-                            self.bounce();
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button("Quit").clicked() {
-                            self.request(Intent::Quit);
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Edit", |ui| {
-                        if ui
-                            .add_enabled(self.store.can_undo(), egui::Button::new("Undo"))
-                            .clicked()
-                        {
-                            self.dispatch(Command::Undo);
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(self.store.can_redo(), egui::Button::new("Redo"))
-                            .clicked()
-                        {
-                            self.dispatch(Command::Redo);
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button("Duplicate region").clicked() {
-                            self.duplicate_clip();
-                            ui.close();
-                        }
-                        if ui.button("Split at playhead").clicked() {
-                            self.split_selected(
-                                self.position / self.store.session().beats_per_bar(),
-                            );
-                            ui.close();
-                        }
-                        if ui.button("Delete selection").clicked() {
-                            self.delete_selected();
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Track", |ui| {
-                        if ui.button("Add instrument track").clicked() {
-                            self.add_track("midi");
-                            ui.close();
-                        }
-                        if ui.button("Add audio track").clicked() {
-                            self.add_track("audio");
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Audio", |ui| {
-                        if ui.button("Reconnect output").clicked() {
-                            self.connect();
-                            ui.close();
-                        }
-                        ui.separator();
-                        ui.label("Uses the operating system's default input and output.");
-                        ui.label("Change devices in system audio settings, then reconnect.");
-                    });
-                    if ui.button("Help").clicked() {
-                        self.show_help = true;
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "{}{}",
-                                self.store.session().name,
-                                if self.store.dirty() { "  •" } else { "" }
-                            ))
-                            .color(DIM),
-                        );
-                    });
-                });
-            });
-    }
-    fn transport(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("transport")
-            .exact_height(62.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .button("|◀")
-                        .on_hover_text("Return to start · Enter")
-                        .clicked()
-                    {
-                        self.locate(0.0);
-                    }
-                    if ui.button("■").on_hover_text("Stop · 0").clicked() {
-                        self.stop();
-                    }
-                    if ui
-                        .add(
-                            egui::Button::new(if self.playing { "Pause" } else { "▶ Play" }).fill(
-                                if self.playing {
-                                    ACCENT.gamma_multiply(0.4)
-                                } else {
-                                    RAISED
-                                },
-                            ),
-                        )
-                        .clicked()
-                    {
-                        self.play();
-                    }
-                    if ui
-                        .selectable_label(self.record_enabled, RichText::new("• Rec").color(RED))
-                        .clicked()
-                    {
-                        self.record_enabled = !self.record_enabled;
-                        if self.playing {
-                            if self.record_enabled {
-                                self.start_recording();
-                            } else {
-                                self.finish_recording();
-                            }
-                        }
-                    }
-                    ui.separator();
-                    let bpb = self.store.session().beats_per_bar();
-                    let bar = (self.position / bpb).floor();
-                    let within = self.position - bar * bpb;
-                    egui::Frame::new()
-                        .fill(WELL)
-                        .inner_margin(8)
-                        .corner_radius(5)
-                        .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{:03} . {} . {:03}",
-                                    bar as u64 + 1,
-                                    within.floor() as u64 + 1,
-                                    (within.fract() * 960.0) as u64
-                                ))
-                                .monospace()
-                                .size(DIGITS)
-                                .color(INK),
-                            );
-                        });
-                    let mut t = self.store.session().transport.clone();
-                    let mut changed = false;
-                    ui.label(RichText::new("BPM").small().color(FAINT));
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut t.tempo)
-                                .speed(0.2)
-                                .range(20.0..=400.0),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(egui::DragValue::new(&mut t.time_signature.numerator).range(1..=32))
-                        .changed();
-                    ui.label("/");
-                    egui::ComboBox::from_id_salt("denominator")
-                        .width(40.0)
-                        .selected_text(t.time_signature.denominator.to_string())
-                        .show_ui(ui, |ui| {
-                            for d in [1, 2, 4, 8, 16, 32] {
-                                changed |= ui
-                                    .selectable_value(
-                                        &mut t.time_signature.denominator,
-                                        d,
-                                        d.to_string(),
-                                    )
-                                    .changed();
-                            }
-                        });
-                    if ui.selectable_label(t.cycle, "Cycle").clicked() {
-                        t.cycle = !t.cycle;
-                        changed = true;
-                    }
-                    if ui.selectable_label(t.metronome, "Click").clicked() {
-                        t.metronome = !t.metronome;
-                        changed = true;
-                    }
-                    if changed {
-                        self.dispatch(Command::SetTransport(t));
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let (peaks, cpu) = self.device.as_ref().map_or(([0.0; 4], 0.0), |d| {
-                            (d.telemetry.peaks(), d.telemetry.load())
-                        });
-                        ui.label(
-                            RichText::new(format!("DSP {:2.0}%", cpu * 100.0))
-                                .small()
-                                .monospace()
-                                .color(DIM),
-                        );
-                        ui.vertical(|ui| {
-                            meter(ui, peaks[0], 90.0);
-                            meter(ui, peaks[1], 90.0);
-                        });
-                    });
-                });
-            });
-    }
-    fn browser(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("browser")
-            .default_width(210.0)
-            .width_range(170.0..=300.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-                ui.heading("Library");
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    for (i, name) in ["Sounds", "Loops", "Effects"].iter().enumerate() {
-                        ui.selectable_value(&mut self.browser_tab, i, *name);
-                    }
-                });
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let names: Vec<&str> = match self.browser_tab {
-                        0 => INSTRUMENTS.to_vec(),
-                        1 => vec![
-                            "Boom Bap 92",
-                            "Four Floor 124",
-                            "Brushes Swing",
-                            "Rhodes Comp Cm",
-                            "Analog Pad Swell",
-                            "Bass Pluck 120",
-                            "Riser 1 bar",
-                            "Reverse Cymbal",
-                            "Vinyl Crackle",
-                        ],
-                        _ => EFFECTS.to_vec(),
-                    };
-                    ui.label(RichText::new("ONDERA").small().color(FAINT));
-                    ui.add_space(6.0);
-                    for (i, name) in names.iter().enumerate() {
-                        let response = ui
-                            .horizontal(|ui| {
-                                ui.label(RichText::new("•").color(TRACKS[i % 8]));
-                                ui.add_sized(
-                                    [ui.available_width(), 28.0],
-                                    egui::Button::new(*name).frame(false),
-                                )
-                            })
-                            .inner;
-                        if response.double_clicked() {
-                            match self.browser_tab {
-                                0 => self.instrument(name),
-                                1 => self.add_loop(name),
-                                _ => self.add_effect(name),
-                            }
-                        }
-                    }
-                    ui.add_space(22.0);
-                    ui.label(RichText::new("Double-click to load").small().color(FAINT));
-                    ui.separator();
-                    ui.label(RichText::new("PROJECT AUDIO").small().color(FAINT));
-                    let sources: Vec<_> = self
-                        .store
-                        .session()
-                        .sources
-                        .values()
-                        .map(|s| (s.name.clone(), s.duration_seconds))
-                        .collect();
-                    for (name, duration) in sources {
-                        ui.label(name);
-                        ui.label(
-                            RichText::new(format!("{duration:.1} s"))
-                                .small()
-                                .color(FAINT),
-                        );
-                    }
-                    if ui.button("Import audio…").clicked() {
-                        self.import(None);
-                    }
-                });
-            });
-    }
-    fn instrument(&mut self, name: &str) {
+
+    pub(crate) fn instrument(&mut self, name: &str) {
         let selected = self
             .store
             .session()
@@ -1343,7 +1044,7 @@ impl Ondera {
         });
         self.preview(&track, 60, 95);
     }
-    fn add_effect(&mut self, name: &str) {
+    pub(crate) fn add_effect(&mut self, name: &str) {
         let Some(track) = self.store.session().view.selected_track_id.clone() else {
             return;
         };
@@ -1369,7 +1070,7 @@ impl Ondera {
         }
         self.dispatch(Command::SetStrip { track, strip });
     }
-    fn add_loop(&mut self, name: &str) {
+    pub(crate) fn add_loop(&mut self, name: &str) {
         let patterns: serde_json::Value =
             serde_json::from_str(include_str!("../../engine/tests/fixtures/loops.json"))
                 .expect("Bundled loops");
@@ -1408,238 +1109,35 @@ impl Ondera {
             data: ClipData::Midi { notes },
         }));
     }
-    fn inspector(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::right("inspector")
-            .default_width(220.0)
-            .width_range(190.0..=320.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-                ui.heading("Inspector");
-                ui.separator();
-                let s = self.store.snapshot();
-                let Some(t) = s
-                    .tracks
-                    .iter()
-                    .find(|t| Some(&t.id) == s.view.selected_track_id.as_ref())
-                else {
-                    ui.label("Select a track");
-                    return;
-                };
-                let mut track = t.clone();
-                if ui.text_edit_singleline(&mut track.name).changed() && track.name != t.name {
-                    self.dispatch(Command::UpdateTrack(track.clone()));
-                }
-                ui.label(
-                    RichText::new(if track.kind == "audio" {
-                        "AUDIO CHANNEL"
-                    } else {
-                        "INSTRUMENT CHANNEL"
-                    })
-                    .small()
-                    .color(FAINT),
-                );
-                ui.add_space(10.0);
-                let mut strip = s.strips.get(&track.id).cloned().unwrap_or_default();
-                let mut strip_changed = false;
-                if track.kind == "midi" {
-                    egui::ComboBox::from_id_salt("instrument")
-                        .width(ui.available_width() - 10.0)
-                        .selected_text(if strip.instrument.is_empty() {
-                            "Ondera Synth"
-                        } else {
-                            &strip.instrument
-                        })
-                        .show_ui(ui, |ui| {
-                            for name in INSTRUMENTS {
-                                strip_changed |= ui
-                                    .selectable_value(&mut strip.instrument, name.into(), name)
-                                    .changed();
-                            }
-                        });
-                }
-                ui.add_space(12.0);
-                ui.label(RichText::new("INSERTS").small().color(FAINT));
-                while strip.inserts.len() < 4 {
-                    strip.inserts.push(Insert {
-                        name: "Empty slot".into(),
-                        state: "empty".into(),
-                        meta: String::new(),
-                    });
-                }
-                for i in 0..4 {
-                    ui.horizontal(|ui| {
-                        let slot = &mut strip.inserts[i];
-                        let active = slot.state == "active";
-                        if ui
-                            .add_enabled(
-                                slot.state != "empty",
-                                egui::Button::new(RichText::new("•").color(if active {
-                                    ACCENT
-                                } else {
-                                    FAINT
-                                })),
-                            )
-                            .clicked()
-                        {
-                            slot.state = if active { "bypassed" } else { "active" }.into();
-                            strip_changed = true;
-                        }
-                        egui::ComboBox::from_id_salt(("insert", i))
-                            .width(142.0)
-                            .selected_text(&slot.name)
-                            .show_ui(ui, |ui| {
-                                for name in std::iter::once("Empty slot").chain(EFFECTS) {
-                                    if ui.selectable_label(slot.name == name, name).clicked() {
-                                        slot.name = name.into();
-                                        slot.state = if name == "Empty slot" {
-                                            "empty"
-                                        } else {
-                                            "active"
-                                        }
-                                        .into();
-                                        strip_changed = true;
-                                    }
-                                }
-                            });
-                    });
-                }
-                ui.add_space(14.0);
-                ui.label(RichText::new("SENDS").small().color(FAINT));
-                while strip.sends.len() < 2 {
-                    strip.sends.push(Send {
-                        level_db: None,
-                        name: if strip.sends.is_empty() {
-                            "A · Reverb"
-                        } else {
-                            "B · Delay"
-                        }
-                        .into(),
-                    });
-                }
-                for (i, name) in ["A · Reverb", "B · Delay"].iter().enumerate() {
-                    let mut db = strip.sends[i].level_db.unwrap_or(-100.0);
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut db, -100.0..=0.0)
-                                .text(*name)
-                                .suffix(" dB"),
-                        )
-                        .changed()
-                    {
-                        strip.sends[i].level_db = if db <= -99.0 { None } else { Some(db) };
-                        strip_changed = true;
-                    }
-                }
-                if strip_changed {
-                    self.dispatch(Command::SetStrip {
-                        track: track.id.clone(),
-                        strip,
-                    });
-                }
-                ui.add_space(14.0);
-                ui.separator();
-                if ui
-                    .add(egui::Slider::new(&mut track.pan, -100.0..=100.0).text("Pan"))
-                    .changed()
-                {
-                    self.dispatch(Command::UpdateTrack(track.clone()));
-                }
-                if ui
-                    .add(egui::Slider::new(&mut track.volume, 0.0..=1.0).text("Volume"))
-                    .changed()
-                {
-                    self.dispatch(Command::UpdateTrack(track.clone()));
-                }
-                let gain = fader_gain(track.volume);
-                ui.label(
-                    RichText::new(if gain > 0.0 {
-                        format!("{:+.1} dB", 20.0 * gain.log10())
-                    } else {
-                        "−∞ dB".into()
-                    })
-                    .monospace(),
-                );
-                ui.horizontal(|ui| {
-                    if ui.selectable_label(track.mute, "Mute").clicked() {
-                        track.mute = !track.mute;
-                        self.dispatch(Command::UpdateTrack(track.clone()));
-                    }
-                    if ui.selectable_label(track.solo, "Solo").clicked() {
-                        track.solo = !track.solo;
-                        self.dispatch(Command::UpdateTrack(track.clone()));
-                    }
-                    if ui
-                        .selectable_label(track.armed, RichText::new("Arm").color(RED))
-                        .clicked()
-                    {
-                        track.armed = !track.armed;
-                        self.dispatch(Command::UpdateTrack(track.clone()));
-                    }
-                });
-                let peaks = self
-                    .device
-                    .as_ref()
-                    .map_or([0.0; 4], |d| d.telemetry.peaks());
-                ui.add_space(12.0);
-                meter(ui, peaks[2], ui.available_width());
-                meter(ui, peaks[3], ui.available_width());
-                ui.add_space(12.0);
-                ui.label(RichText::new("Stereo Out").small().color(DIM));
-                if let Some(c) = s
-                    .clips
-                    .iter()
-                    .find(|c| Some(&c.id) == s.view.selected_clip_id.as_ref())
-                {
-                    ui.separator();
-                    ui.label(RichText::new("REGION").small().color(FAINT));
-                    let mut c = c.clone();
-                    let old = c.name.clone();
-                    if ui.text_edit_singleline(&mut c.name).changed() && c.name != old {
-                        self.dispatch(Command::PutClip(c.clone()));
-                    }
-                    let mut start = c.start_bar + 1.0;
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut start)
-                                .range(1.0..=100000.0)
-                                .prefix("Bar ")
-                                .speed(0.25),
-                        )
-                        .changed()
-                    {
-                        c.start_bar = start - 1.0;
-                        self.dispatch(Command::PutClip(c.clone()));
-                    }
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut c.length_bars)
-                                .range(0.0625..=100000.0)
-                                .prefix("Length ")
-                                .speed(0.25),
-                        )
-                        .changed()
-                    {
-                        self.dispatch(Command::PutClip(c));
-                    }
-                }
-            });
-    }
-    fn dialogs(&mut self, ctx: &egui::Context) {
+    pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
         if let Some(intent) = self.intent {
             egui::Modal::new(egui::Id::new("unsaved")).show(ctx, |ui| {
-                ui.heading("Save your changes?");
-                ui.label("This session has unsaved changes.");
+                ui.label(text(
+                    "Save your changes?",
+                    FS_PANEL_TITLE,
+                    Weight::Bold,
+                    INK,
+                ));
+                ui.add_space(6.0);
+                ui.label(text(
+                    "This session has unsaved changes.",
+                    FS_BODY,
+                    Weight::Medium,
+                    DIM,
+                ));
+                ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if text_button(ui, "Save", Face::Raised).clicked() {
                         self.intent = None;
                         self.after_save = Some(intent);
                         self.save(false);
                     }
-                    if ui.button("Discard").clicked() {
+                    if text_button(ui, "Discard", Face::Raised).clicked() {
                         self.intent = None;
                         self.execute(intent);
                     }
-                    if ui.button("Cancel").clicked() {
+                    if text_button(ui, "Cancel", Face::Raised).clicked() {
                         self.intent = None;
                     }
                 });
@@ -1651,16 +1149,33 @@ impl Ondera {
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.set_max_width(480.0);
-                    ui.label(message);
-                    if ui.button("OK").clicked() {
+                    ui.label(text(message, FS_BODY, Weight::Medium, INK));
+                    ui.add_space(10.0);
+                    if text_button(ui, "OK", Face::Raised).clicked() {
                         self.error = None;
                     }
                 });
         }
         if self.show_help {
-            egui::Window::new("Working in Ondera").open(&mut self.show_help).show(ctx,|ui|{
-            for text in ["Space: play / stop. Enter: return to start. R: record, A: arm selected track.","Double-click a MIDI lane to create a region. Draw notes in the piano roll.","Drag regions to move, drag edges to trim, right-click for options.","Tools 1 / 2 / 3: pointer, pencil, scissors. Alt disables snapping.","M / S: mute / solo. C: cycle. K: metronome. F: follow. Z: fit.","Cmd/Ctrl + S / O / I / B: save, open, import, bounce.","Cmd/Ctrl + Z / Shift+Z: undo / redo. Cmd/Ctrl + D / T: duplicate / split.","Drag across the ruler to set the cycle range. Drop audio files to import.","Built-in instruments and effects only. No external plugin hosting or agent connection."]{ui.label(text);}
-        });
+            egui::Window::new("Working in Ondera")
+                .open(&mut self.show_help)
+                .show(ctx, |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    for line in [
+                        "Space: play / stop. Enter: return to start. R: record, A: arm selected track.",
+                        "Double-click a MIDI lane to create a region. Draw notes in the piano roll.",
+                        "Drag regions to move, drag edges to trim, right-click for options.",
+                        "Tools 1 / 2 / 3: pointer, pencil, scissors. Alt disables snapping.",
+                        "M / S: mute / solo. C: cycle. K: metronome. F: follow. Z: fit.",
+                        "Cmd/Ctrl + S / O / I / B: save, open, import, bounce.",
+                        "Cmd/Ctrl + Z / Shift+Z: undo / redo. Cmd/Ctrl + D / T: duplicate / split.",
+                        "Drag across the ruler to set the cycle range. Drop audio files to import.",
+                        "Drag the tempo readout, click the signature or key to change them.",
+                        "Built-in instruments and effects only. No external plugin hosting or agent connection.",
+                    ] {
+                        ui.label(text(line, FS_BODY, Weight::Medium, INK_CONTROL));
+                    }
+                });
         }
     }
 }
@@ -1684,43 +1199,20 @@ impl eframe::App for Ondera {
             self.store.session().name,
             if self.store.dirty() { " *" } else { "" }
         )));
-        self.menus(ctx);
+        self.title_bar(ctx);
         self.transport(ctx);
-        egui::TopBottomPanel::bottom("status")
-            .exact_height(26.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if self.job.is_some() {
-                        ui.spinner();
-                    }
-                    ui.label(RichText::new(&self.status).small().color(DIM));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(d) = &self.device {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{}  ·  {} Hz  ·  24-bit WAV",
-                                    d.device_name, d.sample_rate
-                                ))
-                                .small()
-                                .color(FAINT),
-                            );
-                        } else {
-                            ui.label("Audio offline");
-                        }
-                    });
-                });
-            });
         self.browser(ctx);
         self.inspector(ctx);
         egui::TopBottomPanel::bottom("editor")
-            .default_height(290.0)
-            .height_range(190.0..=500.0)
+            .default_height(300.0)
+            .height_range(200.0..=560.0)
             .resizable(true)
+            .frame(egui::Frame::new().fill(EDITOR))
             .show(ctx, |ui| {
                 self.editor(ui);
             });
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(LANE).inner_margin(0))
+            .frame(egui::Frame::new().fill(TIMELINE))
             .show(ctx, |ui| {
                 self.arrangement(ui);
             });
@@ -1761,18 +1253,6 @@ impl eframe::App for Ondera {
             }
         }
     }
-}
-pub fn meter(ui: &mut egui::Ui, peak: f32, width: f32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 5.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 1, WELL);
-    let level = if peak > 0.0 {
-        ((20.0 * peak.log10() + 54.0) / 54.0).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let active = egui::Rect::from_min_size(rect.min, egui::vec2(width * level, rect.height()));
-    ui.painter()
-        .rect_filled(active, 1, if peak >= 0.95 { RED } else { ACCENT });
 }
 
 #[cfg(test)]
