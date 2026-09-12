@@ -1,10 +1,14 @@
-use crate::theme::*;
+use crate::{
+    plugins::{Bank, ScanEvent},
+    theme::*,
+};
 use eframe::egui;
 use ondera_engine::{
     audio::{self, Library},
     device::{DeviceEngine, Message, Recorder},
-    document,
+    document, host, midi,
     model::*,
+    plugin::Descriptor,
     render::{self, Renderer},
     store::{self, Command, Store},
     Result,
@@ -12,9 +16,21 @@ use ondera_engine::{
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{atomic::Ordering, mpsc, Arc},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    },
     time::Duration,
 };
+
+/// A note captured from MIDI input or musical typing while recording.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordedNote {
+    pub start: f64,
+    pub end: Option<f64>,
+    pub pitch: u8,
+    pub velocity: u8,
+}
 
 #[derive(Clone, Copy)]
 pub enum Intent {
@@ -89,6 +105,20 @@ pub struct Ondera {
     pub screenshot: Option<PathBuf>,
     pub(crate) frames: usize,
     pub show_help: bool,
+    pub plugins: Bank,
+    pub catalog: Vec<Descriptor>,
+    pub(crate) scan_job: Option<mpsc::Receiver<ScanEvent>>,
+    pub(crate) midi: Option<midi::MidiInput>,
+    pub midi_port: Option<String>,
+    pub(crate) midi_route: Arc<AtomicUsize>,
+    pub musical_typing: bool,
+    pub typing_octave: i32,
+    pub(crate) typing_down: Vec<u8>,
+    pub(crate) midi_take: Vec<RecordedNote>,
+    pub(crate) midi_recording: bool,
+    pub(crate) recording_midi_tracks: Vec<String>,
+    pub output_device: Option<String>,
+    pub input_device: Option<String>,
 }
 pub fn id(prefix: &str) -> String {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -109,6 +139,7 @@ impl Ondera {
     ) -> Self {
         install(&cc.egui_ctx);
         let mut app = Self::from_session(store::demo(), screenshot);
+        app.catalog = host::scan::installed();
         app.connect();
         if let Some(path) = path {
             app.load_path(path);
@@ -158,6 +189,20 @@ impl Ondera {
             screenshot,
             frames: 0,
             show_help: false,
+            plugins: Bank::default(),
+            catalog: vec![],
+            scan_job: None,
+            midi: None,
+            midi_port: None,
+            midi_route: Arc::new(AtomicUsize::new(midi::UNROUTED)),
+            musical_typing: false,
+            typing_octave: 0,
+            typing_down: vec![],
+            midi_take: vec![],
+            midi_recording: false,
+            recording_midi_tracks: vec![],
+            output_device: None,
+            input_device: None,
         }
     }
     pub fn dispatch(&mut self, command: Command) {
@@ -216,16 +261,179 @@ impl Ondera {
             return;
         }
         self.stop();
+        self.unload_plugins();
         self.device = None;
         let empty = store::empty();
+        let name = self.output_device.clone();
         let (tx, rx) = mpsc::sync_channel(1);
         self.device_pending = Some(rx);
         self.status = "Opening audio output…".into();
         std::thread::spawn(move || {
-            let _ = tx.send(DeviceEngine::open(|rate| {
-                Renderer::new(empty, &Library::new(), rate)
+            let _ = tx.send(DeviceEngine::open(name, |rate| {
+                Renderer::new(empty, &Library::new(), rate, &HashMap::new())
             }));
         });
+    }
+    /// Connect a MIDI input port; `None` picks the first one. Live notes reach
+    /// the audio thread directly, so this is redone whenever the device changes.
+    pub(crate) fn connect_midi(&mut self, port: Option<String>) {
+        self.midi = None;
+        let Some(device) = &self.device else {
+            self.midi_port = port;
+            return;
+        };
+        match midi::connect(
+            port.as_deref(),
+            device.telemetry.clone(),
+            device.sender(),
+            self.midi_route.clone(),
+        ) {
+            Ok(input) => {
+                self.midi_port = Some(input.port_name.clone());
+                self.midi = Some(input);
+            }
+            Err(e) => {
+                if port.is_some() {
+                    self.error = Some(e);
+                }
+                self.midi_port = None;
+            }
+        }
+    }
+    /// Which track receives live notes: an armed instrument track while
+    /// recording, else the selected instrument track.
+    fn update_midi_route(&mut self) {
+        let s = self.store.session();
+        let armed = s
+            .tracks
+            .iter()
+            .position(|t| t.kind == "midi" && t.armed)
+            .filter(|_| self.record_enabled);
+        let selected = s
+            .tracks
+            .iter()
+            .position(|t| t.kind == "midi" && Some(&t.id) == s.view.selected_track_id.as_ref());
+        self.midi_route.store(
+            armed.or(selected).unwrap_or(midi::UNROUTED),
+            Ordering::Relaxed,
+        );
+    }
+    /// A note from musical typing: play it live and record it when armed.
+    pub(crate) fn live_note(&mut self, on: bool, pitch: u8, velocity: u8) {
+        let track = self.midi_route.load(Ordering::Relaxed);
+        if track == midi::UNROUTED {
+            if on {
+                self.status = "Select an instrument track to play".into();
+            }
+            return;
+        }
+        if let Some(d) = &mut self.device {
+            if let Err(e) = d.send(Message::Note {
+                track,
+                on,
+                pitch,
+                velocity,
+            }) {
+                self.error = Some(e);
+            }
+        }
+        let beats = self.position;
+        self.record_note(on, pitch, velocity, beats);
+    }
+    fn record_note(&mut self, on: bool, pitch: u8, velocity: u8, beats: f64) {
+        if !self.midi_recording {
+            return;
+        }
+        if on {
+            self.midi_take.push(RecordedNote {
+                start: beats.max(self.record_start),
+                end: None,
+                pitch,
+                velocity: velocity.max(1),
+            });
+        } else if let Some(note) = self
+            .midi_take
+            .iter_mut()
+            .rev()
+            .find(|n| n.pitch == pitch && n.end.is_none())
+        {
+            note.end = Some(beats.max(note.start));
+        }
+    }
+    fn poll_midi(&mut self) {
+        let events = match &mut self.midi {
+            Some(input) => input.drain(),
+            None => return,
+        };
+        for e in events {
+            let beats = if e.playing { e.beats } else { self.position };
+            self.record_note(e.on, e.pitch, e.velocity, beats);
+        }
+    }
+    /// Turn the captured notes into one region per armed instrument track.
+    fn commit_midi_take(&mut self) {
+        if !self.midi_recording {
+            return;
+        }
+        self.midi_recording = false;
+        let end_position = self.position;
+        let mut take = std::mem::take(&mut self.midi_take);
+        for note in &mut take {
+            if note.end.is_none() {
+                note.end = Some(end_position.max(note.start));
+            }
+        }
+        take.retain(|n| n.end.is_some_and(|e| e > n.start + 1e-6));
+        if take.is_empty() {
+            return;
+        }
+        let s = self.store.session();
+        let bpb = s.beats_per_bar();
+        let start_bar = (self.record_start / bpb).floor();
+        let last = take
+            .iter()
+            .map(|n| n.end.unwrap_or(n.start))
+            .fold(0.0, f64::max);
+        let length_bars = ((last - start_bar * bpb) / bpb).ceil().max(1.0);
+        let tracks: Vec<String> = self
+            .recording_midi_tracks
+            .iter()
+            .filter(|id| s.tracks.iter().any(|t| &t.id == *id && t.kind == "midi"))
+            .cloned()
+            .collect();
+        let mut commands = vec![];
+        for track in tracks {
+            let notes = take
+                .iter()
+                .map(|n| Note {
+                    id: id("note"),
+                    start: n.start - start_bar * bpb,
+                    length: n.end.unwrap_or(n.start) - n.start,
+                    pitch: n.pitch,
+                    velocity: n.velocity,
+                    agent: false,
+                })
+                .collect();
+            commands.push(Command::PutClip(Clip {
+                id: id("clip"),
+                name: "Take".into(),
+                agent: false,
+                track_id: track,
+                start_bar,
+                length_bars,
+                data: ClipData::Midi { notes },
+            }));
+        }
+        if !commands.is_empty() {
+            self.dispatch(Command::Batch(commands));
+        }
+    }
+    /// Release the rack and the device in the right order before quitting.
+    pub(crate) fn shutdown_audio(&mut self) {
+        self.stop();
+        self.midi = None;
+        self.unload_plugins();
+        self.device = None;
     }
     pub(crate) fn poll(&mut self) {
         if let Some(result) = self
@@ -245,10 +453,17 @@ impl Ondera {
                     self.device = Some(device);
                     self.sync_needed = true;
                     self.synced_revision = None;
+                    self.connect_midi(self.midi_port.clone());
                 }
                 Err(e) => self.error = Some(e),
             }
         }
+        self.poll_scan();
+        self.collect_retired();
+        self.poll_midi();
+        self.update_midi_route();
+        self.reconcile_plugins();
+        self.idle_plugins();
         if let Some(result) = self
             .record_pending
             .as_ref()
@@ -425,9 +640,10 @@ impl Ondera {
             let mut library = self.library.clone();
             let revision = self.store.revision;
             let rate = self.device.as_ref().map_or(48000, |d| d.sample_rate);
+            let slots = self.plugins.slots.clone();
             self.spawn("Updating audio…", move || {
                 audio::prepare_sources(&session, &mut library)?;
-                let renderer = Box::new(Renderer::new((*session).clone(), &library, rate)?);
+                let renderer = Box::new(Renderer::new((*session).clone(), &library, rate, &slots)?);
                 Ok(JobResult::Prepared {
                     renderer,
                     library,
@@ -436,7 +652,6 @@ impl Ondera {
             });
         }
         if let Some(device) = &mut self.device {
-            device.collect();
             if self.playing {
                 self.position = device.telemetry.beats();
             }
@@ -503,20 +718,36 @@ impl Ondera {
             .filter(|t| t.kind == "audio" && t.armed)
             .map(|t| t.id.clone())
             .collect();
-        if self.recording_tracks.is_empty() {
-            self.error = Some("Arm an audio track before recording.".into());
+        self.recording_midi_tracks = s
+            .tracks
+            .iter()
+            .filter(|t| t.kind == "midi" && t.armed)
+            .map(|t| t.id.clone())
+            .collect();
+        if self.recording_tracks.is_empty() && self.recording_midi_tracks.is_empty() {
+            self.error = Some("Arm an audio or instrument track before recording.".into());
             return;
         }
-        let Some(d) = &self.device else {
+        let Some(d) = &mut self.device else {
             return;
         };
         self.record_start = self.position;
+        let _ = d.send(Message::SetRecording(true));
+        if !self.recording_midi_tracks.is_empty() {
+            self.midi_recording = true;
+            self.midi_take.clear();
+            self.status = "Recording MIDI…".into();
+        }
+        if self.recording_tracks.is_empty() {
+            return;
+        }
         let telemetry = d.telemetry.clone();
+        let input = self.input_device.clone();
         let (tx, rx) = mpsc::sync_channel(1);
         self.record_pending = Some(rx);
         self.status = "Opening microphone — check system permission…".into();
         std::thread::spawn(move || {
-            let _ = tx.send(Recorder::start(telemetry));
+            let _ = tx.send(Recorder::start(telemetry, input));
         });
     }
     pub fn stop(&mut self) {
@@ -530,6 +761,10 @@ impl Ondera {
         self.finish_recording();
     }
     pub(crate) fn finish_recording(&mut self) {
+        self.commit_midi_take();
+        if let Some(d) = &mut self.device {
+            let _ = d.send(Message::SetRecording(false));
+        }
         if let Some(r) = self.recorder.take() {
             let first = f64::from_bits(r.first_beat.load(Ordering::Relaxed));
             self.record_start = if first.is_finite() {
@@ -764,6 +999,7 @@ impl Ondera {
             self.after_take = Some(AfterTake::Save(save_as));
             return;
         }
+        self.capture_plugin_states();
         let mut session = (*self.store.snapshot()).clone();
         session.transport.position_beats = self.position;
         session.view.pixels_per_bar = self.zoom;
@@ -797,6 +1033,7 @@ impl Ondera {
             self.after_take = Some(AfterTake::Bounce);
             return;
         }
+        self.capture_plugin_states();
         let session = self.store.snapshot();
         let library = self.library.clone();
         self.spawn("Exporting WAV…", move || {
@@ -842,7 +1079,10 @@ impl Ondera {
     }
     pub(crate) fn execute(&mut self, intent: Intent) {
         match intent {
-            Intent::Quit => self.closing = true,
+            Intent::Quit => {
+                self.shutdown_audio();
+                self.closing = true;
+            }
             Intent::New | Intent::Demo => {
                 let s = if matches!(intent, Intent::New) {
                     store::empty()
@@ -887,6 +1127,9 @@ impl Ondera {
         let mods = ctx.input(|i| i.modifiers);
         let pressed = |key| ctx.input_mut(|i| i.consume_key(mods, key));
         if mods.command {
+            if pressed(egui::Key::K) {
+                self.toggle_musical_typing();
+            }
             if pressed(egui::Key::S) {
                 self.save(mods.shift);
             }
@@ -932,6 +1175,13 @@ impl Ondera {
         if pressed(egui::Key::Enter) {
             self.locate(0.0);
         }
+        if pressed(egui::Key::Backspace) || pressed(egui::Key::Delete) {
+            self.delete_selected();
+        }
+        if self.musical_typing {
+            self.musical_typing_keys(ctx);
+            return;
+        }
         if pressed(egui::Key::C) {
             let mut t = self.store.session().transport.clone();
             t.cycle = !t.cycle;
@@ -960,9 +1210,6 @@ impl Ondera {
             if pressed(key) {
                 self.tool = tool;
             }
-        }
-        if pressed(egui::Key::Backspace) || pressed(egui::Key::Delete) {
-            self.delete_selected();
         }
         if pressed(egui::Key::F) {
             let mut v = self.store.session().view.clone();
@@ -999,6 +1246,87 @@ impl Ondera {
             }
         }
     }
+    pub(crate) fn toggle_musical_typing(&mut self) {
+        self.musical_typing = !self.musical_typing;
+        if !self.musical_typing {
+            for pitch in std::mem::take(&mut self.typing_down) {
+                self.live_note(false, pitch, 0);
+            }
+            self.status = "Musical typing off".into();
+        } else {
+            self.status = "Musical typing on: A–L play, Z / X shift octave".into();
+        }
+    }
+    /// The computer keyboard as a two-octave piano (Cmd/Ctrl+K).
+    fn musical_typing_keys(&mut self, ctx: &egui::Context) {
+        use egui::Key;
+        let base = 60 + self.typing_octave * 12;
+        let semitone = |key: Key| -> Option<i32> {
+            Some(match key {
+                Key::A => 0,
+                Key::W => 1,
+                Key::S => 2,
+                Key::E => 3,
+                Key::D => 4,
+                Key::F => 5,
+                Key::T => 6,
+                Key::G => 7,
+                Key::Y => 8,
+                Key::H => 9,
+                Key::U => 10,
+                Key::J => 11,
+                Key::K => 12,
+                Key::O => 13,
+                Key::L => 14,
+                Key::P => 15,
+                Key::Semicolon => 16,
+                _ => return None,
+            })
+        };
+        let events = ctx.input(|i| i.events.clone());
+        for event in events {
+            let egui::Event::Key {
+                key,
+                pressed,
+                repeat,
+                modifiers,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if modifiers.command || repeat {
+                continue;
+            }
+            match key {
+                Key::Z if pressed => self.typing_octave = (self.typing_octave - 1).max(-3),
+                Key::X if pressed => self.typing_octave = (self.typing_octave + 1).min(3),
+                _ => {
+                    if let Some(offset) = semitone(key) {
+                        let pitch = (base + offset).clamp(0, 127) as u8;
+                        if pressed && !self.typing_down.contains(&pitch) {
+                            self.typing_down.push(pitch);
+                            self.live_note(true, pitch, 100);
+                        } else if !pressed {
+                            // Release whichever pitch this key started, even after an octave change.
+                            let candidates: Vec<u8> = self
+                                .typing_down
+                                .iter()
+                                .copied()
+                                .filter(|p| {
+                                    (*p as i32 - offset).rem_euclid(12) == base.rem_euclid(12)
+                                })
+                                .collect();
+                            for p in candidates {
+                                self.typing_down.retain(|q| *q != p);
+                                self.live_note(false, p, 0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     pub fn delete_selected(&mut self) {
         let s = self.store.session();
         if let Some(c) = s
@@ -1018,7 +1346,9 @@ impl Ondera {
         }
     }
 
-    pub(crate) fn instrument(&mut self, name: &str) {
+    /// Load an instrument (stock or external) onto the selected instrument
+    /// track, adding one when needed.
+    pub(crate) fn instrument(&mut self, plugin_id: &str, name: &str) {
         let selected = self
             .store
             .session()
@@ -1030,45 +1360,16 @@ impl Ondera {
             })
             .map(|t| t.id.clone());
         let track = selected.unwrap_or_else(|| self.add_track("midi"));
-        let mut strip = self
-            .store
-            .session()
-            .strips
-            .get(&track)
-            .cloned()
-            .unwrap_or_default();
-        strip.instrument = name.into();
-        self.dispatch(Command::SetStrip {
-            track: track.clone(),
-            strip,
-        });
+        self.set_instrument(&track, plugin_id, name);
         self.preview(&track, 60, 95);
     }
-    pub(crate) fn add_effect(&mut self, name: &str) {
-        let Some(track) = self.store.session().view.selected_track_id.clone() else {
+    /// Insert an effect on the selected track, bus or master strip.
+    pub(crate) fn add_effect(&mut self, plugin_id: &str, name: &str) {
+        let Some(target) = self.store.session().view.selected_track_id.clone() else {
+            self.error = Some("Select a track, a bus or the master strip first.".into());
             return;
         };
-        let mut strip = self
-            .store
-            .session()
-            .strips
-            .get(&track)
-            .cloned()
-            .unwrap_or_default();
-        let slot = Insert {
-            name: name.into(),
-            state: "active".into(),
-            meta: String::new(),
-        };
-        if let Some(empty) = strip.inserts.iter_mut().find(|i| i.state == "empty") {
-            *empty = slot;
-        } else if strip.inserts.len() < 4 {
-            strip.inserts.push(slot);
-        } else {
-            self.error = Some("The channel's four insert slots are occupied.".into());
-            return;
-        }
-        self.dispatch(Command::SetStrip { track, strip });
+        self.add_effect_to(&target, plugin_id, name);
     }
     pub(crate) fn add_loop(&mut self, name: &str) {
         let patterns: serde_json::Value =
@@ -1080,7 +1381,7 @@ impl Ondera {
         let Some(instrument) = pattern["instrument"].as_str() else {
             return;
         };
-        self.instrument(instrument);
+        self.instrument(&format!("stock:{instrument}"), instrument);
         let Some(track) = self.store.session().view.selected_track_id.clone() else {
             return;
         };
@@ -1171,7 +1472,11 @@ impl Ondera {
                         "Cmd/Ctrl + Z / Shift+Z: undo / redo. Cmd/Ctrl + D / T: duplicate / split.",
                         "Drag across the ruler to set the cycle range. Drop audio files to import.",
                         "Drag the tempo readout, click the signature or key to change them.",
-                        "Built-in instruments and effects only. No external plugin hosting or agent connection.",
+                        "Cmd/Ctrl + K: musical typing (A–L play notes, Z / X change octave).",
+                        "Audio > MIDI input picks a keyboard; arm an instrument track and record to capture notes.",
+                        "Effects tab: Ondera plugins plus scanned CLAP, VST3 and Audio Unit plugins.",
+                        "Click an insert to open its parameters; Open plugin window shows the native editor.",
+                        "Master and A / B buses have their own insert chains in the inspector.",
                     ] {
                         ui.label(text(line, FS_BODY, Weight::Medium, INK_CONTROL));
                     }
@@ -1217,6 +1522,7 @@ impl eframe::App for Ondera {
                 self.arrangement(ui);
             });
         self.dialogs(ctx);
+        self.plugin_windows(ctx);
         let dropped: Vec<_> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -1227,7 +1533,7 @@ impl eframe::App for Ondera {
         if !dropped.is_empty() {
             self.import(Some(dropped));
         }
-        if self.playing || self.job.is_some() {
+        if self.playing || self.job.is_some() || self.scan_job.is_some() || self.midi_recording {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else {
             ctx.request_repaint_after(Duration::from_millis(100));
@@ -1459,12 +1765,141 @@ mod tests {
         ))
         .unwrap();
         app.poll();
+        // Plugin reconciliation schedules an audio update; the quit waits for it too.
+        let started = std::time::Instant::now();
+        while app.job.is_some() && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(5));
+            app.poll();
+        }
         assert!(!app.closing);
         assert!(matches!(app.intent, Some(Intent::Quit)));
         assert!(app.store.dirty());
         let clip = &app.store.session().clips[0];
         assert_eq!(clip.start_bar, 2.0);
         assert!(clip.length_bars > 0.0);
+    }
+    #[test]
+    fn midi_take_becomes_a_region_on_each_armed_instrument_track() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.sync_needed = false;
+        let track = app
+            .store
+            .session()
+            .tracks
+            .iter()
+            .find(|t| t.kind == "midi")
+            .unwrap()
+            .id
+            .clone();
+        app.recording_midi_tracks = vec![track.clone()];
+        app.midi_recording = true;
+        app.record_start = 4.0;
+        app.position = 4.0;
+        app.record_note(true, 60, 100, 4.5);
+        app.record_note(true, 64, 90, 5.0);
+        app.record_note(false, 60, 0, 6.0);
+        app.position = 7.0;
+        app.finish_recording();
+        let clips: Vec<_> = app
+            .store
+            .session()
+            .clips
+            .iter()
+            .filter(|c| c.track_id == track)
+            .collect();
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].start_bar, 1.0);
+        assert_eq!(clips[0].length_bars, 1.0);
+        let ClipData::Midi { notes } = &clips[0].data else {
+            panic!()
+        };
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].start, 0.5);
+        assert_eq!(notes[0].length, 1.5);
+        assert_eq!(notes[1].pitch, 64);
+        assert_eq!(
+            notes[1].length, 2.0,
+            "open notes close when recording stops"
+        );
+        assert!(!app.midi_recording);
+        app.dispatch(Command::Undo);
+        assert!(app.store.session().clips.is_empty());
+    }
+    #[test]
+    fn effects_can_target_the_master_strip_and_reconcile_loads_stock_plugins() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.dispatch(Command::Select {
+            track: Some(MASTER.into()),
+            clip: None,
+            note: None,
+        });
+        app.add_effect("stock:Limiter", "Limiter");
+        let master = &app.store.session().strips[MASTER];
+        assert_eq!(master.inserts.len(), 1);
+        assert_eq!(master.inserts[0].plugin_id(), "stock:Limiter");
+        app.reconcile_plugins();
+        let key = app.store.session().strips[MASTER].inserts[0].id.clone();
+        assert!(app.plugins.loaded.contains_key(&key));
+        assert!(app.plugins.windows.contains_key(&key));
+        // Stock instruments of both bus effects and the instrument track are loaded too.
+        assert!(app
+            .plugins
+            .loaded
+            .values()
+            .any(|l| l.plugin_id == "stock:Space"));
+        assert!(app
+            .plugins
+            .loaded
+            .values()
+            .any(|l| l.plugin_id == "stock:Ondera Synth"));
+        // Removing the insert retires its instance.
+        let mut strip = app.store.session().strips[MASTER].clone();
+        strip.inserts.clear();
+        app.dispatch(Command::SetStrip {
+            track: MASTER.into(),
+            strip,
+        });
+        app.reconcile_plugins();
+        assert!(!app.plugins.loaded.contains_key(&key));
+    }
+    #[test]
+    fn installed_audio_unit_loads_through_the_plugin_bank() {
+        // Apple's AUDelay ships with macOS; the test is a no-op elsewhere or before a scan.
+        let id = "au:61756678:64656c79:6170706c";
+        let Some(desc) = host::scan::lookup(id) else {
+            return;
+        };
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.catalog = host::scan::installed();
+        let track = app.store.session().tracks[0].id.clone();
+        app.add_effect_to(&track, id, &desc.name);
+        app.reconcile_plugins();
+        let key = app.store.session().strips[&track].inserts[0].id.clone();
+        let entry = app.plugins.loaded.get(&key).expect("AUDelay instantiates");
+        assert!(entry.external);
+        assert!(entry.editor.has_gui());
+        assert_eq!(entry.editor.params().len(), 4);
+        app.capture_plugin_states();
+        assert!(!app.store.session().strips[&track].inserts[0]
+            .blob
+            .is_empty());
+        app.unload_plugins();
+        assert!(app.plugins.loaded.is_empty());
+    }
+    #[test]
+    fn inspector_renders_bus_strips_without_a_track() {
+        let (mut app, ctx) = setup();
+        app.dispatch(Command::Select {
+            track: Some(BUS_A.into()),
+            clip: None,
+            note: None,
+        });
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| app.inspector(ctx));
+        assert!(app.error.is_none());
     }
     #[test]
     fn failed_take_cancels_deferred_quit_and_preserves_session() {

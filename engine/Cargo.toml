@@ -14,4 +14,15 @@ symphonia = { version = "0.5", features = ["all"] }
 hound = "3.5"
 tempfile = "3"
 base64 = "0.22"
+clap-sys = "0.5"
+vst3 = "0.3"
+libloading = "0.8"
+midir = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-audio-toolbox = { version = "0.3", features = ["AudioComponent", "AUComponent", "AudioUnitProperties", "MusicDevice", "AudioUnitParameters", "objc2-core-foundation", "objc2-core-audio-types"] }
+objc2-core-audio-types = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["CFPropertyList", "CFData", "CFDictionary", "CFString", "CFURL", "CFBundle", "CFBase", "CFCGTypes"] }
+objc2-foundation = "0.3"
 

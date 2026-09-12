@@ -21,6 +21,7 @@ pub enum Command {
         strip: Strip,
     },
     SetTransport(Transport),
+    SetMasterVolume(f32),
     Select {
         track: Option<String>,
         clip: Option<String>,
@@ -45,7 +46,8 @@ pub struct Store {
     gesture_recorded: bool,
 }
 impl Store {
-    pub fn new(session: Session) -> Result<Self> {
+    pub fn new(mut session: Session) -> Result<Self> {
+        session.normalize();
         session.validate()?;
         let session = Arc::new(session);
         Ok(Self {
@@ -79,7 +81,8 @@ impl Store {
             self.saved_id = self.document_id;
         }
     }
-    pub fn load(&mut self, session: Session) -> Result<()> {
+    pub fn load(&mut self, mut session: Session) -> Result<()> {
+        session.normalize();
         session.validate()?;
         self.session = Arc::new(session);
         self.past.clear();
@@ -88,6 +91,16 @@ impl Store {
         self.document_id = self.revision;
         self.saved_id = self.document_id;
         self.gesture_recorded = false;
+        Ok(())
+    }
+    /// Update derived data (captured plugin state) without touching history
+    /// or the dirty flag. The revision still advances so audio resyncs.
+    pub fn amend(&mut self, edit: impl FnOnce(&mut Session)) -> Result<()> {
+        let mut next = (*self.session).clone();
+        edit(&mut next);
+        next.validate()?;
+        self.session = Arc::new(next);
+        self.revision += 1;
         Ok(())
     }
     /// Coalesce a slider drag or one focused text edit into one undo step.
@@ -196,12 +209,13 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             s.sources.insert(source.id.clone(), source);
         }
         Command::SetStrip { track, strip } => {
-            if !s.tracks.iter().any(|t| t.id == track) {
+            if !is_bus(&track) && !s.tracks.iter().any(|t| t.id == track) {
                 return Err("Track not found".into());
             }
             s.strips.insert(track, strip);
         }
         Command::SetTransport(t) => s.transport = t,
+        Command::SetMasterVolume(v) => s.master_volume = v,
         Command::Select { track, clip, note } => {
             s.view.selected_track_id = track;
             s.view.selected_clip_id = clip.clone();
@@ -252,6 +266,7 @@ pub fn demo() -> Session {
     s.transport.playing = false;
     s.transport.recording = false;
     s.extra.insert("agent".into(),serde_json::json!({"status":"idle","transport":"no agent connected","current":null,"log":[],"draft":""}));
+    s.normalize();
     s
 }
 pub fn empty() -> Session {
@@ -260,6 +275,7 @@ pub fn empty() -> Session {
     s.clips.clear();
     s.sources.clear();
     s.strips.clear();
+    s.normalize();
     s.tracks.truncate(2);
     for t in &mut s.tracks {
         t.mute = false;

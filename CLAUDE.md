@@ -14,6 +14,14 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs
   on workers, transfer through bounded queues, and reclaim old graphs outside the callback.
+- Plugins (`engine/src/plugin.rs`, `engine/src/host/`, `engine/src/stock.rs`): every insert and
+  instrument is an `Instance` (main-thread `Editor` + audio-thread `Processor`). Processors live
+  in the callback's `Rack`, keyed by insert id, and survive renderer rebuilds; a new `Renderer`
+  must `adopt` the old one so held notes are released or chased. Create, activate, save state
+  and destroy plugins on the UI thread only; unmount through the queue and wait for retirement
+  before dropping an editor. Parameter values are document state (`Insert.params`) so they undo;
+  external plugin state is captured into `Insert.blob` on save and bounce. Scan bundles only in
+  the `--scan-plugin` child process. New stock DSP goes in `stock.rs` behind the same traits.
 - Platform streams belong to their owning workers; never force Send with an unsafe impl.
 - File operations must preserve the old file on failure. Keep v1 `.ondera` loading covered by tests.
 - Run fmt, clippy with warnings denied, and workspace tests. Check a real native window after

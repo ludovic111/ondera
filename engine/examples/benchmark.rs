@@ -1,28 +1,33 @@
-use ondera_engine::{
-    audio::{prepare_sources, Library},
-    render::Renderer,
-    store,
-};
+//! Offline render throughput: 30 seconds of the demo at 48 kHz in 128-frame blocks.
+use ondera_engine::{audio, render, store};
+use std::time::Instant;
+
 fn main() {
     let session = store::demo();
-    let mut library = Library::new();
-    prepare_sources(&session, &mut library).unwrap();
-    let mut renderer = Renderer::new(session, &library, 48000).unwrap();
+    let mut library = audio::Library::new();
+    audio::prepare_sources(&session, &mut library).unwrap();
+    let (mut renderer, mut rack) = render::offline(&session, &library, 48000).unwrap();
     renderer.playing = true;
-    let start = std::time::Instant::now();
-    let blocks = 48000 * 30 / 128;
-    let mut durations = Vec::with_capacity(blocks);
-    let mut peak = 0.0_f32;
+    renderer.locate(0.0);
+    let blocks = 30 * 48000 / 128;
+    let mut worst = 0.0f64;
+    let mut block = [[0.0f32; 2]; 128];
+    let started = Instant::now();
+    let mut acc = 0.0f64;
     for _ in 0..blocks {
-        let at = std::time::Instant::now();
-        renderer.begin_block();
-        for _ in 0..128 {
-            let f = std::hint::black_box(renderer.next_frame());
-            peak = peak.max(f[0].abs()).max(f[1].abs());
+        let t = Instant::now();
+        renderer.render(&mut rack, &mut block);
+        for f in &block {
+            acc += (f[0] + f[1]) as f64;
         }
-        durations.push(at.elapsed().as_secs_f64());
+        worst = worst.max(t.elapsed().as_secs_f64());
     }
-    let total = start.elapsed().as_secs_f64();
-    durations.sort_by(f64::total_cmp);
-    println!("30 s demo, 48 kHz, 128 frames: {:.3} s render ({:.1}x realtime), average DSP {:.2}%, p99 block {:.3} ms / 2.667 ms budget, peak {:.4}, voice overflows {}",total,30.0/total,total/30.0*100.0,durations[durations.len()*99/100]*1000.0,peak,renderer.voice_overflows);
+    let elapsed = started.elapsed().as_secs_f64();
+    println!(
+        "Rendered 30 s in {elapsed:.3} s ({:.1}x real time), worst block {:.3} ms of {:.3} ms budget, checksum {acc:.3}, voice overflows {}",
+        30.0 / elapsed,
+        worst * 1000.0,
+        128.0 / 48.0,
+        renderer.voice_overflows
+    );
 }

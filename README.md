@@ -51,16 +51,25 @@ and a ZIP. This is an ad-hoc signed test app, without Developer ID notarization.
 - Double-click a sound or loop in the library. Double-click an empty MIDI lane to create a
   region, or use the Pencil tool. Click/drag in the piano roll to draw notes; drag a note to move
   it or its right edge to resize. Right-click for velocity and deletion. Step mode toggles notes.
+  Edit > Quantize / Transpose act on the selected region.
 - Drag regions to move, including to another track of the same type. Drag edges to trim. Use
   Scissors or Cmd/Ctrl+T to split at the playhead; Cmd/Ctrl+D duplicates the selected region.
 - Space plays/stops, Enter returns to the start, 0 stops, C toggles cycle, K toggles the click.
   Drag across the ruler to set the cycle. F toggles following; Z fits the arrangement.
+- **Play live**: Cmd/Ctrl+K turns on musical typing (A–L play notes, Z / X change octave) on the
+  selected instrument track. Audio > MIDI input connects a hardware keyboard; notes go straight to
+  the audio thread.
+- **Record**: arm audio tracks to capture the input device, arm instrument tracks to capture
+  MIDI from the keyboard or musical typing. Enable Rec, press Play, stop to keep the take. Audio
+  takes need microphone permission; hardware latency compensation and loop takes are not
+  implemented.
 - File > Import Audio or drop files to import mono/stereo WAV, AIFF, FLAC, MP3, Ogg/Vorbis,
   AAC/M4A and other formats supported by Symphonia. Unsupported codecs return an error.
-- Arm an audio track, disable Cycle, enable Rec and press Play to capture a linear take.
-  Microphone permission belongs to the operating system. The take is placed at the first input
-  callback's playhead position; hardware latency compensation and loop takes are not implemented.
-- Four inserts per channel, two effect sends, fader and stereo pan are available in the inspector.
+- **Mixing**: every track, the A / B aux buses and the master strip have eight insert slots, and
+  tracks have two sends. Effects come from the stock library or from scanned CLAP, VST3 and
+  Audio Unit plugins; instruments likewise. Click an insert for its parameters, *Open plugin
+  window* for the native editor. See [docs/PLUGINS.md](docs/PLUGINS.md).
+- Audio > Output / Input device pick the interface; MIDI input picks the controller.
 - Cmd/Ctrl+S saves, Cmd/Ctrl+O opens, Cmd/Ctrl+I imports, Cmd/Ctrl+B exports stereo 48 kHz /
   24-bit WAV. Undo/redo uses Cmd/Ctrl+Z / Shift+Z. A drag or text edit is one undo gesture.
 
@@ -71,33 +80,42 @@ These commands work without a window or an audio device:
 ```sh
 cargo run --release -- --validate song.ondera
 cargo run --release -- --bounce song.ondera mix.wav
+cargo run --release -- --scan-plugins
+cargo run --release -- --plugins
 cargo run --release -p ondera-engine --example benchmark
+cargo run --release -p ondera-engine --example probe -- "clap:com.example.plugin"
 ```
 
-The command enum in `engine/src/store.rs` is serializable and shared by the UI and headless
-Rust clients. A public CLI command registry, MCP connection and third-party plugin hosting are
-not implemented; the former app also did not provide those features.
+Bouncing instantiates the session's plugins on the worker thread and restores their saved
+state, so exports match playback. The command enum in `engine/src/store.rs` is serializable and
+shared by the UI and headless Rust clients. A public CLI command registry and MCP connection are
+not implemented.
 
 ## Architecture
 
 ```
-desktop/  egui native interface, wgpu rendering, native file dialogs
+desktop/  egui native interface, wgpu rendering, native file dialogs, plugin windows
     │     typed commands + immutable session snapshots
 engine/   session validation, undo/redo, document and audio library
+    │     plugin hosts (stock, CLAP, VST3, Audio Units), scanning cache, MIDI input
     │     prepared graphs, bounded lock-free queues, atomic telemetry
-    └──   CPAL output callback → native DSP → system audio
+    └──   CPAL output callback → renderer + plugin rack → system audio
           CPAL input callback → bounded recording queue → worker
 ```
 
 The audio callback performs no heap allocations, deallocations, file access or mutex locking.
-Graph creation, decoding, generation and exports run off the UI/audio callback. Old audio graphs
-are reclaimed outside the callback and graph replacements crossfade over 5 ms. Rendering runs
-at the device's negotiated sample rate. Meter data is atomic; the GUI repaints at approximately
-30 Hz during playback and less frequently while idle. The offline renderer shares the DSP code.
+Graph creation, decoding, generation and exports run off the UI/audio callback. Plugin
+instances live in a rack that the callback owns; renderers are rebuilt on every edit and adopt
+the previous renderer's transport and held notes, so replacements are click-free without
+re-instantiating anything. Old graphs and unmounted processors are reclaimed on the main thread.
+Rendering runs at the device's negotiated sample rate in blocks of at most 256 frames. Meter data
+is atomic; the GUI repaints at approximately 30 Hz during playback and less frequently while
+idle. The offline renderer shares the DSP code and the plugin hosts.
 
-Capacity is explicit: 128 tracks, 256 simultaneous arrangement voices, 32 preview voices,
-4 inserts/channel, 512 MiB per decoded source, 1 GiB of declared session audio, and 4-hour export.
-These are implementation bounds, not a promise that every device can sustain maximum load.
+Capacity is explicit: 128 tracks, 256 simultaneous arrangement events, 32 voices per stock
+instrument, 8 inserts per strip, 1024 rack slots, 512 MiB per decoded source, 1 GiB of declared
+session audio, and 4-hour export. These are implementation bounds, not a promise that every
+device can sustain maximum load.
 
 `legacy/` preserves the previous Electron/TypeScript source for comparison and regression
 fixtures. It is outside the Cargo workspace and is never built or loaded by the native app.

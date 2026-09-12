@@ -24,6 +24,7 @@ pub fn decode_session(json: &str) -> Result<(Session, Library)> {
     if file.format != "ondera-session" || file.version != 1 {
         return Err("Unsupported Ondera session format or version".into());
     }
+    file.session.normalize();
     file.session.validate()?;
     let mut library = Library::new();
     for (id, src) in &file.session.sources {

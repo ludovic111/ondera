@@ -45,13 +45,32 @@ Cross-platform builds, test logs and binaries are attached to the
 
 The final delivery note and CI runs contain the latest platform verification results.
 
+## Plugin hosting evidence (2026-09-12)
+
+- 43 workspace tests pass (32 engine, 11 interface), including real-time allocation counts with
+  four stock inserts mounted, held-note reconciliation across graph swaps, live notes surviving
+  swaps, MIDI takes becoming regions, master/bus strips and the scan cache.
+- `ondera --scan-plugins` on the owner's Apple Silicon Mac found 22 CLAP, 1085 VST3 and 1102 Audio
+  Unit entries in 2 m 17 s with isolated probing; one VST3 (UAD Console Recall) printed to stdout
+  during its probe, which the parser now tolerates.
+- `probe` instantiated FabFilter Pro-Q 4 as CLAP (600 parameters) and VST3 (736), Pro-C 2 as
+  CLAP and AU, Apple AUDelay and the DLSMusicDevice instrument: parameters listed, one second
+  processed with finite output, state saved and restored, instances destroyed cleanly.
+- A session with Pro-Q 4 (CLAP) on the bass, DLSMusicDevice (AU) as the keys instrument and
+  Pro-C 2 (AU) plus the stock Limiter on the master bounced headlessly in 1.3 s; the master
+  compressor lowered the mix RMS from 0.146 to 0.091.
+- The engine and desktop crates also pass `cargo check` for `x86_64-pc-windows-msvc`.
+
 ## Known limits
 
 - This is a first native port, not a claim of exhaustive production DAW qualification.
 - Native synths, EQ, reverb and dynamics differ from Web Audio. MIDI events and imported PCM
   survive migration, but old mixes and regenerated demo sound are not bit-identical.
 - Stereo files are linearly resampled. No time stretching, high-quality offline resampling,
-  MIDI hardware input, external plugin hosting, automation curves or MCP server yet.
+  automation curves, plugin delay compensation or MCP server yet.
+- Plugin hosting (added 2026-09-12, see `PLUGINS.md`): CLAP, VST3 and Audio Units load in
+  process; scanning is isolated. Native editor windows exist on macOS only. Plugins that need
+  sidechain inputs, more than one audio bus or 64-bit processing get their main stereo bus only.
 - Recording requires system microphone permission, uses the default input and captures linear
   takes. No loop-take comping or measured hardware latency compensation. A dropped/overflowed
   take reports an error instead of silently inserting corrupted audio.
