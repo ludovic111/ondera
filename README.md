@@ -97,6 +97,10 @@ Work on a branch, keep commits small, and open a pull request against `main`. Re
 first; it is short and it is the contract. If something in the design is ambiguous, ask in the PR
 rather than guessing.
 
+## Author
+
+Ludovic Marie, [@lu4ovic](https://twitter.com/lu4ovic) on Twitter.
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT, copyright Ludovic Marie. See [LICENSE](LICENSE).
