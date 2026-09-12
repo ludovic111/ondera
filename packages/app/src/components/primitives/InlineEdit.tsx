@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { isEnterKey } from '../../state/shortcuts';
 import styles from './InlineEdit.module.css';
 
 export interface InlineEditProps {
@@ -30,7 +31,7 @@ export function InlineEdit({ value, onCommit, onCancel, className, style, mono }
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
-    if (e.key === 'Enter') commit();
+    if (isEnterKey(e)) commit();
     if (e.key === 'Escape') {
       done.current = true;
       onCancel();

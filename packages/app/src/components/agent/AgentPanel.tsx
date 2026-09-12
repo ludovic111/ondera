@@ -2,6 +2,7 @@ import type { KeyboardEvent } from 'react';
 import { commands, type AgentLogEntry } from '@ondera/core';
 import { useDispatch, useSession } from '../../state/session';
 import { newId } from '../../state/ids';
+import { isEnterKey } from '../../state/shortcuts';
 import { Button } from '../primitives/Button';
 import { CapsLabel } from '../primitives/CapsLabel';
 import { ChevronRightIcon, SendIcon } from '../primitives/Icons';
@@ -16,7 +17,7 @@ export function AgentPanel() {
     dispatch(commands.agent.submit({ entryId: newId('log'), text: agent.draft }));
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (isEnterKey(e)) {
       e.preventDefault();
       submit();
     }

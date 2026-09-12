@@ -106,13 +106,13 @@ export function EditorPane() {
     const pitch = pitchAtY(geo, p.y);
     const beat = Math.max(0, snapB(beatAtX(geo, p.x), e.altKey));
     if (beat >= lengthBeats) return;
-    if (mode === 'step' || state.view.arrangeTool === 'pencil' || e.detail === 2) {
+    if (mode === 'step') {
       const length = Math.min(stepBeats(), lengthBeats - beat);
       dispatch(commands.note.add({ clipId: clip.id, noteId: newId('note'), start: beat, length, pitch, velocity }));
       audition(pitch);
       return;
     }
-    // Drag on empty space draws a note.
+    // Click on empty space adds a step-length note; dragging draws a longer one.
     drag.current = { kind: 'pencil', anchor: beat, start: beat, length: 0, pitch };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -163,8 +163,11 @@ export function EditorPane() {
       }
     } else if (d.kind === 'resize') {
       if (d.length !== d.origLength) dispatch(commands.note.update({ clipId: clip.id, noteId: d.noteId, length: d.length }));
-    } else if (d.length > 0) {
-      dispatch(commands.note.add({ clipId: clip.id, noteId: newId('note'), start: d.start, length: d.length, pitch: d.pitch, velocity }));
+    } else {
+      const lengthBeats = clip.lengthBars * (4 * (store.getState().transport.timeSignature.numerator / store.getState().transport.timeSignature.denominator));
+      const length = Math.min(d.length > 0 ? d.length : stepBeats(), lengthBeats - d.start);
+      if (length <= 0) return;
+      dispatch(commands.note.add({ clipId: clip.id, noteId: newId('note'), start: d.start, length, pitch: d.pitch, velocity }));
       audition(d.pitch);
     }
   };

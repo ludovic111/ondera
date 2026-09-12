@@ -31,5 +31,11 @@ export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
   if (e.shiftKey !== Boolean(s.shift)) return false;
   if (e.altKey !== Boolean(s.alt)) return false;
   if (s.key === 'Space') return e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
+  if (s.key === 'Enter') return isEnterKey(e);
   return e.key.toLowerCase() === s.key.toLowerCase();
+}
+
+/** Enter as reported by different hosts and keypads. */
+export function isEnterKey(e: { key: string; code?: string }): boolean {
+  return e.key === 'Enter' || e.key === 'Return' || e.code === 'Enter' || e.code === 'NumpadEnter';
 }
