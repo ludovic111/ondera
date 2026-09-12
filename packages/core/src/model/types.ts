@@ -111,6 +111,8 @@ export type AgentStatus = 'idle' | 'working';
 
 export interface AgentAction {
   description: string;
+  /** Short form for the chip that floats over the lane, e.g. "adding 7ths, bars 5–8". */
+  summary: string;
   /** Progress 0..1. */
   progress: number;
   progressLabel: string;

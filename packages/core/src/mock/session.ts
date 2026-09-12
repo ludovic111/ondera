@@ -136,6 +136,7 @@ export function createMockSession(): Session {
       current: {
         description:
           'Thickening the Keys part in bars 5–8: adding a 7th to each chord and lowering velocities 8% so it sits under the vocal.',
+        summary: 'adding 7ths, bars 5–8',
         progress: 18 / 29,
         progressLabel: '18 / 29 notes',
       },

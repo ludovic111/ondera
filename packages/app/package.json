@@ -3,7 +3,6 @@
   "version": "0.0.1",
   "private": true,
   "description": "Ondera desktop app: Electron + Vite + React",
-  "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
