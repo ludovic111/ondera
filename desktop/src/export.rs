@@ -107,6 +107,9 @@ impl ExportDialog {
     pub(crate) fn busy(&self) -> bool {
         self.chooser.is_some() || self.awaiting.is_some()
     }
+    pub(crate) fn close(&mut self) {
+        self.open = false;
+    }
 
     fn request(&self, session: &Session) -> Result<PreparedCommand> {
         let selected: Vec<&str> = session
@@ -460,8 +463,11 @@ impl Ondera {
         .open(&mut open)
         .default_width(BROWSER * 2.0)
         .resizable(true)
+        .frame(window_frame())
         .show(ctx, |ui| {
-            choose = self.export.ui(ui, &session, blocked);
+            plate(ui, "export-plate", |ui| {
+                choose = self.export.ui(ui, &session, blocked);
+            });
         });
         self.export.open = open;
         if choose {

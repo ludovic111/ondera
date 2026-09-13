@@ -6,7 +6,7 @@ bash scripts/verify-release.sh
 tag=${GITHUB_REF_NAME:?Missing release tag}
 notes="docs/releases/${tag#v}.md"
 assets=(Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip)
-for asset in "${assets[@]}" SHA256SUMS; do
+for asset in "${assets[@]}" SHA256SUMS SHA256SUMS.sig; do
   test -s "dist/$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
 done
 (cd dist && sha256sum --check SHA256SUMS)
@@ -23,7 +23,7 @@ if gh release view "$tag" --json isDraft,assets > "$metadata"; then
       echo "$tag is already published with different checksums. Publish changes under a new version." >&2
       exit 1
     }
-    python3 - "$metadata" "${assets[@]}" SHA256SUMS <<'PY'
+    python3 - "$metadata" "${assets[@]}" SHA256SUMS SHA256SUMS.sig <<'PY'
 import json, sys
 present = {asset['name'] for asset in json.load(open(sys.argv[1]))['assets']}
 missing = set(sys.argv[2:]) - present
@@ -37,7 +37,7 @@ else
   # A network/auth failure cannot overwrite anything: create will fail if the release exists.
   gh release create "$tag" --verify-tag --draft --title "Ondera ${tag#v}" --notes-file "$notes"
 fi
-uploads=(dist/SHA256SUMS)
+uploads=(dist/SHA256SUMS dist/SHA256SUMS.sig)
 for asset in "${assets[@]}"; do uploads+=("dist/$asset"); done
 # Confirm it is still a draft immediately before the only replace operation.
 test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true || {

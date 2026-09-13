@@ -224,7 +224,7 @@ impl Svf {
     }
 }
 
-/// One-pole parameter smoother: call `set` from `set_param`, `next` once per frame.
+/// One-pole parameter smoother: call `set` from `set_param`, `step` once per frame.
 #[derive(Clone, Copy, Debug)]
 pub struct Smoother {
     current: f32,
@@ -247,7 +247,7 @@ impl Smoother {
         self.target = value;
     }
     #[inline]
-    pub fn next(&mut self) -> f32 {
+    pub fn step(&mut self) -> f32 {
         self.current += self.coefficient * (self.target - self.current);
         self.current
     }

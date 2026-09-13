@@ -347,7 +347,14 @@ pub fn install(ctx: &egui::Context) {
     v.widgets.active.fg_stroke = Stroke::new(1.0, INK);
     v.widgets.active.corner_radius = CornerRadius::same(R_MD as u8);
     v.widgets.open = v.widgets.hovered;
+    v.text_edit_bg_color = Some(WELL_DEEP);
     style.visuals = v;
+    style.spacing.scroll = egui::style::ScrollStyle {
+        bar_width: 7.0,
+        floating: true,
+        foreground_color: true,
+        ..egui::style::ScrollStyle::solid()
+    };
     style.spacing.item_spacing = vec2(GAP, 6.0);
     style.spacing.button_padding = vec2(10.0, 4.0);
     style.spacing.interact_size = vec2(28.0, 24.0);
@@ -892,6 +899,7 @@ pub fn clip_slab(p: &Painter, r: Rect, color: Color32, selected: bool, agent: bo
     let top = PANEL.lerp_to_gamma(color, 0.66);
     let bottom = PANEL.lerp_to_gamma(color, 0.50);
     shade_rect(p, r, R_CLIP, vertical(r, top, bottom));
+    gloss(p, r, R_CLIP, 0.07);
     let strip = Rect::from_min_size(r.min, vec2(r.width(), CLIP_TITLE.min(r.height())));
     p.rect_filled(
         strip,
@@ -981,6 +989,9 @@ pub enum Icon {
     Search,
     ChevronRight,
     ArrowUp,
+    Gear,
+    Chat,
+    List,
 }
 fn tri(p: &Painter, a: Pos2, b: Pos2, c: Pos2, color: Color32) {
     p.add(Shape::convex_polygon(vec![a, b, c], color, Stroke::NONE));
@@ -1148,6 +1159,38 @@ pub fn icon(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 stroke,
             ));
         }
+        Icon::Gear => {
+            p.circle_stroke(c, 4.5, Stroke::new(1.6, color));
+            p.circle_filled(c, 1.6, color);
+            for i in 0..8 {
+                let a = std::f32::consts::TAU * i as f32 / 8.0;
+                let dir = vec2(a.cos(), a.sin());
+                p.line_segment([c + dir * 5.0, c + dir * 7.0], Stroke::new(1.8, color));
+            }
+        }
+        Icon::Chat => {
+            let (w, h) = (12.0, 11.0);
+            p.add(Shape::closed_line(
+                vec![
+                    at(0.5, 0.5, w, h),
+                    at(11.5, 0.5, w, h),
+                    at(11.5, 7.5, w, h),
+                    at(5.0, 7.5, w, h),
+                    at(2.0, 10.5, w, h),
+                    at(2.0, 7.5, w, h),
+                    at(0.5, 7.5, w, h),
+                ],
+                stroke,
+            ));
+        }
+        Icon::List => {
+            let (w, h) = (11.0, 9.0);
+            for i in 0..3 {
+                let y = 0.5 + i as f32 * 4.0;
+                p.circle_filled(at(1.0, y, w, h), 1.1, color);
+                p.line_segment([at(4.0, y, w, h), at(11.0, y, w, h)], stroke);
+            }
+        }
     }
 }
 
@@ -1200,6 +1243,9 @@ pub fn icon_button(ui: &mut Ui, size: Vec2, face_kind: Face, icon_kind: Icon) ->
         Icon::Search => "Search",
         Icon::ChevronRight => "Collapse",
         Icon::ArrowUp => "Send",
+        Icon::Gear => "Settings",
+        Icon::Chat => "Chat",
+        Icon::List => "Changes",
     };
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
@@ -1468,6 +1514,7 @@ pub fn inline_edit(
 /// Fills the bar behind a toolbar with the transport gradient and its edges.
 pub fn transport_bar(p: &Painter, r: Rect) {
     shade_rect(p, r, 0.0, vertical(r, TRANSPORT_TOP, TRANSPORT_BOTTOM));
+    brushed(p, r, 0.022);
     hline(p, r.left(), r.right(), r.top(), white(0.06));
     inset(
         p,
@@ -1480,5 +1527,294 @@ pub fn transport_bar(p: &Painter, r: Rect) {
 }
 pub fn toolbar_bar(p: &Painter, r: Rect) {
     p.rect_filled(r, 0.0, PANEL);
+    brushed(p, r, 0.014);
+    hline(p, r.left(), r.right(), r.top(), white(0.04));
     hline(p, r.left(), r.right(), r.bottom() - 1.0, black(0.6));
+}
+
+// ---------------------------------------------------------------------------
+// Second-pass materials: faceplates, screws, brushed bars, switches and glass
+// frames for floating windows. Same recipe, applied to more surfaces.
+// ---------------------------------------------------------------------------
+
+pub const FACEPLATE_TOP: Color32 = Color32::from_rgb(0x36, 0x36, 0x35);
+pub const FACEPLATE_BOTTOM: Color32 = Color32::from_rgb(0x2a, 0x2a, 0x29);
+pub const SWITCH_ON_TOP: Color32 = Color32::from_rgb(0x4a, 0x8f, 0x8c);
+pub const SWITCH_ON_BOTTOM: Color32 = Color32::from_rgb(0x2d, 0x6d, 0x6a);
+
+/// Faint horizontal hairlines that read as brushed metal.
+pub fn brushed(p: &Painter, r: Rect, alpha: f32) {
+    if !r.is_positive() || alpha <= 0.0 {
+        return;
+    }
+    let mut y = r.top() + 1.5;
+    let mut i = 0u32;
+    while y < r.bottom() {
+        let a = if i % 3 == 0 { alpha } else { alpha * 0.45 };
+        hline(p, r.left(), r.right(), y, white(a));
+        y += 3.0;
+        i += 1;
+    }
+}
+/// A machine screw: milled disc with a slot, light from above.
+pub fn screw(p: &Painter, c: Pos2, radius: f32) {
+    let r = Rect::from_center_size(c, Vec2::splat(radius * 2.0));
+    drop_shadow(p, r, radius, 1.0, 2.0, black(0.6));
+    shade_circle(p, c, radius, radial(c, radius, 0.3, 0.8, KNOB_HI, KNOB_LO));
+    p.circle_stroke(c, radius - 0.5, Stroke::new(1.0, black(0.55)));
+    let a = 0.6f32;
+    let d = vec2(a.cos(), a.sin()) * (radius - 1.5);
+    p.line_segment([c - d, c + d], Stroke::new(1.5, black(0.7)));
+    p.line_segment(
+        [c - d + vec2(0.0, 1.0), c + d + vec2(0.0, 1.0)],
+        Stroke::new(0.8, white(0.12)),
+    );
+}
+/// The instrument faceplate behind a floating window's content: raised slab, brushed
+/// finish and a screw in each corner.
+pub fn faceplate(p: &Painter, r: Rect, radius: f32) {
+    shade_rect(p, r, radius, vertical(r, FACEPLATE_TOP, FACEPLATE_BOTTOM));
+    brushed(p, r.shrink(1.0), 0.028);
+    edge_top(p, r, radius, white(0.12));
+    edge_bottom(p, r, radius, black(0.55));
+    inner_border(p, r, radius, black(0.45));
+    for (dx, dy) in [(1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)] {
+        screw(
+            p,
+            pos2(
+                if dx > 0.0 {
+                    r.left() + 11.0
+                } else {
+                    r.right() - 11.0
+                },
+                if dy > 0.0 {
+                    r.top() + 11.0
+                } else {
+                    r.bottom() - 11.0
+                },
+            ),
+            3.5,
+        );
+    }
+}
+/// A darker recessed area inside a faceplate (the "display" of a device).
+pub fn faceplate_well(p: &Painter, r: Rect, radius: f32) {
+    lip(p, r, radius, white(0.06));
+    p.rect_filled(r, radius, TIMELINE_EMPTY);
+    inset(p, r, radius, Side::Top, 4.0, black(0.75));
+    inner_border(p, r, radius, black(0.55));
+}
+/// Floating window chrome: dark glass edge, deep shadow, room for the faceplate.
+pub fn window_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(PANEL)
+        .stroke(Stroke::new(1.0, black(0.7)))
+        .corner_radius(CornerRadius::same(R_CARD as u8))
+        .inner_margin(egui::Margin::same(0))
+        .shadow(Shadow {
+            offset: [0, 12],
+            blur: 30,
+            spread: 0,
+            color: black(0.6),
+        })
+}
+/// Frosted dialog surface for modals.
+pub fn dialog_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(Color32::from_rgba_unmultiplied(0x3a, 0x3a, 0x38, 246))
+        .stroke(Stroke::new(1.0, black(0.6)))
+        .corner_radius(CornerRadius::same(R_CARD as u8))
+        .inner_margin(egui::Margin::same(18))
+        .shadow(Shadow {
+            offset: [0, 14],
+            blur: 34,
+            spread: 0,
+            color: black(0.6),
+        })
+}
+/// A gloss highlight across the upper part of a slab.
+pub fn gloss(p: &Painter, r: Rect, radius: f32, alpha: f32) {
+    let top = Rect::from_min_max(r.min, pos2(r.right(), r.top() + r.height() * 0.45));
+    shade_rect(p, top, radius, move |q| {
+        let t = ((q.y - top.top()) / top.height().max(1.0)).clamp(0.0, 1.0);
+        white(alpha * (1.0 - t))
+    });
+}
+/// Tick marks around a knob's sweep.
+pub fn knob_ticks(p: &Painter, center: Pos2, radius: f32) {
+    for i in 0..11 {
+        let a = (-135.0 + 27.0 * i as f32 - 90.0).to_radians();
+        let dir = vec2(a.cos(), a.sin());
+        let major = i % 5 == 0;
+        let inner = radius + 3.0;
+        let outer = inner + if major { 4.0 } else { 2.5 };
+        p.line_segment(
+            [center + dir * inner, center + dir * outer],
+            Stroke::new(1.0, if major { DIM } else { FAINT }),
+        );
+    }
+}
+/// Piano keys with real depth: ivory faces and lacquered sharps.
+pub fn white_key(p: &Painter, r: Rect, pressed: bool) {
+    let (top, bottom) = if pressed {
+        (
+            WHITE_KEY.gamma_multiply(0.86),
+            WHITE_KEY.gamma_multiply(0.8),
+        )
+    } else {
+        (
+            WHITE_KEY.lerp_to_gamma(Color32::WHITE, 0.12),
+            WHITE_KEY.gamma_multiply(0.94),
+        )
+    };
+    shade_rect(p, r, 0.0, vertical(r, top, bottom));
+    hline(p, r.left(), r.right(), r.bottom() - 1.0, black(0.35));
+    vline(p, r.right() - 1.0, r.top(), r.bottom(), black(0.18));
+}
+pub fn black_key(p: &Painter, r: Rect, pressed: bool) {
+    let (top, bottom) = if pressed {
+        (BLACK_KEY.gamma_multiply(0.8), BLACK_KEY)
+    } else {
+        (BLACK_KEY.lerp_to_gamma(Color32::WHITE, 0.14), BLACK_KEY)
+    };
+    shade_rect(p, r, 0.0, vertical(r, top, bottom));
+    hline(p, r.left(), r.right(), r.top(), white(0.14));
+    hline(p, r.left(), r.right(), r.bottom() - 1.0, black(0.6));
+}
+/// A text button with a status LED at its left; pressed while `on`.
+pub fn text_button_led(ui: &mut Ui, label: &str, on: bool) -> Response {
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.into(), font(FS_SECONDARY, Weight::SemiBold), INK);
+    let size = vec2(galley.size().x + 32.0, 26.0);
+    let response = button(ui, size, Face::from_flag(on), R_CONTROL, |p, r, ink| {
+        led(
+            p,
+            Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(5.0, 6.0)),
+            on,
+            false,
+        );
+        p.galley(
+            pos2(r.left() + 22.0, r.center().y - galley.size().y / 2.0),
+            galley.clone(),
+            ink,
+        );
+    });
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), on, label)
+    });
+    response
+}
+/// A slide switch: a groove with a milled thumb that travels to the lit side.
+pub fn toggle_switch(ui: &mut Ui, on: &mut bool) -> Response {
+    let size = vec2(38.0, 20.0);
+    let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        let t = ui.ctx().animate_bool(response.id, *on);
+        lip(p, rect, 10.0, white(0.05));
+        if t > 0.0 {
+            shade_rect(
+                p,
+                rect,
+                10.0,
+                vertical(rect, SWITCH_ON_TOP, SWITCH_ON_BOTTOM),
+            );
+        }
+        p.rect_filled(rect, 10.0, GROOVE.gamma_multiply(1.0 - t));
+        inset(p, rect, 10.0, Side::Top, 4.0, black(0.55));
+        inner_border(p, rect, 10.0, black(0.5));
+        let thumb_rect = Rect::from_center_size(
+            pos2(rect.left() + 10.0 + t * (size.x - 20.0), rect.center().y),
+            Vec2::splat(16.0),
+        );
+        drop_shadow(p, thumb_rect, 8.0, 2.0, 3.0, black(0.55));
+        shade_circle(
+            p,
+            thumb_rect.center(),
+            8.0,
+            radial(thumb_rect.center(), 8.0, 0.3, 0.8, THUMB_TOP, THUMB_BOTTOM),
+        );
+        p.circle_stroke(thumb_rect.center(), 7.5, Stroke::new(1.0, black(0.5)));
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
+    });
+    response
+}
+/// Section title inside a settings pane: caps label over a hairline.
+pub fn section_header(ui: &mut Ui, title: &str) {
+    ui.add_space(6.0);
+    ui.label(caps(title));
+    let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 3.0), Sense::hover());
+    hline(
+        ui.painter(),
+        line.left(),
+        line.right(),
+        line.top() + 1.0,
+        black(0.5),
+    );
+    hline(
+        ui.painter(),
+        line.left(),
+        line.right(),
+        line.top() + 2.0,
+        white(0.05),
+    );
+    ui.add_space(4.0);
+}
+/// A framed text field in a well, single line.
+pub fn field(
+    ui: &mut Ui,
+    id: impl std::hash::Hash,
+    value: &mut String,
+    hint: &str,
+    secret: bool,
+    width: f32,
+) -> Response {
+    let (well, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
+    well_input(ui.painter(), well, R_MD);
+    let mut response = None;
+    ui.scope_builder(
+        egui::UiBuilder::new().max_rect(well.shrink2(vec2(6.0, 3.0))),
+        |ui| {
+            response = Some(
+                ui.add(
+                    egui::TextEdit::singleline(value)
+                        .id_salt(id)
+                        .frame(false)
+                        .password(secret)
+                        .font(font(FS_LIST, Weight::Medium))
+                        .text_color(INK)
+                        .hint_text(text(hint, FS_LIST, Weight::Medium, FAINT))
+                        .desired_width(f32::INFINITY),
+                ),
+            );
+        },
+    );
+    response.expect("field renders a text edit")
+}
+
+/// Content of a floating window on a faceplate. The plate is painted from the rect the
+/// content used on the previous frame, so auto-sized windows still get a correct slab.
+pub fn plate(ui: &mut Ui, id: impl std::hash::Hash, add: impl FnOnce(&mut Ui)) {
+    let id = egui::Id::new(("plate", id));
+    let margin = 14.0;
+    if let Some(rect) = ui.ctx().data(|d| d.get_temp::<Rect>(id)) {
+        faceplate(ui.painter(), rect.expand(margin), R_CARD);
+    }
+    let mut inner = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(ui.max_rect().shrink(margin))
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    inner.spacing_mut().item_spacing = vec2(GAP, 8.0);
+    add(&mut inner);
+    let used = inner.min_rect();
+    ui.allocate_rect(used.expand(margin), Sense::hover());
+    ui.ctx().data_mut(|d| d.insert_temp(id, used));
 }

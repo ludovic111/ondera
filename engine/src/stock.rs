@@ -108,8 +108,10 @@ pub fn create(name: &str, rate: u32) -> Option<Instance> {
     native::instance_from(&TABLES[index], &MANIFESTS[index], descriptor(name)?, rate).ok()
 }
 
-/// Factory presets: plugin name, preset name, parameter values by id.
-pub const FACTORY_PRESETS: &[(&str, &str, &[(u32, f64)])] = &[
+/// A factory preset: plugin name, preset name, parameter values by id.
+pub type FactoryPreset = (&'static str, &'static str, &'static [(u32, f64)]);
+/// Factory presets for the stock library.
+pub const FACTORY_PRESETS: &[FactoryPreset] = &[
     (
         "Ondera Comp",
         "Vocal glue",

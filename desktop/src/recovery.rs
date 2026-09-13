@@ -7,7 +7,13 @@ use crate::{
     theme::*,
 };
 use eframe::egui;
-use ondera_engine::{audio::Library, document, host, model::Session, Result};
+use ondera_engine::{
+    audio::Library,
+    document,
+    model::Session,
+    recovery::{directory, ensure_generated, generated_path, generated_title, list, Snapshot},
+    Result,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -15,6 +21,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+/// Default snapshot interval; Settings > General overrides it.
+#[cfg(test)]
 const INTERVAL: Duration = Duration::from_secs(30);
 
 pub(crate) struct Recovery {
@@ -27,7 +35,7 @@ pub(crate) struct Recovery {
     worker: Option<Worker>,
     open: bool,
     refresh: bool,
-    candidates: Vec<Candidate>,
+    candidates: Vec<Snapshot>,
     selected: Option<PathBuf>,
     error: Option<String>,
 }
@@ -64,20 +72,13 @@ enum Outcome {
         path: PathBuf,
         revision: u64,
     },
-    Listed(Vec<Candidate>),
+    Listed(Vec<Snapshot>),
     Loaded {
         path: PathBuf,
         session: Box<Session>,
         library: Library,
         revision: u64,
     },
-}
-
-struct Candidate {
-    path: PathBuf,
-    title: String,
-    modified: SystemTime,
-    bytes: u64,
 }
 
 impl Recovery {
@@ -104,14 +105,28 @@ impl Recovery {
         }
         match &self.latest {
             Some((_, time)) => format!("Recovery snapshot · {}", age(*time)),
-            None => "Recovery snapshots · every 30s when edited and idle".into(),
+            None => "Recovery snapshots · while edited and idle".into(),
         }
     }
 
-    fn due(&self, now: Instant, dirty: bool, revision: u64, native_plugins: bool) -> bool {
+    fn due(
+        &self,
+        now: Instant,
+        dirty: bool,
+        revision: u64,
+        native_plugins: bool,
+        interval: Duration,
+    ) -> bool {
         self.worker.is_none()
             && (native_plugins || (dirty && self.last_revision != Some(revision)))
-            && now.saturating_duration_since(self.last_attempt) >= INTERVAL
+            && now.saturating_duration_since(self.last_attempt) >= interval
+    }
+    pub(crate) fn select(&mut self, path: PathBuf) {
+        self.selected = Some(path);
+        self.open = false;
+    }
+    pub(crate) fn close(&mut self) {
+        self.open = false;
     }
 
     fn spawn(&mut self, task: impl FnOnce() -> Result<Outcome> + Send + 'static) {
@@ -225,12 +240,19 @@ impl Ondera {
             && !ctx.input(|input| input.pointer.any_down())
             && !ctx.wants_keyboard_input();
         let now = Instant::now();
+        let interval = Duration::from_secs(u64::from(
+            self.settings
+                .general
+                .recovery_interval_seconds
+                .clamp(10, 600),
+        ));
         if idle
             && self.recovery.due(
                 now,
                 self.store.dirty(),
                 self.store.revision,
                 self.plugins.loaded.values().any(|entry| entry.external),
+                interval,
             )
         {
             self.recovery.last_attempt = now;
@@ -282,8 +304,8 @@ impl Ondera {
         let mut open = true;
         let mut selected = None;
         egui::Window::new("Recover a session").open(&mut open).default_width(BROWSER * 2.0)
-            .resizable(true).show(ctx, |ui| {
-                ui.label(text("Ondera saves a separate recovery copy every 30 seconds while an edited session is idle. Your project file is preserved.", FS_BODY, Weight::Medium, INK));
+            .frame(window_frame()).resizable(true).show(ctx, |ui| plate(ui, "recovery-plate", |ui| {
+                ui.label(text(format!("Ondera saves a separate recovery copy every {} seconds while an edited session is idle. Your project file is preserved.", self.settings.general.recovery_interval_seconds), FS_BODY, Weight::Medium, INK));
                 ui.label(text("Choose a snapshot to open a copy. Current unsaved edits will be offered for saving first; Save then chooses the recovered project's destination.", FS_SECONDARY, Weight::Medium, DIM));
                 ui.label(mono(self.recovery.status(), FS_SMALL, FAINT));
                 ui.label(mono(directory().display().to_string(), FS_SMALL, FAINT));
@@ -305,7 +327,7 @@ impl Ondera {
                         });
                     }
                 });
-            });
+            }));
         self.recovery.open = open;
         if let Some(path) = selected {
             self.recovery.selected = Some(path);
@@ -315,72 +337,6 @@ impl Ondera {
     }
 }
 
-fn directory() -> PathBuf {
-    host::scan::data_dir().join("recovery")
-}
-
-fn generated_path(directory: &Path, run: u128, generation: u64, name: &str) -> PathBuf {
-    let title: String = name
-        .trim_end_matches(".ondera")
-        .chars()
-        .take(80)
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    directory.join(format!(
-        "recovery-{run}-{}-{generation}-{}.ondera",
-        std::process::id(),
-        if title.is_empty() { "Untitled" } else { &title }
-    ))
-}
-
-fn generated_title(path: &Path) -> Option<String> {
-    if path.extension()?.to_str()? != "ondera" {
-        return None;
-    }
-    let name = path.file_stem()?.to_str()?.strip_prefix("recovery-")?;
-    let mut parts = name.splitn(4, '-');
-    parts.next()?.parse::<u128>().ok()?;
-    parts.next()?.parse::<u32>().ok()?;
-    parts.next()?.parse::<u64>().ok()?;
-    let title = parts.next()?;
-    if title.is_empty()
-        || !title
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-    {
-        return None;
-    }
-    Some(title.replace('_', " "))
-}
-
-fn ensure_generated(directory: &Path, path: &Path) -> Result<()> {
-    if generated_title(path).is_none() {
-        return Err("Choose an Ondera-generated recovery snapshot.".into());
-    }
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if !metadata.file_type().is_file() {
-        return Err("Recovery requires a regular generated snapshot file.".into());
-    }
-    let expected = directory
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    let actual = path
-        .parent()
-        .ok_or("Recovery path has no parent")?
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    if actual != expected {
-        return Err("Recovery files must be in Ondera's recovery directory.".into());
-    }
-    Ok(())
-}
-
 fn write_snapshot(path: &Path, session: &Session, library: &Library) -> Result<()> {
     if generated_title(path).is_none() {
         return Err("Invalid generated recovery filename".into());
@@ -388,36 +344,6 @@ fn write_snapshot(path: &Path, session: &Session, library: &Library) -> Result<(
     fs::create_dir_all(path.parent().ok_or("Recovery path has no parent")?)
         .map_err(|error| error.to_string())?;
     document::save(session, library, path)
-}
-
-fn list(directory: &Path) -> Result<Vec<Candidate>> {
-    if !directory.exists() {
-        return Ok(vec![]);
-    }
-    let mut candidates = vec![];
-    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if !entry
-            .file_type()
-            .map_err(|error| error.to_string())?
-            .is_file()
-        {
-            continue;
-        }
-        let path = entry.path();
-        let Some(title) = generated_title(&path) else {
-            continue;
-        };
-        let metadata = entry.metadata().map_err(|error| error.to_string())?;
-        candidates.push(Candidate {
-            path,
-            title,
-            modified: metadata.modified().unwrap_or(UNIX_EPOCH),
-            bytes: metadata.len(),
-        });
-    }
-    candidates.sort_by(|a, b| b.modified.cmp(&a.modified));
-    Ok(candidates)
 }
 
 fn age(time: SystemTime) -> String {
@@ -475,15 +401,19 @@ mod tests {
     fn recovery_eligibility_is_dirty_interval_and_revision_sensitive() {
         let mut recovery = Recovery::default();
         let later = recovery.last_attempt + INTERVAL;
-        assert!(!recovery.due(later, false, 1, false));
-        assert!(!recovery.due(recovery.last_attempt, true, 1, false));
-        assert!(recovery.due(later, true, 1, false));
+        assert!(!recovery.due(later, false, 1, false, INTERVAL));
+        assert!(!recovery.due(recovery.last_attempt, true, 1, false, INTERVAL));
+        assert!(recovery.due(later, true, 1, false, INTERVAL));
         recovery.last_revision = Some(1);
-        assert!(!recovery.due(later, true, 1, false));
-        assert!(recovery.due(later, true, 2, false));
+        assert!(!recovery.due(later, true, 1, false, INTERVAL));
+        assert!(recovery.due(later, true, 2, false, INTERVAL));
         assert!(
-            recovery.due(later, false, 1, true),
+            recovery.due(later, false, 1, true, INTERVAL),
             "Native-only edits need a capture even without a new store revision"
+        );
+        assert!(
+            !recovery.due(later, true, 2, false, INTERVAL * 2),
+            "a longer configured interval waits"
         );
     }
 
@@ -496,7 +426,7 @@ mod tests {
             receiver,
         });
         recovery.new_document();
-        assert!(!recovery.due(recovery.last_attempt + INTERVAL, true, 2, true));
+        assert!(!recovery.due(recovery.last_attempt + INTERVAL, true, 2, true, INTERVAL));
         tx.send(Ok(Outcome::Listed(vec![]))).unwrap();
         let (generation, _) = recovery.poll().unwrap();
         assert_ne!(generation, recovery.generation);

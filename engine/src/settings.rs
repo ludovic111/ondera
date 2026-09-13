@@ -143,7 +143,7 @@ pub struct Permissions {
     /// app.quit and app.installUpdate.
     pub app_control: bool,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Plugins {
     pub scan_on_start: bool,
@@ -233,16 +233,6 @@ impl Default for Permissions {
         }
     }
 }
-impl Default for Plugins {
-    fn default() -> Self {
-        Self {
-            scan_on_start: false,
-            extra_clap_paths: vec![],
-            extra_vst3_paths: vec![],
-            extra_native_paths: vec![],
-        }
-    }
-}
 impl Default for Control {
     fn default() -> Self {
         Self {
@@ -323,10 +313,8 @@ impl Settings {
         if self.agent.instructions.len() > 20_000 {
             return Err("Agent instructions exceed 20,000 characters".into());
         }
-        if !self.agent.compatible_base_url.is_empty()
-            && !(self.agent.compatible_base_url.starts_with("http://")
-                || self.agent.compatible_base_url.starts_with("https://"))
-        {
+        let url = &self.agent.compatible_base_url;
+        if !(url.is_empty() || url.starts_with("http://") || url.starts_with("https://")) {
             return Err("The compatible endpoint must be an http(s) URL".into());
         }
         if self.general.recent_sessions.len() > 20 {

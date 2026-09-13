@@ -208,14 +208,15 @@ impl Ondera {
                 let y = keys.top() + EDITOR_RULER + row as f32 * row_height;
                 let key =
                     Rect::from_min_size(pos2(keys.left(), y), vec2(KEY_WIDTH - 1.0, row_height));
-                painter.rect_filled(key, 0.0, if black_key { BLACK_KEY } else { WHITE_KEY });
-                hline(
-                    &painter,
-                    key.left(),
-                    key.right(),
-                    key.bottom() - 1.0,
-                    black(0.35),
-                );
+                let pressed = ui
+                    .ctx()
+                    .pointer_interact_pos()
+                    .is_some_and(|pt| key.contains(pt) && ui.input(|i| i.pointer.primary_down()));
+                if black_key {
+                    crate::theme::black_key(&painter, key, pressed);
+                } else {
+                    white_key(&painter, key, pressed);
+                }
                 if !black_key {
                     painter.text(
                         pos2(key.right() - 5.0, key.center().y),

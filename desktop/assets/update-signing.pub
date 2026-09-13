@@ -1,0 +1,4 @@
+# Ed25519 public key (hex) that release SHA256SUMS.sig files are verified against.
+# Generated with `ondera --release-keygen`; the matching secret lives only in the
+# ONDERA_SIGNING_KEY GitHub Actions secret and on the owner's machine.
+33725ffc8e298d46c23e598825a4f54e6baad5b3680b986a3bb9b6e9717adc1f

@@ -45,7 +45,7 @@ impl Plugin for Trim {
         let right = (1.0 + self.pan.min(0.0)).sqrt();
         let sign = if self.invert { -1.0 } else { 1.0 };
         for frame in audio {
-            let gain = self.gain.next() * sign;
+            let gain = self.gain.step() * sign;
             frame[0] *= gain * left;
             frame[1] *= gain * right;
         }

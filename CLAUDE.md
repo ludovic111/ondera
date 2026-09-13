@@ -5,21 +5,35 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
 
 - `desktop/`: native egui interface with wgpu, no webview. `desktop/src/theme.rs` holds every visual
   token and the skeuomorphic material recipes from `design/Ondera Arrangement.dc.html` (spec sheet 02:
-  raised, pressed, lit, groove, well, knob, fader cap, clip slab, glass). Paint with those helpers;
-  never introduce colours, gradients or shadows elsewhere. `chrome.rs` is the title bar, transport,
-  browser and inspector; `timeline.rs` the arrangement; `editor.rs` the region editor; `agents.rs`
-  the agent panel at the right edge (380 px open, 32 px rail closed) with its prompt, action card
-  and revertable change log, plus the title bar's Agent menu where bridge, MCP config and Codex
-  settings live. The window draws its own title bar (native macOS title bar hidden, traffic
-  lights overlaid at the left). Keep every panel to what the design frame shows; anything extra
-  goes into a menu, not the panel. Fonts are Manrope and IBM Plex Mono (OFL) bundled in
+  raised, pressed, lit, groove, well, knob, fader cap, clip slab, glass, plus faceplate, screw,
+  brushed, switch, LED button, plate). Paint with those helpers; never introduce colours, gradients
+  or shadows elsewhere. Floating windows use `window_frame()` and wrap their content in `plate()`;
+  modals use `dialog_frame()`. `chrome.rs` is the title bar, transport, browser and inspector;
+  `timeline.rs` the arrangement; `editor.rs` the region editor; `agents.rs` the agent panel at the
+  right edge (380 px open, 32 px rail closed): a conversation with streamed replies and one card
+  per tool call, a Changes tab with Revert/Redo, and one prompt. `agent/` is the runtime (providers
+  `anthropic`, `openai`, `cli` for Codex and Claude Code; tool calls execute on the interface thread
+  through `run_control_command`). `settings.rs` is the Settings window (⌘,) over
+  `engine::settings::Settings`; apply changes through `apply_settings`, never by writing fields.
+  The window draws its own title bar (native macOS title bar hidden, traffic lights overlaid at
+  the left). Keep every panel to what the design frame shows; anything extra goes into a menu or
+  Settings, not the panel. Fonts are Manrope and IBM Plex Mono (OFL) bundled in
   `desktop/assets/fonts`.
 - `engine/`: pure Rust command store, session model, DSP, audio devices and documents.
-  `engine/src/control.rs` is the public command registry; `control/wire.rs` the loopback
-  protocol. `tools/` builds `ondera-cli` and `ondera-mcp` as thin clients of that registry, and
-  `desktop/src/control.rs` serves it from the window between frames. A new user-facing action
-  goes into the registry so the window, the CLI and agents get it together; the CLI help and
-  MCP tool list are generated from it.
+  `engine/src/control.rs` is the public command registry (`control_app.rs` holds the view, preset,
+  settings, audio, ui, app and agent families); `control/wire.rs` the loopback protocol. `tools/`
+  builds `ondera-cli` and `ondera-mcp` as thin clients of that registry, and `desktop/src/control.rs`
+  serves it from the window between frames, implementing `Host::live` for window-only actions
+  (screenshots, panels, devices, updates, the agent). A new user-facing action goes into the
+  registry so the window, the CLI, MCP and the built-in agent get it together; the CLI help, MCP
+  tool list and agent tools are generated from it. Agent permissions (`settings.agent.permissions`)
+  are enforced in `run_control_command` for every agent-flagged request.
+- `sdk/` is `ondera-plugin`: the `Plugin` trait, DSP primitives and the frozen C ABI (`ffi.rs`,
+  ABI version 1, never change a `repr(C)` layout without bumping it). `engine/src/host/native.rs`
+  loads libraries and adapts vtables to `Editor`/`Processor`; `engine/src/stock.rs` is written on
+  the trait and served through the same vtables. `plugins/gain` is the example bundle used by tests.
+- Preferences live in `engine/src/settings.rs` (`settings.json`, 0600, secrets masked by
+  `redacted()`); presets in `engine/src/preset.rs`; recovery snapshot naming in `engine/src/recovery.rs`.
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs
@@ -37,8 +51,12 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
 - Run fmt, clippy with warnings denied, and workspace tests. Check a real native window after
   UI changes. Distinguish tests, builds, actual device checks and public signing/notarization.
 - Work on a branch. Do not merge or publish a release without the owner's request.
-- Releases: bump the workspace `version` in `Cargo.toml`, then push a matching `vX.Y.Z` tag.
-  `.github/workflows/release.yml` builds all platforms, writes `SHA256SUMS` and publishes the
-  GitHub release that `desktop/src/update.rs` installs from. Keep the asset names in
-  `update::asset_name` and the workflow in sync. Builds are ad-hoc signed, not notarized.
+- Releases: bump the workspace `version` in `Cargo.toml`, add `docs/releases/X.Y.Z.md`, then push
+  a matching `vX.Y.Z` tag. `.github/workflows/release.yml` builds all platforms, writes and signs
+  `SHA256SUMS` (Ed25519, secret `ONDERA_SIGNING_KEY`, public key in
+  `desktop/assets/update-signing.pub`) and publishes the GitHub release that `desktop/src/update.rs`
+  installs from after verifying the signature, the download host and the new binaries' versions.
+  Keep the asset names in `update::asset_name` and the workflow in sync. The secret key stays in
+  `~/.ondera/keys/update-signing.key` on the owner's machine; never commit it. Builds are ad-hoc
+  signed, not notarized.
 - `legacy/` is reference material, not the active implementation.

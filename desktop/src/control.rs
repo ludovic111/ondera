@@ -6,8 +6,9 @@ use crate::app::{Intent, Ondera};
 use ondera_engine::{
     audio::{self, Library},
     control::{self, wire, Headless, Host},
-    document, render,
+    control_app, document, midi, recovery, render,
     session_file::SessionFileLock,
+    settings::Settings,
     store::{Command, Store},
     Result,
 };
@@ -15,16 +16,53 @@ use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
     sync::mpsc,
+    time::Instant,
 };
+
+const TOOLS: [&str; 3] = ["pointer", "pencil", "scissors"];
+const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
+
+/// Who is waiting for a deferred command: a bridge client or the built-in agent.
+pub(crate) enum Reply {
+    Wire(wire::Request),
+    Channel(mpsc::SyncSender<Result<Value>>),
+}
+impl Reply {
+    pub(crate) fn respond(self, result: Result<Value>) {
+        match self {
+            Reply::Wire(request) => request.respond(result),
+            Reply::Channel(sender) => {
+                let _ = sender.send(result);
+            }
+        }
+    }
+}
 
 pub(crate) struct ControlJob {
     receiver: mpsc::Receiver<Result<(Value, Headless, Option<SessionFileLock>)>>,
-    request: Option<wire::Request>,
+    reply: Option<Reply>,
     method: String,
     params: Value,
     source: String,
     revision: u64,
     undo_depth: usize,
+}
+
+/// Interface work that completes on a later frame: a screenshot, an update check or install.
+pub(crate) enum LiveWait {
+    Screenshot { path: PathBuf, requested: bool },
+    UpdateCheck,
+    UpdateInstall,
+}
+pub(crate) struct LiveJob {
+    pub wait: LiveWait,
+    pub reply: Option<Reply>,
+    method: String,
+    params: Value,
+    source: String,
+    revision: u64,
+    undo_depth: usize,
+    started: Instant,
 }
 
 impl Ondera {
@@ -49,20 +87,43 @@ impl Ondera {
         }
         self.store.set_gesture(false);
         for request in pending {
-            let idle = self.control_job.is_none();
             let result = self.run_control_command(
                 &request.method,
                 &request.params,
                 request.agent,
                 if request.agent { "MCP / agent" } else { "CLI" },
             );
-            if idle && result.is_ok() && self.control_job.is_some() {
-                self.control_job.as_mut().unwrap().request = Some(request);
+            let running = result
+                .as_ref()
+                .is_ok_and(|value| value["status"] == "running");
+            if running {
+                if let Err(Reply::Wire(request)) = self.attach_reply(Reply::Wire(request)) {
+                    request.respond(result);
+                }
             } else {
                 request.respond(result);
             }
         }
         self.store.set_gesture(gesture);
+    }
+    /// Hand a waiting party to the job the last command started. Returns the reply when
+    /// nothing is pending so the caller can answer immediately.
+    pub(crate) fn attach_reply(&mut self, reply: Reply) -> std::result::Result<(), Reply> {
+        if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
+            job.reply = Some(reply);
+            return Ok(());
+        }
+        if let Some(index) = self.attach_live.take() {
+            if let Some(job) = self
+                .live_jobs
+                .get_mut(index)
+                .filter(|job| job.reply.is_none())
+            {
+                job.reply = Some(reply);
+                return Ok(());
+            }
+        }
+        Err(reply)
     }
     pub(crate) fn run_control_command(
         &mut self,
@@ -73,8 +134,16 @@ impl Ondera {
     ) -> Result<Value> {
         let before = self.store.revision;
         let depth_before = self.store.undo_depth();
+        self.attach_live = None;
         let result = (|| {
             control::validate_request(method, params)?;
+            if agent {
+                if let Some(denied) =
+                    control_app::denied_for_agent(method, &self.settings.agent.permissions)
+                {
+                    return Err(denied);
+                }
+            }
             if matches!(method, "session.new" | "session.open") {
                 self.can_replace_document()?;
             }
@@ -160,7 +229,7 @@ impl Ondera {
                 });
                 self.control_job = Some(ControlJob {
                     receiver: rx,
-                    request: None,
+                    reply: None,
                     method: method.into(),
                     params: params.clone(),
                     source: source.into(),
@@ -267,9 +336,165 @@ impl Ondera {
         if let Err(error) = &result {
             self.error = Some(error.clone());
         }
-        if let Some(request) = job.request.take() {
-            request.respond(result);
+        if let Some(reply) = job.reply.take() {
+            reply.respond(result);
         }
+    }
+    /// Start a deferred interface job and mark it for the reply of the current command.
+    fn start_live(&mut self, wait: LiveWait, method: &str, params: &Value, source: &str) -> Value {
+        self.live_jobs.push(LiveJob {
+            wait,
+            reply: None,
+            method: method.into(),
+            params: params.clone(),
+            source: source.into(),
+            revision: self.store.revision,
+            undo_depth: self.store.undo_depth(),
+            started: Instant::now(),
+        });
+        self.attach_live = Some(self.live_jobs.len() - 1);
+        json!({ "status": "running", "command": method })
+    }
+    /// Ask the viewport for pending screenshots; time out jobs nobody can finish.
+    pub(crate) fn poll_live_jobs(&mut self, ctx: &eframe::egui::Context) {
+        let mut request_capture = false;
+        for job in &mut self.live_jobs {
+            if let LiveWait::Screenshot { requested, .. } = &mut job.wait {
+                if !*requested {
+                    *requested = true;
+                    request_capture = true;
+                }
+            }
+        }
+        if request_capture {
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Screenshot(Default::default()));
+        }
+        let expired: Vec<usize> = self
+            .live_jobs
+            .iter()
+            .enumerate()
+            .filter(|(_, job)| job.started.elapsed().as_secs() > 600)
+            .map(|(i, _)| i)
+            .collect();
+        for index in expired.into_iter().rev() {
+            let job = self.live_jobs.remove(index);
+            let result = Err(format!("{} did not complete in time", job.method));
+            self.record_agent_activity(
+                &job.method,
+                &job.params,
+                &job.source,
+                job.revision,
+                job.undo_depth,
+                &result,
+            );
+            if let Some(reply) = job.reply {
+                reply.respond(result);
+            }
+        }
+        if !self.live_jobs.is_empty() {
+            ctx.request_repaint();
+        }
+    }
+    /// Complete every pending live job of one kind with the same result.
+    pub(crate) fn finish_live(&mut self, pick: impl Fn(&LiveWait) -> bool, result: Result<Value>) {
+        let (done, rest): (Vec<LiveJob>, Vec<LiveJob>) = std::mem::take(&mut self.live_jobs)
+            .into_iter()
+            .partition(|job| pick(&job.wait));
+        self.live_jobs = rest;
+        for job in done {
+            self.record_agent_activity(
+                &job.method,
+                &job.params,
+                &job.source,
+                job.revision,
+                job.undo_depth,
+                &result,
+            );
+            if let Some(reply) = job.reply {
+                reply.respond(result.clone());
+            }
+        }
+    }
+    /// A finished window capture: write it where the live job asked.
+    pub(crate) fn deliver_screenshot(&mut self, image: &eframe::egui::ColorImage) -> bool {
+        let Some(index) = self
+            .live_jobs
+            .iter()
+            .position(|job| matches!(job.wait, LiveWait::Screenshot { .. }))
+        else {
+            return false;
+        };
+        let path = match &self.live_jobs[index].wait {
+            LiveWait::Screenshot { path, .. } => path.clone(),
+            _ => unreachable!(),
+        };
+        let result = (|| {
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let data: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
+            image::save_buffer(
+                &path,
+                &data,
+                image.width() as u32,
+                image.height() as u32,
+                image::ColorType::Rgba8,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(json!({
+                "path": path,
+                "width": image.width(),
+                "height": image.height(),
+                "bytes": std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            }))
+        })();
+        let target = path.clone();
+        self.finish_live(
+            move |wait| matches!(wait, LiveWait::Screenshot { path, .. } if *path == target),
+            result,
+        );
+        true
+    }
+    fn audio_status(&self) -> Value {
+        let (peaks, cpu) = self.device.as_ref().map_or(([0.0; 4], 0.0), |d| {
+            (d.telemetry.peaks(), d.telemetry.load())
+        });
+        json!({
+            "device": self.device.as_ref().map(|d| d.device_name.clone()),
+            "sampleRate": self.device.as_ref().map(|d| d.sample_rate),
+            "cpuLoad": cpu,
+            "masterPeak": [peaks[0], peaks[1]],
+            "selectedTrackPeak": [peaks[2], peaks[3]],
+            "midiInput": self.midi.as_ref().map(|m| m.port_name.clone()),
+            "outputDevice": self.output_device,
+            "inputDevice": self.input_device,
+            "playing": self.playing,
+            "recording": self.midi_recording || self.recorder.is_some(),
+            "recordEnabled": self.record_enabled,
+            "musicalTyping": self.musical_typing,
+        })
+    }
+    fn ui_status(&self) -> Value {
+        let session = self.store.session();
+        json!({
+            "agentPanel": self.agents.open,
+            "automation": self.automation.open,
+            "settings": self.settings_ui.open,
+            "help": self.show_help,
+            "tool": TOOLS[self.tool.min(2)],
+            "musicalTyping": self.musical_typing,
+            "pluginWindows": self.plugins.windows.keys().cloned().collect::<Vec<_>>(),
+            "status": self.status,
+            "error": self.error,
+            "playing": self.playing,
+            "recordEnabled": self.record_enabled,
+            "pixelsPerBar": self.zoom,
+            "scrollBar": self.scroll,
+            "browserTab": BROWSER_TABS[self.browser_tab.min(3)],
+            "selectedTrackId": session.view.selected_track_id,
+            "selectedClipId": session.view.selected_clip_id,
+            "busy": self.job.is_some() || self.control_job.is_some(),
+        })
     }
     fn available(&self) -> Result<()> {
         if (self.job.is_some() && !self.preparing) || self.control_job.is_some() {
@@ -459,6 +684,309 @@ impl Host for Ondera {
         self.status = "WAV export complete".into();
         Ok(())
     }
+    fn view_state(&self) -> (f32, f64) {
+        (self.zoom, self.scroll)
+    }
+    fn view_changed(&mut self) {
+        let view = &self.store.session().view;
+        self.zoom = view.pixels_per_bar.clamp(12.0, 480.0);
+        self.scroll = view.scroll_bars.max(0.0);
+    }
+    fn capture_states(&mut self) -> Result<()> {
+        self.guarded(Ondera::capture_plugin_states)
+    }
+    fn settings(&self) -> Settings {
+        self.settings.clone()
+    }
+    fn update_settings(&mut self, settings: Settings) -> Result<()> {
+        self.apply_settings(settings)
+    }
+    fn live(&mut self, action: &str, params: &Value) -> Result<Value> {
+        let source = "live";
+        match action {
+            "audio.status" => Ok(self.audio_status()),
+            "audio.setOutput" | "audio.setInput" => {
+                let name = params["name"].as_str().map(str::to_string);
+                if let Some(name) = &name {
+                    let known = if action == "audio.setOutput" {
+                        ondera_engine::device::output_devices()
+                    } else {
+                        ondera_engine::device::input_devices()
+                    };
+                    if !known.contains(name) {
+                        return Err(format!("Unknown device `{name}`. See audio.devices."));
+                    }
+                }
+                let mut settings = self.settings.clone();
+                if action == "audio.setOutput" {
+                    settings.audio.output_device = name;
+                } else {
+                    settings.audio.input_device = name;
+                }
+                self.apply_settings(settings)?;
+                Ok(self.audio_status())
+            }
+            "audio.setMidiInput" => {
+                let port = params["port"].as_str().map(str::to_string);
+                if let Some(port) = &port {
+                    if !midi::ports().contains(port) {
+                        return Err(format!("Unknown MIDI port `{port}`. See audio.devices."));
+                    }
+                }
+                let mut settings = self.settings.clone();
+                settings.audio.midi_input = port;
+                self.apply_settings(settings)?;
+                Ok(self.audio_status())
+            }
+            "audio.reconnect" => {
+                self.connect();
+                Ok(json!({ "reconnecting": true }))
+            }
+            "note.preview" => {
+                let track = params["trackId"]
+                    .as_str()
+                    .ok_or("note.preview needs `trackId`")?;
+                if !self
+                    .store
+                    .session()
+                    .tracks
+                    .iter()
+                    .any(|t| t.id == track && t.kind == "midi")
+                {
+                    return Err("Preview needs an instrument track".into());
+                }
+                let pitch = params["pitch"]
+                    .as_i64()
+                    .filter(|p| (0..=127).contains(p))
+                    .ok_or("pitch must be 0-127")?;
+                let velocity = params["velocity"].as_i64().unwrap_or(100);
+                if !(1..=127).contains(&velocity) {
+                    return Err("velocity must be 1-127".into());
+                }
+                let track = track.to_string();
+                self.preview(&track, pitch as u8, velocity as u8);
+                Ok(json!({ "trackId": track, "pitch": pitch, "velocity": velocity }))
+            }
+            "ui.screenshot" => {
+                let path = match params["path"].as_str() {
+                    Some(p) if !p.trim().is_empty() => PathBuf::from(p),
+                    _ => control_app::default_screenshot_path(),
+                };
+                if path
+                    .extension()
+                    .is_none_or(|e| !e.eq_ignore_ascii_case("png"))
+                {
+                    return Err("Screenshots are written as .png".into());
+                }
+                if self
+                    .live_jobs
+                    .iter()
+                    .any(|j| matches!(j.wait, LiveWait::Screenshot { .. }))
+                {
+                    return Err("A screenshot is already being captured; retry in a moment".into());
+                }
+                let mut result = self.start_live(
+                    LiveWait::Screenshot {
+                        path: path.clone(),
+                        requested: false,
+                    },
+                    action,
+                    params,
+                    source,
+                );
+                result["path"] = json!(path);
+                Ok(result)
+            }
+            "ui.showPanel" => {
+                let panel = params["panel"].as_str().unwrap_or("");
+                let visible = params["visible"].as_bool().unwrap_or(true);
+                match panel {
+                    "agent" => self.agents.open = visible,
+                    "automation" => self.automation.open = visible,
+                    "settings" => self.settings_ui.open = visible,
+                    "help" => self.show_help = visible,
+                    "export" => {
+                        if visible {
+                            self.open_export_dialog();
+                        } else {
+                            self.export.close();
+                        }
+                    }
+                    "recovery" => {
+                        if visible {
+                            self.open_recovery();
+                        } else {
+                            self.recovery.close();
+                        }
+                    }
+                    "master" | "bus-a" | "bus-b" => {
+                        self.try_dispatch(Command::Select {
+                            track: Some(panel.into()),
+                            clip: None,
+                            note: None,
+                        })?;
+                    }
+                    other => {
+                        return Err(format!(
+                            "Unknown panel `{other}`. Panels: agent, automation, settings, help, export, recovery, master, bus-a, bus-b."
+                        ))
+                    }
+                }
+                Ok(self.ui_status())
+            }
+            "ui.openPluginWindow" => {
+                let track = params["trackId"]
+                    .as_str()
+                    .ok_or("ui.openPluginWindow needs `trackId`")?;
+                let slot = params["slot"].as_u64().map(|s| s as usize);
+                if slot.is_some_and(|s| s >= ondera_engine::model::MAX_INSERTS) {
+                    return Err("Insert slot must be 0-7".into());
+                }
+                let insert = control::selected_plugin(self.store.session(), track, slot)?;
+                let key = insert.id.clone();
+                self.open_plugin_window(&key);
+                if params["native"].as_bool().unwrap_or(false) {
+                    if !self
+                        .plugins
+                        .loaded
+                        .get(&key)
+                        .is_some_and(|l| l.editor.has_gui())
+                    {
+                        return Err(
+                            "This plugin has no native editor; its parameter panel is open".into(),
+                        );
+                    }
+                    self.toggle_native_window_public(&key);
+                }
+                Ok(json!({ "opened": key, "plugin": insert.name }))
+            }
+            "ui.closePluginWindows" => {
+                let keys: Vec<String> = self.plugins.windows.keys().cloned().collect();
+                for key in &keys {
+                    self.close_plugin_window(key);
+                }
+                Ok(json!({ "closed": keys.len() }))
+            }
+            "ui.musicalTyping" => {
+                let enabled = params["enabled"]
+                    .as_bool()
+                    .ok_or("enabled must be true or false")?;
+                if enabled != self.musical_typing {
+                    self.toggle_musical_typing();
+                }
+                Ok(json!({ "musicalTyping": self.musical_typing }))
+            }
+            "ui.setTool" => {
+                self.tool = match params["tool"].as_str().unwrap_or("") {
+                    "pointer" => 0,
+                    "pencil" => 1,
+                    "scissors" => 2,
+                    other => {
+                        return Err(format!(
+                            "Unknown tool `{other}`: pointer, pencil or scissors"
+                        ))
+                    }
+                };
+                Ok(self.ui_status())
+            }
+            "ui.status" => Ok(self.ui_status()),
+            "app.status" => Ok(json!({
+                "device": self.device.as_ref().map(|d| d.device_name.clone()),
+                "sampleRate": self.device.as_ref().map(|d| d.sample_rate),
+                "bridgePort": self.control.as_ref().map(|s| s.port()),
+                "updateAvailable": self.updates.available.as_ref().map(|r| r.version.clone()),
+                "updateInstalled": self.updates.installed.as_ref().map(|p| p.display().to_string()),
+                "agentProvider": self.settings.agent.provider.key(),
+                "dirty": self.store.dirty(),
+            })),
+            "app.checkUpdates" => {
+                if self.updates.busy() {
+                    return Err("An update check or install is already running".into());
+                }
+                if let Some(release) = &self.updates.available {
+                    return Ok(
+                        json!({ "available": release_json(release), "current": crate::update::current_version() }),
+                    );
+                }
+                self.check_for_updates(true);
+                Ok(self.start_live(LiveWait::UpdateCheck, action, params, source))
+            }
+            "app.installUpdate" => {
+                if self.updates.installed.is_some() {
+                    return Err("An update is installed; relaunch Ondera to use it".into());
+                }
+                if self.updates.busy() {
+                    return Err("An update check or install is already running".into());
+                }
+                if self.updates.available.is_none() {
+                    return Err("No update is known; run app.checkUpdates first".into());
+                }
+                self.install_update();
+                Ok(self.start_live(LiveWait::UpdateInstall, action, params, source))
+            }
+            "app.quit" => {
+                if params["discard"].as_bool().unwrap_or(false) {
+                    self.intent = None;
+                    self.store.mark_saved(self.store.revision);
+                    self.execute(Intent::Quit);
+                } else {
+                    self.request(Intent::Quit);
+                }
+                Ok(json!({ "quitting": true, "prompted": self.intent.is_some() }))
+            }
+            "session.restoreSnapshot" => {
+                let path = PathBuf::from(
+                    params["path"]
+                        .as_str()
+                        .ok_or("session.restoreSnapshot needs `path`")?,
+                );
+                recovery::ensure_generated(&recovery::directory(), &path)?;
+                self.can_replace_document()?;
+                self.recovery.select(path);
+                self.request(Intent::Recover);
+                Ok(json!({ "status": "requested", "prompted": self.intent.is_some() }))
+            }
+            "agent.status" => Ok(self.agents.status_json(&self.settings)),
+            "agent.providers" => Ok(crate::agent::providers_json(&self.settings)),
+            "agent.send" => {
+                let prompt = params["prompt"].as_str().unwrap_or("").trim().to_string();
+                if prompt.is_empty() {
+                    return Err("agent.send needs a non-empty `prompt`".into());
+                }
+                self.agents.set_prompt(&prompt);
+                self.agents.open = true;
+                self.start_agent_task_now()?;
+                Ok(self.agents.status_json(&self.settings))
+            }
+            "agent.stop" => {
+                self.agents.stop_runner();
+                Ok(self.agents.status_json(&self.settings))
+            }
+            "agent.transcript" => {
+                let limit = params["limit"].as_u64().unwrap_or(40).clamp(1, 500) as usize;
+                Ok(self.agents.transcript_json(limit))
+            }
+            "agent.clear" => {
+                if self.agents.runner_busy() {
+                    return Err("Stop the running task before clearing the conversation".into());
+                }
+                self.agents.clear_transcript();
+                Ok(json!({ "cleared": true }))
+            }
+            other => Err(format!("{other} is not available in this window")),
+        }
+    }
+}
+
+fn release_json(release: &crate::update::Release) -> Value {
+    json!({
+        "version": release.version,
+        "tag": release.tag,
+        "asset": release.asset,
+        "size": release.size,
+        "signed": release.signature_url.is_some(),
+        "notes": release.notes,
+    })
 }
 
 #[cfg(test)]

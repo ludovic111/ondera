@@ -117,6 +117,20 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip > SHA256SUMS
+      - name: Sign checksums
+        env:
+          ONDERA_SIGNING_KEY: ${{ secrets.ONDERA_SIGNING_KEY }}
+        run: |
+          if [ -z "$ONDERA_SIGNING_KEY" ]; then
+            echo 'The ONDERA_SIGNING_KEY secret is not set. Installed apps refuse unsigned releases; add the secret from the key generated with `ondera --release-keygen`.' >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$ONDERA_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+          chmod +x dist/ondera-linux-x86_64
+          dist/ondera-linux-x86_64 --sign-release "$RUNNER_TEMP/release.key" dist/SHA256SUMS
+          dist/ondera-linux-x86_64 --verify-release dist/SHA256SUMS
+          rm -f "$RUNNER_TEMP/release.key"
       - name: Publish complete draft or verify existing release
         env:
           GH_TOKEN: ${{ github.token }}

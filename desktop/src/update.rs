@@ -2,15 +2,22 @@
 //! interface only reads their results between frames; nothing here touches the audio callback.
 //!
 //! A release is published by `.github/workflows/release.yml` from a `vX.Y.Z` tag. It carries one
-//! asset per platform plus a `SHA256SUMS` file. The app compares the latest tag with its own
-//! version, downloads its asset, verifies the checksum, swaps the installed copy in place and
-//! relaunches. Set `ONDERA_PRETEND_VERSION=0.0.1` to exercise the flow against a real release.
+//! asset per platform, a `SHA256SUMS` file and, when the workflow holds the signing key, a
+//! `SHA256SUMS.sig` Ed25519 signature. The app compares the latest tag with its own version,
+//! checks that every URL belongs to this repository's releases, verifies the signature against
+//! the public key compiled into `assets/update-signing.pub`, downloads its asset, verifies the
+//! checksum, checks the new binaries report the expected version, swaps the installed copy in
+//! place and relaunches. Set `ONDERA_PRETEND_VERSION=0.0.1` to exercise the flow against a real
+//! release.
 
 use crate::app::{Intent, Ondera};
+use crate::control::LiveWait;
 use crate::theme::*;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use eframe::egui;
 use ondera_engine::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -23,7 +30,132 @@ use std::{
 pub const REPO: &str = "ludovic111/ondera";
 const API: &str = "https://api.github.com/repos";
 const CHECKSUMS: &str = "SHA256SUMS";
+const SIGNATURE: &str = "SHA256SUMS.sig";
+const SIGNATURE_PREFIX: &str = "ondera-ed25519";
 const MAX_ASSET: u64 = 512 * 1024 * 1024;
+/// Hex public key; empty when no release key pair has been generated yet.
+const PUBLIC_KEY_HEX: &str = include_str!("../assets/update-signing.pub");
+
+/// The compiled-in public key, when one is configured.
+pub fn public_key() -> Option<[u8; 32]> {
+    let hex: String = PUBLIC_KEY_HEX
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut key = [0u8; 32];
+    for (i, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(key)
+}
+/// One line for the Settings > Updates pane.
+pub fn signing_summary() -> String {
+    match public_key() {
+        Some(key) => format!("release signatures required · key {}", hex(&key[..4])),
+        None => "release signatures not configured; checksums only".into(),
+    }
+}
+/// Check `SHA256SUMS.sig` against the built-in key.
+pub fn verify_signature(message: &[u8], signature_text: &str) -> Result<()> {
+    let key = public_key().ok_or("This build has no release signing key")?;
+    let line = signature_text
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with(SIGNATURE_PREFIX))
+        .ok_or("The release signature has an unknown format")?;
+    let encoded = line[SIGNATURE_PREFIX.len()..].trim();
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|e| format!("The release signature is not valid base64: {e}"))?;
+    let signature = Signature::from_slice(&bytes)
+        .map_err(|_| "The release signature has the wrong length".to_string())?;
+    let verifying = VerifyingKey::from_bytes(&key)
+        .map_err(|_| "The built-in release key is invalid".to_string())?;
+    verifying
+        .verify(message, &signature)
+        .map_err(|_| "The release signature does not match SHA256SUMS; nothing was changed".into())
+}
+fn read_secret_key(path: &Path) -> Result<SigningKey> {
+    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let hex: String = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    if hex.len() != 64 {
+        return Err("The secret key file must hold 64 hex characters".into());
+    }
+    let mut key = [0u8; 32];
+    for (i, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
+            .map_err(|_| "The secret key is not hex".to_string())?;
+    }
+    Ok(SigningKey::from_bytes(&key))
+}
+/// Create a signing key pair: the secret goes to `path` (0600), the public key is returned.
+pub fn write_keypair(path: &Path) -> Result<String> {
+    let signing = SigningKey::generate(&mut rand_core::OsRng);
+    if path.exists() {
+        return Err(format!(
+            "{} exists; refusing to overwrite a signing key",
+            path.display()
+        ));
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|e| e.to_string())?;
+    writeln!(
+        file,
+        "# Ondera release signing secret key. Keep private.\n{}",
+        hex(&signing.to_bytes())
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(hex(signing.verifying_key().as_bytes()))
+}
+/// Sign a file with the secret key, writing `<file>.sig`.
+pub fn sign_file(key: &Path, file: &Path) -> Result<PathBuf> {
+    let signing = read_secret_key(key)?;
+    let message = fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let signature = signing.sign(&message);
+    let text = format!(
+        "{SIGNATURE_PREFIX} {}\n",
+        STANDARD.encode(signature.to_bytes())
+    );
+    let out = PathBuf::from(format!("{}.sig", file.display()));
+    fs::write(&out, text).map_err(|e| format!("{}: {e}", out.display()))?;
+    Ok(out)
+}
+/// Verify `<file>.sig` with the built-in public key.
+pub fn verify_file(file: &Path) -> Result<()> {
+    let message = fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let sig_path = PathBuf::from(format!("{}.sig", file.display()));
+    let signature =
+        fs::read_to_string(&sig_path).map_err(|e| format!("{}: {e}", sig_path.display()))?;
+    verify_signature(&message, &signature)
+}
+/// Only this repository's release assets are ever downloaded.
+fn trusted_url(url: &str) -> Result<()> {
+    let prefix = format!("https://github.com/{REPO}/releases/download/");
+    if url.starts_with(&prefix) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Refusing to download from an unexpected location: {url}"
+        ))
+    }
+}
 
 /// The running version, or the one `ONDERA_PRETEND_VERSION` asks us to pretend we are.
 pub fn current_version() -> String {
@@ -57,6 +189,7 @@ pub struct Release {
     pub url: String,
     pub size: u64,
     pub checksums_url: Option<String>,
+    pub signature_url: Option<String>,
     pub sha256: Option<String>,
 }
 
@@ -99,6 +232,18 @@ pub fn find(json: &Value, asset: &str) -> Result<Option<Release>> {
         .get("browser_download_url")
         .and_then(Value::as_str)
         .ok_or("The asset has no download URL")?;
+    trusted_url(url)?;
+    let checksums_url = by_name(CHECKSUMS)
+        .and_then(|a| a.get("browser_download_url"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let signature_url = by_name(SIGNATURE)
+        .and_then(|a| a.get("browser_download_url"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    for extra in checksums_url.iter().chain(signature_url.iter()) {
+        trusted_url(extra)?;
+    }
     Ok(Some(Release {
         version: tag.trim_start_matches(['v', 'V']).to_string(),
         tag: tag.to_string(),
@@ -110,10 +255,8 @@ pub fn find(json: &Value, asset: &str) -> Result<Option<Release>> {
         asset: asset.to_string(),
         url: url.to_string(),
         size: mine.get("size").and_then(Value::as_u64).unwrap_or(0),
-        checksums_url: by_name(CHECKSUMS)
-            .and_then(|a| a.get("browser_download_url"))
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        checksums_url,
+        signature_url,
         sha256: None,
     }))
 }
@@ -188,6 +331,16 @@ pub fn check() -> Result<Option<Release>> {
         .clone()
         .ok_or_else(|| format!("Release {} has no {CHECKSUMS} file", release.tag))?;
     let sums = get_text(&agent, &sums_url)?;
+    if public_key().is_some() {
+        let sig_url = release.signature_url.clone().ok_or_else(|| {
+            format!(
+                "Release {} is not signed ({SIGNATURE} missing); refusing to install it",
+                release.tag
+            )
+        })?;
+        let signature = get_text(&agent, &sig_url)?;
+        verify_signature(sums.as_bytes(), &signature)?;
+    }
     release.sha256 = Some(
         parse_checksum(&sums, asset)
             .ok_or_else(|| format!("{CHECKSUMS} in release {} lacks {asset}", release.tag))?,
@@ -196,6 +349,7 @@ pub fn check() -> Result<Option<Release>> {
 }
 
 fn download(agent: &ureq::Agent, release: &Release, to: &Path) -> Result<()> {
+    trusted_url(&release.url)?;
     let mut response = agent
         .get(&release.url)
         .call()
@@ -268,8 +422,9 @@ fn run(cmd: &mut std::process::Command, what: &str) -> Result<()> {
 }
 
 // Portable archives contain exactly these three root files. The macOS application is
-// already replaced as one signed bundle, including its companions.
-#[cfg(any(not(target_os = "macos"), test))]
+// already replaced as one signed bundle, including its companions; it shares the version
+// check below.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod companions {
     use super::*;
     use std::io::{Seek, SeekFrom};
@@ -351,7 +506,12 @@ mod companions {
 
     /// Only run this after the whole archive has passed the published SHA-256 check.
     /// A file-backed stdout avoids pipe deadlocks; malformed tools have a fixed deadline.
-    fn verify_version(binary: &Path, name: &str, version: &str, timeout: Duration) -> Result<()> {
+    pub(super) fn verify_version(
+        binary: &Path,
+        name: &str,
+        version: &str,
+        timeout: Duration,
+    ) -> Result<()> {
         let mut output = tempfile::tempfile().map_err(|e| e.to_string())?;
         let mut child = Command::new(binary)
             .arg("--version")
@@ -827,6 +987,14 @@ pub fn install(release: &Release) -> Result<PathBuf> {
                     .arg(&fresh),
                 "The downloaded app failed signature verification",
             )?;
+            for binary in ["ondera", "ondera-cli", "ondera-mcp"] {
+                companions::verify_version(
+                    &fresh.join("Contents/MacOS").join(binary),
+                    binary,
+                    &release.version,
+                    Duration::from_secs(8),
+                )?;
+            }
             let previous = previous_bundle(&bundle);
             let _ = fs::remove_dir_all(&previous);
             fs::rename(&bundle, &previous)
@@ -862,6 +1030,18 @@ pub fn cleanup() {
     if let Some(dir) = exe.parent() {
         companions::cleanup_backups(dir, env!("CARGO_PKG_VERSION"));
     }
+}
+
+/// JSON form of a release for the registry.
+pub fn release_value(release: &Release) -> Value {
+    json!({
+        "version": release.version,
+        "tag": release.tag,
+        "asset": release.asset,
+        "size": release.size,
+        "signed": release.signature_url.is_some(),
+        "notes": release.notes,
+    })
 }
 
 /// Start the freshly installed copy. The caller closes this one.
@@ -939,11 +1119,22 @@ impl Ondera {
             })
         {
             self.updates.checking = None;
+            let live = match &result {
+                Ok(release) => Ok(json!({
+                    "current": current_version(),
+                    "available": release.as_ref().map(release_value),
+                })),
+                Err(e) => Err(e.clone()),
+            };
             match result {
                 Ok(Some(release)) => {
                     self.status = format!("Ondera {} is available", release.version);
                     self.updates.available = Some(release);
-                    self.updates.show = true;
+                    if self.settings.general.install_updates_automatically {
+                        self.install_update();
+                    } else {
+                        self.updates.show = true;
+                    }
                 }
                 Ok(None) if self.updates.manual => {
                     self.status = format!("Ondera {} is up to date", current_version());
@@ -952,6 +1143,7 @@ impl Ondera {
                 Err(e) if self.updates.manual => self.error = Some(e),
                 Err(_) => {}
             }
+            self.finish_live(|wait| matches!(wait, LiveWait::UpdateCheck), live);
         }
         if let Some(result) = self
             .updates
@@ -964,6 +1156,12 @@ impl Ondera {
             })
         {
             self.updates.installing = None;
+            let live = match &result {
+                Ok(target) => Ok(
+                    json!({ "installed": target, "relaunch": "confirm in the window or quit and reopen" }),
+                ),
+                Err(e) => Err(e.clone()),
+            };
             match result {
                 Ok(target) => {
                     self.status = "Update installed".into();
@@ -976,6 +1174,7 @@ impl Ondera {
                     self.error = Some(e);
                 }
             }
+            self.finish_live(|wait| matches!(wait, LiveWait::UpdateInstall), live);
         }
     }
     /// Title-bar notice, shown once a newer release is known.
@@ -997,7 +1196,7 @@ impl Ondera {
             self.updates.show = false;
             return;
         };
-        egui::Modal::new(egui::Id::new("update")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("update")).frame(dialog_frame()).show(ctx, |ui| {
             ui.set_max_width(440.0);
             let title = if self.updates.installed.is_some() {
                 format!("Ondera {} is installed", release.version)
@@ -1076,14 +1275,21 @@ mod tests {
             "tag_name": "v0.2.0",
             "body": "Notes",
             "assets": [
-                {"name": "SHA256SUMS", "browser_download_url": "https://x/SHA256SUMS", "size": 300},
-                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://x/a.zip", "size": 10},
+                {"name": "SHA256SUMS", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v0.2.0/SHA256SUMS", "size": 300},
+                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v0.2.0/Ondera-macos-arm64.zip", "size": 10},
             ]
         });
         let r = find(&json, "Ondera-macos-arm64.zip").unwrap().unwrap();
         assert_eq!(r.version, "0.2.0");
-        assert_eq!(r.url, "https://x/a.zip");
-        assert_eq!(r.checksums_url.as_deref(), Some("https://x/SHA256SUMS"));
+        assert_eq!(
+            r.url,
+            "https://github.com/ludovic111/ondera/releases/download/v0.2.0/Ondera-macos-arm64.zip"
+        );
+        assert_eq!(
+            r.checksums_url.as_deref(),
+            Some("https://github.com/ludovic111/ondera/releases/download/v0.2.0/SHA256SUMS")
+        );
+        assert!(r.signature_url.is_none());
         assert_eq!(r.notes, "Notes");
         assert!(find(&json, "ondera-linux-x86_64").unwrap().is_none());
         assert!(find(&serde_json::json!({}), "x").is_err());
@@ -1118,5 +1324,59 @@ mod tests {
     #[test]
     fn this_platform_has_a_release_asset() {
         assert!(asset_name().is_some());
+    }
+
+    #[test]
+    fn release_urls_must_belong_to_this_repository() {
+        let json: Value = serde_json::json!({
+            "tag_name": "v9.9.9",
+            "assets": [
+                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://evil.example/a.zip", "size": 10},
+            ]
+        });
+        assert!(find(&json, "Ondera-macos-arm64.zip")
+            .unwrap_err()
+            .contains("unexpected location"));
+        let json: Value = serde_json::json!({
+            "tag_name": "v9.9.9",
+            "assets": [
+                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v9.9.9/Ondera-macos-arm64.zip", "size": 10},
+                {"name": "SHA256SUMS.sig", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v9.9.9/SHA256SUMS.sig", "size": 10},
+            ]
+        });
+        let release = find(&json, "Ondera-macos-arm64.zip").unwrap().unwrap();
+        assert!(release.signature_url.is_some());
+    }
+
+    #[test]
+    fn signatures_round_trip_and_tampering_is_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join("keys/release.key");
+        let public = write_keypair(&key).unwrap();
+        assert_eq!(public.len(), 64);
+        assert!(write_keypair(&key).is_err(), "keys are never overwritten");
+        let sums = dir.path().join("SHA256SUMS");
+        fs::write(&sums, "abc  Ondera-macos-arm64.zip\n").unwrap();
+        let sig = sign_file(&key, &sums).unwrap();
+        let text = fs::read_to_string(&sig).unwrap();
+        assert!(text.starts_with(SIGNATURE_PREFIX));
+        let signing = read_secret_key(&key).unwrap();
+        let verifying = signing.verifying_key();
+        let line = text.lines().next().unwrap();
+        let bytes = STANDARD
+            .decode(line[SIGNATURE_PREFIX.len()..].trim())
+            .unwrap();
+        let signature = Signature::from_slice(&bytes).unwrap();
+        assert!(verifying
+            .verify(b"abc  Ondera-macos-arm64.zip\n", &signature)
+            .is_ok());
+        assert!(verifying
+            .verify(b"abc  Ondera-macos-arm64.zip\n tampered", &signature)
+            .is_err());
+        if public_key().is_none() {
+            assert!(verify_signature(b"x", &text)
+                .unwrap_err()
+                .contains("no release signing key"));
+        }
     }
 }

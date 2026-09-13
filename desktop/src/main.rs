@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-mod agent_runner;
+mod agent;
 mod agents;
 mod app;
 mod automation;
@@ -10,6 +10,7 @@ mod export;
 mod native;
 mod plugins;
 mod recovery;
+mod settings;
 mod theme;
 mod timeline;
 mod update;
@@ -115,8 +116,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             "--no-update-check" => check_updates = false,
+            "--release-keygen" => {
+                let out = std::path::PathBuf::from(
+                    args.next()
+                        .ok_or("Usage: ondera --release-keygen <secret-key-file>")?,
+                );
+                let public = update::write_keypair(&out)?;
+                println!("Public key (put it in desktop/assets/update-signing.pub):\n{public}");
+                println!("Secret key written to {} (keep it in the ONDERA_SIGNING_KEY GitHub secret, never in the repository)", out.display());
+                return Ok(());
+            }
+            "--sign-release" => {
+                let key = args
+                    .next()
+                    .ok_or("Usage: ondera --sign-release <secret-key-file> <SHA256SUMS>")?;
+                let file = args.next().ok_or("Missing the file to sign")?;
+                let path =
+                    update::sign_file(std::path::Path::new(&key), std::path::Path::new(&file))?;
+                println!("Wrote {}", path.display());
+                return Ok(());
+            }
+            "--verify-release" => {
+                let file = args
+                    .next()
+                    .ok_or("Usage: ondera --verify-release <SHA256SUMS>")?;
+                update::verify_file(std::path::Path::new(&file))?;
+                println!("Signature valid for {file}");
+                return Ok(());
+            }
             "--help" | "-h" => {
-                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --scan-plugins\n  ondera --plugins\n  ondera --agents       open the Agents tab\n  ondera --no-control   disable CLI / MCP connections\n  ondera --screenshot image.png\n  ondera --update            install the latest GitHub release\n  ondera --no-update-check   skip the startup update check (or set ONDERA_NO_UPDATE=1)");
+                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --scan-plugins\n  ondera --plugins\n  ondera --agents       open the Agents tab\n  ondera --no-control   disable CLI / MCP connections\n  ondera --screenshot image.png\n  ondera --update            install the latest GitHub release\n  ondera --no-update-check   skip the startup update check (or set ONDERA_NO_UPDATE=1)\n  ondera --release-keygen <file>          create a release signing key pair\n  ondera --sign-release <key> <file>      write <file>.sig for a release\n  ondera --verify-release <file>          check <file>.sig against the built-in public key");
                 return Ok(());
             }
             _ => {

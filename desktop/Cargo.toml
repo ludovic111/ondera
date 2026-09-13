@@ -17,6 +17,10 @@ rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
 sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+base64 = "0.22"
+ondera-plugin = { path = "../sdk" }
 tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
