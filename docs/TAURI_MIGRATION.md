@@ -73,8 +73,10 @@ No quantified performance gain or loss is claimed without equivalent release-bui
 - The optimized macOS ARM64 application was built and packaged with an ad-hoc signature.
 - The song verification passed both headless and through CLI/MCP against an isolated running
   Tauri window: five tracks, 17 clips, save/reopen, MIDI interchange, stereo and stem exports.
-- The initial interface was inspected in the test window. Final click-through and visual parity
-  checks remain pending because macOS locked during the session. Compilation and the live
-  command workflow are not substitutes for these checks.
+- The standalone window was observed with real waveforms, MIDI notes, the inspector and
+  transport. `ui.status` reported `frontendReady: true`, no error, and Ready with Vite stopped;
+  the WebView URL was `tauri://localhost`. The owner resumed interactive testing in the preview.
+  A complete manual parity checklist is still pending; compilation and the live command
+  workflow alone do not prove every gesture or dialog.
 - Linux, Windows and macOS Intel are assigned to CI; local macOS results do not validate those
   platforms. No public release or change to the installed application is part of this branch.
