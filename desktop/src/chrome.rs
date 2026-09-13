@@ -102,8 +102,22 @@ impl Ondera {
                     mono_font(FS_SMALL),
                     FAINT,
                 );
+                // The bar moves the window; a double-click zooms it. Menus added after
+                // this interaction sit on top of it and keep their clicks.
+                let drag = ui.interact(rect, ui.id().with("drag"), Sense::click_and_drag());
+                if drag.drag_started() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                if drag.double_clicked() {
+                    let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                }
                 ui.horizontal_centered(|ui| {
-                    ui.add_space(14.0);
+                    ui.add_space(if cfg!(target_os = "macos") {
+                        TRAFFIC_LIGHTS + 14.0
+                    } else {
+                        14.0
+                    });
                     ui.spacing_mut().item_spacing.x = 6.0;
                     ui.spacing_mut().button_padding = vec2(5.0, 3.0);
                     ui.style_mut()
@@ -218,7 +232,7 @@ impl Ondera {
                 }
             }
         });
-        ui.menu_button("Audio", |ui| {
+        ui.menu_button("Mix", |ui| {
             if self.unplaced_recording.is_some() && ui.button("Save recovered take…").clicked() {
                 self.save_recovered_take();
                 ui.close();
@@ -324,19 +338,10 @@ impl Ondera {
                 DIM,
             ));
         });
+        ui.menu_button("Agent", |ui| self.agent_menu(ui));
         ui.menu_button("View", |ui| {
             if ui.button("Automation").clicked() {
                 self.automation.open = true;
-            }
-            if ui
-                .button(if self.agents.open {
-                    "Show library"
-                } else {
-                    "Show agents"
-                })
-                .clicked()
-            {
-                self.agents.open = !self.agents.open;
             }
             ui.separator();
             let view = self.store.session().view.clone();
@@ -472,6 +477,36 @@ impl Ondera {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0);
                         ui.spacing_mut().item_spacing.x = 10.0;
+                        let working = self.agents.runner_busy();
+                        let label = ui.painter().layout_no_wrap(
+                            "Agent".into(),
+                            font(FS_SECONDARY, Weight::SemiBold),
+                            INK,
+                        );
+                        if button(
+                            ui,
+                            vec2(11.0 + 7.0 + 7.0 + label.size().x + 11.0, BUTTON.y),
+                            Face::from_flag(self.agents.open),
+                            R_CONTROL,
+                            |p, r, ink| {
+                                accent_dot(p, pos2(r.left() + 14.5, r.center().y), 3.5, true);
+                                p.galley(
+                                    pos2(r.left() + 25.0, r.center().y - label.size().y / 2.0),
+                                    label.clone(),
+                                    ink,
+                                );
+                            },
+                        )
+                        .on_hover_text(if working {
+                            "Agent panel · working"
+                        } else {
+                            "Agent panel"
+                        })
+                        .clicked()
+                        {
+                            self.agents.open = !self.agents.open;
+                        }
+                        ui.add_space(4.0);
                         let (peaks, cpu) = self.device.as_ref().map_or(([0.0; 4], 0.0), |d| {
                             (d.telemetry.peaks(), d.telemetry.load())
                         });
@@ -712,10 +747,6 @@ impl Ondera {
     }
 
     pub fn browser(&mut self, ctx: &egui::Context) {
-        if self.agents.open {
-            self.agents_panel(ctx);
-            return;
-        }
         egui::SidePanel::left("browser")
             .exact_width(BROWSER)
             .resizable(false)
@@ -738,16 +769,9 @@ impl Ondera {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
-                    if segmented(ui, &["Library", "Agents"], 0, (BROWSER - 24.0) / 2.0) == Some(1) {
-                        self.agents.open = true;
-                    }
-                });
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(10.0);
                     if let Some(tab) = segmented(
                         ui,
-                        &["Instr", "Loops", "Effects", "Files"],
+                        &["Instr", "Loops", "Plugins", "Files"],
                         self.browser_tab,
                         (BROWSER - 24.0) / 4.0,
                     ) {
@@ -768,7 +792,7 @@ impl Ondera {
                 let hint = match self.browser_tab {
                     0 => "Search instruments",
                     1 => "Search loops",
-                    2 => "Search effects",
+                    2 => "Search plugins",
                     _ => "Search files",
                 };
                 ui.scope_builder(

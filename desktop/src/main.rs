@@ -127,11 +127,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    let viewport = eframe::egui::ViewportBuilder::default()
+        .with_inner_size([1600.0, 1000.0])
+        .with_min_inner_size([1120.0, 760.0])
+        .with_app_id("org.ondera.desktop");
+    // The window's own title bar carries the menus, as in the design; on macOS the
+    // traffic lights overlay its left end.
+    #[cfg(target_os = "macos")]
+    let viewport = viewport
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_fullsize_content_view(true);
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1600.0, 1000.0])
-            .with_min_inner_size([1120.0, 760.0])
-            .with_app_id("org.ondera.desktop"),
+        viewport,
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };

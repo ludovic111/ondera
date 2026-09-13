@@ -75,6 +75,11 @@ impl Store {
     pub fn can_redo(&self) -> bool {
         !self.future.is_empty()
     }
+    /// Number of undo steps behind the current document; lets a caller return to
+    /// an earlier depth with repeated `Undo` or `Redo`.
+    pub fn undo_depth(&self) -> usize {
+        self.past.len()
+    }
     pub fn dirty(&self) -> bool {
         Some(self.document_id) != self.saved_id
     }

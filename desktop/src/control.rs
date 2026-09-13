@@ -24,6 +24,7 @@ pub(crate) struct ControlJob {
     params: Value,
     source: String,
     revision: u64,
+    undo_depth: usize,
 }
 
 impl Ondera {
@@ -71,6 +72,7 @@ impl Ondera {
         source: &str,
     ) -> Result<Value> {
         let before = self.store.revision;
+        let depth_before = self.store.undo_depth();
         let result = (|| {
             control::validate_request(method, params)?;
             if matches!(method, "session.new" | "session.open") {
@@ -163,6 +165,7 @@ impl Ondera {
                     params: params.clone(),
                     source: source.into(),
                     revision,
+                    undo_depth: self.store.undo_depth(),
                 });
                 self.status = format!("Running {method}…");
                 return Ok(json!({"status":"running", "command":method}));
@@ -175,7 +178,7 @@ impl Ondera {
             }
             Ok(result)
         })();
-        self.record_agent_activity(method, params, source, before, &result);
+        self.record_agent_activity(method, params, source, before, depth_before, &result);
         result
     }
     pub(crate) fn poll_control_job(&mut self) {
@@ -253,7 +256,14 @@ impl Ondera {
             Ok(value)
         });
         self.export.completed(&job.method, &result);
-        self.record_agent_activity(&job.method, &job.params, &job.source, job.revision, &result);
+        self.record_agent_activity(
+            &job.method,
+            &job.params,
+            &job.source,
+            job.revision,
+            job.undo_depth,
+            &result,
+        );
         if let Err(error) = &result {
             self.error = Some(error.clone());
         }

@@ -1259,6 +1259,7 @@ impl Ondera {
         if let Err(e) = self.store.load(session) {
             self.error = Some(e);
         } else {
+            self.reset_agent_history();
             self.recovery.new_document();
             self.library = library;
             self.path = Some(path);
@@ -1371,6 +1372,7 @@ impl Ondera {
                     self.error = Some(e);
                     return;
                 }
+                self.reset_agent_history();
                 self.library.clear();
                 self.recovery.new_document();
                 self.path = None;
@@ -1799,6 +1801,7 @@ impl eframe::App for Ondera {
         self.title_bar(ctx);
         self.transport(ctx);
         self.browser(ctx);
+        self.agent_panel(ctx);
         self.inspector(ctx);
         egui::TopBottomPanel::bottom("editor")
             .default_height(300.0)

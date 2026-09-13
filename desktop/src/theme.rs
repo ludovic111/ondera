@@ -34,6 +34,8 @@ pub const TIMELINE_SELECTED: Color32 = Color32::from_rgb(0x26, 0x26, 0x26);
 pub const EDITOR: Color32 = Color32::from_rgb(0x26, 0x26, 0x25);
 pub const RULER_BG: Color32 = Color32::from_rgb(0x27, 0x27, 0x26);
 pub const PANEL: Color32 = Color32::from_rgb(0x2c, 0x2c, 0x2b);
+pub const AGENT_PANEL_BG: Color32 = Color32::from_rgb(0x29, 0x29, 0x2a);
+pub const LOG_ENTRY: Color32 = Color32::from_rgb(0x2f, 0x2f, 0x2e);
 pub const MENU: Color32 = Color32::from_rgb(0x33, 0x33, 0x32);
 pub const MENU_HOVER: Color32 = Color32::from_rgb(0x3f, 0x3f, 0x3d);
 
@@ -123,6 +125,11 @@ pub const KEY_WIDTH: f32 = 56.0;
 pub const KEY_ROW: f32 = 10.0;
 pub const BROWSER: f32 = 220.0;
 pub const INSPECTOR: f32 = 240.0;
+pub const AGENT_PANEL: f32 = 380.0;
+pub const AGENT_RAIL: f32 = 32.0;
+pub const AGENT_HEADER: f32 = 44.0;
+/// Space the macOS traffic lights take at the left of the title bar.
+pub const TRAFFIC_LIGHTS: f32 = 70.0;
 pub const BUTTON: Vec2 = vec2(34.0, 26.0);
 pub const PLAY_BUTTON: Vec2 = vec2(44.0, 26.0);
 pub const SMALL_BUTTON: Vec2 = vec2(20.0, 17.0);
@@ -149,6 +156,7 @@ pub const R_BUTTON: f32 = 4.0;
 pub const R_MD: f32 = 5.0;
 pub const R_CONTROL: f32 = 6.0;
 pub const R_LG: f32 = 7.0;
+pub const R_CARD: f32 = 8.0;
 
 // ---------------------------------------------------------------------------
 // Type. Manrope for everything a human reads, IBM Plex Mono for anything that
@@ -157,6 +165,8 @@ pub const R_LG: f32 = 7.0;
 
 pub const FS_TRANSPORT: f32 = 19.0;
 pub const FS_PANEL_TITLE: f32 = 14.0;
+pub const FS_PROSE: f32 = 13.0;
+pub const FS_INPUT: f32 = 12.5;
 pub const FS_BODY: f32 = 12.0;
 pub const FS_LIST: f32 = 11.5;
 pub const FS_SECONDARY: f32 = 11.0;
@@ -682,6 +692,57 @@ pub fn glass(p: &Painter, r: Rect, radius: f32) {
     p.rect_filled(r, radius, Color32::from_rgba_unmultiplied(60, 60, 58, 140));
     edge_top(p, r, radius, white(0.15));
 }
+/// The agent's action card: frosted glass ringed and haloed in accent.
+pub fn accent_card(p: &Painter, r: Rect, radius: f32) {
+    drop_shadow(p, r, radius, 0.0, 24.0, accent(0.12));
+    drop_shadow(p, r, radius, 6.0, 18.0, black(0.45));
+    p.rect_filled(r, radius, Color32::from_rgba_unmultiplied(66, 70, 70, 102));
+    p.rect_stroke(
+        r,
+        radius,
+        Stroke::new(1.0, accent(0.35)),
+        StrokeKind::Outside,
+    );
+    edge_top(p, r, radius, white(0.14));
+}
+/// One entry of the agent log: a flat slab with a lip; live entries are tinted.
+pub fn log_entry(p: &Painter, r: Rect, radius: f32, live: bool) {
+    drop_shadow(p, r, radius, 1.0, 2.0, black(0.35));
+    if live {
+        p.rect_filled(r, radius, Color32::from_rgba_unmultiplied(66, 70, 70, 90));
+    } else {
+        p.rect_filled(r, radius, LOG_ENTRY);
+    }
+    edge_top(p, r, radius, white(0.04));
+}
+/// The chip at the left of a log entry holding the track swatch.
+pub fn log_chip(p: &Painter, r: Rect, live: bool) {
+    drop_shadow(p, r, R_CONTROL, 1.0, 2.0, black(0.5));
+    if live {
+        p.rect_filled(r, R_CONTROL, black(0.25));
+    } else {
+        shade_rect(p, r, R_CONTROL, vertical(r, INSERT_TOP, PRESSED_BOTTOM));
+    }
+    edge_top(p, r, R_CONTROL, white(0.12));
+}
+/// Accent LED dot with its halo: agent activity, playhead flag.
+pub fn accent_dot(p: &Painter, center: Pos2, radius: f32, on: bool) {
+    if on {
+        p.circle_filled(center, radius + 7.0, accent(0.12));
+        p.circle_filled(center, radius + 3.0, accent(0.35));
+        p.circle_filled(center, radius, ACCENT);
+    } else {
+        p.circle_filled(center, radius, NEUTRAL_DOT);
+        p.circle_stroke(center, radius, Stroke::new(1.0, black(0.5)));
+    }
+}
+/// Caps label written bottom-to-top, for the collapsed agent rail.
+pub fn vertical_caps(p: &Painter, top_center: Pos2, s: &str, color: Color32) {
+    let galley = p.layout_no_wrap(s.to_uppercase(), font(FS_SMALL, Weight::Bold), color);
+    let shape = epaint::TextShape::new(top_center, galley, color)
+        .with_angle_and_anchor(std::f32::consts::FRAC_PI_2, Align2::LEFT_TOP);
+    p.add(shape);
+}
 pub fn swatch(p: &Painter, r: Rect, color: Color32) {
     drop_shadow(p, r, 2.0, 1.0, 1.0, black(0.5));
     p.rect_filled(r, 2.0, color);
@@ -918,6 +979,8 @@ pub enum Icon {
     Pencil,
     Scissors,
     Search,
+    ChevronRight,
+    ArrowUp,
 }
 fn tri(p: &Painter, a: Pos2, b: Pos2, c: Pos2, color: Color32) {
     p.add(Shape::convex_polygon(vec![a, b, c], color, Stroke::NONE));
@@ -1069,6 +1132,22 @@ pub fn icon(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
             p.circle_stroke(at(4.5, 4.5, w, h), 3.5, stroke);
             p.line_segment([at(7.0, 7.0, w, h), at(10.0, 10.0, w, h)], stroke);
         }
+        Icon::ChevronRight => {
+            let (w, h) = (10.0, 10.0);
+            p.add(Shape::line(
+                vec![at(3.0, 1.0, w, h), at(7.0, 5.0, w, h), at(3.0, 9.0, w, h)],
+                stroke,
+            ));
+        }
+        Icon::ArrowUp => {
+            let (w, h) = (11.0, 11.0);
+            let stroke = Stroke::new(1.8, color);
+            p.line_segment([at(5.5, 10.0, w, h), at(5.5, 1.0, w, h)], stroke);
+            p.add(Shape::line(
+                vec![at(1.5, 5.0, w, h), at(5.5, 1.0, w, h), at(9.5, 5.0, w, h)],
+                stroke,
+            ));
+        }
     }
 }
 
@@ -1119,6 +1198,8 @@ pub fn icon_button(ui: &mut Ui, size: Vec2, face_kind: Face, icon_kind: Icon) ->
         Icon::Pencil => "Pencil",
         Icon::Scissors => "Split",
         Icon::Search => "Search",
+        Icon::ChevronRight => "Collapse",
+        Icon::ArrowUp => "Send",
     };
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
