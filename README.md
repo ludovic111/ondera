@@ -12,7 +12,7 @@ registry as the CLI and MCP server; a Settings window; Ondera's own Rust plugin 
 stock library rewritten on it; full CLI/MCP parity with the window; and signed, verified updates.
 You can write MIDI parts, record audio and MIDI, arrange regions, mix through stock, native or
 installed plugins, save a project and export a stereo WAV. It reads version-1 `.ondera`
-sessions. See the [release notes](docs/releases/0.3.1.md), [the agent](docs/AGENT.md),
+sessions. See the [release notes](docs/releases/0.4.0.md), [the agent](docs/AGENT.md),
 [native plugins](docs/NATIVE_PLUGINS.md) and the [migration status and limits](docs/RUST_MIGRATION.md).
 
 ## Build and run
@@ -94,7 +94,7 @@ WAV mix, MIDI export and verification report. Extract it and open `Afterglow.ond
 the arrangement, instrument and effect settings, and automation. Audio is embedded in the project.
 
 To publish a release: bump `version` in `Cargo.toml`, merge to `main`, then push a matching tag
-(`git tag v0.3.1 && git push origin v0.3.1`). The `Release` workflow builds all four platforms,
+(`git tag v0.4.0 && git push origin v0.4.0`). The `Release` workflow builds all four platforms,
 writes and signs `SHA256SUMS` and creates the GitHub release; installed apps pick it up on their
 next start. Signing needs the `ONDERA_SIGNING_KEY` repository secret: create a key pair once with
 `ondera --release-keygen <file>`, commit the printed public key in

@@ -79,4 +79,4 @@ No quantified performance gain or loss is claimed without equivalent release-bui
   A complete manual parity checklist is still pending; compilation and the live command
   workflow alone do not prove every gesture or dialog.
 - Linux, Windows and macOS Intel are assigned to CI; local macOS results do not validate those
-  platforms. No public release or change to the installed application is part of this branch.
+  platforms. Subsequent installation and release preparation are recorded in the 0.4.0 notes.
