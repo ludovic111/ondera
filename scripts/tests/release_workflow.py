@@ -49,7 +49,7 @@ FAKE_GIT = '''#!/usr/bin/env python3
 import os, sys
 if sys.argv[1] == "rev-parse": print("a" * 40)
 elif sys.argv[1] == "ls-remote":
-    print(os.environ.get("REMOTE_SHA", "a" * 40) + "\\trefs/tags/v0.3.0")
+    print(os.environ.get("REMOTE_SHA", "a" * 40) + "\\trefs/tags/v0.3.1")
 else: raise SystemExit("Unexpected git command")
 '''
 
@@ -65,8 +65,8 @@ class ReleaseWorkflow(unittest.TestCase):
         (self.root / "docs/releases").mkdir(parents=True)
         for name in ["verify-release.sh", "publish-release.sh"]:
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.3.0"\n')
-        (self.root / "docs/releases/0.3.0.md").write_text("Release notes\n")
+        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.3.1"\n')
+        (self.root / "docs/releases/0.3.1.md").write_text("Release notes\n")
         sums = []
         for name in ASSETS:
             payload = name.encode()
@@ -79,7 +79,7 @@ class ReleaseWorkflow(unittest.TestCase):
             path.write_text(script)
             path.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"],
-                        GITHUB_REF_TYPE="tag", GITHUB_REF_NAME="v0.3.0",
+                        GITHUB_REF_TYPE="tag", GITHUB_REF_NAME="v0.3.1",
                         RELEASE_FIXTURE=str(self.root), EXPECTED_ASSETS=";".join(ASSETS + ["SHA256SUMS", "SHA256SUMS.sig"]))
 
     def run_release(self):
@@ -126,7 +126,7 @@ class ReleaseWorkflow(unittest.TestCase):
                 moved = None
                 if case == "branch": self.env["GITHUB_REF_TYPE"] = "branch"
                 if case == "moved-tag": self.env["REMOTE_SHA"] = "b" * 40
-                if case == "missing-notes": moved = self.root / "docs/releases/0.3.0.md"
+                if case == "missing-notes": moved = self.root / "docs/releases/0.3.1.md"
                 if case == "missing-asset": moved = self.root / "dist" / ASSETS[0]
                 if case == "missing-demo": moved = self.root / "dist/Ondera-Afterglow-demo.zip"
                 if case == "missing-signature": moved = self.root / "dist/SHA256SUMS.sig"

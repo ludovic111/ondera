@@ -933,7 +933,7 @@ mod companions {
                 verify_version(&binary, "ondera-mcp", "0.2.0", Duration::from_secs(1)).is_err()
             );
             assert!(
-                verify_version(&binary, "ondera-cli", "0.3.0", Duration::from_secs(1)).is_err()
+                verify_version(&binary, "ondera-cli", "0.3.1", Duration::from_secs(1)).is_err()
             );
             fs::write(&binary, "#!/bin/sh\nwhile :; do :; done\n").unwrap();
             let started = Instant::now();

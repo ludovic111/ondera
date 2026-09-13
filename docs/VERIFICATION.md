@@ -1,4 +1,4 @@
-# Ondera 0.3.0 verification
+# Ondera 0.3.1 verification
 
 Verification date: 13 September 2026, on the development Mac (Apple Silicon, macOS 26). This
 records exercised behaviour and the limits of the evidence; it is not a certification of every
@@ -6,7 +6,7 @@ audio interface, plugin, model provider or production workload.
 
 ## Registry parity, live
 
-With the 0.3.0 debug build running, `ondera-cli doctor` reported the bridge, matching versions,
+With the 0.3.1 debug build running, `ondera-cli doctor` reported the bridge, matching versions,
 both companions, the settings file and the plugin cache. Over the bridge the CLI opened the
 agent panel and the Settings window (`ui.showPanel`), zoomed the arrangement (`view.set`),
 captured three PNG screenshots of the real window (`ui.screenshot`, 3200×2000), read and reset
