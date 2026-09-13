@@ -322,3 +322,75 @@ fn mcp_exposes_configured_export_and_atomic_stem_reports() {
         assert!(names.contains(&name));
     }
 }
+
+#[test]
+fn mcp_serves_prompts_resources_and_parity_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Mcp::start(dir.path(), &["--headless"]);
+    let init = mcp.request(1, "initialize", json!({ "protocolVersion": "2025-06-18" }));
+    assert!(init["result"]["capabilities"]["prompts"].is_object());
+    let prompts = mcp.request(2, "prompts/list", json!({}))["result"]["prompts"].clone();
+    let names: Vec<&str> = prompts
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["compose", "mix-review", "see-the-window"]);
+    let compose = mcp.request(
+        3,
+        "prompts/get",
+        json!({ "name": "compose", "arguments": { "style": "boom bap", "bars": "16" } }),
+    );
+    let text = compose["result"]["messages"][0]["content"]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("16 bars of boom bap") && text.contains("clip_create"));
+    assert_eq!(
+        mcp.request(4, "prompts/get", json!({ "name": "nope" }))["error"]["code"],
+        -32602
+    );
+    let resources = mcp.request(5, "resources/list", json!({}))["result"]["resources"].clone();
+    let uris: Vec<&str> = resources
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["uri"].as_str().unwrap())
+        .collect();
+    assert!(uris.contains(&"ondera://settings") && uris.contains(&"ondera://app"));
+    let app = mcp.request(6, "resources/read", json!({ "uri": "ondera://app" }));
+    let parsed: Value =
+        serde_json::from_str(app["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(parsed["mode"], "headless");
+    let tools = mcp.request(7, "tools/list", json!({}))["result"]["tools"].clone();
+    let by_name = |name: &str| {
+        tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("{name} missing"))
+    };
+    assert_eq!(
+        by_name("track_remove")["annotations"]["destructiveHint"],
+        true
+    );
+    assert_eq!(
+        by_name("track_setVolume")["annotations"]["destructiveHint"],
+        false
+    );
+    assert!(
+        by_name("settings_set")["inputSchema"]["properties"]["value"]
+            .get("type")
+            .is_none()
+    );
+    let view = mcp.tool(8, "view_set", json!({ "pixelsPerBar": 60 }));
+    assert_eq!(view["structuredContent"]["pixelsPerBar"], 60.0);
+    let screenshot = mcp.tool(9, "ui_screenshot", json!({}));
+    assert_eq!(screenshot["isError"], true);
+    assert!(screenshot["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("live mode"));
+}

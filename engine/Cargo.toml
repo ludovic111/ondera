@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ondera-plugin = { path = "../sdk" }
 serde.workspace = true
 serde_json.workspace = true
 cpal = "0.16"
@@ -20,6 +21,9 @@ vst3 = "0.3"
 libloading = "0.8"
 midir = "0.11"
 midly = { version = "0.5.3", default-features = false, features = ["std", "strict"] }
+
+[dev-dependencies]
+ondera-plugin-gain = { path = "../plugins/gain" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

@@ -66,6 +66,8 @@ impl Ondera {
             .show(ctx, |ui| {
                 let rect = ui.max_rect();
                 let p = ui.painter();
+                shade_rect(p, rect, 0.0, vertical(rect, HEADER_SELECTED_TOP, PANEL));
+                brushed(p, rect, 0.018);
                 hline(p, rect.left(), rect.right(), rect.top(), white(0.05));
                 hline(
                     p,
@@ -165,6 +167,11 @@ impl Ondera {
                 self.open_recovery();
             }
             ui.label(mono(self.recovery.status(), FS_SMALL, DIM));
+            ui.separator();
+            if ui.button("Settings…    ⌘,").clicked() {
+                self.open_settings(None);
+                ui.close();
+            }
             ui.separator();
             if ui.button("Quit").clicked() {
                 self.request(Intent::Quit);
@@ -375,6 +382,12 @@ impl Ondera {
             if ui.button("Check for updates…").clicked() {
                 self.check_for_updates(true);
             }
+            if ui.button("Native plugin SDK…").clicked() {
+                crate::settings::reveal(std::path::Path::new(
+                    "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md",
+                ));
+                ui.close();
+            }
             ui.separator();
             ui.label(text(
                 format!("Ondera {}", crate::update::current_version()),
@@ -451,7 +464,7 @@ impl Ondera {
                     ui.add_space(8.0);
                     changed |= self.time_display(ui, &mut t, bpb);
                     ui.add_space(8.0);
-                    if text_button(ui, "Click", Face::from_flag(t.metronome))
+                    if text_button_led(ui, "Click", t.metronome)
                         .on_hover_text("Metronome · K")
                         .clicked()
                     {
@@ -1793,7 +1806,9 @@ impl Ondera {
                 ui.vertical_centered(|ui| {
                     ui.label(caps("Pan"));
                     let mut pan = track.pan;
-                    if knob_widget(ui, &mut pan, -100.0..=100.0, 0.0, KNOB_LG).changed() {
+                    let knob = knob_widget(ui, &mut pan, -100.0..=100.0, 0.0, KNOB_LG);
+                    knob_ticks(ui.painter(), knob.rect.center(), KNOB_LG / 2.0);
+                    if knob.changed() {
                         track.pan = pan.round();
                         track_changed = true;
                     }
@@ -2023,6 +2038,7 @@ pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, 
     });
     for d in external {
         let group = match d.format {
+            Format::Native => "Ondera Native",
             Format::Clap => "CLAP",
             Format::Vst3 => "VST3",
             Format::AudioUnit => "Audio Units",
@@ -2034,6 +2050,7 @@ pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, 
                 d.name.clone(),
                 truncate(&d.vendor, 14),
                 match d.format {
+                    Format::Native => ACCENT,
                     Format::Clap => TRACKS[2],
                     Format::Vst3 => TRACKS[1],
                     _ => TRACKS[5],

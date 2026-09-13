@@ -2,6 +2,7 @@
 pub mod audio;
 pub mod automation;
 pub mod control;
+pub mod control_app;
 pub mod control_automation;
 pub mod control_media;
 pub mod device;
@@ -13,8 +14,11 @@ pub mod midi;
 pub mod midi_file;
 pub mod model;
 pub mod plugin;
+pub mod preset;
+pub mod recovery;
 pub mod render;
 pub mod session_file;
+pub mod settings;
 pub mod stock;
 pub mod store;
 

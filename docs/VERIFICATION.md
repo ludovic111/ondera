@@ -1,3 +1,45 @@
+# Ondera 0.3.1 verification
+
+Verification date: 13 September 2026, on the development Mac (Apple Silicon, macOS 26). This
+records exercised behaviour and the limits of the evidence; it is not a certification of every
+audio interface, plugin, model provider or production workload.
+
+## Registry parity, live
+
+With the 0.3.1 debug build running, `ondera-cli doctor` reported the bridge, matching versions,
+both companions, the settings file and the plugin cache. Over the bridge the CLI opened the
+agent panel and the Settings window (`ui.showPanel`), zoomed the arrangement (`view.set`),
+captured three PNG screenshots of the real window (`ui.screenshot`, 3200×2000), read and reset
+preferences (`settings.get`, `settings.reset`), rescanned plugins (2237 descriptors, 0 errors,
+including the two native example plugins), listed `plugin.list --format native`, reported
+`agent.status` and `agent.providers` (Codex found at its ChatGPT.app path), loaded a factory
+preset onto a Space insert (`preset.load` wrote the five Cathedral values), opened that plugin's
+window (`ui.openPluginWindow`) and quit the app with `app.quit --discard true`. The captures
+were inspected: faceplates with corner screws behind the Settings and plugin windows, LED
+buttons, tick rings on knobs, ivory and lacquered piano keys, the conversation header of the
+agent panel.
+
+## Native plugins
+
+`engine/tests/native_plugin.rs` exercises the example bundle through the in-process ABI, the
+whole stock library through the same vtables (24 manifests, legacy JSON-array state) and the
+built dynamic library through the scanner. `ondera --scan-plugin native <dylib>` probed the
+example library in a child process and returned both descriptors. All 24 stock plugins are
+instantiated through the ABI in the existing DSP regression tests; the bit-identical voice test
+and the stock effect decay tests pass unchanged.
+
+## Agent, settings, updater
+
+Unit tests cover the Codex and Claude Code stream parsers, a fake CLI driven through stdin with
+a non-zero exit, cancellation that kills a child holding the output pipes, tool results reaching
+chat cards, bridge calls appearing in the chat while a task runs, agent permissions enforced only
+for agent-flagged requests, settings round trips with masked secrets and 0600 permissions, the
+release-URL host pinning, and Ed25519 key generation, signing and tamper detection. A real
+provider turn (Codex, Claude Code, Anthropic or OpenAI) was not run in this verification.
+
+`cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace` and `python3 scripts/tests/release_workflow.py` all pass.
+
 # Ondera 0.2.0 verification
 
 Verification date: 12 September 2026. This records exercised behavior and the limits of the

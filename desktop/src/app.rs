@@ -11,6 +11,7 @@ use ondera_engine::{
     plugin::Descriptor,
     render::Renderer,
     session_file::SessionFileLock,
+    settings::Settings,
     store::{self, Command, Store},
     Result,
 };
@@ -138,6 +139,11 @@ pub struct Ondera {
     pub(crate) recovery: crate::recovery::Recovery,
     pub(crate) control_job: Option<crate::control::ControlJob>,
     pub(crate) updates: crate::update::Updates,
+    pub(crate) settings: Settings,
+    pub(crate) settings_ui: crate::settings::SettingsWindow,
+    pub(crate) live_jobs: Vec<crate::control::LiveJob>,
+    pub(crate) attach_live: Option<usize>,
+    pub(crate) bridge_wanted: bool,
 }
 pub fn id(prefix: &str) -> String {
     ondera_engine::control::new_id(prefix)
@@ -152,19 +158,54 @@ impl Ondera {
     ) -> Self {
         install(&cc.egui_ctx);
         let screenshot_run = screenshot.is_some();
+        let settings = Settings::load();
         let mut app = Self::from_session(store::demo(), screenshot);
+        app.settings = settings.clone();
+        app.output_device = settings.audio.output_device.clone();
+        app.input_device = settings.audio.input_device.clone();
+        if settings.audio.connect_midi_on_start {
+            app.midi_port = settings.audio.midi_input.clone();
+        }
+        app.agents.open = settings.interface.agent_panel_open_on_start;
+        if (settings.interface.scale - 1.0).abs() > f32::EPSILON {
+            cc.egui_ctx.set_zoom_factor(settings.interface.scale);
+        }
         app.catalog = host::scan::installed();
         app.connect();
-        if control {
+        if control && settings.control.enable_bridge {
             app.start_control(&cc.egui_ctx);
         }
-        if check_updates && !screenshot_run {
+        if check_updates && settings.general.check_updates_on_start && !screenshot_run {
             app.check_for_updates(false);
         }
+        if settings.plugins.scan_on_start && !screenshot_run {
+            app.scan_plugins();
+        }
+        let path = path.or_else(|| {
+            settings
+                .general
+                .reopen_last_session
+                .then(|| settings.general.last_session.as_ref().map(PathBuf::from))
+                .flatten()
+                .filter(|p| p.is_file())
+        });
         if let Some(path) = path {
             app.load_path(path);
         }
         app
+    }
+    /// Remember a session file in the recent list and as the last one opened.
+    pub(crate) fn remember_session(&mut self, path: &std::path::Path) {
+        let text = path.to_string_lossy().into_owned();
+        let recent = &mut self.settings.general.recent_sessions;
+        recent.retain(|p| p != &text);
+        recent.insert(0, text.clone());
+        recent.truncate(10);
+        self.settings.general.last_session = Some(text);
+        // Unit tests open temporary files; they must not touch the person's settings.
+        if !cfg!(test) {
+            let _ = self.settings.save();
+        }
     }
     pub(crate) fn from_session(session: Session, screenshot: Option<PathBuf>) -> Self {
         let zoom = session.view.pixels_per_bar;
@@ -235,6 +276,11 @@ impl Ondera {
             recovery: Default::default(),
             control_job: None,
             updates: Default::default(),
+            settings: Settings::default(),
+            settings_ui: Default::default(),
+            live_jobs: vec![],
+            attach_live: None,
+            bridge_wanted: false,
         }
     }
     pub fn dispatch(&mut self, command: Command) {
@@ -1262,6 +1308,7 @@ impl Ondera {
             self.reset_agent_history();
             self.recovery.new_document();
             self.library = library;
+            self.remember_session(&path);
             self.path = Some(path);
             self.session_file = ownership;
             self.sync_needed = true;
@@ -1271,6 +1318,7 @@ impl Ondera {
         }
     }
     pub(crate) fn saved(&mut self, path: PathBuf, revision: u64, ownership: SessionFileLock) {
+        self.remember_session(&path);
         self.path = Some(path);
         self.session_file = Some(ownership);
         self.store.mark_saved(revision);
@@ -1301,7 +1349,7 @@ impl Ondera {
         });
     }
     fn poll_agent(&mut self, ctx: &egui::Context) {
-        self.agents.poll_runner(ctx);
+        self.run_agent_tools(ctx);
         if !self.agents.runner_busy() && self.job.is_none() && self.control_job.is_none() {
             if let Some(intent) = self.after_agent.take() {
                 // The runner joins its MCP children before becoming idle. Reject commands
@@ -1340,7 +1388,9 @@ impl Ondera {
             return;
         }
         self.error = previous_error;
-        if self.store.dirty() {
+        let confirm_quit =
+            matches!(intent, Intent::Quit) && self.settings.general.confirm_before_quit;
+        if self.store.dirty() || confirm_quit {
             self.intent = Some(intent);
         } else {
             self.execute(intent);
@@ -1416,6 +1466,9 @@ impl Ondera {
         let mods = ctx.input(|i| i.modifiers);
         let pressed = |key| ctx.input_mut(|i| i.consume_key(mods, key));
         if mods.command {
+            if pressed(egui::Key::Comma) {
+                self.open_settings(None);
+            }
             if pressed(egui::Key::K) {
                 self.toggle_musical_typing();
             }
@@ -1701,55 +1754,84 @@ impl Ondera {
     }
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
         if let Some(intent) = self.intent {
-            egui::Modal::new(egui::Id::new("unsaved")).show(ctx, |ui| {
-                ui.label(text(
-                    "Save your changes?",
-                    FS_PANEL_TITLE,
-                    Weight::Bold,
-                    INK,
-                ));
-                ui.add_space(6.0);
-                ui.label(text(
-                    "This session has unsaved changes.",
-                    FS_BODY,
-                    Weight::Medium,
-                    DIM,
-                ));
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    if text_button(ui, "Save", Face::Raised).clicked() {
-                        self.intent = None;
-                        self.after_save = Some(intent);
-                        self.save(false);
-                    }
-                    if text_button(ui, "Discard", Face::Raised).clicked() {
-                        self.intent = None;
-                        self.execute(intent);
-                    }
-                    if text_button(ui, "Cancel", Face::Raised).clicked() {
-                        self.intent = None;
-                    }
+            let dirty = self.store.dirty();
+            egui::Modal::new(egui::Id::new("unsaved"))
+                .frame(dialog_frame())
+                .show(ctx, |ui| {
+                    ui.set_max_width(400.0);
+                    ui.label(text(
+                        if dirty {
+                            "Save your changes?"
+                        } else {
+                            "Quit Ondera?"
+                        },
+                        FS_PANEL_TITLE,
+                        Weight::Bold,
+                        INK,
+                    ));
+                    ui.add_space(6.0);
+                    ui.label(text(
+                        if dirty {
+                            "This session has unsaved changes."
+                        } else {
+                            "Everything is saved. Settings > General turns this question off."
+                        },
+                        FS_BODY,
+                        Weight::Medium,
+                        DIM,
+                    ));
+                    ui.add_space(14.0);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        if dirty {
+                            if text_button(ui, "Save", Face::Lit).clicked() {
+                                self.intent = None;
+                                self.after_save = Some(intent);
+                                self.save(false);
+                            }
+                            if text_button(ui, "Discard", Face::Raised).clicked() {
+                                self.intent = None;
+                                self.execute(intent);
+                            }
+                        } else if text_button(ui, "Quit", Face::Lit).clicked() {
+                            self.intent = None;
+                            self.execute(intent);
+                        }
+                        if text_button(ui, "Cancel", Face::Raised).clicked() {
+                            self.intent = None;
+                        }
+                    });
                 });
-            });
         }
         if let Some(message) = self.error.clone() {
-            egui::Window::new("Ondera")
-                .collapsible(false)
-                .resizable(false)
+            egui::Modal::new(egui::Id::new("error"))
+                .frame(dialog_frame())
                 .show(ctx, |ui| {
                     ui.set_max_width(480.0);
-                    ui.label(text(message, FS_BODY, Weight::Medium, INK));
-                    ui.add_space(10.0);
-                    if text_button(ui, "OK", Face::Raised).clicked() {
-                        self.error = None;
-                    }
+                    ui.horizontal(|ui| {
+                        let (dot, _) =
+                            ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                        accent_dot(ui.painter(), dot.center(), 3.5, true);
+                        ui.label(text("Ondera", FS_PANEL_TITLE, Weight::Bold, INK));
+                    });
+                    ui.add_space(6.0);
+                    ui.add(
+                        egui::Label::new(text(message, FS_BODY, Weight::Medium, INK_CONTROL))
+                            .wrap(),
+                    );
+                    ui.add_space(12.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if text_button(ui, "OK", Face::Raised).clicked() {
+                            self.error = None;
+                        }
+                    });
                 });
         }
         if self.show_help {
             egui::Window::new("Working in Ondera")
                 .open(&mut self.show_help)
-                .show(ctx, |ui| {
+                .frame(window_frame())
+                .show(ctx, |ui| plate(ui, "help-plate", |ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     for line in [
                         "Space: play / stop. Enter: return to start. R: record, A: arm selected track.",
@@ -1766,10 +1848,12 @@ impl Ondera {
                         "Effects tab: Ondera plugins plus scanned CLAP, VST3 and Audio Unit plugins.",
                         "Click an insert to open its parameters; Open plugin window shows the native editor.",
                         "Master and A / B buses have their own insert chains in the inspector.",
+                        "Cmd/Ctrl + , opens Settings: audio devices, the agent provider, plugin folders and updates.",
+                        "The Agent panel (right edge) talks to Codex, Claude Code or an API key; every edit it makes can be reverted.",
                     ] {
                         ui.label(text(line, FS_BODY, Weight::Medium, INK_CONTROL));
                     }
-                });
+                }));
         }
     }
 }
@@ -1784,6 +1868,7 @@ impl eframe::App for Ondera {
         self.poll_agent(ctx);
         self.serve_control(gesture);
         self.poll_updates();
+        self.poll_live_jobs(ctx);
         self.keyboard(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1820,6 +1905,7 @@ impl eframe::App for Ondera {
         self.plugin_windows(ctx);
         self.automation_window(ctx);
         self.export_dialog(ctx);
+        self.settings_window(ctx);
         self.update_dialog(ctx);
         let dropped: Vec<_> = ctx.input(|i| {
             i.raw
@@ -1836,6 +1922,7 @@ impl eframe::App for Ondera {
             || self.scan_job.is_some()
             || self.midi_recording
             || self.updates.busy()
+            || !self.live_jobs.is_empty()
         {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else {
@@ -1846,6 +1933,9 @@ impl eframe::App for Ondera {
         }
         for event in ctx.input(|i| i.events.clone()) {
             if let egui::Event::Screenshot { image, .. } = event {
+                if self.deliver_screenshot(&image) {
+                    continue;
+                }
                 if let Some(path) = self.screenshot.take() {
                     let data: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
                     match image::save_buffer(

@@ -1,6 +1,6 @@
-//! Plugin discovery. CLAP and VST3 bundles are probed in a child process so a
-//! crashing plugin cannot take the session down; Audio Units come from the
-//! system registry. Results are cached next to the user's application data.
+//! Plugin discovery. Ondera native, CLAP and VST3 bundles are probed in a child process so
+//! a crashing plugin cannot take the session down; Audio Units come from the system
+//! registry. Results are cached next to the user's application data.
 
 use crate::plugin::{Descriptor, Format};
 use serde::{Deserialize, Serialize};
@@ -85,19 +85,46 @@ pub fn data_dir() -> PathBuf {
 pub fn cache_path() -> PathBuf {
     data_dir().join("plugins.json")
 }
-/// Standard bundle directories per format, plus `CLAP_PATH` / `VST3_PATH` overrides.
+/// Standard bundle directories per format, plus `CLAP_PATH` / `VST3_PATH` /
+/// `ONDERA_PLUGIN_PATH` overrides and the extra paths from Settings > Plugins.
 pub fn directories(format: Format) -> Vec<PathBuf> {
     let mut dirs = vec![];
     let env = match format {
         Format::Clap => Some("CLAP_PATH"),
         Format::Vst3 => Some("VST3_PATH"),
+        Format::Native => Some("ONDERA_PLUGIN_PATH"),
         _ => None,
     };
     if let Some(var) = env.and_then(std::env::var_os) {
         dirs.extend(std::env::split_paths(&var));
     }
+    dirs.extend(crate::settings::Settings::load().extra_plugin_paths(format));
     let home = home();
     match format {
+        Format::Native => {
+            dirs.push(data_dir().join("plugins"));
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(h) = &home {
+                    dirs.push(h.join("Library/Audio/Plug-Ins/Ondera"));
+                }
+                dirs.push(PathBuf::from("/Library/Audio/Plug-Ins/Ondera"));
+            }
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(p) = std::env::var_os("COMMONPROGRAMFILES") {
+                    dirs.push(PathBuf::from(p).join("Ondera/Plugins"));
+                }
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                if let Some(h) = &home {
+                    dirs.push(h.join(".local/lib/ondera/plugins"));
+                }
+                dirs.push(PathBuf::from("/usr/lib/ondera/plugins"));
+                dirs.push(PathBuf::from("/usr/local/lib/ondera/plugins"));
+            }
+        }
         Format::Clap => {
             #[cfg(target_os = "macos")]
             {
@@ -153,26 +180,29 @@ pub fn directories(format: Format) -> Vec<PathBuf> {
         _ => {}
     }
     let _ = home;
+    dirs.retain(|d| !d.as_os_str().is_empty());
     dirs
 }
-fn extension(format: Format) -> &'static str {
+fn extensions(format: Format) -> Vec<&'static str> {
     match format {
-        Format::Clap => "clap",
-        Format::Vst3 => "vst3",
-        _ => "",
+        Format::Clap => vec!["clap"],
+        Format::Vst3 => vec!["vst3"],
+        Format::Native => vec!["onplug", super::native::library_extension()],
+        _ => vec![],
     }
 }
 /// Bundle paths found on disk for a format, searched two levels deep.
 pub fn candidates(format: Format) -> Vec<PathBuf> {
     let mut found = vec![];
+    let extensions = extensions(format);
     for dir in directories(format) {
-        walk(&dir, extension(format), 0, &mut found);
+        walk(&dir, &extensions, 0, &mut found);
     }
     found.sort();
     found.dedup();
     found
 }
-fn walk(dir: &Path, ext: &str, depth: usize, found: &mut Vec<PathBuf>) {
+fn walk(dir: &Path, extensions: &[&str], depth: usize, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -180,11 +210,11 @@ fn walk(dir: &Path, ext: &str, depth: usize, found: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path
             .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+            .is_some_and(|e| extensions.iter().any(|ext| e.eq_ignore_ascii_case(ext)))
         {
             found.push(path);
         } else if depth < 2 && path.is_dir() {
-            walk(&path, ext, depth + 1, found);
+            walk(&path, extensions, depth + 1, found);
         }
     }
 }
@@ -247,9 +277,10 @@ pub fn installed() -> Vec<Descriptor> {
 /// Probe one bundle in this process. Used by the `--scan-plugin` child.
 pub fn probe(format: Format, path: &Path) -> crate::Result<Vec<Descriptor>> {
     match format {
+        Format::Native => super::native::scan(path),
         Format::Clap => super::clap::scan(path),
         Format::Vst3 => super::vst3::scan(path),
-        _ => Err("Only CLAP and VST3 bundles are probed by path".into()),
+        _ => Err("Only native, CLAP and VST3 bundles are probed by path".into()),
     }
 }
 /// Probe a bundle in a child process with a timeout.
@@ -311,7 +342,7 @@ pub fn scan_all(mut progress: impl FnMut(&str)) -> Cache {
         .map(|e| (e.path.clone(), e))
         .collect();
     let mut entries = vec![];
-    for format in [Format::Clap, Format::Vst3] {
+    for format in [Format::Native, Format::Clap, Format::Vst3] {
         for path in candidates(format) {
             let key = path.to_string_lossy().to_string();
             let stamp = modified(&path);

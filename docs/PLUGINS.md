@@ -8,7 +8,8 @@ and an `Editor` that stays on the main thread (parameters, state, native window)
 
 | Format | Platforms | Loader | Notes |
 | --- | --- | --- | --- |
-| Ondera stock | all | in process | 16 effects and 8 instruments, see below |
+| Ondera stock | all | in process, through the SDK ABI | 16 effects and 8 instruments, see below |
+| Ondera native | all | `ondera-plugin` C ABI, `ondera_plugin_entry` | Rust plugins built with the SDK; see [NATIVE_PLUGINS.md](NATIVE_PLUGINS.md) |
 | CLAP | macOS, Linux, Windows | `clap-sys` bindings, `clap_entry` | main-thread / audio-thread split as the spec defines |
 | VST3 | macOS, Linux, Windows | `vst3` COM bindings, `GetPluginFactory` | component + edit controller, `IPlugView` editors |
 | Audio Units | macOS | AudioToolbox component API | effects, music effects, instruments and generators exposed by the system registry |
@@ -17,14 +18,15 @@ VST2 and AAX are not supported. Use a plugin's CLAP, VST3 or supported Audio Uni
 The binary architecture must match Ondera: Apple Silicon and Intel Mac builds are separate.
 Format support and a successful scan do not guarantee compatibility with every installed unit.
 
-Plugin ids are stable strings stored in the session: `stock:<name>`, `clap:<plugin id>`,
-`vst3:<class id hex>` and `au:<type>:<subtype>:<manufacturer>`. VST3 class ids are the bytes the
+Plugin ids are stable strings stored in the session: `stock:<name>`, `native:<plugin id>`,
+`clap:<plugin id>`, `vst3:<class id hex>` and `au:<type>:<subtype>:<manufacturer>`. VST3 class ids are the bytes the
 plugin reports on the platform that scanned it.
 
 ## Scanning
 
-**Audio > Rescan plugins** (or the *Scan plugins* button under the Instruments and Effects tabs)
-looks in the standard directories plus `CLAP_PATH` / `VST3_PATH`:
+**Mix > Rescan plugins** (or Settings > Plugins, or the *Scan plugins* button under the browser
+tabs) looks in the standard directories, the extra folders from Settings > Plugins and
+`CLAP_PATH` / `VST3_PATH` / `ONDERA_PLUGIN_PATH`:
 
 - macOS: `~/Library/Audio/Plug-Ins/{CLAP,VST3}`, `/Library/Audio/Plug-Ins/{CLAP,VST3}`, the Audio Unit registry
 - Linux: `~/.clap`, `/usr/lib/clap`, `/usr/local/lib/clap`, `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3`

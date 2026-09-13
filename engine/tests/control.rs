@@ -40,7 +40,12 @@ fn registry_is_unique_introspectable_and_mcp_safe() {
         let mut params = HashSet::new();
         for p in spec.params {
             assert!(params.insert(p.name), "{} repeats {}", spec.name, p.name);
-            assert!(schema["properties"][p.name]["type"].is_string());
+            assert!(
+                schema["properties"][p.name]["type"].is_string() || p.kind == control::Kind::Any,
+                "{} {}",
+                spec.name,
+                p.name
+            );
             assert_eq!(
                 schema["required"]
                     .as_array()
@@ -172,6 +177,218 @@ fn every_registered_command_is_implemented() {
     }
     let err = fail(&mut host, "track.ad", json!({}));
     assert!(err.contains("track.add"), "{err}");
+}
+
+#[test]
+fn parity_commands_cover_view_regions_tracks_inserts_presets_and_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_var("ONDERA_DATA_DIR", dir.path());
+    std::env::set_var("ONDERA_SETTINGS", dir.path().join("settings.json"));
+    let mut host = Headless::new();
+    let track = call(&mut host, "track.add", json!({"kind":"midi","name":"Keys"}))["id"].clone();
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":1,"notes":[
+            {"start":0.1,"length":0.9,"pitch":60},{"start":1.45,"length":1.0,"pitch":64},{"start":3.9,"length":0.5,"pitch":127}]}),
+    )["id"]
+        .clone();
+    let quantized = call(
+        &mut host,
+        "clip.quantize",
+        json!({"clipId":clip,"division":4,"lengths":true}),
+    );
+    assert_eq!(quantized["changedNotes"], 3);
+    let notes = call(&mut host, "note.list", json!({"clipId":clip}));
+    assert_eq!(notes[0]["start"], 0.0);
+    assert_eq!(notes[1]["start"], 1.0);
+    assert_eq!(notes[2]["start"], 3.0, "notes stay inside the clip");
+    assert_eq!(notes[2]["length"], 1.0);
+    call(
+        &mut host,
+        "clip.transpose",
+        json!({"clipId":clip,"semitones":5}),
+    );
+    let notes = call(&mut host, "note.list", json!({"clipId":clip}));
+    assert_eq!(notes[0]["pitch"], 65);
+    assert_eq!(notes[2]["pitch"], 127, "pitches clamp at the top");
+    assert!(fail(
+        &mut host,
+        "clip.transpose",
+        json!({"clipId":clip,"semitones":99})
+    )
+    .contains("-48"));
+    call(&mut host, "history.undo", json!({"steps":2}));
+    let notes = call(&mut host, "note.list", json!({"clipId":clip}));
+    assert_eq!(notes[0]["start"], 0.1);
+    call(
+        &mut host,
+        "strip.setPlugin",
+        json!({"trackId":track,"slot":0,"pluginId":"stock:Space"}),
+    );
+    call(
+        &mut host,
+        "strip.setPlugin",
+        json!({"trackId":track,"slot":1,"pluginId":"stock:Echo"}),
+    );
+    let moved = call(
+        &mut host,
+        "strip.moveInsert",
+        json!({"trackId":track,"from":1,"to":0}),
+    );
+    assert_eq!(moved["inserts"][0]["effect"], "Echo");
+    assert_eq!(moved["inserts"][1]["effect"], "Space");
+    let copy = call(&mut host, "track.duplicate", json!({"trackId":track}));
+    assert_eq!(copy["name"], "Keys copy");
+    assert_eq!(copy["index"], 3, "the copy sits right after the original");
+    assert_eq!(copy["clipCount"], 1);
+    let original_strip = call(&mut host, "strip.get", json!({"trackId":track}));
+    let copied_strip = call(&mut host, "strip.get", json!({"trackId":copy["id"]}));
+    assert_eq!(copied_strip["inserts"][0]["effect"], "Echo");
+    assert_ne!(
+        copied_strip["inserts"][0]["id"],
+        original_strip["inserts"][0]["id"]
+    );
+    call(
+        &mut host,
+        "clip.select",
+        json!({"clipId":clip,"noteId":notes[1]["id"]}),
+    );
+    assert_eq!(
+        host.store.session().view.selected_note_id.as_deref(),
+        notes[1]["id"].as_str()
+    );
+    let view = call(
+        &mut host,
+        "view.set",
+        json!({"pixelsPerBar":96,"scrollBar":2,"editorMode":"step","editorClipId":clip}),
+    );
+    assert_eq!(view["pixelsPerBar"], 96.0);
+    assert_eq!(view["editorMode"], "step");
+    assert_eq!(view["editorClipId"], clip);
+    assert!(fail(&mut host, "view.set", json!({"editorMode":"drums"})).contains("pianoRoll"));
+    let described = call(
+        &mut host,
+        "plugin.describe",
+        json!({"pluginId":"stock:Space"}),
+    );
+    assert_eq!(described["parameters"].as_array().unwrap().len(), 5);
+    assert!(described["presets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p == "Cathedral"));
+    let loaded = call(
+        &mut host,
+        "preset.load",
+        json!({"trackId":track,"slot":1,"name":"Cathedral"}),
+    );
+    assert_eq!(loaded["preset"], "Cathedral");
+    assert_eq!(loaded["inserts"][1]["params"]["0"], 95.0);
+    assert!(fail(
+        &mut host,
+        "preset.load",
+        json!({"trackId":track,"slot":0,"name":"Cathedral"})
+    )
+    .contains("No preset"));
+    let saved = call(
+        &mut host,
+        "preset.save",
+        json!({"trackId":track,"slot":1,"name":"Bigger hall"}),
+    );
+    assert_eq!(saved["preset"]["params"]["0"], 95.0);
+    assert!(
+        call(&mut host, "preset.list", json!({"pluginId":"stock:Space"}))["presets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "Bigger hall" && p["factory"] == false)
+    );
+    call(
+        &mut host,
+        "preset.delete",
+        json!({"pluginId":"stock:Space","name":"Bigger hall"}),
+    );
+    assert!(fail(
+        &mut host,
+        "preset.delete",
+        json!({"pluginId":"stock:Space","name":"Cathedral"})
+    )
+    .contains("Factory"));
+    let set = call(
+        &mut host,
+        "settings.set",
+        json!({"path":"agent.provider","value":"anthropic"}),
+    );
+    assert_eq!(set["value"], "anthropic");
+    call(
+        &mut host,
+        "settings.set",
+        json!({"path":"agent.anthropicApiKey","value":"sk-ant-1234567890"}),
+    );
+    let shown = call(&mut host, "settings.get", json!({"path":"agent"}));
+    assert_eq!(shown["anthropicApiKey"], "••••7890");
+    assert_eq!(shown["provider"], "anthropic");
+    assert!(fail(
+        &mut host,
+        "settings.set",
+        json!({"path":"agent.bogus","value":1})
+    )
+    .contains("Unknown setting"));
+    call(&mut host, "settings.reset", json!({}));
+    assert_eq!(
+        call(&mut host, "settings.get", json!({"path":"agent.provider"})),
+        json!("codex")
+    );
+    let info = call(&mut host, "app.info", json!({}));
+    assert_eq!(info["mode"], "headless");
+    assert!(info["commands"].as_u64().unwrap() > 100);
+    assert!(call(&mut host, "session.snapshots", json!({}))["snapshots"].is_array());
+    let devices = call(&mut host, "audio.devices", json!({}));
+    assert!(devices["outputs"].is_array());
+    let err = fail(&mut host, "ui.screenshot", json!({}));
+    assert!(err.contains("needs the running Ondera app"), "{err}");
+    assert!(fail(&mut host, "agent.send", json!({"prompt":"hi"})).contains("live mode"));
+    std::env::remove_var("ONDERA_SETTINGS");
+    std::env::remove_var("ONDERA_DATA_DIR");
+}
+
+#[test]
+fn agent_permissions_gate_dangerous_commands() {
+    use ondera_engine::{control_app, settings::Permissions};
+    let strict = Permissions {
+        file_operations: false,
+        transport: false,
+        replace_session: false,
+        settings: false,
+        app_control: false,
+    };
+    for name in [
+        "session.save",
+        "transport.play",
+        "session.new",
+        "settings.set",
+        "app.quit",
+    ] {
+        assert!(
+            control_app::denied_for_agent(name, &strict).is_some(),
+            "{name}"
+        );
+    }
+    for name in [
+        "track.add",
+        "clip.setNotes",
+        "session.info",
+        "view.set",
+        "preset.load",
+    ] {
+        assert!(
+            control_app::denied_for_agent(name, &strict).is_none(),
+            "{name}"
+        );
+    }
+    assert!(control_app::denied_for_agent("session.save", &Permissions::default()).is_none());
+    assert!(control_app::denied_for_agent("session.new", &Permissions::default()).is_some());
 }
 
 #[test]

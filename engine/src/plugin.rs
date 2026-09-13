@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum Format {
     Stock,
+    /// A library built with the `ondera-plugin` SDK and loaded through its C ABI.
+    Native,
     Clap,
     Vst3,
     #[serde(rename = "au")]
@@ -22,6 +24,7 @@ impl Format {
     pub fn label(self) -> &'static str {
         match self {
             Format::Stock => "Ondera",
+            Format::Native => "Native",
             Format::Clap => "CLAP",
             Format::Vst3 => "VST3",
             Format::AudioUnit => "AU",
@@ -30,6 +33,7 @@ impl Format {
     pub fn prefix(self) -> &'static str {
         match self {
             Format::Stock => "stock",
+            Format::Native => "native",
             Format::Clap => "clap",
             Format::Vst3 => "vst3",
             Format::AudioUnit => "au",
@@ -39,6 +43,7 @@ impl Format {
         let (prefix, rest) = id.split_once(':')?;
         let format = match prefix {
             "stock" => Format::Stock,
+            "native" => Format::Native,
             "clap" => Format::Clap,
             "vst3" => Format::Vst3,
             "au" => Format::AudioUnit,
@@ -49,7 +54,8 @@ impl Format {
 }
 
 /// A plugin known to the browser. `id` is stable across scans:
-/// `stock:<name>`, `clap:<plugin id>`, `vst3:<class id hex>` or `au:<type>:<subtype>:<manufacturer>`.
+/// `stock:<name>`, `native:<plugin id>`, `clap:<plugin id>`, `vst3:<class id hex>` or
+/// `au:<type>:<subtype>:<manufacturer>`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Descriptor {
     pub id: String,
@@ -133,38 +139,9 @@ impl ParamInfo {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NoteEvent {
-    pub frame: u32,
-    pub on: bool,
-    pub pitch: u8,
-    pub velocity: u8,
-    pub channel: u8,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ParamChange {
-    pub id: u32,
-    pub value: f64,
-}
-
-/// Transport information for one block, valid at the first frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ProcessContext {
-    pub playing: bool,
-    pub recording: bool,
-    pub tempo: f64,
-    pub position_beats: f64,
-    pub position_seconds: f64,
-    pub sample_time: i64,
-    pub numerator: u32,
-    pub denominator: u32,
-    pub cycle: Option<(f64, f64)>,
-    pub bar_start_beats: f64,
-}
-
-/// Largest block handed to a processor. Device buffers are split accordingly.
-pub const MAX_BLOCK: usize = 256;
+/// Note events, parameter changes, transport context and the block bound are defined by the
+/// plugin SDK so native plugins and the hosts agree on one layout.
+pub use ondera_plugin::{NoteEvent, ParamChange, ProcessContext, MAX_BLOCK};
 
 /// The audio-thread half of a plugin. Nothing here may allocate, block or log.
 pub trait Processor: Send {
@@ -365,10 +342,8 @@ impl Drop for Rack {
     }
 }
 
-/// A gain applied at a fixed frame count per second. Shared by stock DSP.
-pub fn db_to_gain(db: f64) -> f32 {
-    10f64.powf(db / 20.0) as f32
-}
+/// Decibels to linear gain, shared with the plugin SDK.
+pub use ondera_plugin::dsp::db_to_gain;
 
 #[cfg(test)]
 mod tests {

@@ -49,7 +49,7 @@ FAKE_GIT = '''#!/usr/bin/env python3
 import os, sys
 if sys.argv[1] == "rev-parse": print("a" * 40)
 elif sys.argv[1] == "ls-remote":
-    print(os.environ.get("REMOTE_SHA", "a" * 40) + "\\trefs/tags/v0.2.0")
+    print(os.environ.get("REMOTE_SHA", "a" * 40) + "\\trefs/tags/v0.3.1")
 else: raise SystemExit("Unexpected git command")
 '''
 
@@ -65,21 +65,22 @@ class ReleaseWorkflow(unittest.TestCase):
         (self.root / "docs/releases").mkdir(parents=True)
         for name in ["verify-release.sh", "publish-release.sh"]:
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.2.0"\n')
-        (self.root / "docs/releases/0.2.0.md").write_text("Release notes\n")
+        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.3.1"\n')
+        (self.root / "docs/releases/0.3.1.md").write_text("Release notes\n")
         sums = []
         for name in ASSETS:
             payload = name.encode()
             (self.root / "dist" / name).write_bytes(payload)
             sums.append(hashlib.sha256(payload).hexdigest() + "  " + name)
         (self.root / "dist/SHA256SUMS").write_text("\n".join(sums) + "\n")
+        (self.root / "dist/SHA256SUMS.sig").write_text("ondera-ed25519 c2lnbmF0dXJl\n")
         for name, script in [("gh", FAKE_GH), ("git", FAKE_GIT)]:
             path = self.root / "bin" / name
             path.write_text(script)
             path.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"],
-                        GITHUB_REF_TYPE="tag", GITHUB_REF_NAME="v0.2.0",
-                        RELEASE_FIXTURE=str(self.root), EXPECTED_ASSETS=";".join(ASSETS + ["SHA256SUMS"]))
+                        GITHUB_REF_TYPE="tag", GITHUB_REF_NAME="v0.3.1",
+                        RELEASE_FIXTURE=str(self.root), EXPECTED_ASSETS=";".join(ASSETS + ["SHA256SUMS", "SHA256SUMS.sig"]))
 
     def run_release(self):
         return subprocess.run(["bash", "scripts/publish-release.sh"], cwd=self.root,
@@ -118,16 +119,17 @@ class ReleaseWorkflow(unittest.TestCase):
         self.assertEqual(self.calls(), ["view", "download"])
 
     def test_wrong_ref_moved_tag_missing_notes_and_asset_fail_before_github(self):
-        cases = ["branch", "moved-tag", "missing-notes", "missing-asset", "missing-demo"]
+        cases = ["branch", "moved-tag", "missing-notes", "missing-asset", "missing-demo", "missing-signature"]
         for case in cases:
             with self.subTest(case=case):
                 original_env = self.env.copy()
                 moved = None
                 if case == "branch": self.env["GITHUB_REF_TYPE"] = "branch"
                 if case == "moved-tag": self.env["REMOTE_SHA"] = "b" * 40
-                if case == "missing-notes": moved = self.root / "docs/releases/0.2.0.md"
+                if case == "missing-notes": moved = self.root / "docs/releases/0.3.1.md"
                 if case == "missing-asset": moved = self.root / "dist" / ASSETS[0]
                 if case == "missing-demo": moved = self.root / "dist/Ondera-Afterglow-demo.zip"
+                if case == "missing-signature": moved = self.root / "dist/SHA256SUMS.sig"
                 if moved: moved.rename(moved.with_suffix(".held"))
                 result = self.run_release()
                 self.assertNotEqual(result.returncode, 0)

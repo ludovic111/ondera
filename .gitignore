@@ -9,3 +9,4 @@ target/
 artifacts/
 dist/
 *.dSYM/
+target

@@ -1,10 +1,14 @@
-//! The agent panel: ask Codex for a musical change, watch it work, and revert any
-//! command an agent ran against this window, whether it came from Codex, an MCP
-//! client or the CLI. Layout follows the agent panel in
-//! `design/Ondera Arrangement.dc.html`: a header, the current action, the log of
-//! changes this session and one prompt. Settings live in the Agent menu.
+//! The agent panel: a conversation with the built-in agent, the tool calls it makes as it
+//! works, and the revertable log of every command an agent ran against this window,
+//! whether it came from the panel, an MCP client or the CLI. Layout follows the agent
+//! panel in `design/Ondera Arrangement.dc.html`; settings live in Settings > Agent.
 
-use crate::{app::Ondera, theme::*};
+use crate::{
+    agent::{self, Role, Runtime, Turn},
+    app::Ondera,
+    control::Reply,
+    theme::*,
+};
 use eframe::egui::{self, pos2, vec2, Align2, Color32, Id, Rect, Sense, Vec2};
 use ondera_engine::{control, model::Session, store::Command, Result};
 use serde_json::{json, Value};
@@ -19,17 +23,13 @@ const CHIP: f32 = 26.0;
 #[derive(Default)]
 pub(crate) struct AgentPanel {
     pub open: bool,
-    runner: crate::agent_runner::Runner,
+    /// 0 = conversation, 1 = changes.
+    pub tab: usize,
+    pub prompt: String,
+    pub(crate) runtime: Runtime,
     history: VecDeque<Activity>,
     sequence: u64,
     last_request: Option<Instant>,
-    task: Option<Task>,
-}
-
-/// The running or most recent Codex task.
-struct Task {
-    started: Instant,
-    edits: usize,
 }
 
 struct Activity {
@@ -67,6 +67,8 @@ enum Action {
     StopTask,
     Revert(u64),
     Redo(u64),
+    OpenSettings,
+    Clear,
 }
 
 /// Run widgets inside `rect` without advancing the parent's cursor, so a button
@@ -92,13 +94,18 @@ fn small_button(ui: &mut egui::Ui, label: &str, face_kind: Face) -> egui::Respon
 
 impl AgentPanel {
     fn working(&self) -> bool {
-        self.runner.running()
+        self.runtime.running()
+    }
+    /// Find the Changes entry a chat tool card refers to.
+    fn activity(&self, sequence: u64) -> Option<&Activity> {
+        self.history.iter().find(|e| e.sequence == sequence)
     }
 
     fn ui(
         &mut self,
         ui: &mut egui::Ui,
         connection: &Connection,
+        provider_label: &str,
         undo_depth: usize,
     ) -> Option<Action> {
         let mut action = None;
@@ -106,10 +113,12 @@ impl AgentPanel {
         let width = ui.available_width();
         let working = self.working();
 
-        // Header.
+        // Header: activity dot, title, provider, tab switch, settings, collapse.
         let (bar, _) = ui.allocate_exact_size(vec2(width, AGENT_HEADER), Sense::hover());
         {
             let p = ui.painter();
+            shade_rect(p, bar, 0.0, vertical(bar, HEADER_SELECTED_TOP, PANEL));
+            brushed(p, bar, 0.02);
             hline(p, bar.left(), bar.right(), bar.bottom() - 1.0, black(0.5));
             accent_dot(p, pos2(bar.left() + 20.0, bar.center().y), 4.0, working);
             let title = p.layout_no_wrap("Agent".into(), font(FS_PROSE, Weight::Bold), INK);
@@ -120,13 +129,17 @@ impl AgentPanel {
                 INK,
             );
             let status = if working {
-                "working · via MCP".to_string()
+                "working".to_string()
             } else if connection.port.is_none() {
                 "bridge off".to_string()
             } else {
-                "idle · via MCP".to_string()
+                provider_label.to_string()
             };
-            p.text(
+            p.with_clip_rect(Rect::from_min_max(
+                pos2(title_x + title.size().x + 8.0, bar.top()),
+                pos2(bar.right() - 118.0, bar.bottom()),
+            ))
+            .text(
                 pos2(title_x + title.size().x + 10.0, bar.center().y),
                 Align2::LEFT_CENTER,
                 status,
@@ -138,78 +151,55 @@ impl AgentPanel {
             ui,
             Rect::from_min_max(
                 pos2(
-                    bar.right() - 16.0 - 24.0,
+                    bar.right() - 16.0 - 108.0,
                     bar.top() + (AGENT_HEADER - 22.0) / 2.0,
                 ),
                 pos2(bar.right() - 16.0, bar.bottom()),
             ),
             |ui| {
-                if button(ui, vec2(24.0, 22.0), Face::Raised, R_MD, |p, r, ink| {
-                    icon(p, r, Icon::ChevronRight, ink)
-                })
-                .on_hover_text("Hide the agent panel")
-                .clicked()
-                {
-                    self.open = false;
-                }
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    if let Some(tab) = segmented_icons(
+                        ui,
+                        &[
+                            (Icon::Chat, "Conversation"),
+                            (Icon::List, "Changes this session"),
+                        ],
+                        self.tab,
+                    ) {
+                        self.tab = tab;
+                    }
+                    if button(ui, vec2(24.0, 22.0), Face::Raised, R_MD, |p, r, ink| {
+                        icon(p, r, Icon::Gear, ink)
+                    })
+                    .on_hover_text("Agent settings")
+                    .clicked()
+                    {
+                        action = Some(Action::OpenSettings);
+                    }
+                    if button(ui, vec2(24.0, 22.0), Face::Raised, R_MD, |p, r, ink| {
+                        icon(p, r, Icon::ChevronRight, ink)
+                    })
+                    .on_hover_text("Hide the agent panel")
+                    .clicked()
+                    {
+                        self.open = false;
+                    }
+                });
             },
         );
 
-        // Current action, or the reply from the last task.
         if working {
             self.now_card(ui, width, &mut action);
-        } else if !self.runner.response.is_empty() || self.runner.error.is_some() {
-            self.reply_card(ui, width);
         }
 
-        // Log.
         let input_h = self.input_height();
-        let log_h = (ui.available_height() - input_h - 12.0 - 14.0 - 12.0).max(60.0);
-        ui.add_space(PAD);
-        ui.horizontal(|ui| {
-            ui.add_space(PAD + 2.0);
-            ui.label(caps("Changes this session"));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(PAD + 2.0);
-                let n = self.history.len();
-                ui.label(mono(
-                    match n {
-                        0 => "no entries".to_string(),
-                        1 => "1 entry".to_string(),
-                        n => format!("{n} entries"),
-                    },
-                    FS_SMALL,
-                    FAINT,
-                ));
-            });
-        });
-        ui.add_space(8.0);
-        egui::ScrollArea::vertical()
-            .id_salt("agent-log")
-            .max_height(log_h - 8.0 - 12.0)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_min_width(width);
-                if self.history.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.add_space(PAD + 2.0);
-                        ui.add(
-                            egui::Label::new(text(
-                                "Ask for a musical change below, or point an MCP client or ondera-cli at this window. Every command lands here and can be reverted.",
-                                FS_SECONDARY,
-                                Weight::Medium,
-                                DIM,
-                            ))
-                            .wrap(),
-                        );
-                        ui.add_space(PAD + 2.0);
-                    });
-                }
-                for entry in &mut self.history {
-                    entry_row(ui, width, entry, undo_depth, &mut action);
-                    ui.add_space(6.0);
-                }
-            });
+        let body_h = (ui.available_height() - input_h - 12.0 - 14.0 - 12.0).max(60.0);
+        if self.tab == 0 {
+            self.conversation(ui, width, body_h, undo_depth, &mut action);
+        } else {
+            self.changes(ui, width, body_h, undo_depth, &mut action);
+        }
 
         // Prompt.
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -217,12 +207,13 @@ impl AgentPanel {
             let (footer, _) = ui.allocate_exact_size(vec2(width, 14.0), Sense::hover());
             {
                 let p = ui.painter();
-                let version = crate::update::current_version();
-                let short = version
-                    .rsplit_once('.')
-                    .map_or(version.clone(), |(v, _)| v.into());
+                let (input, output) = self.runtime.tokens;
                 let right = p.layout_no_wrap(
-                    format!("ondera-cli {short} · mcp"),
+                    if input + output > 0 {
+                        format!("{} in · {} out", compact(input), compact(output))
+                    } else {
+                        format!("ondera-cli · mcp · {} commands", control::COMMANDS.len())
+                    },
                     mono_font(FS_CAPS),
                     FAINT,
                 );
@@ -239,7 +230,7 @@ impl AgentPanel {
                 .text(
                     pos2(footer.left() + PAD, footer.center().y),
                     Align2::LEFT_CENTER,
-                    "⌘↵ send · ⌘Z reverts last agent change",
+                    "⌘↵ send · ⌘Z reverts the last change",
                     mono_font(FS_CAPS),
                     FAINT,
                 );
@@ -248,27 +239,44 @@ impl AgentPanel {
             let (well, _) = ui.allocate_exact_size(vec2(width, input_h), Sense::hover());
             let well = well.shrink2(vec2(PAD, 0.0));
             well_input(ui.painter(), well, R_CARD);
-            let ready = !self.runner.prompt.trim().is_empty() && !working;
+            let ready = !self.prompt.trim().is_empty() && !working;
             let send_rect = Rect::from_min_size(
                 pos2(well.right() - 8.0 - 30.0, well.bottom() - 8.0 - 26.0),
                 vec2(30.0, 26.0),
             );
             let mut send = false;
             place(ui, send_rect, |ui| {
-                ui.add_enabled_ui(ready, |ui| {
+                if working {
                     let response = button(
                         ui,
                         vec2(30.0, 26.0),
-                        Face::lit_flag(ready),
+                        Face::Raised,
                         R_CONTROL,
-                        |p, r, ink| icon(p, r, Icon::ArrowUp, if ready { ink } else { FAINT }),
+                        |p, r, ink| icon(p, r, Icon::Stop, ink),
                     )
-                    .on_hover_text("Send to the agent · ⌘↵");
+                    .on_hover_text("Stop the task; finished edits stay in Undo");
                     ui.ctx().data_mut(|data| {
                         data.insert_temp(Id::new("agents-task-run-rect"), response.rect)
                     });
-                    send |= response.clicked();
-                });
+                    if response.clicked() {
+                        action = Some(Action::StopTask);
+                    }
+                } else {
+                    ui.add_enabled_ui(ready, |ui| {
+                        let response = button(
+                            ui,
+                            vec2(30.0, 26.0),
+                            Face::lit_flag(ready),
+                            R_CONTROL,
+                            |p, r, ink| icon(p, r, Icon::ArrowUp, if ready { ink } else { FAINT }),
+                        )
+                        .on_hover_text("Send to the agent · ⌘↵");
+                        ui.ctx().data_mut(|data| {
+                            data.insert_temp(Id::new("agents-task-run-rect"), response.rect)
+                        });
+                        send |= response.clicked();
+                    });
+                }
             });
             let edit_rect = Rect::from_min_max(
                 well.min + vec2(12.0, 8.0),
@@ -277,7 +285,7 @@ impl AgentPanel {
             place(ui, edit_rect, |ui| {
                 ui.add_enabled_ui(!working, |ui| {
                     let edit = ui.add(
-                        egui::TextEdit::multiline(&mut self.runner.prompt)
+                        egui::TextEdit::multiline(&mut self.prompt)
                             .id(Id::new("agents-task-prompt"))
                             .frame(false)
                             .font(font(FS_INPUT, Weight::Medium))
@@ -309,16 +317,16 @@ impl AgentPanel {
     }
 
     fn input_height(&self) -> f32 {
-        let rows = self.runner.prompt.lines().count().clamp(1, 5) as f32;
+        let rows = self.prompt.lines().count().clamp(1, 5) as f32;
         16.0 + rows * 18.0 + 8.0
     }
 
     fn now_card(&mut self, ui: &mut egui::Ui, width: f32, action: &mut Option<Action>) {
         ui.add_space(PAD);
-        let prose = if self.runner.status.is_empty() {
-            self.runner.prompt.clone()
+        let prose = if self.runtime.status.is_empty() {
+            self.prompt.clone()
         } else {
-            self.runner.status.clone()
+            self.runtime.status.clone()
         };
         let inner_w = width - 2.0 * PAD - 2.0 * PAD;
         let galley =
@@ -342,21 +350,26 @@ impl AgentPanel {
         p.galley(pos2(x, y), galley.clone(), INK_BRIGHT);
         y += galley.size().y + 10.0;
         let row = Rect::from_min_max(pos2(x, y), pos2(card.right() - PAD, y + 22.0));
-        let (elapsed, edits) = self
-            .task
-            .as_ref()
-            .map_or((0, 0), |t| (t.started.elapsed().as_secs(), t.edits));
-        let count = format!("{} edits · {}:{:02}", edits, elapsed / 60, elapsed % 60);
+        let elapsed = self.runtime.elapsed().as_secs();
+        let count = format!(
+            "{} edits · {}:{:02}",
+            self.runtime.edits(),
+            elapsed / 60,
+            elapsed % 60
+        );
         let count_galley = p.layout_no_wrap(count, mono_font(FS_SMALL), DIM);
+        let stopping = self.runtime.stopping();
         place(ui, row, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                if small_button(ui, "Stop", Face::Raised)
-                    .on_hover_text("Stop the task; finished edits stay in Undo")
-                    .clicked()
-                {
-                    *action = Some(Action::StopTask);
-                }
+                ui.add_enabled_ui(!stopping, |ui| {
+                    if small_button(ui, if stopping { "Stopping" } else { "Stop" }, Face::Raised)
+                        .on_hover_text("Stop the task; finished edits stay in Undo")
+                        .clicked()
+                    {
+                        *action = Some(Action::StopTask);
+                    }
+                });
                 let (label, _) =
                     ui.allocate_exact_size(vec2(count_galley.size().x, 22.0), Sense::hover());
                 ui.painter().galley(
@@ -369,7 +382,7 @@ impl AgentPanel {
                 let rail = Rect::from_center_size(bar.center(), vec2(bar.width(), 4.0));
                 let p = ui.painter();
                 groove(p, rail, 2.0);
-                // Indeterminate sweep: no note count is known ahead of time.
+                // Indeterminate sweep: no step count is known ahead of time.
                 let t = (ui.input(|i| i.time) % 2.4) as f32 / 2.4;
                 let span = rail.width() * 0.32;
                 let x0 = rail.left() - span + t * (rail.width() + span);
@@ -385,46 +398,288 @@ impl AgentPanel {
         });
     }
 
-    fn reply_card(&mut self, ui: &mut egui::Ui, width: f32) {
+    /// The conversation: prompts, replies, tool cards and notices.
+    fn conversation(
+        &mut self,
+        ui: &mut egui::Ui,
+        width: f32,
+        body_h: f32,
+        undo_depth: usize,
+        action: &mut Option<Action>,
+    ) {
         ui.add_space(PAD);
-        let (label, body, color) = match &self.runner.error {
-            Some(error) => ("FAILED", error.clone(), INK),
-            None => ("REPLY", self.runner.response.clone(), INK_BRIGHT),
-        };
-        let inner_w = width - 4.0 * PAD;
-        let galley = ui
-            .painter()
-            .layout(body, font(FS_PROSE, Weight::Medium), color, inner_w);
-        let body_h = galley.size().y.min(150.0);
-        let h = 14.0 + FS_CAPS + 6.0 + body_h + 12.0;
-        let (card, _) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
-        let card = card.shrink2(vec2(PAD, 0.0));
-        let p = ui.painter();
-        log_entry(p, card, R_CARD, false);
-        p.text(
-            pos2(card.left() + PAD, card.top() + PAD),
-            Align2::LEFT_TOP,
-            label,
-            font(FS_CAPS, Weight::Bold),
-            if self.runner.error.is_some() {
-                ACCENT
-            } else {
-                FAINT
-            },
-        );
-        let body_rect = Rect::from_min_size(
-            pos2(card.left() + PAD, card.top() + PAD + FS_CAPS + 6.0),
-            vec2(inner_w, body_h),
-        );
-        place(ui, body_rect, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("agent-reply")
-                .max_height(body_h)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.add(egui::Label::new(egui::WidgetText::from(galley.clone())).wrap());
-                });
+        let scroll_to_end = std::mem::take(&mut self.runtime.scroll_to_end);
+        let mut clear = false;
+        egui::ScrollArea::vertical()
+            .id_salt("agent-chat")
+            .max_height(body_h - 8.0)
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                ui.set_min_width(width);
+                if self.runtime.transcript.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(PAD + 2.0);
+                        ui.add(
+                            egui::Label::new(text(
+                                "Describe a musical change in your own words: “write a four-bar bass line under the keys”, “make the chorus wider”, “what is on track 3?”. The agent inspects and edits this session through the same commands as ondera-cli, and every edit can be reverted.",
+                                FS_SECONDARY,
+                                Weight::Medium,
+                                DIM,
+                            ))
+                            .wrap(),
+                        );
+                        ui.add_space(PAD + 2.0);
+                    });
+                }
+                let inner_w = width - 2.0 * PAD;
+                let entries = self.runtime.transcript.len();
+                for index in 0..entries {
+                    let (role, text_, streaming, tool) = {
+                        let entry = &self.runtime.transcript[index];
+                        (entry.role, entry.text.clone(), entry.streaming, entry.tool.clone())
+                    };
+                    match role {
+                        Role::User => {
+                            ui.add_space(8.0);
+                            let galley = ui.painter().layout(
+                                text_,
+                                font(FS_PROSE, Weight::Medium),
+                                INK_BRIGHT,
+                                inner_w * 0.82 - 24.0,
+                            );
+                            let size = galley.size() + vec2(24.0, 18.0);
+                            let (row, _) = ui.allocate_exact_size(vec2(width, size.y), Sense::hover());
+                            let bubble = Rect::from_min_size(
+                                pos2(row.right() - PAD - size.x, row.top()),
+                                size,
+                            );
+                            let p = ui.painter();
+                            drop_shadow(p, bubble, R_CARD, 3.0, 6.0, black(0.35));
+                            shade_rect(p, bubble, R_CARD, vertical(bubble, CONTROL_TOP, CONTROL_BOTTOM));
+                            edge_top(p, bubble, R_CARD, white(0.1));
+                            edge_bottom(p, bubble, R_CARD, black(0.4));
+                            p.galley(bubble.min + vec2(12.0, 9.0), galley, INK_BRIGHT);
+                        }
+                        Role::Assistant => {
+                            ui.add_space(8.0);
+                            let shown = if streaming {
+                                format!("{text_}▍")
+                            } else {
+                                text_
+                            };
+                            let galley = ui.painter().layout(
+                                shown,
+                                font(FS_PROSE, Weight::Medium),
+                                INK,
+                                inner_w - 28.0,
+                            );
+                            let size = vec2(inner_w, galley.size().y + 20.0);
+                            let (row, response) =
+                                ui.allocate_exact_size(vec2(width, size.y), Sense::click());
+                            let card = Rect::from_min_size(pos2(row.left() + PAD, row.top()), size);
+                            let p = ui.painter();
+                            log_entry(p, card, R_CARD, streaming);
+                            let chip = Rect::from_min_size(pos2(card.left() + 8.0, card.top() + 10.0), Vec2::splat(6.0));
+                            accent_dot(p, chip.center(), 2.5, streaming);
+                            p.galley(card.min + vec2(20.0, 10.0), galley, INK);
+                            response.context_menu(|ui| {
+                                if ui.button("Copy reply").clicked() {
+                                    ui.ctx().copy_text(self.runtime.transcript[index].text.clone());
+                                    ui.close();
+                                }
+                            });
+                        }
+                        Role::Tool => {
+                            let Some(tool) = tool else { continue };
+                            ui.add_space(6.0);
+                            let (sequence, mutated, applied) = tool
+                                .sequence
+                                .and_then(|s| self.activity(s).map(|a| (Some(s), a.mutated(), a.applied(undo_depth))))
+                                .unwrap_or((None, false, true));
+                            let title = tool.sequence.and_then(|s| self.activity(s).map(|a| a.title.clone()))
+                                .unwrap_or_else(|| tool.name.clone());
+                            let (ok, summary) = match &tool.result {
+                                Some(Ok(value)) => (true, first_line(&value.to_string(), 90)),
+                                Some(Err(error)) => (false, first_line(error, 90)),
+                                None => (true, "running…".to_string()),
+                            };
+                            let detail = tool.expanded.then(|| {
+                                ui.painter().layout(
+                                    format!(
+                                        "{}\n{}",
+                                        cli_form(&tool.name, &tool.args),
+                                        match &tool.result {
+                                            Some(Ok(value)) => bounded(pretty(value)),
+                                            Some(Err(error)) => error.clone(),
+                                            None => String::new(),
+                                        }
+                                    ),
+                                    mono_font(FS_SMALL),
+                                    DIM,
+                                    inner_w - 20.0,
+                                )
+                            });
+                            let h = ENTRY_H + detail.as_ref().map_or(0.0, |g| g.size().y + 8.0);
+                            let (row, response) = ui.allocate_exact_size(vec2(width, h), Sense::click());
+                            let card = Rect::from_min_size(pos2(row.left() + PAD, row.top()), vec2(inner_w, h));
+                            let p = ui.painter();
+                            log_entry(p, card, R_LG, tool.result.is_none());
+                            let fade = if mutated && !applied { 0.55 } else { 1.0 };
+                            let chip = Rect::from_min_size(pos2(card.left() + 10.0, card.top() + 9.0), Vec2::splat(CHIP));
+                            log_chip(p, chip, tool.result.is_none());
+                            swatch(
+                                p,
+                                Rect::from_center_size(chip.center(), Vec2::splat(8.0)),
+                                (if mutated { ACCENT } else { NEUTRAL_DOT }).gamma_multiply(fade),
+                            );
+                            let button_label = if tool.result.is_none() || !mutated {
+                                None
+                            } else {
+                                Some(if applied { "Revert" } else { "Redo" })
+                            };
+                            let button_w = button_label.map_or(0.0, |l| {
+                                p.layout_no_wrap(l.into(), font(FS_VALUE, Weight::SemiBold), INK).size().x + 28.0
+                            });
+                            let text_left = chip.right() + 10.0;
+                            let text_right = card.right() - 10.0 - button_w;
+                            let clip = p.with_clip_rect(Rect::from_min_max(
+                                pos2(text_left, card.top()),
+                                pos2(text_right, card.top() + ENTRY_H),
+                            ));
+                            let title_color = if ok { INK } else { INK_BRIGHT }.gamma_multiply(fade);
+                            let title_galley = clip.layout_no_wrap(title, font(FS_BODY, Weight::SemiBold), title_color);
+                            let title_pos = pos2(text_left, card.top() + 9.0);
+                            clip.galley(title_pos, title_galley.clone(), title_color);
+                            if mutated && !applied {
+                                let y = title_pos.y + title_galley.size().y / 2.0 + 0.5;
+                                hline(&clip, title_pos.x, title_pos.x + title_galley.size().x.min(text_right - text_left), y, title_color);
+                            }
+                            clip.text(
+                                pos2(text_left, card.top() + 9.0 + title_galley.size().y + 3.0),
+                                Align2::LEFT_TOP,
+                                if ok { format!("{} · {summary}", tool.name) } else { summary },
+                                mono_font(FS_SMALL),
+                                if ok { FAINT } else { INK_DIM }.gamma_multiply(fade),
+                            );
+                            if let Some(galley) = &detail {
+                                p.galley(pos2(text_left, card.top() + ENTRY_H), galley.clone(), DIM);
+                            }
+                            if let (Some(label), Some(sequence)) = (button_label, sequence) {
+                                let rect = Rect::from_min_size(
+                                    pos2(card.right() - 10.0 - (button_w - 10.0), card.top() + 11.0),
+                                    vec2(button_w - 10.0, 22.0),
+                                );
+                                place(ui, rect, |ui| {
+                                    let face_kind = if applied { Face::Raised } else { Face::Pressed };
+                                    if small_button(ui, label, face_kind).clicked() {
+                                        *action = Some(if applied { Action::Revert(sequence) } else { Action::Redo(sequence) });
+                                    }
+                                });
+                            }
+                            if response.clicked() {
+                                if let Some(tool) = &mut self.runtime.transcript[index].tool {
+                                    tool.expanded = !tool.expanded;
+                                }
+                            }
+                            response.context_menu(|ui| {
+                                if ui.button("Copy command").clicked() {
+                                    ui.ctx().copy_text(cli_form(&tool.name, &tool.args));
+                                    ui.close();
+                                }
+                                if ui.button("Copy result").clicked() {
+                                    ui.ctx().copy_text(match &tool.result {
+                                        Some(Ok(value)) => pretty(value),
+                                        Some(Err(error)) => error.clone(),
+                                        None => String::new(),
+                                    });
+                                    ui.close();
+                                }
+                            });
+                        }
+                        Role::Notice => {
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.add_space(PAD + 2.0);
+                                ui.add(egui::Label::new(mono(text_, FS_SMALL, ACCENT)).wrap());
+                                ui.add_space(PAD + 2.0);
+                            });
+                        }
+                    }
+                }
+                if !self.runtime.transcript.is_empty() && !self.runtime.running() {
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(PAD);
+                        if small_button(ui, "New conversation", Face::Raised).clicked() {
+                            clear = true;
+                        }
+                    });
+                }
+                ui.add_space(8.0);
+                if scroll_to_end {
+                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                }
+            });
+        if clear {
+            *action = Some(Action::Clear);
+        }
+    }
+
+    /// Every command an agent ran against this window, revertable.
+    fn changes(
+        &mut self,
+        ui: &mut egui::Ui,
+        width: f32,
+        body_h: f32,
+        undo_depth: usize,
+        action: &mut Option<Action>,
+    ) {
+        ui.add_space(PAD);
+        ui.horizontal(|ui| {
+            ui.add_space(PAD + 2.0);
+            ui.label(caps("Changes this session"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(PAD + 2.0);
+                let n = self.history.len();
+                ui.label(mono(
+                    match n {
+                        0 => "no entries".to_string(),
+                        1 => "1 entry".to_string(),
+                        n => format!("{n} entries"),
+                    },
+                    FS_SMALL,
+                    FAINT,
+                ));
+            });
         });
+        ui.add_space(8.0);
+        egui::ScrollArea::vertical()
+            .id_salt("agent-log")
+            .max_height(body_h - 8.0 - 12.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(width);
+                if self.history.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(PAD + 2.0);
+                        ui.add(
+                            egui::Label::new(text(
+                                "Commands from the agent, MCP clients and ondera-cli land here with their results, and each edit can be reverted.",
+                                FS_SECONDARY,
+                                Weight::Medium,
+                                DIM,
+                            ))
+                            .wrap(),
+                        );
+                        ui.add_space(PAD + 2.0);
+                    });
+                }
+                for entry in &mut self.history {
+                    entry_row(ui, width, entry, undo_depth, action);
+                    ui.add_space(6.0);
+                }
+            });
     }
 }
 
@@ -566,6 +821,9 @@ impl Ondera {
                 }),
         }
     }
+    pub(crate) fn discovery_path(&self) -> std::path::PathBuf {
+        self.connection().discovery
+    }
 
     /// The agent panel at the right edge of the window, or its collapsed rail.
     pub(crate) fn agent_panel(&mut self, ctx: &egui::Context) {
@@ -582,6 +840,7 @@ impl Ondera {
                         .on_hover_text("Show the agent panel");
                     let p = ui.painter();
                     vline(p, rect.left(), rect.top(), rect.bottom(), black(0.65));
+                    brushed(p, rect, 0.015);
                     if response.hovered() {
                         p.rect_filled(rect, 0.0, white(0.03));
                     }
@@ -600,6 +859,15 @@ impl Ondera {
         }
         let connection = self.connection();
         let undo_depth = self.store.undo_depth();
+        let provider_label = format!(
+            "{} · {}",
+            self.settings.agent.provider.key(),
+            if self.settings.model().is_empty() {
+                "default model".to_string()
+            } else {
+                self.settings.model()
+            }
+        );
         let mut action = None;
         egui::SidePanel::right("agent")
             .exact_width(AGENT_PANEL)
@@ -619,32 +887,91 @@ impl Ondera {
                     );
                     vline(p, rect.left(), rect.top(), rect.bottom(), black(0.65));
                 }
-                action = self.agents.ui(ui, &connection, undo_depth);
+                action = self.agents.ui(ui, &connection, &provider_label, undo_depth);
             });
         match action {
             Some(Action::Send) => self.start_agent_task(ctx),
-            Some(Action::StopTask) => self.agents.runner.stop(),
+            Some(Action::StopTask) => self.agents.runtime.stop(),
             Some(Action::Revert(sequence)) => self.revert_activity(sequence),
             Some(Action::Redo(sequence)) => self.redo_activity(sequence),
+            Some(Action::OpenSettings) => self.open_settings(Some(3)),
+            Some(Action::Clear) => self.agents.clear_transcript(),
             None => {}
         }
     }
 
     fn start_agent_task(&mut self, ctx: &egui::Context) {
-        if self.control.is_none() {
+        if self.control.is_none() && self.settings.control.enable_bridge {
             self.start_control(ctx);
         }
-        let connection = self.connection();
-        if connection.port.is_none() {
-            return;
+        if let Err(e) = self.start_agent_task_now() {
+            self.status = e;
         }
-        self.agents.task = Some(Task {
-            started: Instant::now(),
-            edits: 0,
-        });
+    }
+
+    /// Start a turn with the configured provider from the prompt in the panel; used by the
+    /// Send button and by `agent.send` from the registry.
+    pub(crate) fn start_agent_task_now(&mut self) -> Result<()> {
+        if self.agents.runtime.running() {
+            return Err("An agent task is already running; stop it first.".into());
+        }
+        let prompt = self.agents.prompt.trim().to_string();
+        if prompt.is_empty() {
+            return Err("Type a request first.".into());
+        }
+        let provider = self.settings.agent.provider;
+        let needs_bridge = matches!(
+            provider,
+            ondera_engine::settings::Provider::Codex | ondera_engine::settings::Provider::Claude
+        );
+        let connection = self.connection();
+        if needs_bridge && connection.port.is_none() {
+            self.bridge_wanted = true;
+            return Err(
+                "The local bridge is starting for the CLI provider; send again in a moment.".into(),
+            );
+        }
+        let settings = self.settings.clone();
+        let summary = control::call(self, "session.info", &json!({}), false).unwrap_or(Value::Null);
+        let history = self.agents.runtime.history.clone();
+        let mcp = agent::cli::companion("ondera-mcp");
         self.agents
-            .runner
-            .start(&connection.discovery, &companion("ondera-mcp"));
+            .runtime
+            .start(prompt.clone(), move |cancel, events| Turn {
+                prompt,
+                history,
+                settings,
+                session_summary: summary,
+                discovery: connection.discovery,
+                mcp_executable: mcp,
+                cancel,
+                events,
+            })?;
+        self.agents.prompt.clear();
+        self.agents.tab = 0;
+        Ok(())
+    }
+
+    /// Execute the tool calls the worker asked for and keep the transcript moving.
+    pub(crate) fn run_agent_tools(&mut self, ctx: &egui::Context) {
+        let calls = self.agents.runtime.poll();
+        for call in calls {
+            let method = call.name.replacen('_', ".", 1);
+            let result = self.run_control_command(&method, &call.args, true, "Agent");
+            let running = result
+                .as_ref()
+                .is_ok_and(|value| value["status"] == "running");
+            if running {
+                if let Err(Reply::Channel(sender)) = self.attach_reply(Reply::Channel(call.reply)) {
+                    let _ = sender.send(result);
+                }
+            } else {
+                let _ = call.reply.send(result);
+            }
+        }
+        if self.agents.runtime.running() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(40));
+        }
     }
 
     fn revert_activity(&mut self, sequence: u64) {
@@ -693,7 +1020,16 @@ impl Ondera {
             .add_enabled(self.agents.working(), egui::Button::new("Stop task"))
             .clicked()
         {
-            self.agents.runner.stop();
+            self.agents.runtime.stop();
+        }
+        if ui
+            .add_enabled(
+                !self.agents.working() && !self.agents.runtime.transcript.is_empty(),
+                egui::Button::new("New conversation"),
+            )
+            .clicked()
+        {
+            self.agents.clear_transcript();
         }
         ui.separator();
         let connection = self.connection();
@@ -706,7 +1042,7 @@ impl Ondera {
             .clicked()
         {
             if self.control.take().is_some() {
-                self.agents.runner.stop();
+                self.agents.runtime.stop();
                 self.status = "Local agent bridge disabled".into();
             } else {
                 let ctx = ui.ctx().clone();
@@ -744,39 +1080,24 @@ impl Ondera {
             self.status = "CLI command copied".into();
             ui.close();
         }
-        ui.menu_button("Codex CLI", |ui| {
-            ui.set_min_width(260.0);
-            ui.add_enabled_ui(!self.agents.working(), |ui| {
-                ui.label(text(
-                    "Executable · blank finds Codex automatically",
-                    FS_SMALL,
-                    Weight::Medium,
-                    DIM,
-                ));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.agents.runner.executable)
-                        .hint_text("/path/to/codex")
-                        .desired_width(f32::INFINITY),
-                );
-                ui.label(text(
-                    "Model · blank uses your account default",
-                    FS_SMALL,
-                    Weight::Medium,
-                    DIM,
-                ));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.agents.runner.model)
-                        .hint_text("Default")
-                        .desired_width(f32::INFINITY),
-                );
-            });
-            ui.label(text(
-                "Uses your installed Codex CLI and its signed-in account; run codex login in a terminal first. Tasks see only this window's Ondera tools.",
-                FS_SMALL,
-                Weight::Medium,
-                FAINT,
-            ));
-        });
+        ui.separator();
+        if ui.button("Agent settings…").clicked() {
+            self.open_settings(Some(3));
+            ui.close();
+        }
+        ui.label(mono(
+            format!(
+                "{} · {}",
+                self.settings.agent.provider.label(),
+                if self.settings.model().is_empty() {
+                    "default model".to_string()
+                } else {
+                    self.settings.model()
+                }
+            ),
+            FS_SMALL,
+            FAINT,
+        ));
     }
 
     pub(crate) fn record_agent_activity(
@@ -796,14 +1117,35 @@ impl Ondera {
             entry.expanded = false;
         }
         let mutated = depth_after > depth_before;
-        if self.agents.runner.running() {
-            if let Some(task) = self.agents.task.as_mut() {
-                task.edits += usize::from(mutated);
+        let running = result
+            .as_ref()
+            .is_ok_and(|value| value["status"] == "running");
+        let sequence = self.agents.sequence;
+        if self.agents.runtime.running() && !running {
+            if mutated {
+                self.agents.runtime.note_edit();
+            }
+            if source == "Agent" {
+                self.agents.runtime.attach_result(method, result, sequence);
+            } else {
+                // A CLI provider working through the bridge: show the call in the chat too.
+                self.agents.runtime.transcript.push(agent::Entry {
+                    role: Role::Tool,
+                    text: String::new(),
+                    tool: Some(agent::ToolRecord {
+                        name: method.into(),
+                        args: params.clone(),
+                        result: Some(result.clone()),
+                        sequence: Some(sequence),
+                        expanded: false,
+                    }),
+                    streaming: false,
+                });
+                self.agents.runtime.scroll_to_end = true;
             }
         }
-        let _ = source;
         self.agents.history.push_front(Activity {
-            sequence: self.agents.sequence,
+            sequence,
             title,
             detail: cli_form(method, params),
             output: bounded(match result {
@@ -812,9 +1154,7 @@ impl Ondera {
             }),
             color,
             succeeded: result.is_ok(),
-            running: result
-                .as_ref()
-                .is_ok_and(|value| value["status"] == "running"),
+            running,
             expanded: false,
             before: revision_before,
             after: self.store.revision,
@@ -827,32 +1167,97 @@ impl Ondera {
     /// A new document has no agent history and nothing to revert.
     pub(crate) fn reset_agent_history(&mut self) {
         self.agents.history.clear();
-        self.agents.task = None;
     }
 }
 
 impl AgentPanel {
+    pub(crate) fn set_prompt(&mut self, prompt: &str) {
+        self.prompt = prompt.to_string();
+    }
+    pub(crate) fn status_json(&self, settings: &ondera_engine::settings::Settings) -> Value {
+        json!({
+            "provider": settings.agent.provider.key(),
+            "model": settings.model(),
+            "running": self.runtime.running(),
+            "status": self.runtime.status,
+            "reply": self.runtime.last_reply,
+            "error": self.runtime.last_error,
+            "turns": self.runtime.turns,
+            "changes": self.history.len(),
+            "edits": self.runtime.edits(),
+            "elapsedSeconds": self.runtime.elapsed().as_secs(),
+            "tokens": { "input": self.runtime.tokens.0, "output": self.runtime.tokens.1 },
+        })
+    }
+    pub(crate) fn transcript_json(&self, limit: usize) -> Value {
+        let entries: Vec<Value> = self
+            .runtime
+            .transcript
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|entry| {
+                let mut value = json!({
+                    "role": match entry.role {
+                        Role::User => "user",
+                        Role::Assistant => "assistant",
+                        Role::Tool => "tool",
+                        Role::Notice => "notice",
+                    },
+                    "text": entry.text,
+                });
+                if let Some(tool) = &entry.tool {
+                    value["tool"] = json!({
+                        "name": tool.name,
+                        "args": tool.args,
+                        "ok": tool.result.as_ref().is_none_or(|r| r.is_ok()),
+                        "result": match &tool.result {
+                            Some(Ok(v)) => v.clone(),
+                            Some(Err(e)) => json!({ "error": e }),
+                            None => Value::Null,
+                        },
+                    });
+                }
+                value
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        json!({ "entries": entries, "changes": self.history.len() })
+    }
+    pub(crate) fn clear_transcript(&mut self) {
+        self.runtime.clear();
+    }
+    pub(crate) fn runner_busy(&self) -> bool {
+        self.runtime.running()
+    }
+    pub(crate) fn stop_runner(&mut self) {
+        self.runtime.stop();
+    }
     #[cfg(test)]
     pub(crate) fn mock_running_task(&mut self) -> impl FnOnce() + use<> {
-        self.runner.mock_running_task()
-    }
-
-    pub(crate) fn runner_busy(&self) -> bool {
-        self.runner.running()
-    }
-
-    pub(crate) fn stop_runner(&mut self) {
-        self.runner.stop();
-    }
-
-    pub(crate) fn poll_runner(&mut self, ctx: &egui::Context) {
-        self.runner.poll();
-        if self.runner.running() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(40));
-        }
+        self.runtime.mock_task()
     }
 }
 
+fn compact(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 10_000 {
+        format!("{}k", n / 1000)
+    } else {
+        n.to_string()
+    }
+}
+fn first_line(text: &str, max: usize) -> String {
+    let line = text.lines().next().unwrap_or("");
+    if line.chars().count() > max {
+        line.chars().take(max - 1).collect::<String>() + "…"
+    } else {
+        line.to_string()
+    }
+}
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -990,24 +1395,18 @@ fn bounded(text: String) -> String {
     }
 }
 
-fn companion(name: &str) -> String {
-    let executable = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    if let Some(path) = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(&executable)))
-    {
-        if path.is_file() {
-            return path.to_string_lossy().into_owned();
-        }
-    }
-    executable
+pub(crate) fn mcp_config_text(discovery: &Path) -> String {
+    mcp_config(discovery)
+}
+pub(crate) fn cli_check_text(discovery: &Path) -> String {
+    cli_check(discovery)
 }
 
 fn mcp_config(discovery: &Path) -> String {
     pretty(&json!({
         "mcpServers": {
             "ondera": {
-                "command": companion("ondera-mcp"),
+                "command": agent::cli::companion("ondera-mcp"),
                 "args": ["--live"],
                 "env": { "ONDERA_CONTROL": discovery.to_string_lossy() }
             }
@@ -1017,7 +1416,7 @@ fn mcp_config(discovery: &Path) -> String {
 
 fn cli_check(discovery: &Path) -> String {
     let path = discovery.to_string_lossy();
-    let executable = companion("ondera-cli");
+    let executable = agent::cli::companion("ondera-cli");
     if cfg!(windows) {
         format!(
             "$env:ONDERA_CONTROL = '{}'; & '{}' --live session.info",
@@ -1054,7 +1453,7 @@ mod tests {
         };
         let _ = ctx.run(input(vec![]), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                panel.ui(ui, connection, 0);
+                panel.ui(ui, connection, "codex", 0);
             });
         });
         let rect = ctx
@@ -1074,7 +1473,7 @@ mod tests {
                 ]),
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        action = panel.ui(ui, connection, 0);
+                        action = panel.ui(ui, connection, "codex", 0);
                     });
                 },
             );
@@ -1087,32 +1486,38 @@ mod tests {
         let mut panel = AgentPanel::default();
         let complete = panel.mock_running_task();
         panel.stop_runner();
-        panel.poll_runner(&egui::Context::default());
+        panel.runtime.poll();
         assert!(panel.runner_busy());
         complete();
-        panel.poll_runner(&egui::Context::default());
+        panel.runtime.poll();
         assert!(!panel.runner_busy());
-        assert!(panel.runner.status.starts_with("Stopped"));
+        assert!(panel.runtime.status.starts_with("Stopped"));
     }
 
     #[test]
-    fn send_needs_a_prompt_and_an_idle_runner() {
-        for (prompt, running, should_send) in [
-            ("Write a bass line", false, true),
-            ("", false, false),
-            ("Write a bass line", true, false),
+    fn send_needs_a_prompt_and_an_idle_runner_and_stop_shows_while_working() {
+        for (prompt, running, expected) in [
+            ("Write a bass line", false, "send"),
+            ("", false, "none"),
+            ("Write a bass line", true, "stop"),
         ] {
             let ctx = egui::Context::default();
             install(&ctx);
-            let mut panel = AgentPanel::default();
-            panel.runner.prompt = prompt.into();
+            let mut panel = AgentPanel {
+                prompt: prompt.into(),
+                ..Default::default()
+            };
             let complete = running.then(|| panel.mock_running_task());
             let connection = Connection {
                 port: Some(12345),
                 discovery: "/tmp/control.json".into(),
             };
             let action = press(&ctx, &mut panel, &connection);
-            assert_eq!(matches!(action, Some(Action::Send)), should_send);
+            match expected {
+                "send" => assert!(matches!(action, Some(Action::Send))),
+                "stop" => assert!(matches!(action, Some(Action::StopTask))),
+                _ => assert!(action.is_none()),
+            }
             if let Some(complete) = complete {
                 complete();
             }
@@ -1174,6 +1579,56 @@ mod tests {
     }
 
     #[test]
+    fn tool_results_reach_the_chat_and_bridge_calls_are_shown_while_working() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        let complete = app.agents.mock_running_task();
+        app.agents.runtime.transcript.push(agent::Entry {
+            role: Role::Tool,
+            text: String::new(),
+            tool: Some(agent::ToolRecord {
+                name: "session.rename".into(),
+                args: json!({"name":"From the agent"}),
+                result: None,
+                sequence: None,
+                expanded: false,
+            }),
+            streaming: true,
+        });
+        let params = json!({"name":"From the agent"});
+        let result = app
+            .run_control_command("session.rename", &params, true, "Agent")
+            .unwrap();
+        assert_eq!(result["name"], "From the agent");
+        let tool = app.agents.runtime.transcript[0].tool.clone().unwrap();
+        assert!(tool.result.as_ref().unwrap().is_ok());
+        assert!(tool.sequence.is_some());
+        assert_eq!(app.agents.runtime.edits(), 1);
+        app.run_control_command("session.info", &json!({}), true, "MCP / agent")
+            .unwrap();
+        assert_eq!(app.agents.runtime.transcript.len(), 2);
+        assert_eq!(
+            app.agents.runtime.transcript[1].tool.as_ref().unwrap().name,
+            "session.info"
+        );
+        complete();
+        app.agents.runtime.poll();
+        assert!(!app.agents.runner_busy());
+    }
+
+    #[test]
+    fn agent_permissions_are_enforced_on_agent_requests_only() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.settings.agent.permissions.transport = false;
+        let denied = app
+            .run_control_command("transport.stop", &json!({}), true, "Agent")
+            .unwrap_err();
+        assert!(denied.contains("not allowed for agents"));
+        assert!(app
+            .run_control_command("transport.stop", &json!({}), false, "CLI")
+            .is_ok());
+    }
+
+    #[test]
     fn revert_and_redo_walk_the_undo_stack_to_the_entry() {
         let mut app = Ondera::from_session(store::demo(), None);
         let original = app.store.session().name.clone();
@@ -1219,30 +1674,35 @@ mod tests {
     }
 
     #[test]
-    fn panel_lays_out_while_working_and_after_a_reply() {
+    fn panel_lays_out_while_working_after_a_reply_and_in_the_changes_tab() {
         let connection = Connection {
             port: Some(12345),
             discovery: "/tmp/control.json".into(),
         };
-        for (running, response, error) in [
-            (true, "", None),
-            (false, "Added a bass line over bars 1–8.", None),
-            (false, "", Some("codex exited with status 1".to_string())),
-        ] {
+        for (running, tab) in [(true, 0), (false, 0), (false, 1)] {
             let ctx = egui::Context::default();
             install(&ctx);
-            let mut panel = AgentPanel::default();
-            panel.runner.prompt = "Add a bass line".into();
-            panel.runner.status = "Calling ondera clip.setNotes…".into();
-            panel.runner.response = response.into();
-            panel.runner.error = error;
-            panel.task = Some(Task {
-                started: Instant::now(),
-                edits: 3,
+            let mut panel = AgentPanel {
+                tab,
+                prompt: "Add a bass line".into(),
+                ..Default::default()
+            };
+            panel.runtime.status = "Calling clip.setNotes…".into();
+            panel.runtime.transcript.push(agent::Entry {
+                role: Role::User,
+                text: "Add a bass line".into(),
+                tool: None,
+                streaming: false,
+            });
+            panel.runtime.transcript.push(agent::Entry {
+                role: Role::Assistant,
+                text: "Added a bass line over bars 1–8.".into(),
+                tool: None,
+                streaming: running,
             });
             let complete = running.then(|| panel.mock_running_task());
             let action = press(&ctx, &mut panel, &connection);
-            assert!(action.is_none() == running);
+            assert_eq!(matches!(action, Some(Action::StopTask)), running);
             if let Some(complete) = complete {
                 complete();
             }

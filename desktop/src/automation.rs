@@ -59,7 +59,12 @@ impl Ondera {
             .open(&mut open)
             .default_size(vec2(920.0, 640.0))
             .min_size(vec2(640.0, 460.0))
-            .show(ctx, |ui| self.automation_editor(ui, &mut state));
+            .frame(window_frame())
+            .show(ctx, |ui| {
+                plate(ui, "automation-plate", |ui| {
+                    self.automation_editor(ui, &mut state)
+                })
+            });
         state.open = open;
         self.automation = state;
     }

@@ -36,6 +36,12 @@ pub struct Loaded {
 pub struct EditorWindow {
     pub native: Option<NativeWindow>,
     pub filter: String,
+    pub preset_name: String,
+}
+enum PresetAction {
+    Save(String),
+    Load(String),
+    Delete(String),
 }
 #[derive(Default)]
 pub struct Bank {
@@ -76,6 +82,7 @@ pub fn find_insert(session: &Session, key: &str) -> Option<(String, Insert, bool
 pub fn format_icon(format: Format) -> &'static str {
     match format {
         Format::Stock => "Ondera",
+        Format::Native => "Native",
         Format::Clap => "CLAP",
         Format::Vst3 => "VST3",
         Format::AudioUnit => "AU",
@@ -503,10 +510,22 @@ impl Ondera {
             .or_insert(EditorWindow {
                 native: None,
                 filter: String::new(),
+                preset_name: String::new(),
             });
     }
     pub(crate) fn toggle_native_window_public(&mut self, key: &str) {
         self.toggle_native_window(key);
+    }
+    /// Close a parameter panel and its native editor, if open.
+    pub(crate) fn close_plugin_window(&mut self, key: &str) {
+        if let Some(mut window) = self.plugins.windows.remove(key) {
+            if let Some(native) = window.native.take() {
+                if let Some(entry) = self.plugins.loaded.get_mut(key) {
+                    entry.editor.close_gui();
+                }
+                native.close();
+            }
+        }
     }
     fn toggle_native_window(&mut self, key: &str) {
         let Some(entry) = self.plugins.loaded.get_mut(key) else {
@@ -613,220 +632,342 @@ impl Ondera {
             let mut toggle_native = false;
             let mut toggle_bypass = false;
             let mut remove = false;
+            let mut preset_action: Option<PresetAction> = None;
             let title = format!("{} · {}", insert.name, strip_label(&session, &strip_id));
+            let slot = session.strips[&strip_id]
+                .inserts
+                .iter()
+                .position(|i| i.id == key);
+            let presets =
+                ondera_engine::preset::list(Some(&insert.plugin_id())).unwrap_or_default();
             egui::Window::new(title)
                 .id(egui::Id::new(("plugin-window", &key)))
                 .open(&mut open)
                 .resizable(true)
                 .default_width(420.0)
+                .frame(window_frame())
                 .show(ctx, |ui| {
-                    ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                    let Some(entry) = self.plugins.loaded.get(&key) else {
-                        ui.label(text(
-                            self.plugins
-                                .failed
-                                .get(&key)
-                                .cloned()
-                                .unwrap_or_else(|| "Loading…".into()),
-                            FS_BODY,
-                            Weight::Medium,
-                            DIM,
-                        ));
-                        return;
-                    };
-                    let desc = entry.editor.descriptor().clone();
-                    ui.horizontal(|ui| {
-                        ui.label(text(
-                            format!(
-                                "{}{}",
-                                format_icon(desc.format),
-                                if desc.vendor.is_empty() {
-                                    String::new()
-                                } else {
-                                    format!(" · {}", desc.vendor)
-                                }
-                            ),
-                            FS_SECONDARY,
-                            Weight::Medium,
-                            FAINT,
-                        ));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !is_synth
-                                && text_button(
-                                    ui,
-                                    if insert.state == "bypassed" {
-                                        "Bypassed"
-                                    } else {
-                                        "On"
-                                    },
-                                    Face::from_flag(insert.state != "bypassed"),
-                                )
-                                .clicked()
-                            {
-                                toggle_bypass = true;
-                            }
-                            if entry.editor.has_gui() {
-                                let native_open = self
-                                    .plugins
-                                    .windows
-                                    .get(&key)
-                                    .is_some_and(|w| w.native.is_some());
-                                if text_button(
-                                    ui,
-                                    if native_open {
-                                        "Close plugin window"
-                                    } else {
-                                        "Open plugin window"
-                                    },
-                                    Face::from_flag(native_open),
-                                )
-                                .clicked()
-                                {
-                                    toggle_native = true;
-                                }
-                            }
-                            if !is_synth && text_button(ui, "Remove", Face::Raised).clicked() {
-                                remove = true;
-                            }
-                        });
-                    });
-                    let params = entry.editor.params().to_vec();
-                    if params.is_empty() {
-                        ui.label(text(
-                            "This plugin exposes no parameters; use its own window.",
-                            FS_SECONDARY,
-                            Weight::Medium,
-                            FAINT,
-                        ));
-                        return;
-                    }
-                    let window = self.plugins.windows.get_mut(&key).unwrap();
-                    if params.len() > 24 {
-                        ui.horizontal(|ui| {
-                            let (well, _) =
-                                ui.allocate_exact_size(vec2(220.0, 24.0), Sense::hover());
-                            well_input(ui.painter(), well, R_MD);
-                            ui.scope_builder(
-                                egui::UiBuilder::new().max_rect(well.shrink2(vec2(4.0, 2.0))),
-                                |ui| {
-                                    inline_edit(
-                                        ui,
-                                        ("plugin-filter", &key),
-                                        &mut window.filter,
-                                        font(FS_LIST, Weight::Medium),
-                                        INK,
-                                        well.width() - 8.0,
-                                    );
-                                },
-                            );
+                    plate(ui, ("plugin-plate", &key), |ui| {
+                        ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                        let Some(entry) = self.plugins.loaded.get(&key) else {
                             ui.label(text(
-                                format!("{} parameters", params.len()),
+                                self.plugins
+                                    .failed
+                                    .get(&key)
+                                    .cloned()
+                                    .unwrap_or_else(|| "Loading…".into()),
+                                FS_BODY,
+                                Weight::Medium,
+                                DIM,
+                            ));
+                            return;
+                        };
+                        let desc = entry.editor.descriptor().clone();
+                        ui.horizontal(|ui| {
+                            ui.label(text(
+                                format!(
+                                    "{}{}",
+                                    format_icon(desc.format),
+                                    if desc.vendor.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(" · {}", desc.vendor)
+                                    }
+                                ),
                                 FS_SECONDARY,
                                 Weight::Medium,
                                 FAINT,
                             ));
-                        });
-                    }
-                    let filter = window.filter.to_lowercase();
-                    let visible: Vec<_> = params
-                        .iter()
-                        .filter(|p| filter.is_empty() || p.name.to_lowercase().contains(&filter))
-                        .take(256)
-                        .collect();
-                    egui::ScrollArea::vertical()
-                        .max_height(360.0)
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.spacing_mut().item_spacing = vec2(6.0, 10.0);
-                                for p in visible {
-                                    let current = insert
-                                        .params
-                                        .get(&p.id)
-                                        .copied()
-                                        .or_else(|| entry.editor.value(p.id))
-                                        .unwrap_or(p.default);
-                                    let (cell, _) =
-                                        ui.allocate_exact_size(vec2(72.0, 78.0), Sense::hover());
-                                    let painter = ui.painter();
-                                    painter.text(
-                                        cell.center_top() + vec2(0.0, 2.0),
-                                        Align2::CENTER_TOP,
-                                        truncate(&p.name, 11),
-                                        font(FS_CAPS, Weight::Bold),
-                                        FAINT,
-                                    );
-                                    let well = Rect::from_center_size(
-                                        cell.center_bottom() - vec2(0.0, 9.0),
-                                        vec2(70.0, 16.0),
-                                    );
-                                    well_value(painter, well, 3.0);
-                                    painter.text(
-                                        well.center(),
-                                        Align2::CENTER_CENTER,
-                                        truncate(&entry.editor.text(p.id, current), 12),
-                                        mono_font(FS_MICRO),
-                                        INK,
-                                    );
-                                    if !p.labels.is_empty() {
-                                        let button = Rect::from_center_size(
-                                            cell.center() + vec2(0.0, 2.0),
-                                            vec2(64.0, 24.0),
-                                        );
-                                        let response = ui.interact(
-                                            button,
-                                            egui::Id::new(("choice", &key, p.id)),
-                                            Sense::click(),
-                                        );
-                                        raised(ui.painter(), button, R_BUTTON);
-                                        ui.painter().text(
-                                            button.center(),
-                                            Align2::CENTER_CENTER,
-                                            "▾",
-                                            font(FS_LIST, Weight::Bold),
-                                            INK_CONTROL,
-                                        );
-                                        egui::Popup::menu(&response).show(|ui| {
-                                            for (i, label) in p.labels.iter().enumerate() {
-                                                let value = p.min
-                                                    + i as f64 * (p.max - p.min)
-                                                        / (p.labels.len() - 1).max(1) as f64;
-                                                if ui
-                                                    .selectable_label(
-                                                        (current - value).abs() < 1e-6,
-                                                        label,
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    edits.push((p.id, value));
-                                                }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if !is_synth
+                                        && text_button_led(
+                                            ui,
+                                            if insert.state == "bypassed" {
+                                                "Bypassed"
+                                            } else {
+                                                "On"
+                                            },
+                                            insert.state != "bypassed",
+                                        )
+                                        .clicked()
+                                    {
+                                        toggle_bypass = true;
+                                    }
+                                    let preset_button = text_button(ui, "Presets", Face::Raised);
+                                    egui::Popup::menu(&preset_button).show(|ui| {
+                                        ui.set_min_width(220.0);
+                                        let window = self.plugins.windows.get_mut(&key).unwrap();
+                                        ui.horizontal(|ui| {
+                                            field(
+                                                ui,
+                                                ("preset-name", &key),
+                                                &mut window.preset_name,
+                                                "New preset name",
+                                                false,
+                                                150.0,
+                                            );
+                                            if text_button(ui, "Save", Face::Raised).clicked()
+                                                && !window.preset_name.trim().is_empty()
+                                            {
+                                                preset_action = Some(PresetAction::Save(
+                                                    window.preset_name.trim().to_string(),
+                                                ));
+                                                window.preset_name.clear();
+                                                ui.close();
                                             }
                                         });
-                                        continue;
-                                    }
-                                    let mut t = p.normalize(current) as f32;
-                                    let knob = Rect::from_center_size(
-                                        cell.center() + vec2(0.0, 2.0),
-                                        Vec2::splat(KNOB_LG + 4.0),
-                                    );
-                                    ui.scope_builder(egui::UiBuilder::new().max_rect(knob), |ui| {
-                                        if knob_widget(
-                                            ui,
-                                            &mut t,
-                                            0.0..=1.0,
-                                            p.normalize(p.default) as f32,
-                                            KNOB_LG,
-                                        )
-                                        .on_hover_text(&p.name)
-                                        .changed()
-                                        {
-                                            edits.push((p.id, p.denormalize(t as f64)));
+                                        ui.separator();
+                                        if presets.is_empty() {
+                                            ui.label(text(
+                                                "No presets yet",
+                                                FS_SECONDARY,
+                                                Weight::Medium,
+                                                FAINT,
+                                            ));
+                                        }
+                                        for preset in &presets {
+                                            ui.horizontal(|ui| {
+                                                if ui
+                                                    .button(if preset.factory {
+                                                        format!("{}  ·  factory", preset.name)
+                                                    } else {
+                                                        preset.name.clone()
+                                                    })
+                                                    .clicked()
+                                                {
+                                                    preset_action = Some(PresetAction::Load(
+                                                        preset.name.clone(),
+                                                    ));
+                                                    ui.close();
+                                                }
+                                                if !preset.factory
+                                                    && ui
+                                                        .small_button("×")
+                                                        .on_hover_text("Delete this preset")
+                                                        .clicked()
+                                                {
+                                                    preset_action = Some(PresetAction::Delete(
+                                                        preset.name.clone(),
+                                                    ));
+                                                    ui.close();
+                                                }
+                                            });
                                         }
                                     });
-                                }
-                            });
+                                    if entry.editor.has_gui() {
+                                        let native_open = self
+                                            .plugins
+                                            .windows
+                                            .get(&key)
+                                            .is_some_and(|w| w.native.is_some());
+                                        if text_button(
+                                            ui,
+                                            if native_open {
+                                                "Close plugin window"
+                                            } else {
+                                                "Open plugin window"
+                                            },
+                                            Face::from_flag(native_open),
+                                        )
+                                        .clicked()
+                                        {
+                                            toggle_native = true;
+                                        }
+                                    }
+                                    if !is_synth
+                                        && text_button(ui, "Remove", Face::Raised).clicked()
+                                    {
+                                        remove = true;
+                                    }
+                                },
+                            );
                         });
+                        let params = entry.editor.params().to_vec();
+                        if params.is_empty() {
+                            ui.label(text(
+                                "This plugin exposes no parameters; use its own window.",
+                                FS_SECONDARY,
+                                Weight::Medium,
+                                FAINT,
+                            ));
+                            return;
+                        }
+                        let window = self.plugins.windows.get_mut(&key).unwrap();
+                        if params.len() > 24 {
+                            ui.horizontal(|ui| {
+                                let (well, _) =
+                                    ui.allocate_exact_size(vec2(220.0, 24.0), Sense::hover());
+                                well_input(ui.painter(), well, R_MD);
+                                ui.scope_builder(
+                                    egui::UiBuilder::new().max_rect(well.shrink2(vec2(4.0, 2.0))),
+                                    |ui| {
+                                        inline_edit(
+                                            ui,
+                                            ("plugin-filter", &key),
+                                            &mut window.filter,
+                                            font(FS_LIST, Weight::Medium),
+                                            INK,
+                                            well.width() - 8.0,
+                                        );
+                                    },
+                                );
+                                ui.label(text(
+                                    format!("{} parameters", params.len()),
+                                    FS_SECONDARY,
+                                    Weight::Medium,
+                                    FAINT,
+                                ));
+                            });
+                        }
+                        let filter = window.filter.to_lowercase();
+                        let visible: Vec<_> = params
+                            .iter()
+                            .filter(|p| {
+                                filter.is_empty() || p.name.to_lowercase().contains(&filter)
+                            })
+                            .take(256)
+                            .collect();
+                        let display_id = egui::Id::new(("plugin-display", &key));
+                        if let Some(rect) = ui.ctx().data(|d| d.get_temp::<Rect>(display_id)) {
+                            faceplate_well(ui.painter(), rect.expand(6.0), R_MD);
+                        }
+                        let display_top = ui.cursor().top();
+                        egui::ScrollArea::vertical()
+                            .max_height(360.0)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.add_space(6.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.spacing_mut().item_spacing = vec2(6.0, 10.0);
+                                    ui.add_space(6.0);
+                                    for p in visible {
+                                        let current = insert
+                                            .params
+                                            .get(&p.id)
+                                            .copied()
+                                            .or_else(|| entry.editor.value(p.id))
+                                            .unwrap_or(p.default);
+                                        let (cell, _) = ui
+                                            .allocate_exact_size(vec2(72.0, 78.0), Sense::hover());
+                                        let painter = ui.painter();
+                                        painter.text(
+                                            cell.center_top() + vec2(0.0, 2.0),
+                                            Align2::CENTER_TOP,
+                                            truncate(&p.name, 11),
+                                            font(FS_CAPS, Weight::Bold),
+                                            FAINT,
+                                        );
+                                        let well = Rect::from_center_size(
+                                            cell.center_bottom() - vec2(0.0, 9.0),
+                                            vec2(70.0, 16.0),
+                                        );
+                                        well_value(painter, well, 3.0);
+                                        painter.text(
+                                            well.center(),
+                                            Align2::CENTER_CENTER,
+                                            truncate(&entry.editor.text(p.id, current), 12),
+                                            mono_font(FS_MICRO),
+                                            INK,
+                                        );
+                                        if !p.labels.is_empty() {
+                                            let button = Rect::from_center_size(
+                                                cell.center() + vec2(0.0, 2.0),
+                                                vec2(64.0, 24.0),
+                                            );
+                                            let response = ui.interact(
+                                                button,
+                                                egui::Id::new(("choice", &key, p.id)),
+                                                Sense::click(),
+                                            );
+                                            raised(ui.painter(), button, R_BUTTON);
+                                            ui.painter().text(
+                                                button.center(),
+                                                Align2::CENTER_CENTER,
+                                                "▾",
+                                                font(FS_LIST, Weight::Bold),
+                                                INK_CONTROL,
+                                            );
+                                            egui::Popup::menu(&response).show(|ui| {
+                                                for (i, label) in p.labels.iter().enumerate() {
+                                                    let value = p.min
+                                                        + i as f64 * (p.max - p.min)
+                                                            / (p.labels.len() - 1).max(1) as f64;
+                                                    if ui
+                                                        .selectable_label(
+                                                            (current - value).abs() < 1e-6,
+                                                            label,
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        edits.push((p.id, value));
+                                                    }
+                                                }
+                                            });
+                                            continue;
+                                        }
+                                        let mut t = p.normalize(current) as f32;
+                                        let knob = Rect::from_center_size(
+                                            cell.center() + vec2(0.0, 2.0),
+                                            Vec2::splat(KNOB_LG + 4.0),
+                                        );
+                                        knob_ticks(
+                                            ui.painter(),
+                                            knob.center(),
+                                            KNOB_LG / 2.0 - 1.0,
+                                        );
+                                        ui.scope_builder(
+                                            egui::UiBuilder::new().max_rect(knob),
+                                            |ui| {
+                                                if knob_widget(
+                                                    ui,
+                                                    &mut t,
+                                                    0.0..=1.0,
+                                                    p.normalize(p.default) as f32,
+                                                    KNOB_LG,
+                                                )
+                                                .on_hover_text(&p.name)
+                                                .changed()
+                                                {
+                                                    edits.push((p.id, p.denormalize(t as f64)));
+                                                }
+                                            },
+                                        );
+                                    }
+                                });
+                                ui.add_space(6.0);
+                            });
+                        let display = Rect::from_min_max(
+                            egui::pos2(ui.min_rect().left(), display_top),
+                            egui::pos2(ui.min_rect().right(), ui.cursor().top() - 8.0),
+                        );
+                        ui.ctx().data_mut(|d| d.insert_temp(display_id, display));
+                    })
                 });
+            if let Some(action) = preset_action {
+                let params = match &action {
+                    PresetAction::Save(name) | PresetAction::Load(name) => {
+                        let mut params = serde_json::json!({ "trackId": strip_id, "name": name });
+                        if let Some(slot) = slot.filter(|_| !is_synth) {
+                            params["slot"] = serde_json::json!(slot);
+                        }
+                        params
+                    }
+                    PresetAction::Delete(name) => {
+                        serde_json::json!({ "pluginId": insert.plugin_id(), "name": name })
+                    }
+                };
+                let method = match action {
+                    PresetAction::Save(_) => "preset.save",
+                    PresetAction::Load(_) => "preset.load",
+                    PresetAction::Delete(_) => "preset.delete",
+                };
+                match self.run_control_command(method, &params, false, "Plugin window") {
+                    Ok(_) => self.status = format!("{} done", method.replace('.', " ")),
+                    Err(e) => self.error = Some(e),
+                }
+            }
             for (param, value) in edits {
                 self.set_insert_param(&key, param, value);
             }

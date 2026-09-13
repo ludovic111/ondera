@@ -179,6 +179,7 @@ impl Server {
                     "capabilities": {
                         "tools": { "listChanged": false },
                         "resources": { "subscribe": false, "listChanged": false },
+                        "prompts": { "listChanged": false },
                     },
                     "serverInfo": { "name": "ondera", "version": env!("CARGO_PKG_VERSION") },
                     "instructions": self.instructions(),
@@ -235,22 +236,21 @@ impl Server {
                     }),
                 })
             }
-            "resources/list" => Ok(json!({ "resources": [
-                { "uri": "ondera://session", "name": "Open session", "description": "The complete session document as JSON.", "mimeType": "application/json" },
-                { "uri": "ondera://session/info", "name": "Session summary", "description": "Name, file, transport, counts and history state.", "mimeType": "application/json" },
-                { "uri": "ondera://catalog", "name": "Catalog", "description": "Built-in instruments, effects and loops.", "mimeType": "application/json" },
-            ] })),
+            "resources/list" => Ok(
+                json!({ "resources": RESOURCES.iter().map(|(uri, name, description, _)| json!({
+                "uri": uri, "name": name, "description": description, "mimeType": "application/json"
+            })).collect::<Vec<_>>() }),
+            ),
             "resources/read" => {
                 let uri = params
                     .get("uri")
                     .and_then(Value::as_str)
                     .ok_or((-32602, "resources/read needs `uri`".to_string()))?;
-                let command = match uri {
-                    "ondera://session" => "session.get",
-                    "ondera://session/info" => "session.info",
-                    "ondera://catalog" => "session.catalog",
-                    _ => return Err((-32002, format!("Unknown resource `{uri}`"))),
-                };
+                let command = RESOURCES
+                    .iter()
+                    .find(|(u, _, _, _)| *u == uri)
+                    .map(|(_, _, _, command)| *command)
+                    .ok_or((-32002, format!("Unknown resource `{uri}`")))?;
                 let value = self
                     .backend
                     .call(command, &Value::Null, false)
@@ -262,7 +262,28 @@ impl Server {
                 }] }))
             }
             "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
-            "prompts/list" => Ok(json!({ "prompts": [] })),
+            "prompts/list" => Ok(json!({ "prompts": PROMPTS.iter().map(|p| json!({
+                "name": p.name, "description": p.description,
+                "arguments": p.arguments.iter().map(|(name, description, required)| json!({
+                    "name": name, "description": description, "required": required
+                })).collect::<Vec<_>>()
+            })).collect::<Vec<_>>() })),
+            "prompts/get" => {
+                let name = params
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or((-32602, "prompts/get needs `name`".to_string()))?;
+                let prompt = PROMPTS
+                    .iter()
+                    .find(|p| p.name == name)
+                    .ok_or((-32602, format!("Unknown prompt `{name}`")))?;
+                let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+                let text = (prompt.render)(&arguments);
+                Ok(json!({
+                    "description": prompt.description,
+                    "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
+                }))
+            }
             "completion/complete" => Ok(json!({ "completion": { "values": [] } })),
             _ => Err((-32601, format!("Method not found: {method}"))),
         }
@@ -277,18 +298,138 @@ impl Server {
         };
         format!(
             "Ondera is a digital audio workstation. {mode}\n\
-             Start with session_info, then track_list and clip_list. session_catalog lists instruments, effects and bundled loops. plugin_scan discovers installed CLAP, VST3 and AU plugins; plugin_list returns their stable IDs.\n\
+             Start with session_info, then session_inspect or track_list and clip_list. session_catalog lists stock instruments, effects and bundled loops; plugin_list and plugin_describe cover installed Ondera-native, CLAP, VST3 and AU plugins by stable ID; preset_list and preset_load apply factory presets.\n\
              Bars and beats are zero-based. Note start/length are beats relative to the clip; pitch 60 is C4; velocity 1-127.\n\
-             clip_create with notes, or clip_setNotes, writes a whole pattern in one undo step. history_undo reverts your last edit.\n\
+             clip_create with notes, or clip_setNotes, writes a whole pattern in one undo step; clip_quantize and clip_transpose edit a region; history_undo with steps reverts several edits.\n\
+             In live mode ui_screenshot returns a PNG of the window so you can see the interface, view_set scrolls and zooms it, and audio_status reports the engine. settings_get and settings_set read and change preferences.\n\
              Clips and notes you create are marked as agent-made so the person can see them."
         )
     }
 }
 
+/// Registry-backed resources: uri, name, description, command.
+const RESOURCES: [(&str, &str, &str, &str); 8] = [
+    (
+        "ondera://session",
+        "Open session",
+        "The complete session document as JSON.",
+        "session.get",
+    ),
+    (
+        "ondera://session/info",
+        "Session summary",
+        "Name, file, transport, counts and history state.",
+        "session.info",
+    ),
+    (
+        "ondera://session/inspect",
+        "Arrangement and mixer",
+        "Tracks, clip summaries, strips and automation without plugin state.",
+        "session.inspect",
+    ),
+    (
+        "ondera://catalog",
+        "Catalog",
+        "Built-in instruments, effects and loops.",
+        "session.catalog",
+    ),
+    (
+        "ondera://plugins",
+        "Installed plugins",
+        "The first page of scanned plugins.",
+        "plugin.list",
+    ),
+    (
+        "ondera://presets",
+        "Presets",
+        "Factory and user plugin presets.",
+        "preset.list",
+    ),
+    (
+        "ondera://settings",
+        "Preferences",
+        "Ondera settings with secrets masked.",
+        "settings.get",
+    ),
+    (
+        "ondera://app",
+        "Application",
+        "Version, paths and mode.",
+        "app.info",
+    ),
+];
+
+struct Prompt {
+    name: &'static str,
+    description: &'static str,
+    arguments: &'static [(&'static str, &'static str, bool)],
+    render: fn(&Value) -> String,
+}
+fn arg<'a>(arguments: &'a Value, key: &str, default: &'a str) -> &'a str {
+    arguments
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(default)
+}
+const PROMPTS: [Prompt; 3] = [
+    Prompt {
+        name: "compose",
+        description:
+            "Write a short arrangement from a style, length and key using the stock instruments.",
+        arguments: &[
+            (
+                "style",
+                "Genre or mood, for example lo-fi hip hop or cinematic pad",
+                true,
+            ),
+            ("bars", "Length in bars (default 8)", false),
+            ("key", "Song key, for example A minor", false),
+        ],
+        render: |a| {
+            format!(
+            "Compose {bars} bars of {style} in {key}. Start with session_info and session_catalog. Set the tempo and key with transport_setTempo and transport_setKey, add one instrument track per part with track_add (choose stock instruments that fit), then write each part with clip_create and a full notes array in one call. Keep every note inside its clip, use velocities between 60 and 110 for dynamics, and set sends or inserts with strip_setSendLevel and strip_setPlugin for depth. Finish with session_inspect and describe what you made in a few sentences.",
+            bars = arg(a, "bars", "8"), style = arg(a, "style", "a warm, simple groove"), key = arg(a, "key", "the current key")
+        )
+        },
+    },
+    Prompt {
+        name: "mix-review",
+        description: "Inspect the mix and propose or apply balanced levels, panning and effects.",
+        arguments: &[(
+            "apply",
+            "true to apply the changes, otherwise only propose them",
+            false,
+        )],
+        render: |a| {
+            format!(
+            "Review this session's mix: call session_inspect, then strip_get for every track and bus. Consider level balance (track_setVolume, 0.75 is unity), panning width (track_setPan), the reverb and delay sends, and the master chain. {} Keep changes small and explain each one.",
+            if arg(a, "apply", "false") == "true" { "Apply the improvements with the strip and track commands, one undo step each." } else { "Do not change anything yet; list the concrete commands you would run." }
+        )
+        },
+    },
+    Prompt {
+        name: "see-the-window",
+        description:
+            "Take a screenshot of the running app and describe what the person is looking at.",
+        arguments: &[],
+        render: |_| {
+            "Call ui_screenshot, look at the image file it returns, then call ui_status and view_get. Describe the arrangement, the selected track or region, any open panels and anything that looks wrong.".into()
+        },
+    },
+];
+
 fn tools() -> Vec<Value> {
     control::COMMANDS
         .iter()
         .map(|spec| {
+            let destructive = spec.mutates
+                && [
+                    "remove", "delete", "new", "open", "quit", "reset", "restore", "setNotes",
+                    "clear",
+                ]
+                .iter()
+                .any(|w| spec.name.contains(w));
             json!({
                 "name": spec.name.replacen('.', "_", 1),
                 "title": spec.name,
@@ -296,7 +437,7 @@ fn tools() -> Vec<Value> {
                 "inputSchema": control::schema(spec),
                 "annotations": {
                     "readOnlyHint": !spec.mutates,
-                    "destructiveHint": spec.mutates,
+                    "destructiveHint": destructive,
                     "idempotentHint": !spec.mutates,
                     "openWorldHint": false,
                 },
