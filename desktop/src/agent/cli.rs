@@ -568,8 +568,12 @@ pub(crate) fn workspace() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::sync::{atomic::AtomicBool, Arc};
 
+    /// A turn for the process-runner tests, which only run where a shell script can stand in
+    /// for the agent CLI.
+    #[cfg(unix)]
     fn turn(prompt: &str, events: mpsc::SyncSender<Event>, cancel: Arc<AtomicBool>) -> Turn {
         Turn {
             prompt: prompt.into(),
