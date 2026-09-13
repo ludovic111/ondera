@@ -81,6 +81,10 @@ struct PreparedCommand {
 }
 
 impl ExportDialog {
+    pub(crate) fn is_open(&self) -> bool {
+        self.open
+    }
+
     fn show(&mut self, mode: Mode, session: &Session, position_beats: f64) {
         self.open = true;
         if self.busy() {

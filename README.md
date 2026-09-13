@@ -1,8 +1,10 @@
 # Ondera
 
-A native Rust digital audio workstation for macOS, Linux and Windows. The desktop interface,
-command store, undo history, synthesizers, effects, audio I/O and file operations are Rust.
-The application does not embed a browser, Electron, React, JavaScript or Web Audio.
+A digital audio workstation for macOS, Linux and Windows. On this migration branch, Tauri
+hosts a React/TypeScript interface using the existing Ondera layout and materials. The command
+store, undo history, synthesizers, effects, audio I/O and file operations remain in Rust.
+The system WebView draws the interface; audio does not run in JavaScript or Web Audio.
+See [the Tauri migration](docs/TAURI_MIGRATION.md) for architecture and validation scope.
 
 Version 0.3 adds the fourth way to control Ondera: a built-in agent panel that talks to Codex,
 Claude Code, the Anthropic or OpenAI APIs or any compatible endpoint through the same command
@@ -15,9 +17,11 @@ sessions. See the [release notes](docs/releases/0.3.1.md), [the agent](docs/AGEN
 
 ## Build and run
 
-Install Rust 1.88 or newer. Node and pnpm are not required.
+Install Rust 1.88 or newer and Node.js 24. Node is needed to build the interface, not to run the packaged app.
 
 ```sh
+npm --prefix frontend ci
+npm --prefix frontend run build
 cargo run --release
 ```
 
@@ -29,15 +33,19 @@ tools and Windows SDK; use the MSVC Rust toolchain. On Ubuntu/Debian, install:
 sudo apt-get install build-essential pkg-config libasound2-dev libudev-dev \
   libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev \
   libxrandr-dev libxinerama-dev libegl1-mesa-dev libgl1-mesa-dev \
-  libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libdbus-1-dev
+  libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libdbus-1-dev \
+  libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev
 ```
 
 Linux file dialogs use the desktop portal (`xdg-desktop-portal` plus the appropriate desktop
-backend). Graphics use wgpu with Metal, DirectX 12, Vulkan or OpenGL ES backends. Audio uses
-CPAL's system backend. Choose input, output and a hardware MIDI controller in the **Audio** menu;
+backend). Tauri uses WebKit on macOS/Linux and WebView2 on Windows. Windows installations
+need the Microsoft Edge WebView2 runtime. Audio uses CPAL's system backend. Choose input, output
+and a hardware MIDI controller in **Settings → Audio & MIDI**;
 the initial device selection follows the system defaults.
 
 ```sh
+npm --prefix frontend run build
+npm --prefix frontend test
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
@@ -300,8 +308,10 @@ loaded plugin states. Plugin load failures are reported rather than silently dro
 ## Architecture
 
 ```
-desktop/  egui native interface, wgpu rendering, settings, the built-in agent, plugin windows
-    │     typed commands + immutable session snapshots
+frontend/ React controls, CSS materials, Canvas arrangement and MIDI editor
+    │     Tauri commands, document snapshots and transport/meter events
+desktop/  Tauri window, Rust document/audio owner, settings, agent and native plugin windows
+    │     shared command registry
 tools/    ondera-cli and ondera-mcp: shared registry clients, live or on a file
 sdk/      ondera-plugin: the Plugin trait, DSP primitives and the frozen C ABI
 plugins/  example native plugin bundle (Trim, Tilt EQ)

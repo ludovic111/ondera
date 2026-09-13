@@ -239,7 +239,9 @@ impl Ondera {
                 self.status = format!("Running {method}…");
                 return Ok(json!({"status":"running", "command":method}));
             }
-            self.store.set_gesture(false);
+            if source != "Interface" {
+                self.store.set_gesture(false);
+            }
             let mut result = control::call(self, method, params, agent)?;
             if matches!(method, "transport.record" | "transport.stop") {
                 result["pending"] =
@@ -477,6 +479,7 @@ impl Ondera {
     fn ui_status(&self) -> Value {
         let session = self.store.session();
         json!({
+            "frontendReady": self.frontend_ready,
             "agentPanel": self.agents.open,
             "automation": self.automation.open,
             "settings": self.settings_ui.open,

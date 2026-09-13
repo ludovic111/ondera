@@ -116,6 +116,7 @@ pub struct Ondera {
     pub(crate) closing: bool,
     pub screenshot: Option<PathBuf>,
     pub(crate) frames: usize,
+    pub(crate) frontend_ready: bool,
     pub show_help: bool,
     pub plugins: Bank,
     pub catalog: Vec<Descriptor>,
@@ -149,14 +150,21 @@ pub fn id(prefix: &str) -> String {
     ondera_engine::control::new_id(prefix)
 }
 impl Ondera {
+    pub(crate) fn release_typing(&mut self) {
+        let pitches = std::mem::take(&mut self.typing_down);
+        for pitch in pitches {
+            self.live_note(false, pitch, 0);
+        }
+    }
+
     pub fn new(
-        cc: &eframe::CreationContext<'_>,
+        ctx: &egui::Context,
         path: Option<PathBuf>,
         screenshot: Option<PathBuf>,
         control: bool,
         check_updates: bool,
     ) -> Self {
-        install(&cc.egui_ctx);
+        install(ctx);
         let screenshot_run = screenshot.is_some();
         let settings = Settings::load();
         let mut app = Self::from_session(store::demo(), screenshot);
@@ -168,12 +176,12 @@ impl Ondera {
         }
         app.agents.open = settings.interface.agent_panel_open_on_start;
         if (settings.interface.scale - 1.0).abs() > f32::EPSILON {
-            cc.egui_ctx.set_zoom_factor(settings.interface.scale);
+            ctx.set_zoom_factor(settings.interface.scale);
         }
         app.catalog = host::scan::installed();
         app.connect();
         if control && settings.control.enable_bridge {
-            app.start_control(&cc.egui_ctx);
+            app.start_control(ctx);
         }
         if check_updates && settings.general.check_updates_on_start && !screenshot_run {
             app.check_for_updates(false);
@@ -253,6 +261,7 @@ impl Ondera {
             closing: false,
             screenshot,
             frames: 0,
+            frontend_ready: false,
             show_help: false,
             plugins: Bank::default(),
             catalog: vec![],
@@ -1348,7 +1357,7 @@ impl Ondera {
             })
         });
     }
-    fn poll_agent(&mut self, ctx: &egui::Context) {
+    pub(crate) fn poll_agent(&mut self, ctx: &egui::Context) {
         self.run_agent_tools(ctx);
         if !self.agents.runner_busy() && self.job.is_none() && self.control_job.is_none() {
             if let Some(intent) = self.after_agent.take() {
