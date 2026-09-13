@@ -125,6 +125,8 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip > SHA256SUMS
+      - name: Install signing binary runtime
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-0 libasound2 libudev1 libxkbcommon0 libegl1 libgl1 libxdo3 libayatana-appindicator3-1
       - name: Sign checksums
         env:
           ONDERA_SIGNING_KEY: ${{ secrets.ONDERA_SIGNING_KEY }}

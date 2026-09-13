@@ -1,0 +1,70 @@
+name: Resume release publication
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable version tag
+        required: true
+        type: string
+      run_id:
+        description: Release workflow run with all platform builds successful
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-refs/tags/${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_RUN: ${{ inputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Verify tag and source build provenance
+        run: |
+          GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$RELEASE_TAG" bash scripts/verify-release.sh
+          gh run view "$SOURCE_RUN" --json workflowName,event,headSha,jobs > "$RUNNER_TEMP/source-run.json"
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          run = json.loads((Path(os.environ['RUNNER_TEMP']) / 'source-run.json').read_text())
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          required = {'verify', 'macos-14', 'macos-15-intel', 'ubuntu-22.04', 'windows-latest'}
+          passed = {job['name'] for job in run['jobs'] if job['conclusion'] == 'success'}
+          if run['workflowName'] != 'Release' or run['event'] != 'push' or run['headSha'] != commit or not required <= passed:
+              raise SystemExit('Source run must validate this exact tag on all four platforms')
+          print('Verified source build at', commit)
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+          merge-multiple: true
+      - name: Install signing binary runtime
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-0 libasound2 libudev1 libxkbcommon0 libegl1 libgl1 libxdo3 libayatana-appindicator3-1
+      - name: Sign and verify checksums
+        env:
+          ONDERA_SIGNING_KEY: ${{ secrets.ONDERA_SIGNING_KEY }}
+        run: |
+          test -n "$ONDERA_SIGNING_KEY"
+          (cd dist && sha256sum Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip > SHA256SUMS)
+          umask 077
+          trap 'rm -f "$RUNNER_TEMP/release.key"' EXIT
+          printf '%s\n' "$ONDERA_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+          chmod +x dist/ondera-linux-x86_64
+          dist/ondera-linux-x86_64 --sign-release "$RUNNER_TEMP/release.key" dist/SHA256SUMS
+          dist/ondera-linux-x86_64 --verify-release dist/SHA256SUMS
+      - name: Publish complete draft or verify existing release
+        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="$RELEASE_TAG" bash scripts/publish-release.sh
