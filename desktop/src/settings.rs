@@ -920,7 +920,7 @@ impl Ondera {
 }
 
 /// Run a vendor CLI to completion with a deadline, returning its combined output.
-fn run_cli(exe: &Path, args: &[String], timeout: Duration) -> Result<String> {
+pub(crate) fn run_cli(exe: &Path, args: &[String], timeout: Duration) -> Result<String> {
     let mut child = Command::new(exe)
         .args(args)
         .stdin(Stdio::null())

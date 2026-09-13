@@ -82,6 +82,10 @@ enum Outcome {
 }
 
 impl Recovery {
+    pub(crate) fn is_open(&self) -> bool {
+        self.open
+    }
+
     pub(crate) fn new_document(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.last_attempt = Instant::now();

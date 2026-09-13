@@ -6,7 +6,17 @@ rust-version.workspace = true
 license.workspace = true
 default-run = "ondera"
 
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+tokio = { version = "1", features = ["sync"] }
 ondera-engine = { path = "../engine" }
 serde_json.workspace = true
 eframe = { version = "0.32.3", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11", "accesskit"] }
@@ -33,5 +43,7 @@ ondera-tools = { path = "../tools" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+block2 = "0.6"
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration", "block2"] }
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSGraphics", "NSApplication", "NSRunningApplication"] }
 objc2-foundation = "0.3"

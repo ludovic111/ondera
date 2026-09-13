@@ -93,6 +93,18 @@ fn small_button(ui: &mut egui::Ui, label: &str, face_kind: Face) -> egui::Respon
 }
 
 impl AgentPanel {
+    pub(crate) fn changes_json(&self, depth: usize) -> Value {
+        json!(self
+            .history
+            .iter()
+            .map(|entry| json!({
+                "sequence": entry.sequence, "title": entry.title, "detail": entry.detail,
+                "output": entry.output, "succeeded": entry.succeeded, "running": entry.running,
+                "mutated": entry.mutated(), "applied": entry.applied(depth)
+            }))
+            .collect::<Vec<_>>())
+    }
+
     fn working(&self) -> bool {
         self.runtime.running()
     }
@@ -974,7 +986,7 @@ impl Ondera {
         }
     }
 
-    fn revert_activity(&mut self, sequence: u64) {
+    pub(crate) fn revert_activity(&mut self, sequence: u64) {
         let Some(target) = self
             .agents
             .history
@@ -989,7 +1001,7 @@ impl Ondera {
         }
     }
 
-    fn redo_activity(&mut self, sequence: u64) {
+    pub(crate) fn redo_activity(&mut self, sequence: u64) {
         let Some(target) = self
             .agents
             .history
