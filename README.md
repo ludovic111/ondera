@@ -8,7 +8,7 @@ Version 0.2 brings the native arrangement, piano roll, mixer, plugin hosts and a
 one application. You can write MIDI parts, record audio and MIDI, arrange regions, mix through
 stock or installed plugins, save a project and export a stereo WAV. It reads version-1 `.ondera`
 sessions; the rewritten DSP preserves the composition and imported audio, but old mixes do not
-sound bit-identical to the former Web Audio engine. See [release notes](docs/releases/0.2.0.md)
+sound bit-identical to the former Web Audio engine. See [release notes](docs/releases/0.3.0.md)
 and the [migration status and limits](docs/RUST_MIGRATION.md).
 
 ## Build and run
@@ -82,7 +82,7 @@ WAV mix, MIDI export and verification report. Extract it and open `Afterglow.ond
 the arrangement, instrument and effect settings, and automation. Audio is embedded in the project.
 
 To publish a release: bump `version` in `Cargo.toml`, merge to `main`, then push a matching tag
-(`git tag v0.2.0 && git push origin v0.2.0`). The `Release` workflow builds all four platforms,
+(`git tag v0.3.0 && git push origin v0.3.0`). The `Release` workflow builds all four platforms,
 writes `SHA256SUMS` and creates the GitHub release; installed apps pick it up on their next start.
 
 The exercised native song workflow, test evidence and remaining platform limits are recorded in
