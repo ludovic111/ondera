@@ -1,219 +1,73 @@
-//! The stock Ondera plugin library: sixteen effects and eight instruments,
-//! all exposed through the same `Editor` / `Processor` pair as external plugins.
+//! The stock Ondera plugin library: sixteen effects and eight instruments written against
+//! the `ondera-plugin` SDK. They are linked into the engine but served through the same C
+//! ABI vtables as third-party native plugins, so the stock library doubles as the reference
+//! implementation and a permanent test of the plugin path.
 
-use crate::{dsp::*, plugin::*, Result};
-use std::{
-    f64::consts::TAU,
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
-    },
+use crate::{
+    dsp::*,
+    host::native,
+    plugin::{Descriptor, Format, Instance, ParamInfo},
 };
+use ondera_plugin::{
+    ffi::{Manifest, PluginVTable},
+    plugin_table,
+    prelude::*,
+};
+use std::{f64::consts::TAU, sync::LazyLock};
 
-struct Spec {
-    name: &'static str,
-    min: f64,
-    max: f64,
-    default: f64,
-    unit: &'static str,
-    steps: u32,
-    log: bool,
-    labels: &'static [&'static str],
-}
-const fn p(name: &'static str, min: f64, max: f64, default: f64, unit: &'static str) -> Spec {
-    Spec {
-        name,
-        min,
-        max,
-        default,
-        unit,
-        steps: 0,
-        log: false,
-        labels: &[],
-    }
-}
-const fn hz(name: &'static str, min: f64, max: f64, default: f64) -> Spec {
-    Spec {
-        name,
-        min,
-        max,
-        default,
-        unit: "Hz",
-        steps: 0,
-        log: true,
-        labels: &[],
-    }
-}
-const fn choice(name: &'static str, labels: &'static [&'static str], default: usize) -> Spec {
-    Spec {
-        name,
-        min: 0.0,
-        max: (labels.len() - 1) as f64,
-        default: default as f64,
-        unit: "",
-        steps: (labels.len() - 1) as u32,
-        log: false,
-        labels,
-    }
-}
+const VENDOR: &str = "Ondera";
 const ON_OFF: &[&str] = &["Off", "On"];
 
-fn effect_specs(name: &str) -> Vec<Spec> {
+fn category(name: &str) -> &'static str {
     match name {
-        "Ondera Comp" => vec![
-            p("Threshold", -60.0, 0.0, -18.0, "dB"),
-            p("Ratio", 1.0, 20.0, 4.0, ":1"),
-            p("Attack", 0.1, 100.0, 10.0, "ms"),
-            p("Release", 10.0, 1000.0, 120.0, "ms"),
-            p("Makeup", 0.0, 24.0, 0.0, "dB"),
-            p("Mix", 0.0, 100.0, 100.0, "%"),
-        ],
-        "Channel EQ" => vec![
-            p("Low Gain", -15.0, 15.0, 1.5, "dB"),
-            hz("Low Freq", 40.0, 500.0, 120.0),
-            p("Mid Gain", -15.0, 15.0, -2.0, "dB"),
-            hz("Mid Freq", 200.0, 8000.0, 1000.0),
-            p("Mid Q", 0.3, 5.0, 0.8, ""),
-            p("High Gain", -15.0, 15.0, 2.0, "dB"),
-            hz("High Freq", 2000.0, 16000.0, 6000.0),
-        ],
-        "Tape Sat" => vec![
-            p("Drive", 0.0, 24.0, 6.0, "dB"),
-            hz("Tone", 1000.0, 20000.0, 9000.0),
-            p("Mix", 0.0, 100.0, 100.0, "%"),
-            p("Output", -24.0, 6.0, -2.0, "dB"),
-        ],
-        "Chorus" => vec![
-            p("Rate", 0.05, 5.0, 0.6, "Hz"),
-            p("Depth", 0.0, 100.0, 40.0, "%"),
-            p("Spread", 0.0, 100.0, 50.0, "%"),
-            p("Mix", 0.0, 100.0, 50.0, "%"),
-        ],
-        "Space" => vec![
-            p("Size", 0.0, 100.0, 55.0, "%"),
-            p("Damp", 0.0, 100.0, 40.0, "%"),
-            p("Pre-delay", 0.0, 100.0, 10.0, "ms"),
-            p("Width", 0.0, 100.0, 100.0, "%"),
-            p("Mix", 0.0, 100.0, 30.0, "%"),
-        ],
-        "Echo" => vec![
-            choice(
-                "Sync",
-                &["Free", "1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4.", "1/2"],
-                3,
-            ),
-            p("Time", 10.0, 2000.0, 375.0, "ms"),
-            p("Feedback", 0.0, 95.0, 35.0, "%"),
-            hz("Tone", 500.0, 20000.0, 6000.0),
-            choice("Ping-pong", ON_OFF, 0),
-            p("Mix", 0.0, 100.0, 35.0, "%"),
-        ],
-        "Gate" => vec![
-            p("Threshold", -80.0, 0.0, -40.0, "dB"),
-            p("Attack", 0.1, 50.0, 1.0, "ms"),
-            p("Hold", 0.0, 500.0, 50.0, "ms"),
-            p("Release", 5.0, 1000.0, 100.0, "ms"),
-            p("Range", -80.0, 0.0, -80.0, "dB"),
-        ],
-        "Limiter" => vec![
-            p("Input", 0.0, 24.0, 0.0, "dB"),
-            p("Ceiling", -20.0, 0.0, -0.3, "dB"),
-            p("Release", 10.0, 1000.0, 80.0, "ms"),
-        ],
-        "Filter" => vec![
-            choice("Type", &["Low-pass", "High-pass", "Band-pass"], 0),
-            hz("Cutoff", 20.0, 20000.0, 1000.0),
-            p("Resonance", 0.0, 100.0, 20.0, "%"),
-            p("Drive", 0.0, 24.0, 0.0, "dB"),
-        ],
-        "Phaser" => vec![
-            p("Rate", 0.02, 5.0, 0.3, "Hz"),
-            p("Depth", 0.0, 100.0, 70.0, "%"),
-            choice("Stages", &["2", "4", "6", "8", "10", "12"], 2),
-            p("Feedback", -90.0, 90.0, 30.0, "%"),
-            hz("Center", 200.0, 4000.0, 800.0),
-            p("Mix", 0.0, 100.0, 50.0, "%"),
-        ],
-        "Tremolo" => vec![
-            p("Rate", 0.1, 20.0, 4.0, "Hz"),
-            p("Depth", 0.0, 100.0, 60.0, "%"),
-            choice("Shape", &["Sine", "Triangle", "Square"], 0),
-            p("Stereo", 0.0, 180.0, 0.0, "°"),
-        ],
-        "Bitcrusher" => vec![
-            p("Bits", 2.0, 16.0, 8.0, "bit"),
-            p("Downsample", 1.0, 64.0, 4.0, "x"),
-            p("Mix", 0.0, 100.0, 100.0, "%"),
-        ],
-        "Stereo Width" => vec![
-            p("Width", 0.0, 200.0, 120.0, "%"),
-            p("Bass Mono", 0.0, 500.0, 0.0, "Hz"),
-        ],
-        "Utility" => vec![
-            p("Gain", -60.0, 12.0, 0.0, "dB"),
-            p("Pan", -100.0, 100.0, 0.0, ""),
-            choice("Invert L", ON_OFF, 0),
-            choice("Invert R", ON_OFF, 0),
-            choice("Mono", ON_OFF, 0),
-        ],
-        "Overdrive" => vec![
-            p("Drive", 0.0, 40.0, 12.0, "dB"),
-            hz("Tone", 500.0, 12000.0, 4000.0),
-            p("Mix", 0.0, 100.0, 100.0, "%"),
-            p("Output", -24.0, 6.0, -6.0, "dB"),
-        ],
-        "Transient" => vec![
-            p("Attack", -100.0, 100.0, 30.0, "%"),
-            p("Sustain", -100.0, 100.0, 0.0, "%"),
-        ],
-        _ => vec![],
+        "Ondera Comp" | "Gate" | "Limiter" | "Transient" => "Dynamics",
+        "Channel EQ" | "Filter" => "EQ & Filter",
+        "Tape Sat" | "Overdrive" | "Bitcrusher" => "Distortion",
+        "Chorus" | "Phaser" | "Tremolo" => "Modulation",
+        "Space" | "Echo" => "Space & Time",
+        _ => "Utility",
     }
-}
-fn instrument_specs(preset: Preset) -> Vec<Spec> {
-    let d = InstrumentParams::for_preset(preset);
-    let mut specs = vec![];
-    match preset {
-        Preset::Synth => {
-            specs.push(choice("Wave", &["Saw", "Square", "Triangle"], 0));
-            specs.push(hz("Cutoff", 100.0, 16000.0, d.cutoff));
-            specs.push(p("Env Amount", 0.0, 100.0, d.env_amount * 100.0, "%"));
-            specs.push(p("Attack", 1.0, 3000.0, d.attack * 1000.0, "ms"));
-            specs.push(p("Decay", 5.0, 3000.0, d.decay * 1000.0, "ms"));
-            specs.push(p("Sustain", 0.0, 100.0, d.sustain * 100.0, "%"));
-            specs.push(p("Release", 10.0, 5000.0, d.release * 1000.0, "ms"));
-        }
-        Preset::Pad => {
-            specs.push(hz("Cutoff", 100.0, 16000.0, d.cutoff));
-            specs.push(p("Detune", 0.0, 50.0, d.detune, "ct"));
-            specs.push(p("Attack", 1.0, 3000.0, d.attack * 1000.0, "ms"));
-            specs.push(p("Release", 10.0, 5000.0, d.release * 1000.0, "ms"));
-        }
-        Preset::Drums => {}
-        _ => {
-            specs.push(p("Attack", 1.0, 3000.0, d.attack * 1000.0, "ms"));
-            specs.push(p("Release", 10.0, 5000.0, d.release * 1000.0, "ms"));
-        }
-    }
-    specs.push(p("Level", -24.0, 6.0, 0.0, "dB"));
-    specs
 }
 
-fn infos(specs: &[Spec]) -> Vec<ParamInfo> {
-    specs
-        .iter()
-        .enumerate()
-        .map(|(i, s)| ParamInfo {
-            id: i as u32,
-            name: s.name.into(),
-            min: s.min,
-            max: s.max,
-            default: s.default,
-            unit: s.unit.into(),
-            steps: s.steps,
-            log: s.log,
-            labels: s.labels.iter().map(|l| l.to_string()).collect(),
-        })
-        .collect()
+// ---------------------------------------------------------------------------
+// Registry: one vtable per stock plugin, read back through the ABI.
+// ---------------------------------------------------------------------------
+
+static TABLES: [PluginVTable; 24] = plugin_table!(
+    Synth,
+    Piano,
+    Drums,
+    Sampler,
+    Sub,
+    Bell,
+    Pad,
+    RiserSynth,
+    Comp,
+    Eq,
+    Saturator<false>,
+    Chorus,
+    Space,
+    Echo,
+    Gate,
+    Limiter,
+    Filter,
+    Phaser,
+    Tremolo,
+    Bitcrusher,
+    Width,
+    Utility,
+    Saturator<true>,
+    Transient
+);
+static MANIFESTS: LazyLock<Vec<Manifest>> = LazyLock::new(|| {
+    native::manifests(&TABLES).expect("Stock plugin manifests are generated by the SDK")
+});
+fn index_of(name: &str) -> Option<usize> {
+    MANIFESTS.iter().position(|m| m.name == name)
+}
+/// The vtable table, for tests of the ABI path.
+pub fn tables() -> &'static [PluginVTable] {
+    &TABLES
 }
 pub fn is_stock(name: &str) -> bool {
     INSTRUMENTS.contains(&name) || EFFECTS.contains(&name)
@@ -227,7 +81,7 @@ pub fn descriptor(name: &str) -> Option<Descriptor> {
         id: format!("stock:{name}"),
         format: Format::Stock,
         name: name.into(),
-        vendor: "Ondera".into(),
+        vendor: VENDOR.into(),
         path: String::new(),
         instrument,
         effect: !instrument,
@@ -238,16 +92,6 @@ pub fn descriptor(name: &str) -> Option<Descriptor> {
         },
     })
 }
-fn category(name: &str) -> &'static str {
-    match name {
-        "Ondera Comp" | "Gate" | "Limiter" | "Transient" => "Dynamics",
-        "Channel EQ" | "Filter" => "EQ & Filter",
-        "Tape Sat" | "Overdrive" | "Bitcrusher" => "Distortion",
-        "Chorus" | "Phaser" | "Tremolo" => "Modulation",
-        "Space" | "Echo" => "Space & Time",
-        _ => "Utility",
-    }
-}
 pub fn descriptors() -> Vec<Descriptor> {
     INSTRUMENTS
         .iter()
@@ -256,157 +100,166 @@ pub fn descriptors() -> Vec<Descriptor> {
         .collect()
 }
 pub fn params(name: &str) -> Vec<ParamInfo> {
-    if INSTRUMENTS.contains(&name) {
-        infos(&instrument_specs(Preset::named(name)))
-    } else {
-        infos(&effect_specs(name))
-    }
+    index_of(name).map_or_else(Vec::new, |i| native::param_infos(&MANIFESTS[i]))
 }
-
-trait Dsp: Send {
-    fn set(&mut self, index: usize, value: f64);
-    fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], ctx: &ProcessContext);
-    fn reset(&mut self) {}
-    fn latency(&self) -> u32 {
-        0
-    }
-}
-struct RestoredState {
-    values: Vec<AtomicU64>,
-    pending: AtomicBool,
-}
-struct StockProcessor {
-    dsp: Box<dyn Dsp>,
-    restored: Arc<RestoredState>,
-}
-impl Processor for StockProcessor {
-    fn reset(&mut self) {
-        self.dsp.reset();
-    }
-    fn process(
-        &mut self,
-        audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
-        params: &[ParamChange],
-        ctx: &ProcessContext,
-    ) {
-        if self.restored.pending.swap(false, Ordering::Acquire) {
-            for (index, value) in self.restored.values.iter().enumerate() {
-                self.dsp
-                    .set(index, f64::from_bits(value.load(Ordering::Relaxed)));
-            }
-        }
-        for change in params {
-            self.dsp.set(change.id as usize, change.value);
-        }
-        self.dsp.process(audio, notes, ctx);
-    }
-    fn latency(&self) -> u32 {
-        self.dsp.latency()
-    }
-}
-struct StockEditor {
-    desc: Descriptor,
-    params: Vec<ParamInfo>,
-    values: Vec<f64>,
-    latency: u32,
-    restored: Arc<RestoredState>,
-}
-impl Editor for StockEditor {
-    fn descriptor(&self) -> &Descriptor {
-        &self.desc
-    }
-    fn latency(&self) -> u32 {
-        self.latency
-    }
-    fn params(&self) -> &[ParamInfo] {
-        &self.params
-    }
-    fn value(&self, id: u32) -> Option<f64> {
-        self.values.get(id as usize).copied()
-    }
-    fn set_value(&mut self, id: u32, value: f64) {
-        if let Some(v) = self.values.get_mut(id as usize) {
-            *v = value;
-        }
-    }
-    fn save(&mut self) -> Option<Vec<u8>> {
-        serde_json::to_vec(&self.values).ok()
-    }
-    fn load(&mut self, bytes: &[u8]) -> Result<()> {
-        let values: Vec<f64> = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-        for (i, v) in values.into_iter().enumerate() {
-            if let Some(slot) = self.values.get_mut(i) {
-                if v.is_finite() {
-                    *slot = v.clamp(self.params[i].min, self.params[i].max);
-                }
-            }
-        }
-        for (value, shared) in self.values.iter().zip(&self.restored.values) {
-            shared.store(value.to_bits(), Ordering::Relaxed);
-        }
-        self.restored.pending.store(true, Ordering::Release);
-        Ok(())
-    }
-}
-
 /// Instantiate a stock plugin with every parameter at its default.
 pub fn create(name: &str, rate: u32) -> Option<Instance> {
-    let desc = descriptor(name)?;
-    let params = params(name);
-    let mut dsp: Box<dyn Dsp> = if desc.instrument {
-        Box::new(StockInstrument::new(Preset::named(name), rate))
-    } else {
-        effect(name, rate)?
-    };
-    for (i, param) in params.iter().enumerate() {
-        dsp.set(i, param.default);
-    }
-    let values: Vec<f64> = params.iter().map(|p| p.default).collect();
-    let restored = Arc::new(RestoredState {
-        values: values
-            .iter()
-            .map(|value| AtomicU64::new(value.to_bits()))
-            .collect(),
-        pending: AtomicBool::new(false),
-    });
-    Some(Instance {
-        editor: Box::new(StockEditor {
-            desc,
-            params,
-            values,
-            latency: dsp.latency(),
-            restored: restored.clone(),
-        }),
-        processor: Some(Box::new(StockProcessor { dsp, restored })),
-    })
-}
-fn effect(name: &str, rate: u32) -> Option<Box<dyn Dsp>> {
-    let r = rate as f64;
-    Some(match name {
-        "Ondera Comp" => Box::new(Comp::new(r)),
-        "Channel EQ" => Box::new(Eq::new(r)),
-        "Tape Sat" => Box::new(Saturator::new(r, false)),
-        "Overdrive" => Box::new(Saturator::new(r, true)),
-        "Chorus" => Box::new(Chorus::new(rate)),
-        "Space" => Box::new(Space::new(rate)),
-        "Echo" => Box::new(Echo::new(rate)),
-        "Gate" => Box::new(Gate::new(r)),
-        "Limiter" => Box::new(Limiter::new(rate)),
-        "Filter" => Box::new(Filter::new(r)),
-        "Phaser" => Box::new(Phaser::new(r)),
-        "Tremolo" => Box::new(Tremolo::new(r)),
-        "Bitcrusher" => Box::new(Bitcrusher::default()),
-        "Stereo Width" => Box::new(Width::new(r)),
-        "Utility" => Box::new(Utility::default()),
-        "Transient" => Box::new(Transient::new(r)),
-        _ => return None,
-    })
+    let index = index_of(name)?;
+    native::instance_from(&TABLES[index], &MANIFESTS[index], descriptor(name)?, rate).ok()
 }
 
+/// Factory presets: plugin name, preset name, parameter values by id.
+pub const FACTORY_PRESETS: &[(&str, &str, &[(u32, f64)])] = &[
+    (
+        "Ondera Comp",
+        "Vocal glue",
+        &[(0, -22.0), (1, 3.0), (2, 8.0), (3, 90.0), (4, 3.0)],
+    ),
+    (
+        "Ondera Comp",
+        "Drum bus",
+        &[
+            (0, -14.0),
+            (1, 4.0),
+            (2, 25.0),
+            (3, 60.0),
+            (4, 2.0),
+            (5, 60.0),
+        ],
+    ),
+    (
+        "Ondera Comp",
+        "Bass tighten",
+        &[(0, -20.0), (1, 6.0), (2, 4.0), (3, 150.0), (4, 4.0)],
+    ),
+    (
+        "Channel EQ",
+        "Air and body",
+        &[
+            (0, 2.0),
+            (1, 110.0),
+            (2, -1.5),
+            (3, 400.0),
+            (5, 3.0),
+            (6, 9000.0),
+        ],
+    ),
+    (
+        "Channel EQ",
+        "Telephone",
+        &[
+            (0, -15.0),
+            (1, 400.0),
+            (2, 6.0),
+            (3, 1800.0),
+            (4, 1.2),
+            (5, -15.0),
+            (6, 3000.0),
+        ],
+    ),
+    (
+        "Space",
+        "Small room",
+        &[(0, 25.0), (1, 60.0), (2, 4.0), (4, 18.0)],
+    ),
+    (
+        "Space",
+        "Cathedral",
+        &[(0, 95.0), (1, 20.0), (2, 40.0), (3, 100.0), (4, 40.0)],
+    ),
+    (
+        "Echo",
+        "Dotted eighth",
+        &[(0, 4.0), (2, 45.0), (3, 4000.0), (4, 1.0), (5, 30.0)],
+    ),
+    (
+        "Echo",
+        "Slapback",
+        &[(0, 0.0), (1, 110.0), (2, 8.0), (3, 8000.0), (5, 25.0)],
+    ),
+    ("Tape Sat", "Warm", &[(0, 4.0), (1, 7000.0), (3, -1.0)]),
+    ("Tape Sat", "Crushed", &[(0, 18.0), (1, 4000.0), (3, -6.0)]),
+    (
+        "Filter",
+        "Telephone band",
+        &[(0, 2.0), (1, 1200.0), (2, 35.0)],
+    ),
+    (
+        "Filter",
+        "Dub low-pass",
+        &[(0, 0.0), (1, 400.0), (2, 55.0), (3, 6.0)],
+    ),
+    (
+        "Chorus",
+        "Wide ensemble",
+        &[(0, 0.35), (1, 70.0), (2, 90.0), (3, 60.0)],
+    ),
+    ("Limiter", "Master safe", &[(0, 2.0), (1, -1.0), (2, 120.0)]),
+    (
+        "Ondera Synth",
+        "Soft square lead",
+        &[
+            (0, 1.0),
+            (1, 1800.0),
+            (2, 60.0),
+            (3, 12.0),
+            (4, 400.0),
+            (5, 45.0),
+            (6, 300.0),
+        ],
+    ),
+    (
+        "Ondera Synth",
+        "Plucky bass",
+        &[
+            (0, 0.0),
+            (1, 900.0),
+            (2, 85.0),
+            (3, 2.0),
+            (4, 120.0),
+            (5, 10.0),
+            (6, 120.0),
+        ],
+    ),
+    (
+        "Choir Pad",
+        "Slow bloom",
+        &[(0, 900.0), (1, 14.0), (2, 1200.0), (3, 2500.0)],
+    ),
+];
+
 // ---------------------------------------------------------------------------
-// Instruments
+// Instruments: one voice engine, eight presets, eight plugin types.
 // ---------------------------------------------------------------------------
+
+fn instrument_specs(preset: Preset) -> Vec<ParamSpec> {
+    let d = InstrumentParams::for_preset(preset);
+    let mut specs = vec![];
+    match preset {
+        Preset::Synth => {
+            specs.push(choice("Wave", &["Saw", "Square", "Triangle"], 0));
+            specs.push(hz("Cutoff", 100.0, 16000.0, d.cutoff));
+            specs.push(param("Env Amount", 0.0, 100.0, d.env_amount * 100.0, "%"));
+            specs.push(param("Attack", 1.0, 3000.0, d.attack * 1000.0, "ms"));
+            specs.push(param("Decay", 5.0, 3000.0, d.decay * 1000.0, "ms"));
+            specs.push(param("Sustain", 0.0, 100.0, d.sustain * 100.0, "%"));
+            specs.push(param("Release", 10.0, 5000.0, d.release * 1000.0, "ms"));
+        }
+        Preset::Pad => {
+            specs.push(hz("Cutoff", 100.0, 16000.0, d.cutoff));
+            specs.push(param("Detune", 0.0, 50.0, d.detune, "ct"));
+            specs.push(param("Attack", 1.0, 3000.0, d.attack * 1000.0, "ms"));
+            specs.push(param("Release", 10.0, 5000.0, d.release * 1000.0, "ms"));
+        }
+        Preset::Drums => {}
+        _ => {
+            specs.push(param("Attack", 1.0, 3000.0, d.attack * 1000.0, "ms"));
+            specs.push(param("Release", 10.0, 5000.0, d.release * 1000.0, "ms"));
+        }
+    }
+    specs.push(param("Level", -24.0, 6.0, 0.0, "dB"));
+    specs
+}
 
 const VOICES: usize = 32;
 struct StockInstrument {
@@ -418,13 +271,13 @@ struct StockInstrument {
     order: Vec<&'static str>,
 }
 impl StockInstrument {
-    fn new(preset: Preset, rate: u32) -> Self {
+    fn new(preset: Preset, rate: f64) -> Self {
         Self {
             preset,
             params: InstrumentParams::for_preset(preset),
             voices: [None; VOICES],
             serial: 0,
-            rate: rate as f64,
+            rate,
             order: instrument_specs(preset).iter().map(|s| s.name).collect(),
         }
     }
@@ -457,8 +310,6 @@ impl StockInstrument {
             v.release();
         }
     }
-}
-impl Dsp for StockInstrument {
     fn set(&mut self, index: usize, value: f64) {
         let Some(name) = self.order.get(index) else {
             return;
@@ -480,7 +331,7 @@ impl Dsp for StockInstrument {
     fn reset(&mut self) {
         self.voices = [None; VOICES];
     }
-    fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], _ctx: &ProcessContext) {
+    fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent]) {
         let mut next = 0;
         for (i, frame) in audio.iter_mut().enumerate() {
             while next < notes.len() && notes[next].frame as usize <= i {
@@ -517,12 +368,91 @@ impl Dsp for StockInstrument {
         }
     }
 }
+macro_rules! instrument {
+    ($ty:ident, $preset:expr, $id:literal, $name:literal, $doc:literal) => {
+        pub struct $ty(StockInstrument);
+        impl Plugin for $ty {
+            const INFO: Info = Info::instrument($id, $name, VENDOR).describe($doc);
+            fn params() -> Vec<ParamSpec> {
+                instrument_specs($preset)
+            }
+            fn new(rate: f64) -> Self {
+                Self(StockInstrument::new($preset, rate))
+            }
+            fn set_param(&mut self, index: usize, value: f64) {
+                self.0.set(index, value)
+            }
+            fn reset(&mut self) {
+                self.0.reset()
+            }
+            fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], _: &ProcessContext) {
+                self.0.process(audio, notes)
+            }
+        }
+    };
+}
+instrument!(
+    Synth,
+    Preset::Synth,
+    "org.ondera.stock.synth",
+    "Ondera Synth",
+    "Subtractive synth with three waves, a filter envelope and ADSR."
+);
+instrument!(
+    Piano,
+    Preset::Piano,
+    "org.ondera.stock.epiano",
+    "E-Piano Mk I",
+    "Tine electric piano with velocity-sensitive bark."
+);
+instrument!(
+    Drums,
+    Preset::Drums,
+    "org.ondera.stock.drums",
+    "Drum Machine",
+    "Analogue-style kick, snare and hats on general MIDI pitches."
+);
+instrument!(
+    Sampler,
+    Preset::Pluck,
+    "org.ondera.stock.sampler",
+    "Sampler",
+    "Short plucked tone."
+);
+instrument!(
+    Sub,
+    Preset::Sub,
+    "org.ondera.stock.sub808",
+    "Sub Bass 808",
+    "Pure sine sub with a quick pitch settle."
+);
+instrument!(
+    Bell,
+    Preset::Bell,
+    "org.ondera.stock.glasskeys",
+    "Glass Keys",
+    "FM bell keys with a long shimmer."
+);
+instrument!(
+    Pad,
+    Preset::Pad,
+    "org.ondera.stock.choirpad",
+    "Choir Pad",
+    "Detuned saw pad with a soft low-pass."
+);
+instrument!(
+    RiserSynth,
+    Preset::Riser,
+    "org.ondera.stock.riser",
+    "Riser",
+    "Filtered noise that rises over four seconds."
+);
 
 // ---------------------------------------------------------------------------
 // Effects
 // ---------------------------------------------------------------------------
 
-struct Comp {
+pub struct Comp {
     rate: f64,
     threshold: f32,
     ratio: f32,
@@ -532,7 +462,19 @@ struct Comp {
     mix: f32,
     env: f32,
 }
-impl Comp {
+impl Plugin for Comp {
+    const INFO: Info = Info::effect("org.ondera.stock.comp", "Ondera Comp", VENDOR, "Dynamics")
+        .describe("Feed-forward peak compressor with makeup and parallel mix.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Threshold", -60.0, 0.0, -18.0, "dB"),
+            param("Ratio", 1.0, 20.0, 4.0, ":1"),
+            param("Attack", 0.1, 100.0, 10.0, "ms"),
+            param("Release", 10.0, 1000.0, 120.0, "ms"),
+            param("Makeup", 0.0, 24.0, 0.0, "dB"),
+            param("Mix", 0.0, 100.0, 100.0, "%"),
+        ]
+    }
     fn new(rate: f64) -> Self {
         Self {
             rate,
@@ -545,9 +487,7 @@ impl Comp {
             env: 0.0,
         }
     }
-}
-impl Dsp for Comp {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.threshold = value as f32,
             1 => self.ratio = value.max(1.0) as f32,
@@ -580,21 +520,13 @@ impl Dsp for Comp {
     }
 }
 
-struct Eq {
+pub struct Eq {
     rate: f64,
     values: [f64; 7],
     bands: [Biquad; 3],
     dirty: bool,
 }
 impl Eq {
-    fn new(rate: f64) -> Self {
-        Self {
-            rate,
-            values: [1.5, 120.0, -2.0, 1000.0, 0.8, 2.0, 6000.0],
-            bands: [Biquad::default(); 3],
-            dirty: true,
-        }
-    }
     fn update(&mut self) {
         let v = self.values;
         self.bands[0].low_shelf(self.rate, v[1], v[0]);
@@ -603,8 +535,29 @@ impl Eq {
         self.dirty = false;
     }
 }
-impl Dsp for Eq {
-    fn set(&mut self, index: usize, value: f64) {
+impl Plugin for Eq {
+    const INFO: Info = Info::effect("org.ondera.stock.eq", "Channel EQ", VENDOR, "EQ & Filter")
+        .describe("Low shelf, peaking mid and high shelf.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Low Gain", -15.0, 15.0, 1.5, "dB"),
+            hz("Low Freq", 40.0, 500.0, 120.0),
+            param("Mid Gain", -15.0, 15.0, -2.0, "dB"),
+            hz("Mid Freq", 200.0, 8000.0, 1000.0),
+            param("Mid Q", 0.3, 5.0, 0.8, ""),
+            param("High Gain", -15.0, 15.0, 2.0, "dB"),
+            hz("High Freq", 2000.0, 16000.0, 6000.0),
+        ]
+    }
+    fn new(rate: f64) -> Self {
+        Self {
+            rate,
+            values: [1.5, 120.0, -2.0, 1000.0, 0.8, 2.0, 6000.0],
+            bands: [Biquad::default(); 3],
+            dirty: true,
+        }
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
         if let Some(v) = self.values.get_mut(index) {
             *v = value;
             self.dirty = true;
@@ -629,29 +582,26 @@ impl Dsp for Eq {
     }
 }
 
-struct Saturator {
+/// `HARD` selects the overdrive curve; `false` is the tape saturator.
+pub struct Saturator<const HARD: bool> {
     rate: f64,
-    hard: bool,
     drive: f32,
     tone: f32,
     mix: f32,
     output: f32,
     lp: [f32; 2],
 }
-impl Saturator {
-    fn new(rate: f64, hard: bool) -> Self {
+impl<const HARD: bool> Saturator<HARD> {
+    fn build(rate: f64, drive_db: f64, tone_hz: f64, output_db: f64) -> Self {
         Self {
             rate,
-            hard,
-            drive: db_to_gain(6.0),
-            tone: coef(rate, 1.0 / (TAU * 9000.0)),
+            drive: db_to_gain(drive_db),
+            tone: coef(rate, 1.0 / (TAU * tone_hz)),
             mix: 1.0,
-            output: db_to_gain(-2.0),
+            output: db_to_gain(output_db),
             lp: [0.0; 2],
         }
     }
-}
-impl Dsp for Saturator {
     fn set(&mut self, index: usize, value: f64) {
         match index {
             0 => self.drive = db_to_gain(value),
@@ -661,15 +611,12 @@ impl Dsp for Saturator {
             _ => {}
         }
     }
-    fn reset(&mut self) {
-        self.lp = [0.0; 2];
-    }
-    fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
+    fn run(&mut self, audio: &mut [[f32; 2]]) {
         let norm = 1.0 / self.drive.max(1.0).powf(0.6);
         for frame in audio {
             for (c, s) in frame.iter_mut().enumerate() {
                 let pre = *s * self.drive;
-                let shaped = if self.hard {
+                let shaped = if HARD {
                     pre / (1.0 + pre.abs())
                 } else {
                     pre.tanh()
@@ -681,9 +628,62 @@ impl Dsp for Saturator {
         }
     }
 }
+impl Plugin for Saturator<false> {
+    const INFO: Info = Info::effect("org.ondera.stock.tapesat", "Tape Sat", VENDOR, "Distortion")
+        .describe("Soft tape-style saturation with a tone control.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Drive", 0.0, 24.0, 6.0, "dB"),
+            hz("Tone", 1000.0, 20000.0, 9000.0),
+            param("Mix", 0.0, 100.0, 100.0, "%"),
+            param("Output", -24.0, 6.0, -2.0, "dB"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
+        Self::build(rate, 6.0, 9000.0, -2.0)
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
+        self.set(index, value)
+    }
+    fn reset(&mut self) {
+        self.lp = [0.0; 2];
+    }
+    fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
+        self.run(audio)
+    }
+}
+impl Plugin for Saturator<true> {
+    const INFO: Info = Info::effect(
+        "org.ondera.stock.overdrive",
+        "Overdrive",
+        VENDOR,
+        "Distortion",
+    )
+    .describe("Harder clipping curve for leads and drums.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Drive", 0.0, 40.0, 12.0, "dB"),
+            hz("Tone", 500.0, 12000.0, 4000.0),
+            param("Mix", 0.0, 100.0, 100.0, "%"),
+            param("Output", -24.0, 6.0, -6.0, "dB"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
+        Self::build(rate, 12.0, 4000.0, -6.0)
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
+        self.set(index, value)
+    }
+    fn reset(&mut self) {
+        self.lp = [0.0; 2];
+    }
+    fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
+        self.run(audio)
+    }
+}
 
-struct Chorus {
-    rate: u32,
+pub struct Chorus {
+    rate: f64,
     delay: Delay,
     phase: f64,
     speed: f64,
@@ -691,11 +691,21 @@ struct Chorus {
     spread: f64,
     mix: f32,
 }
-impl Chorus {
-    fn new(rate: u32) -> Self {
+impl Plugin for Chorus {
+    const INFO: Info = Info::effect("org.ondera.stock.chorus", "Chorus", VENDOR, "Modulation")
+        .describe("Two modulated delay taps with stereo spread.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Rate", 0.05, 5.0, 0.6, "Hz"),
+            param("Depth", 0.0, 100.0, 40.0, "%"),
+            param("Spread", 0.0, 100.0, 50.0, "%"),
+            param("Mix", 0.0, 100.0, 50.0, "%"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
         Self {
             rate,
-            delay: Delay::new(0.06, rate),
+            delay: Delay::new(0.06, rate as u32),
             phase: 0.0,
             speed: 0.6,
             depth: 0.4,
@@ -703,9 +713,7 @@ impl Chorus {
             mix: 0.5,
         }
     }
-}
-impl Dsp for Chorus {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
             1 => self.depth = value / 100.0,
@@ -718,7 +726,7 @@ impl Dsp for Chorus {
         self.delay.clear();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        let r = self.rate as f64;
+        let r = self.rate;
         for frame in audio {
             self.phase = (self.phase + self.speed / r).fract();
             let base = 0.016;
@@ -779,20 +787,31 @@ impl Allpass {
     }
 }
 /// A Freeverb-style reverb: eight combs and four allpasses per channel.
-struct Space {
+pub struct Space {
     combs: [Vec<Comb>; 2],
     allpasses: [Vec<Allpass>; 2],
     predelay: Delay,
-    rate: u32,
+    rate: f64,
     feedback: f32,
     damp: f32,
     pre: f64,
     width: f32,
     mix: f32,
 }
-impl Space {
-    fn new(rate: u32) -> Self {
-        let scale = rate as f64 / 44100.0;
+impl Plugin for Space {
+    const INFO: Info = Info::effect("org.ondera.stock.space", "Space", VENDOR, "Space & Time")
+        .describe("Plate-style reverb with pre-delay, damping and width.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Size", 0.0, 100.0, 55.0, "%"),
+            param("Damp", 0.0, 100.0, 40.0, "%"),
+            param("Pre-delay", 0.0, 100.0, 10.0, "ms"),
+            param("Width", 0.0, 100.0, 100.0, "%"),
+            param("Mix", 0.0, 100.0, 30.0, "%"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
+        let scale = rate / 44100.0;
         let tune = |n: usize, offset: usize| ((n + offset) as f64 * scale) as usize;
         let combs = |offset| {
             [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617]
@@ -809,7 +828,7 @@ impl Space {
         Self {
             combs: [combs(0), combs(23)],
             allpasses: [allpasses(0), allpasses(23)],
-            predelay: Delay::new(0.11, rate),
+            predelay: Delay::new(0.11, rate as u32),
             rate,
             feedback: 0.7 + 0.28 * 0.55,
             damp: 0.4 * 0.4,
@@ -818,9 +837,7 @@ impl Space {
             mix: 0.3,
         }
     }
-}
-impl Dsp for Space {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.feedback = (0.7 + 0.28 * value / 100.0) as f32,
             1 => self.damp = (0.4 * value / 100.0) as f32,
@@ -841,7 +858,7 @@ impl Dsp for Space {
         self.predelay.clear();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        let pre = self.pre * self.rate as f64;
+        let pre = self.pre * self.rate;
         let wet1 = self.mix * (self.width / 2.0 + 0.5);
         let wet2 = self.mix * ((1.0 - self.width) / 2.0);
         for frame in audio {
@@ -865,8 +882,8 @@ impl Dsp for Space {
     }
 }
 
-struct Echo {
-    rate: u32,
+pub struct Echo {
+    rate: f64,
     lines: [Delay; 2],
     sync: usize,
     time_ms: f64,
@@ -878,20 +895,6 @@ struct Echo {
     current: f64,
 }
 impl Echo {
-    fn new(rate: u32) -> Self {
-        Self {
-            rate,
-            lines: [Delay::new(2.1, rate), Delay::new(2.1, rate)],
-            sync: 3,
-            time_ms: 375.0,
-            feedback: 0.35,
-            tone: coef(rate as f64, 1.0 / (TAU * 6000.0)),
-            pingpong: false,
-            mix: 0.35,
-            lp: [0.0; 2],
-            current: 0.0,
-        }
-    }
     fn seconds(&self, tempo: f64) -> f64 {
         let beat = 60.0 / tempo.max(20.0);
         match self.sync {
@@ -907,13 +910,43 @@ impl Echo {
         .clamp(0.005, 2.0)
     }
 }
-impl Dsp for Echo {
-    fn set(&mut self, index: usize, value: f64) {
+impl Plugin for Echo {
+    const INFO: Info = Info::effect("org.ondera.stock.echo", "Echo", VENDOR, "Space & Time")
+        .describe("Tempo-synced stereo delay with ping-pong and tone.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            choice(
+                "Sync",
+                &["Free", "1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4.", "1/2"],
+                3,
+            ),
+            param("Time", 10.0, 2000.0, 375.0, "ms"),
+            param("Feedback", 0.0, 95.0, 35.0, "%"),
+            hz("Tone", 500.0, 20000.0, 6000.0),
+            choice("Ping-pong", ON_OFF, 0),
+            param("Mix", 0.0, 100.0, 35.0, "%"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
+        Self {
+            rate,
+            lines: [Delay::new(2.1, rate as u32), Delay::new(2.1, rate as u32)],
+            sync: 3,
+            time_ms: 375.0,
+            feedback: 0.35,
+            tone: coef(rate, 1.0 / (TAU * 6000.0)),
+            pingpong: false,
+            mix: 0.35,
+            lp: [0.0; 2],
+            current: 0.0,
+        }
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.sync = value.round().max(0.0) as usize,
             1 => self.time_ms = value,
             2 => self.feedback = (value / 100.0) as f32,
-            3 => self.tone = coef(self.rate as f64, 1.0 / (TAU * value.max(20.0))),
+            3 => self.tone = coef(self.rate, 1.0 / (TAU * value.max(20.0))),
             4 => self.pingpong = value >= 0.5,
             5 => self.mix = (value / 100.0) as f32,
             _ => {}
@@ -924,11 +957,11 @@ impl Dsp for Echo {
         self.lp = [0.0; 2];
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], ctx: &ProcessContext) {
-        let target = self.seconds(ctx.tempo) * self.rate as f64;
+        let target = self.seconds(ctx.tempo) * self.rate;
         if self.current == 0.0 {
             self.current = target;
         }
-        let glide = coef(self.rate as f64, 0.05) as f64;
+        let glide = coef(self.rate, 0.05) as f64;
         for frame in audio {
             self.current += glide * (target - self.current);
             let l = self.lines[0].read(self.current)[0];
@@ -950,7 +983,7 @@ impl Dsp for Echo {
     }
 }
 
-struct Gate {
+pub struct Gate {
     rate: f64,
     threshold: f32,
     attack: f32,
@@ -961,7 +994,18 @@ struct Gate {
     gain: f32,
     held: u32,
 }
-impl Gate {
+impl Plugin for Gate {
+    const INFO: Info = Info::effect("org.ondera.stock.gate", "Gate", VENDOR, "Dynamics")
+        .describe("Noise gate with hold and range.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Threshold", -80.0, 0.0, -40.0, "dB"),
+            param("Attack", 0.1, 50.0, 1.0, "ms"),
+            param("Hold", 0.0, 500.0, 50.0, "ms"),
+            param("Release", 5.0, 1000.0, 100.0, "ms"),
+            param("Range", -80.0, 0.0, -80.0, "dB"),
+        ]
+    }
     fn new(rate: f64) -> Self {
         Self {
             rate,
@@ -975,9 +1019,7 @@ impl Gate {
             held: 0,
         }
     }
-}
-impl Dsp for Gate {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.threshold = db_to_gain(value),
             1 => self.attack = coef(self.rate, value / 1000.0),
@@ -1019,7 +1061,7 @@ impl Dsp for Gate {
     }
 }
 
-struct Limiter {
+pub struct Limiter {
     rate: f64,
     input: f32,
     ceiling: f32,
@@ -1028,21 +1070,28 @@ struct Limiter {
     lookahead: usize,
     gain: f32,
 }
-impl Limiter {
-    fn new(rate: u32) -> Self {
+impl Plugin for Limiter {
+    const INFO: Info = Info::effect("org.ondera.stock.limiter", "Limiter", VENDOR, "Dynamics")
+        .describe("Look-ahead brickwall limiter.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Input", 0.0, 24.0, 0.0, "dB"),
+            param("Ceiling", -20.0, 0.0, -0.3, "dB"),
+            param("Release", 10.0, 1000.0, 80.0, "ms"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
         Self {
-            rate: rate as f64,
+            rate,
             input: 1.0,
             ceiling: db_to_gain(-0.3),
-            release: coef(rate as f64, 0.08),
-            delay: Delay::new(0.002, rate),
-            lookahead: (rate / 1000).max(1) as usize,
+            release: coef(rate, 0.08),
+            delay: Delay::new(0.002, rate as u32),
+            lookahead: (rate as u32 / 1000).max(1) as usize,
             gain: 1.0,
         }
     }
-}
-impl Dsp for Limiter {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.input = db_to_gain(value),
             1 => self.ceiling = db_to_gain(value),
@@ -1079,7 +1128,7 @@ impl Dsp for Limiter {
     }
 }
 
-struct Filter {
+pub struct Filter {
     rate: f64,
     kind: u8,
     cutoff: f64,
@@ -1087,7 +1136,17 @@ struct Filter {
     drive: f32,
     svf: Svf,
 }
-impl Filter {
+impl Plugin for Filter {
+    const INFO: Info = Info::effect("org.ondera.stock.filter", "Filter", VENDOR, "EQ & Filter")
+        .describe("State variable filter with resonance and drive.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            choice("Type", &["Low-pass", "High-pass", "Band-pass"], 0),
+            hz("Cutoff", 20.0, 20000.0, 1000.0),
+            param("Resonance", 0.0, 100.0, 20.0, "%"),
+            param("Drive", 0.0, 24.0, 0.0, "dB"),
+        ]
+    }
     fn new(rate: f64) -> Self {
         let mut f = Self {
             rate,
@@ -1100,9 +1159,7 @@ impl Filter {
         f.svf.set(rate, f.cutoff, f.resonance);
         f
     }
-}
-impl Dsp for Filter {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.kind = value.round() as u8,
             1 => self.cutoff = value,
@@ -1134,7 +1191,7 @@ impl Dsp for Filter {
     }
 }
 
-struct Phaser {
+pub struct Phaser {
     rate: f64,
     speed: f64,
     depth: f64,
@@ -1146,7 +1203,19 @@ struct Phaser {
     state: [[f32; 2]; 12],
     last: [f32; 2],
 }
-impl Phaser {
+impl Plugin for Phaser {
+    const INFO: Info = Info::effect("org.ondera.stock.phaser", "Phaser", VENDOR, "Modulation")
+        .describe("Two to twelve all-pass stages swept by an LFO.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Rate", 0.02, 5.0, 0.3, "Hz"),
+            param("Depth", 0.0, 100.0, 70.0, "%"),
+            choice("Stages", &["2", "4", "6", "8", "10", "12"], 2),
+            param("Feedback", -90.0, 90.0, 30.0, "%"),
+            hz("Center", 200.0, 4000.0, 800.0),
+            param("Mix", 0.0, 100.0, 50.0, "%"),
+        ]
+    }
     fn new(rate: f64) -> Self {
         Self {
             rate,
@@ -1161,9 +1230,7 @@ impl Phaser {
             last: [0.0; 2],
         }
     }
-}
-impl Dsp for Phaser {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
             1 => self.depth = value / 100.0,
@@ -1205,7 +1272,7 @@ impl Dsp for Phaser {
     }
 }
 
-struct Tremolo {
+pub struct Tremolo {
     rate: f64,
     speed: f64,
     depth: f32,
@@ -1214,16 +1281,6 @@ struct Tremolo {
     phase: f64,
 }
 impl Tremolo {
-    fn new(rate: f64) -> Self {
-        Self {
-            rate,
-            speed: 4.0,
-            depth: 0.6,
-            shape: 0,
-            stereo: 0.0,
-            phase: 0.0,
-        }
-    }
     fn wave(&self, phase: f64) -> f32 {
         let v = match self.shape {
             1 => triangle(phase),
@@ -1239,8 +1296,28 @@ impl Tremolo {
         ((v + 1.0) * 0.5) as f32
     }
 }
-impl Dsp for Tremolo {
-    fn set(&mut self, index: usize, value: f64) {
+impl Plugin for Tremolo {
+    const INFO: Info = Info::effect("org.ondera.stock.tremolo", "Tremolo", VENDOR, "Modulation")
+        .describe("Amplitude modulation with three shapes and stereo phase.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Rate", 0.1, 20.0, 4.0, "Hz"),
+            param("Depth", 0.0, 100.0, 60.0, "%"),
+            choice("Shape", &["Sine", "Triangle", "Square"], 0),
+            param("Stereo", 0.0, 180.0, 0.0, "°"),
+        ]
+    }
+    fn new(rate: f64) -> Self {
+        Self {
+            rate,
+            speed: 4.0,
+            depth: 0.6,
+            shape: 0,
+            stereo: 0.0,
+            phase: 0.0,
+        }
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
             1 => self.depth = (value / 100.0) as f32,
@@ -1261,15 +1338,32 @@ impl Dsp for Tremolo {
 }
 
 #[derive(Default)]
-struct Bitcrusher {
+pub struct Bitcrusher {
     bits: f32,
     factor: u32,
     mix: f32,
     counter: u32,
     held: [f32; 2],
 }
-impl Dsp for Bitcrusher {
-    fn set(&mut self, index: usize, value: f64) {
+impl Plugin for Bitcrusher {
+    const INFO: Info = Info::effect(
+        "org.ondera.stock.bitcrusher",
+        "Bitcrusher",
+        VENDOR,
+        "Distortion",
+    )
+    .describe("Bit depth and sample rate reduction.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Bits", 2.0, 16.0, 8.0, "bit"),
+            param("Downsample", 1.0, 64.0, 4.0, "x"),
+            param("Mix", 0.0, 100.0, 100.0, "%"),
+        ]
+    }
+    fn new(_rate: f64) -> Self {
+        Self::default()
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.bits = value as f32,
             1 => self.factor = value.round().max(1.0) as u32,
@@ -1291,13 +1385,21 @@ impl Dsp for Bitcrusher {
     }
 }
 
-struct Width {
+pub struct Width {
     rate: f64,
     width: f32,
     bass: f32,
     lp: f32,
 }
-impl Width {
+impl Plugin for Width {
+    const INFO: Info = Info::effect("org.ondera.stock.width", "Stereo Width", VENDOR, "Utility")
+        .describe("Mid/side width with optional mono bass.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Width", 0.0, 200.0, 120.0, "%"),
+            param("Bass Mono", 0.0, 500.0, 0.0, "Hz"),
+        ]
+    }
     fn new(rate: f64) -> Self {
         Self {
             rate,
@@ -1306,9 +1408,7 @@ impl Width {
             lp: 0.0,
         }
     }
-}
-impl Dsp for Width {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.width = (value / 100.0) as f32,
             1 => {
@@ -1337,14 +1437,28 @@ impl Dsp for Width {
 }
 
 #[derive(Default)]
-struct Utility {
+pub struct Utility {
     gain: f32,
     pan: f32,
     invert: [bool; 2],
     mono: bool,
 }
-impl Dsp for Utility {
-    fn set(&mut self, index: usize, value: f64) {
+impl Plugin for Utility {
+    const INFO: Info = Info::effect("org.ondera.stock.utility", "Utility", VENDOR, "Utility")
+        .describe("Gain, pan, polarity and mono fold-down.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Gain", -60.0, 12.0, 0.0, "dB"),
+            param("Pan", -100.0, 100.0, 0.0, ""),
+            choice("Invert L", ON_OFF, 0),
+            choice("Invert R", ON_OFF, 0),
+            choice("Mono", ON_OFF, 0),
+        ]
+    }
+    fn new(_rate: f64) -> Self {
+        Self::default()
+    }
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.gain = db_to_gain(value),
             1 => self.pan = (value / 100.0) as f32,
@@ -1373,14 +1487,27 @@ impl Dsp for Utility {
     }
 }
 
-struct Transient {
+pub struct Transient {
     rate: f64,
     attack: f32,
     sustain: f32,
     fast: f32,
     slow: f32,
 }
-impl Transient {
+impl Plugin for Transient {
+    const INFO: Info = Info::effect(
+        "org.ondera.stock.transient",
+        "Transient",
+        VENDOR,
+        "Dynamics",
+    )
+    .describe("Attack and sustain shaping from a two-speed envelope difference.");
+    fn params() -> Vec<ParamSpec> {
+        vec![
+            param("Attack", -100.0, 100.0, 30.0, "%"),
+            param("Sustain", -100.0, 100.0, 0.0, "%"),
+        ]
+    }
     fn new(rate: f64) -> Self {
         Self {
             rate,
@@ -1390,9 +1517,7 @@ impl Transient {
             slow: 0.0,
         }
     }
-}
-impl Dsp for Transient {
-    fn set(&mut self, index: usize, value: f64) {
+    fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.attack = (value / 100.0) as f32,
             1 => self.sustain = (value / 100.0) as f32,
@@ -1431,6 +1556,25 @@ mod tests {
             let instance = create(name, 48000).expect(name);
             assert_eq!(instance.editor.params().len(), params(name).len());
             assert!(instance.processor.is_some());
+            assert_eq!(instance.editor.descriptor().id, format!("stock:{name}"));
+        }
+        assert_eq!(MANIFESTS.len(), INSTRUMENTS.len() + EFFECTS.len());
+    }
+    #[test]
+    fn factory_presets_name_real_plugins_and_parameters_in_range() {
+        for (plugin, preset, values) in FACTORY_PRESETS {
+            let params = params(plugin);
+            assert!(!params.is_empty(), "{plugin} for preset {preset}");
+            for (id, value) in *values {
+                let p = &params[*id as usize];
+                assert!(
+                    (p.min..=p.max).contains(value),
+                    "{plugin} / {preset}: {} = {value} outside {}..{}",
+                    p.name,
+                    p.min,
+                    p.max
+                );
+            }
         }
     }
 }

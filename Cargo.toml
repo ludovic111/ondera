@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine", "desktop", "tools"]
+members = ["sdk", "engine", "desktop", "tools", "plugins/gain"]
 default-members = ["desktop"]
 resolver = "2"
 

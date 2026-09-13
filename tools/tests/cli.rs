@@ -295,3 +295,99 @@ fn cli_midi_interchange_and_configured_wav_export() {
     assert_eq!(audio.sample_rate, 44100);
     assert!((audio.duration() - 0.5).abs() < 0.0001);
 }
+
+#[test]
+fn batch_mode_runs_json_lines_against_a_file_and_stops_at_the_first_error() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let song = dir.path().join("batch.ondera");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ondera-cli"))
+        .args(["--file", song.to_str().unwrap(), "batch"])
+        .env("ONDERA_CONTROL", dir.path().join("absent-control.json"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        writeln!(stdin, "# comment lines and blank lines are skipped").unwrap();
+        writeln!(stdin).unwrap();
+        writeln!(stdin, r#"{{"command":"session.new"}}"#).unwrap();
+        writeln!(
+            stdin,
+            r#"{{"method":"track.add","params":{{"kind":"midi","name":"Batch keys"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            stdin,
+            r#"{{"command":"track.add","params":{{"kind":"drums"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            stdin,
+            r#"{{"command":"session.rename","params":{{"name":"never reached"}}}}"#
+        )
+        .unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let lines: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines[0]["ok"], true);
+    assert_eq!(lines[1]["result"]["name"], "Batch keys");
+    assert!(lines[1]["saved"]
+        .as_str()
+        .unwrap()
+        .ends_with("batch.ondera"));
+    assert_eq!(lines[2]["ok"], false);
+    assert!(lines[2]["error"].as_str().unwrap().contains("midi"));
+    let loaded = ondera_engine::document::load(&song).unwrap().0;
+    assert_eq!(loaded.tracks.len(), 3);
+    assert_ne!(loaded.name, "never reached");
+}
+
+#[test]
+fn doctor_and_json_command_listing_work_without_the_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let (code, out, _) = cli(dir.path(), &["commands", "--json"]);
+    assert_eq!(code, 0);
+    let listed: Value = serde_json::from_str(&out).unwrap();
+    let names: Vec<&str> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    for name in [
+        "view.set",
+        "clip.quantize",
+        "preset.load",
+        "settings.set",
+        "ui.screenshot",
+        "agent.send",
+    ] {
+        assert!(names.contains(&name), "{name}");
+    }
+    let (code, out, _) = cli(dir.path(), &["doctor", "--json"]);
+    assert_eq!(
+        code, 1,
+        "the app is not running, so doctor reports a failure"
+    );
+    let report: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(report["ok"], false);
+    let checks = report["checks"].as_array().unwrap();
+    assert!(checks
+        .iter()
+        .any(|c| c["check"] == "discovery" && c["ok"] == false));
+    assert!(checks
+        .iter()
+        .any(|c| c["check"] == "plugins" && c["ok"] == true));
+    let (code, out, _) = cli(dir.path(), &["help", "settings.set"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("--value") && out.contains("any"));
+}

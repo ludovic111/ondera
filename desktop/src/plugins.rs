@@ -76,6 +76,7 @@ pub fn find_insert(session: &Session, key: &str) -> Option<(String, Insert, bool
 pub fn format_icon(format: Format) -> &'static str {
     match format {
         Format::Stock => "Ondera",
+        Format::Native => "Native",
         Format::Clap => "CLAP",
         Format::Vst3 => "VST3",
         Format::AudioUnit => "AU",

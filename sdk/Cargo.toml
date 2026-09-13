@@ -1,0 +1,11 @@
+[package]
+name = "ondera-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Ondera native plugin SDK: write instruments and effects in Rust, load them into Ondera through a stable C ABI"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

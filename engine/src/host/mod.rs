@@ -1,8 +1,11 @@
-//! External plugin hosting: scanning, instantiation and the per-format hosts.
+//! Plugin hosting: scanning, instantiation and the per-format hosts. Ondera native plugins
+//! (and the stock library, which is linked in) go through `native`; CLAP, VST3 and Audio
+//! Units through their own hosts.
 
 #[cfg(target_os = "macos")]
 pub mod au;
 pub mod clap;
+pub mod native;
 pub mod scan;
 pub mod vst3;
 
@@ -27,6 +30,7 @@ pub fn instantiate(plugin_id: &str, name: &str, rate: u32) -> Result<Instance> {
     match Format::parse(plugin_id) {
         Some((Format::Stock, stock_name)) => stock::create(stock_name, rate)
             .ok_or_else(|| format!("Unknown Ondera plugin: {stock_name}")),
+        Some((Format::Native, _)) => native::instantiate(plugin_id, rate),
         Some((Format::Clap, _)) => clap::instantiate(plugin_id, name, rate),
         Some((Format::Vst3, _)) => vst3::instantiate(plugin_id, name, rate),
         #[cfg(target_os = "macos")]

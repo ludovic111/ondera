@@ -174,7 +174,7 @@ pub fn coerce(command: &str, key: &str, raw: &str) -> Result<Value> {
         Some(control::Kind::Array | control::Kind::Object) => {
             json().map_err(|e| format!("`{key}` must be JSON: {e}"))?
         }
-        None => json().unwrap_or_else(|_| Value::String(raw.into())),
+        Some(control::Kind::Any) | None => json().unwrap_or_else(|_| Value::String(raw.into())),
     })
 }
 
@@ -193,6 +193,124 @@ pub fn merge(base: Option<&str>, pairs: &[(String, Value)]) -> Result<Value> {
         map.insert(k.clone(), v.clone());
     }
     Ok(Value::Object(map))
+}
+
+/// One line of a batch: `{"command": "track.add", "params": {...}}`; `method` and
+/// `arguments` are accepted as aliases so MCP-style and JSON-RPC-style lines both work.
+pub fn parse_batch_line(line: &str) -> Result<(String, Value)> {
+    let frame: Value =
+        serde_json::from_str(line).map_err(|e| format!("Batch line is not JSON: {e}"))?;
+    let name = frame
+        .get("command")
+        .or_else(|| frame.get("method"))
+        .or_else(|| frame.get("name"))
+        .and_then(Value::as_str)
+        .ok_or("Batch line needs a `command`")?
+        .to_string();
+    let params = frame
+        .get("params")
+        .or_else(|| frame.get("arguments"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok((name, params))
+}
+
+/// Health report for `ondera-cli doctor`: discovery, reachability, versions, companions.
+pub fn doctor() -> Value {
+    use ondera_engine::{host::scan, settings::Settings};
+    let discovery_path = control::wire::discovery_path();
+    let discovery = control::wire::read_discovery(&discovery_path);
+    let mut checks = vec![];
+    let mut push = |name: &str, ok: bool, detail: String| {
+        checks.push(serde_json::json!({ "check": name, "ok": ok, "detail": detail }));
+    };
+    push(
+        "discovery",
+        discovery.is_ok(),
+        match &discovery {
+            Ok(d) => format!(
+                "{} (port {}, pid {})",
+                discovery_path.display(),
+                d.port,
+                d.pid
+            ),
+            Err(e) => e.clone(),
+        },
+    );
+    let app_version = match control::wire::Client::connect_at(&discovery_path) {
+        Ok(client) => {
+            push(
+                "app",
+                true,
+                format!("Ondera {} answers on the bridge", client.app_version),
+            );
+            Some(client.app_version)
+        }
+        Err(e) => {
+            push("app", false, e);
+            None
+        }
+    };
+    let mine = env!("CARGO_PKG_VERSION").to_string();
+    push(
+        "versions",
+        app_version.as_deref().is_none_or(|v| v == mine),
+        match &app_version {
+            Some(v) if v != &mine => format!("CLI {mine} but app {v}: update both together"),
+            _ => format!("ondera-cli {mine}"),
+        },
+    );
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    for name in ["ondera", "ondera-mcp"] {
+        let path = exe_dir
+            .as_ref()
+            .map(|d| d.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)));
+        let present = path.as_ref().is_some_and(|p| p.is_file());
+        push(
+            &format!("companion {name}"),
+            present,
+            path.map_or("unknown executable directory".into(), |p| {
+                p.display().to_string()
+            }),
+        );
+    }
+    let settings_path = Settings::path();
+    match Settings::read(&settings_path) {
+        Ok(s) => push(
+            "settings",
+            true,
+            format!(
+                "{} · agent provider {}",
+                settings_path.display(),
+                s.agent.provider.key()
+            ),
+        ),
+        Err(e) => push("settings", false, e),
+    }
+    let cache = scan::cache();
+    push(
+        "plugins",
+        true,
+        format!(
+            "{} stock + {} scanned in {}",
+            ondera_engine::stock::descriptors().len(),
+            cache.descriptors().len(),
+            scan::cache_path().display()
+        ),
+    );
+    let data = scan::data_dir();
+    let writable = std::fs::create_dir_all(&data)
+        .and_then(|()| {
+            let probe = data.join(".doctor-write-test");
+            std::fs::write(&probe, b"ok")?;
+            std::fs::remove_file(&probe)
+        })
+        .is_ok();
+    push("data directory", writable, data.display().to_string());
+    let ok = checks.iter().all(|c| c["ok"] == true);
+    serde_json::json!({ "ok": ok, "checks": checks })
 }
 
 /// Scanner subprocess mode must be available in both tools: the isolated scanner

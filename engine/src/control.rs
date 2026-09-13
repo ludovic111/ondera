@@ -43,6 +43,8 @@ pub enum Kind {
     Boolean,
     Array,
     Object,
+    /// Any JSON value (settings values).
+    Any,
 }
 impl Kind {
     pub fn schema_type(self) -> &'static str {
@@ -53,6 +55,7 @@ impl Kind {
             Kind::Boolean => "boolean",
             Kind::Array => "array",
             Kind::Object => "object",
+            Kind::Any => "any",
         }
     }
 }
@@ -106,12 +109,12 @@ pub(crate) const fn edit(name: &'static str, doc: &'static str, params: &'static
     }
 }
 
-const TRACK_ID: Param = req(
+pub(crate) const TRACK_ID: Param = req(
     "trackId",
     Kind::String,
     "Track id, as listed by track.list.",
 );
-const CLIP_ID: Param = req("clipId", Kind::String, "Clip id, as listed by clip.list.");
+pub(crate) const CLIP_ID: Param = req("clipId", Kind::String, "Clip id, as listed by clip.list.");
 const NOTES_DOC: &str = "Array of {start, length, pitch, velocity?} with start/length in beats relative to the clip, pitch 0-127 (60 = C4), velocity 1-127 (default 100).";
 
 /// Every public command. Names use `family.action` and map one-to-one to CLI commands and MCP
@@ -123,7 +126,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
     query("session.catalog", "List built-in instruments, effects and bundled MIDI loops.", &[]),
     query("plugin.list", "Search a page of installed plugins from the scanner cache. Use query/kind/format to avoid returning a large library; follow nextOffset for more.", &[
         opt("query",Kind::String,"Case-insensitive name, vendor or plugin ID search."),
-        opt("format",Kind::String,"stock, clap, vst3 or au."),
+        opt("format",Kind::String,"stock, native, clap, vst3 or au."),
         opt("kind",Kind::String,"instrument or effect."),
         opt("offset",Kind::Integer,"Zero-based result offset, default 0."),
         opt("limit",Kind::Integer,"Page size 1-200, default 50."),
@@ -221,7 +224,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("trackId", Kind::String, "MIDI track. Defaults to the selected MIDI track, or a new one."),
         opt("startBar", Kind::Number, "Start bar. Defaults to the playhead's bar."),
     ]),
-    edit("clip.select", "Select a clip and open it in the editor.", &[CLIP_ID]),
+    edit("clip.select", "Select a clip and open it in the editor, optionally selecting one of its notes.", &[CLIP_ID, opt("noteId", Kind::String, "Note id from note.list to select inside the clip.")]),
     query("note.list", "List the notes of a MIDI clip.", &[CLIP_ID]),
     edit("note.add", "Add a note to a MIDI clip.", &[
         CLIP_ID,
@@ -281,8 +284,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("master.setVolume", "Set the stereo output fader, including offline exports.", &[
         req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity."),
     ]),
-    edit("history.undo", "Undo the last document edit.", &[]),
-    edit("history.redo", "Redo the last undone edit.", &[]),
+    edit("history.undo", "Undo the last document edit, or several.", &[opt("steps", Kind::Integer, "How many edits to undo, 1-200 (default 1).")]),
+    edit("history.redo", "Redo the last undone edit, or several.", &[opt("steps", Kind::Integer, "How many edits to redo, 1-200 (default 1).")]),
     query("history.info", "Report whether undo and redo are available and the current revision.", &[]),
 ];
 
@@ -292,6 +295,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .iter()
         .chain(crate::control_media::SPECS)
         .chain(crate::control_automation::SPECS)
+        .chain(crate::control_app::SPECS)
         .copied()
         .collect()
 });
@@ -304,7 +308,11 @@ pub fn spec(name: &str) -> Option<&'static Spec> {
 pub fn schema(spec: &Spec) -> Value {
     let mut properties = Map::new();
     for p in spec.params {
-        let mut prop = json!({ "type": p.kind.schema_type(), "description": p.doc });
+        let mut prop = if p.kind == Kind::Any {
+            json!({ "description": p.doc })
+        } else {
+            json!({ "type": p.kind.schema_type(), "description": p.doc })
+        };
         if p.name == "notes" {
             prop["items"] = json!({
                 "type": "object",
@@ -416,6 +424,31 @@ pub trait Host {
     fn open(&mut self, path: &Path) -> Result<()>;
     fn save(&mut self, path: Option<&Path>) -> Result<PathBuf>;
     fn bounce(&mut self, path: &Path) -> Result<()>;
+    /// Interface, audio device, application and agent actions that only the window can
+    /// perform (`ui.*`, `audio.*`, `app.*`, `agent.*`, snapshot restore).
+    fn live(&mut self, action: &str, _params: &Value) -> Result<Value> {
+        Err(format!(
+            "{action} needs the running Ondera app: start `ondera` and use live mode."
+        ))
+    }
+    /// The view as the interface shows it: zoom in pixels per bar and the first visible bar.
+    fn view_state(&self) -> (f32, f64) {
+        let view = &self.store().session().view;
+        (view.pixels_per_bar, view.scroll_bars)
+    }
+    /// Called after `view.set` so the window can adopt zoom and scroll.
+    fn view_changed(&mut self) {}
+    /// Capture live plugin state into the document before it is read (presets, state).
+    fn capture_states(&mut self) -> Result<()> {
+        Ok(())
+    }
+    /// Preferences. Headless hosts use the settings file; the window keeps a live copy.
+    fn settings(&self) -> crate::settings::Settings {
+        crate::settings::Settings::load()
+    }
+    fn update_settings(&mut self, settings: crate::settings::Settings) -> Result<()> {
+        settings.save()
+    }
 }
 
 /// Decode an audio file with the same limits the desktop import applies.
@@ -528,47 +561,50 @@ impl Host for Headless {
     }
 }
 
-struct Args<'a> {
+pub(crate) struct Args<'a> {
     spec: &'static Spec,
     map: &'a Map<String, Value>,
 }
 impl Args<'_> {
-    fn get(&self, key: &str) -> Option<&Value> {
+    pub(crate) fn spec(&self) -> &'static Spec {
+        self.spec
+    }
+    pub(crate) fn get(&self, key: &str) -> Option<&Value> {
         self.map.get(key).filter(|v| !v.is_null())
     }
     fn missing(&self, key: &str) -> String {
         format!("{} needs `{key}`", self.spec.name)
     }
-    fn str(&self, key: &str) -> Result<&str> {
+    pub(crate) fn str(&self, key: &str) -> Result<&str> {
         self.get(key)
             .and_then(Value::as_str)
             .ok_or_else(|| self.missing(key))
     }
-    fn opt_str(&self, key: &str) -> Option<&str> {
+    pub(crate) fn opt_str(&self, key: &str) -> Option<&str> {
         self.get(key).and_then(Value::as_str)
     }
-    fn f64(&self, key: &str) -> Result<f64> {
+    pub(crate) fn f64(&self, key: &str) -> Result<f64> {
         self.get(key)
             .and_then(Value::as_f64)
             .ok_or_else(|| self.missing(key))
     }
-    fn opt_f64(&self, key: &str) -> Option<f64> {
+    pub(crate) fn opt_f64(&self, key: &str) -> Option<f64> {
         self.get(key).and_then(Value::as_f64)
     }
-    fn int(&self, key: &str) -> Result<i64> {
+    pub(crate) fn int(&self, key: &str) -> Result<i64> {
         self.get(key)
             .and_then(Value::as_i64)
             .ok_or_else(|| self.missing(key))
     }
-    fn opt_int(&self, key: &str) -> Option<i64> {
+    pub(crate) fn opt_int(&self, key: &str) -> Option<i64> {
         self.get(key).and_then(Value::as_i64)
     }
-    fn bool(&self, key: &str) -> Result<bool> {
+    pub(crate) fn bool(&self, key: &str) -> Result<bool> {
         self.get(key)
             .and_then(Value::as_bool)
             .ok_or_else(|| self.missing(key))
     }
-    fn opt_bool(&self, key: &str) -> Option<bool> {
+    pub(crate) fn opt_bool(&self, key: &str) -> Option<bool> {
         self.get(key).and_then(Value::as_bool)
     }
 }
@@ -607,6 +643,7 @@ fn validate<'a>(spec: &'static Spec, params: &'a Value) -> Result<Args<'a>> {
             Kind::Boolean => value.is_boolean(),
             Kind::Array => value.is_array(),
             Kind::Object => value.is_object(),
+            Kind::Any => true,
         };
         if !ok {
             return Err(format!(
@@ -665,6 +702,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     }
     if crate::control_media::SPECS.iter().any(|s| s.name == name) {
         return crate::control_media::call(host, name, params, agent);
+    }
+    if crate::control_app::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_app::call(host, name, &a, agent);
     }
     match name {
         "session.info" => Ok(info(host)),
@@ -1026,10 +1066,19 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         "clip.select" => {
             let clip = find_clip(host.store().session(), a.str("clipId")?)?;
             let (track, id) = (clip.track_id.clone(), clip.id.clone());
+            let note = match a.opt_str("noteId") {
+                Some(note_id) => {
+                    if !midi_notes(clip)?.iter().any(|n| n.id == note_id) {
+                        return Err(format!("Unknown note `{note_id}` in clip {id}"));
+                    }
+                    Some(note_id.to_string())
+                }
+                None => None,
+            };
             host.dispatch(Command::Select {
                 track: Some(track),
                 clip: Some(id),
-                note: None,
+                note,
             })?;
             Ok(selection(host))
         }
@@ -1264,13 +1313,25 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             Ok(json!({ "volume": host.store().session().master_volume }))
         }
         "history.undo" | "history.redo" => {
-            let done = host.dispatch(if name == "history.undo" {
-                Command::Undo
-            } else {
-                Command::Redo
-            })?;
+            let steps = a.opt_int("steps").unwrap_or(1);
+            if !(1..=200).contains(&steps) {
+                return Err("`steps` must be between 1 and 200".into());
+            }
+            let mut applied = 0;
+            for _ in 0..steps {
+                let done = host.dispatch(if name == "history.undo" {
+                    Command::Undo
+                } else {
+                    Command::Redo
+                })?;
+                if !done {
+                    break;
+                }
+                applied += 1;
+            }
             let mut v = history(host);
-            v["applied"] = json!(done);
+            v["applied"] = json!(applied > 0);
+            v["steps"] = json!(applied);
             Ok(v)
         }
         "history.info" => Ok(history(host)),
@@ -1308,10 +1369,10 @@ fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()
     Ok(())
 }
 
-fn whole(v: i64, key: &str) -> Result<u32> {
+pub(crate) fn whole(v: i64, key: &str) -> Result<u32> {
     u32::try_from(v).map_err(|_| format!("`{key}` must be a positive integer"))
 }
-fn byte(v: i64, key: &str) -> Result<u8> {
+pub(crate) fn byte(v: i64, key: &str) -> Result<u8> {
     if (0..=127).contains(&v) {
         Ok(v as u8)
     } else {
@@ -1347,7 +1408,7 @@ fn check_color(css: &str) -> Result<&str> {
         Err("Colour must be #rrggbb or oklch(l c h)".into())
     }
 }
-fn find_track<'a>(s: &'a Session, id: &str) -> Result<&'a Track> {
+pub(crate) fn find_track<'a>(s: &'a Session, id: &str) -> Result<&'a Track> {
     s.tracks.iter().find(|t| t.id == id).ok_or_else(|| {
         format!(
             "Unknown track `{id}`. Tracks: {}",
@@ -1359,13 +1420,13 @@ fn find_track<'a>(s: &'a Session, id: &str) -> Result<&'a Track> {
         )
     })
 }
-fn find_clip<'a>(s: &'a Session, id: &str) -> Result<&'a Clip> {
+pub(crate) fn find_clip<'a>(s: &'a Session, id: &str) -> Result<&'a Clip> {
     s.clips
         .iter()
         .find(|c| c.id == id)
         .ok_or_else(|| format!("Unknown clip `{id}`. Use clip.list."))
 }
-fn midi_notes(clip: &Clip) -> Result<&Vec<Note>> {
+pub(crate) fn midi_notes(clip: &Clip) -> Result<&Vec<Note>> {
     match &clip.data {
         ClipData::Midi { notes } => Ok(notes),
         ClipData::Audio { .. } => Err("Only MIDI clips hold notes".into()),
@@ -1427,7 +1488,7 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
         })
         .collect()
 }
-fn new_track(s: &Session, kind: &str, name: Option<String>, color: String) -> Track {
+pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: String) -> Track {
     let index = s.tracks.len();
     Track {
         id: new_id("track"),
@@ -1453,7 +1514,7 @@ fn new_track(s: &Session, kind: &str, name: Option<String>, color: String) -> Tr
     }
 }
 /// A strip padded to its eight inserts and two sends, as the inspector shows it.
-fn full_strip(s: &Session, track: &str) -> Strip {
+pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
     let mut strip = s.strips.get(track).cloned().unwrap_or_default();
     while strip.inserts.len() < MAX_INSERTS {
         strip.inserts.push(Insert {
@@ -1643,8 +1704,8 @@ fn catalog() -> Value {
 }
 fn plugin_page(args: &Args, plugins: Vec<crate::plugin::Descriptor>) -> Result<Value> {
     let format = args.opt_str("format");
-    if format.is_some_and(|format| !["stock", "clap", "vst3", "au"].contains(&format)) {
-        return Err("Plugin format must be stock, clap, vst3 or au".into());
+    if format.is_some_and(|format| !["stock", "native", "clap", "vst3", "au"].contains(&format)) {
+        return Err("Plugin format must be stock, native, clap, vst3 or au".into());
     }
     let kind = args.opt_str("kind");
     if kind.is_some_and(|kind| !["instrument", "effect"].contains(&kind)) {
@@ -1707,7 +1768,7 @@ fn inspect(host: &dyn Host, include_notes: bool) -> Value {
         "includesNotes":include_notes,"includesPluginState":false
     })
 }
-fn transport(host: &dyn Host) -> Value {
+pub(crate) fn transport(host: &dyn Host) -> Value {
     let s = host.store().session();
     let t = &s.transport;
     let beats = host.position();
@@ -1724,7 +1785,7 @@ fn transport(host: &dyn Host) -> Value {
         "metronome": t.metronome,
     })
 }
-fn selection(host: &dyn Host) -> Value {
+pub(crate) fn selection(host: &dyn Host) -> Value {
     let v = &host.store().session().view;
     json!({
         "trackId": v.selected_track_id,
@@ -1741,7 +1802,7 @@ fn history(host: &dyn Host) -> Value {
         "dirty": store.dirty(),
     })
 }
-fn info(host: &dyn Host) -> Value {
+pub(crate) fn info(host: &dyn Host) -> Value {
     let s = host.store().session();
     json!({
         "name": s.name,
@@ -1757,7 +1818,7 @@ fn info(host: &dyn Host) -> Value {
         "history": history(host),
     })
 }
-fn track_json(s: &Session, t: &Track) -> Value {
+pub(crate) fn track_json(s: &Session, t: &Track) -> Value {
     json!({
         "id": t.id,
         "name": t.name,
@@ -1773,7 +1834,7 @@ fn track_json(s: &Session, t: &Track) -> Value {
         "index": s.tracks.iter().position(|x| x.id == t.id),
     })
 }
-fn clip_summary(c: &Clip) -> Value {
+pub(crate) fn clip_summary(c: &Clip) -> Value {
     let mut v = json!({
         "id": c.id,
         "name": c.name,
@@ -1799,7 +1860,7 @@ fn clip_summary(c: &Clip) -> Value {
     }
     v
 }
-fn strip_json(s: &Session, id: &str) -> Value {
+pub(crate) fn strip_json(s: &Session, id: &str) -> Value {
     let strip = full_strip(s, id);
     let midi = s.tracks.iter().any(|t| t.id == id && t.kind == "midi");
     json!({
@@ -1822,14 +1883,14 @@ fn strip_json(s: &Session, id: &str) -> Value {
     })
 }
 
-fn check_strip(s: &Session, id: &str) -> Result<()> {
+pub(crate) fn check_strip(s: &Session, id: &str) -> Result<()> {
     if is_bus(id) {
         Ok(())
     } else {
         find_track(s, id).map(|_| ())
     }
 }
-fn plugin_slot(args: &Args) -> Result<Option<usize>> {
+pub(crate) fn plugin_slot(args: &Args) -> Result<Option<usize>> {
     args.opt_int("slot")
         .map(|slot| {
             if (0..MAX_INSERTS as i64).contains(&slot) {

@@ -2737,12 +2737,29 @@ dependencies = [
  "objc2-core-audio-types",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
+ "ondera-plugin",
+ "ondera-plugin-gain",
  "rtrb",
  "serde",
  "serde_json",
  "symphonia",
  "tempfile",
  "vst3",
+]
+
+[[package]]
+name = "ondera-plugin"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ondera-plugin-gain"
+version = "0.2.0"
+dependencies = [
+ "ondera-plugin",
 ]
 
 [[package]]

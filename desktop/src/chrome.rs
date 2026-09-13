@@ -2023,6 +2023,7 @@ pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, 
     });
     for d in external {
         let group = match d.format {
+            Format::Native => "Ondera Native",
             Format::Clap => "CLAP",
             Format::Vst3 => "VST3",
             Format::AudioUnit => "Audio Units",
@@ -2034,6 +2035,7 @@ pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, 
                 d.name.clone(),
                 truncate(&d.vendor, 14),
                 match d.format {
+                    Format::Native => ACCENT,
                     Format::Clap => TRACKS[2],
                     Format::Vst3 => TRACKS[1],
                     _ => TRACKS[5],
