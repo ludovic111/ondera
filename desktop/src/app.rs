@@ -202,7 +202,10 @@ impl Ondera {
         recent.insert(0, text.clone());
         recent.truncate(10);
         self.settings.general.last_session = Some(text);
-        let _ = self.settings.save();
+        // Unit tests open temporary files; they must not touch the person's settings.
+        if !cfg!(test) {
+            let _ = self.settings.save();
+        }
     }
     pub(crate) fn from_session(session: Session, screenshot: Option<PathBuf>) -> Self {
         let zoom = session.view.pixels_per_bar;

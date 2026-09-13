@@ -167,7 +167,7 @@ measured or compensated. Supported formats do not establish compatibility with e
 ## Command line and MCP
 
 The window, `ondera-cli`, `ondera-mcp` and the built-in agent share the command store and undo
-history. The 129-command registry covers session files, transport and recording, tracks, clips,
+history. The 118-command registry covers session files, transport and recording, tracks, clips,
 notes, mixing, plugin state and parameters, presets, automation, the view, settings, audio
 devices, interface actions (including `ui.screenshot`, so an agent can see the window), the
 application and the agent itself. It lives in `engine/src/control.rs` and `control_app.rs`; CLI
