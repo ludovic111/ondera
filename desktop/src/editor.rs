@@ -97,24 +97,6 @@ impl Ondera {
                     ));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        let mut zoom = self.editor_zoom;
-                        if hslider(ui, &mut zoom, 0.5..=4.0, 60.0)
-                            .on_hover_text("Editor zoom")
-                            .changed()
-                        {
-                            self.editor_zoom = zoom;
-                        }
-                        ui.label(text("Zoom", FS_SECONDARY, Weight::Medium, FAINT));
-                        ui.add_space(6.0);
-                        let mut low = self.editor_low as f32;
-                        if hslider(ui, &mut low, 0.0..=104.0, 60.0)
-                            .on_hover_text("Lowest visible note")
-                            .changed()
-                        {
-                            self.editor_low = low.round() as u8;
-                        }
-                        ui.label(text("Low", FS_SECONDARY, Weight::Medium, FAINT));
-                        ui.add_space(8.0);
                         for (label, value) in [
                             (
                                 "Scale",
@@ -337,6 +319,27 @@ impl Ondera {
                         egui::Id::new(("piano-grid", &clip.id)),
                         Sense::click_and_drag(),
                     );
+                    // Wheel scrolls the visible octaves; pinch or ⌘-wheel zooms time.
+                    if grid_hit.hovered() {
+                        let (scroll, zoom, command) =
+                            ui.input(|i| (i.raw_scroll_delta, i.zoom_delta(), i.modifiers.command));
+                        let zoom = if command && scroll.y != 0.0 {
+                            (1.0 + scroll.y / 200.0).clamp(0.5, 2.0)
+                        } else {
+                            zoom
+                        };
+                        if zoom != 1.0 {
+                            self.editor_zoom = (self.editor_zoom * zoom).clamp(0.5, 4.0);
+                        } else if scroll.y != 0.0 {
+                            let rows_moved = (scroll.y / row_height).round() as i32;
+                            if rows_moved != 0 {
+                                let max_low = 127 - rows as i32 + 1;
+                                self.editor_low = (self.editor_low as i32 + rows_moved)
+                                    .clamp(0, max_low.max(0))
+                                    as u8;
+                            }
+                        }
+                    }
                     let pointer = ui.input(|i| i.pointer.interact_pos());
                     let note_rect = |n: &Note| {
                         Rect::from_min_size(

@@ -7,8 +7,13 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   token and the skeuomorphic material recipes from `design/Ondera Arrangement.dc.html` (spec sheet 02:
   raised, pressed, lit, groove, well, knob, fader cap, clip slab, glass). Paint with those helpers;
   never introduce colours, gradients or shadows elsewhere. `chrome.rs` is the title bar, transport,
-  browser and inspector; `timeline.rs` the arrangement; `editor.rs` the region editor. Fonts are
-  Manrope and IBM Plex Mono (OFL) bundled in `desktop/assets/fonts`.
+  browser and inspector; `timeline.rs` the arrangement; `editor.rs` the region editor; `agents.rs`
+  the agent panel at the right edge (380 px open, 32 px rail closed) with its prompt, action card
+  and revertable change log, plus the title bar's Agent menu where bridge, MCP config and Codex
+  settings live. The window draws its own title bar (native macOS title bar hidden, traffic
+  lights overlaid at the left). Keep every panel to what the design frame shows; anything extra
+  goes into a menu, not the panel. Fonts are Manrope and IBM Plex Mono (OFL) bundled in
+  `desktop/assets/fonts`.
 - `engine/`: pure Rust command store, session model, DSP, audio devices and documents.
   `engine/src/control.rs` is the public command registry; `control/wire.rs` the loopback
   protocol. `tools/` builds `ondera-cli` and `ondera-mcp` as thin clients of that registry, and
