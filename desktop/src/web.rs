@@ -170,6 +170,14 @@ async fn daw_command(handle: tauri::AppHandle, method: String, params: Value) ->
 }
 
 impl WebHost {
+    fn request_exit(&mut self) -> bool {
+        if self.app.closing {
+            return true;
+        }
+        self.app.request(Intent::Quit);
+        false
+    }
+
     fn document(&self) -> Result<Value> {
         // Plugin blobs and legacy presentation extras are not needed by the web renderer.
         self.snapshot_sequence
@@ -631,8 +639,17 @@ pub fn run(
             }
         })
         .build(tauri::generate_context!())?;
-    app.run(move |_, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
+    app.run(move |_, event| match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
+            HOST.with_borrow_mut(|slot| {
+                if let Some(host) = slot {
+                    if !host.request_exit() {
+                        api.prevent_exit();
+                    }
+                }
+            });
+        }
+        tauri::RunEvent::Exit => {
             running.store(false, Ordering::Relaxed);
             HOST.with_borrow_mut(|slot| {
                 if let Some(mut host) = slot.take() {
@@ -640,6 +657,7 @@ pub fn run(
                 }
             });
         }
+        _ => {}
     });
     Ok(())
 }
@@ -666,6 +684,24 @@ mod tests {
             startup_capture: false,
             last_library: Default::default(),
         }
+    }
+
+    #[test]
+    fn native_quit_waits_for_the_same_unsaved_changes_confirmation() {
+        let mut host = host();
+        let track = host.app.store.session().tracks[0].id.clone();
+        host.command("track.setVolume", &json!({"trackId":track,"volume":0.2}))
+            .unwrap();
+        assert!(!host.request_exit());
+        assert!(host.app.intent.is_some());
+        assert!(!host.app.closing);
+        host.command("web.confirm", &json!({"choice":"cancel"}))
+            .unwrap();
+        assert!(host.app.intent.is_none());
+        assert!(!host.request_exit());
+        host.command("web.confirm", &json!({"choice":"discard"}))
+            .unwrap();
+        assert!(host.request_exit());
     }
 
     #[test]

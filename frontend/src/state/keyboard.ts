@@ -48,7 +48,6 @@ function isTextTarget(target: EventTarget | null): boolean {
     (el.tagName === "INPUT" ||
       el.tagName === "TEXTAREA" ||
       el.tagName === "SELECT" ||
-      el.tagName === "BUTTON" ||
       el.isContentEditable)
   );
 }
@@ -98,6 +97,11 @@ export function useKeyboardShortcuts(): void {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat && e.code === "Space") return;
       if (isTextTarget(e.target)) return;
+      if (
+        e.key === "Enter" &&
+        (e.target as HTMLElement | null)?.closest("button")
+      )
+        return;
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
         if (e.key === ",") {
           e.preventDefault();
