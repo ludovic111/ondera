@@ -102,7 +102,7 @@ const state = {
   cycle: true,
   position: 0, // bars, fractional
   tracks,
-  agentEdit: 'pending', // 'pending' | 'kept' | 'reverted'
+  agentApplied: true, // the agent's quantise of Keys B; Revert walks the undo stack
   undoDepth: 12,
   log: [],
 };
@@ -124,8 +124,8 @@ const commands = {
   'track.setMute': (s, { trackId, muted }) => { track(trackId).mute = muted; },
   'track.setSolo': (s, { trackId, solo }) => { track(trackId).solo = solo; },
   'track.setArmed': (s, { trackId, armed }) => { track(trackId).armed = armed; },
-  'agent.keep': (s) => { s.agentEdit = 'kept'; },
-  'agent.toggleRevert': (s) => { s.agentEdit = s.agentEdit === 'reverted' ? 'kept' : 'reverted'; },
+  'history.undo': (s) => { s.agentApplied = false; },
+  'history.redo': (s) => { s.agentApplied = true; },
 };
 const SILENT = new Set(['transport.tick']);
 
@@ -135,7 +135,7 @@ function dispatch(name, params = {}) {
   if (!run) throw new Error(`unknown command ${name}`);
   run(state, params);
   if (!SILENT.has(name)) {
-    state.undoDepth += 1;
+    state.undoDepth += name === 'history.undo' ? -1 : 1;
     state.log.unshift({ name, params });
     state.log.length = Math.min(state.log.length, 6);
   }
@@ -191,9 +191,21 @@ document.addEventListener('click', (e) => {
     case 'track.setMute': dispatch(name, { trackId, muted: !track(trackId).mute }); break;
     case 'track.setSolo': dispatch(name, { trackId, solo: !track(trackId).solo }); break;
     case 'track.setArmed': dispatch(name, { trackId, armed: !track(trackId).armed }); break;
-    case 'agent.keep': dispatch(name, { clipId: 'keys-2' }); break;
-    case 'agent.toggleRevert': dispatch(name, { clipId: 'keys-2' }); break;
+    case 'history.undo': dispatch(name, { steps: 1 }); break;
+    case 'history.redo': dispatch(name, { steps: 1 }); break;
     default: dispatch(name);
+  }
+});
+
+// Agent panel tabs (Conversation / Changes), pure view state like the app.
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-tab]');
+  if (!tab) return;
+  for (const t of $$('[data-tab]')) {
+    const on = t === tab;
+    t.setAttribute('aria-selected', String(on));
+    const panel = document.getElementById(t.getAttribute('aria-controls'));
+    if (panel) panel.hidden = !on;
   }
 });
 
@@ -242,16 +254,14 @@ subscribe((s, name) => {
       : '<li class="log__empty">nothing dispatched yet · press play</li>';
   }
 
-  const card = $('#agent-card');
-  if (card && name && name.startsWith('agent.')) {
-    card.classList.add('agent__card--done');
-    $('#agent-text').textContent = s.agentEdit === 'kept'
-      ? 'Applied to Keys B: 20 notes quantised, 7 velocities lifted. Undo is one step back, like any other edit.'
-      : 'Reverted. Keys B is back to the take you recorded; the agent\'s proposal stays in the log.';
-    const actions = $('.agent__actions', card);
-    actions.innerHTML = s.agentEdit === 'kept'
-      ? '<button class="btn btn--xs btn--raised" data-cmd="agent.toggleRevert">Revert</button>'
-      : '<button class="btn btn--xs btn--lit" data-cmd="agent.toggleRevert">Re-apply</button>';
+  const change = $('#agent-change');
+  if (change) {
+    change.classList.toggle('agent__change--reverted', !s.agentApplied);
+    const btn = $('#agent-revert');
+    btn.dataset.cmd = s.agentApplied ? 'history.undo' : 'history.redo';
+    btn.textContent = s.agentApplied ? 'Revert' : 'Redo';
+    btn.classList.toggle('btn--lit', !s.agentApplied);
+    btn.classList.toggle('btn--raised', s.agentApplied);
   }
   renderTime();
 });
@@ -289,7 +299,7 @@ function roundRect(c, x, y, w, h, r) {
   c.roundRect(x, y, w, h, r);
 }
 
-function drawClip(c, clip, x, y, w, h, color, dim, agentPending) {
+function drawClip(c, clip, x, y, w, h, color, dim, agentHighlight) {
   const r = T.radius.clip;
   // 4. soft drop shadow (painted back to front)
   c.save();
@@ -335,7 +345,7 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentPending) {
       const nx = x + (n.start / 4 / clip.length) * w;
       const nw = Math.max(2, (n.length / 4 / clip.length) * w - 1);
       const ny = top + (1 - (n.pitch - 36) / 36) * (ch - noteH);
-      if (n.agent && agentPending) {
+      if (n.agent && agentHighlight) {
         c.save();
         c.shadowBlur = T.canvasShadow.agentNote[1].blur; c.shadowColor = T.canvasShadow.agentNote[1].color;
         c.fillStyle = T.color.accent;
@@ -351,7 +361,7 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentPending) {
   c.fillStyle = white(0.22); c.fillRect(x, y, w, 1);
   c.fillStyle = black(0.4); c.fillRect(x, y + h - 1, w, 1);
   c.restore();
-  if (agentPending) {
+  if (agentHighlight) {
     c.save();
     c.shadowBlur = T.canvasShadow.agentRing[0].blur; c.shadowColor = T.canvasShadow.agentRing[0].color;
     c.strokeStyle = T.color.accent; c.lineWidth = 1;
@@ -392,8 +402,8 @@ function draw() {
     const x = clip.start * ppb + 1, w = clip.length * ppb - 2;
     const y = rulerH + ti * rowH + T.size.clipInset, h = rowH - 2 * T.size.clipInset;
     const dim = t.mute || (anySolo && !t.solo);
-    const agentPending = clip.agent && state.agentEdit === 'pending';
-    drawClip(c, clip, x, y, w, h, PALETTE[t.id], dim, agentPending);
+    const agentApplied = clip.agent && state.agentApplied;
+    drawClip(c, clip, x, y, w, h, PALETTE[t.id], dim, agentApplied);
   }
   // ruler
   c.fillStyle = T.color.ruler; c.fillRect(0, 0, W, rulerH);

@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ondera — the DAW you and your agent play together</title>
-  <meta name="description" content="Ondera is an open-source native Rust DAW for macOS, Linux and Windows. Record, arrange, mix and export with stock or external plugins, a shared CLI and MCP, and an integrated Agents tab.">
+  <meta name="description" content="Ondera is an open-source DAW for macOS, Linux and Windows with a Rust audio engine and a Tauri desktop window. Record, arrange, mix and export with stock, native or external plugins, a shared CLI and MCP, and a built-in agent.">
   <meta name="theme-color" content="#141413">
   <meta property="og:title" content="Ondera — the DAW you and your agent play together">
-  <meta property="og:description" content="Native Rust DAW for macOS, Linux and Windows. Recording, plugins, automation, audio export and agent control through a shared command registry.">
+  <meta property="og:description" content="Rust audio engine, Tauri desktop window, macOS, Linux and Windows. Recording, plugins, automation, audio export and a built-in agent through one shared command registry.">
   <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c2c2b'/%3E%3Crect x='0.5' y='0.5' width='31' height='31' rx='6.5' fill='none' stroke='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2382d6d1'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2382d6d1' stroke-opacity='.35' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,7 +39,7 @@
   <section class="hero">
     <p class="eyebrow reveal">Open-source DAW &nbsp;·&nbsp; macOS &nbsp;·&nbsp; Linux &nbsp;·&nbsp; Windows</p>
     <h1 class="display reveal">The DAW you and your <em>agent</em> play together.</h1>
-    <p class="lede reveal">Ondera 0.2 is a native Rust digital audio workstation for recording, arranging, mixing and exporting songs. Use stock or external plugins, then let the Agents tab, CLI or MCP help edit the same session with the same undo history.</p>
+    <p class="lede reveal">Ondera 0.4 is a digital audio workstation with a Rust engine for recording, arranging, mixing and exporting songs. Use stock, native or external plugins, then let the built-in agent, the CLI or an MCP client edit the same session with the same undo history.</p>
     <div class="hero__cta reveal">
       <a class="btn btn--lit" href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Download Ondera</a>
       <a class="btn btn--raised" href="#architecture">How it works</a>
@@ -91,33 +91,61 @@
         <div class="daw__body">
           <div class="daw__headers" id="headers"></div>
           <div class="daw__timeline" id="timeline-wrap"><canvas id="timeline" aria-label="Arrangement timeline: eight tracks with audio and MIDI clips"></canvas></div>
-          <aside class="daw__agent">
+          <aside class="daw__agent" aria-label="Agent panel">
             <div class="agent__head">
               <span class="led led--accent"></span><span>Agent</span>
-              <span class="agent__status">claude · connected</span>
+              <span class="agent__status">codex</span>
             </div>
-            <div class="agent__card" id="agent-card">
-              <div class="agent__cardtitle">Editing <b>Keys B</b> on Keys</div>
-              <p id="agent-text">Tightening the comp on bars 5–8: quantise to 1/16 at 60 % strength and lift the off-beat velocities by 8.</p>
-              <div class="agent__actions">
-                <button class="btn btn--xs btn--lit" data-cmd="agent.keep">Keep</button>
-                <button class="btn btn--xs btn--raised" data-cmd="agent.toggleRevert">Revert</button>
+            <div class="segmented agent__tabs" role="tablist" aria-label="Agent panel tab">
+              <button role="tab" id="tab-conversation" aria-selected="true" aria-controls="agent-conversation" data-tab="conversation">Conversation</button>
+              <button role="tab" id="tab-changes" aria-selected="false" aria-controls="agent-changes" data-tab="changes">Changes · <span id="changes-count">1</span></button>
+            </div>
+            <div class="agent__body">
+              <div class="agent__msgs" id="agent-conversation" role="tabpanel" aria-labelledby="tab-conversation">
+                <article class="agent__msg agent__msg--you">
+                  <span class="agent__caps">You</span>
+                  <div>Tighten the comp on Keys B, bars 5–8. Keep it human.</div>
+                </article>
+                <article class="agent__msg agent__msg--tool">
+                  <span class="agent__caps">clip.quantize</span>
+                  <div class="agent__mono">{ clipId: "keys-2", grid: "1/16", strength: 0.6 }</div>
+                  <details>
+                    <summary>View result</summary>
+                    <pre>{ "ok": true, "notes": 20, "moved": 14 }</pre>
+                  </details>
+                </article>
+                <article class="agent__msg">
+                  <span class="agent__caps">Agent</span>
+                  <div id="agent-text">Quantised 20 notes to 1/16 at 60 % strength and lifted the off-beat velocities by 8. It is one undo step, like any edit you make.</div>
+                </article>
+              </div>
+              <div class="agent__msgs" id="agent-changes" role="tabpanel" aria-labelledby="tab-changes" hidden>
+                <article class="agent__msg agent__change" id="agent-change">
+                  <strong>Quantise Keys B</strong>
+                  <p>clip.quantize · 20 notes, 14 moved</p>
+                  <div class="agent__actions">
+                    <button class="btn btn--xs btn--raised" data-cmd="history.undo" id="agent-revert">Revert</button>
+                  </div>
+                </article>
+                <div class="agent__logtitle"><span>Command log</span><span class="agent__logsub">what the preview dispatched</span></div>
+                <ol class="agent__log" id="log" aria-live="polite"></ol>
               </div>
             </div>
-            <div class="agent__logtitle"><span>Command log</span><span class="agent__logsub">what the GUI dispatched</span></div>
-            <ol class="agent__log" id="log" aria-live="polite"></ol>
-            <div class="agent__input" aria-hidden="true"><span>Ask the agent…</span><span class="agent__key">⏎</span></div>
+            <div class="agent__composer" aria-hidden="true">
+              <div class="agent__input"><span>Ask the agent…</span></div>
+              <div class="agent__send"><span class="agent__key">⌘ Enter to send</span><span class="btn btn--xs btn--raised">Send</span></div>
+            </div>
           </aside>
         </div>
       </div>
     </div>
-    <p class="demo__hint reveal">This browser preview illustrates the controls: <kbd>Space</kbd> moves the playhead and <b>M</b> toggles a track’s mute state. Download the native app for audio playback, recording, plugins and agent tasks.</p>
+    <p class="demo__hint reveal">This browser preview illustrates the controls: <kbd>Space</kbd> moves the playhead and <b>M</b> toggles a track’s mute state. Download the desktop app for audio playback, recording, plugins and the agent.</p>
   </section>
 
   <section id="commands" class="section">
     <p class="eyebrow reveal">Command layer</p>
-    <h2 class="reveal">One command layer. Three clients. None of them privileged.</h2>
-    <p class="lede reveal">The desktop app, command-line tool and MCP server share 78 validated commands for sessions, tracks, notes, plugins, automation and exports. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
+    <h2 class="reveal">One command layer. Four clients. None of them privileged.</h2>
+    <p class="lede reveal">The desktop window, command-line tool, MCP server and built-in agent share 118 validated commands for sessions, transport, tracks, notes, plugins, presets, automation, settings, exports and the interface itself. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
 
     <div class="clients">
       <article class="card reveal">
@@ -133,7 +161,7 @@
             </span>
           </div>
         </div>
-        <p>The native button dispatches <code>track.setMute</code> through the command store. Persistent edits share the session’s undo and redo history.</p>
+        <p>The window’s button dispatches <code>track.setMute</code> through the command store. Persistent edits share the session’s undo and redo history.</p>
       </article>
 
       <article class="card reveal">
@@ -153,7 +181,7 @@
   <span class="k">"arguments"</span>: { <span class="k">"trackId"</span>: <span class="s">"bgv"</span>, <span class="k">"muted"</span>: <span class="v" data-bind="bgv-muted">false</span> }
 }</pre>
         </div>
-        <p>MCP tools expose the same parameter schemas. The Agents tab runs tasks through your installed, signed-in Codex CLI; prompts and tool results go to its model provider.</p>
+        <p>MCP tools expose the same parameter schemas, plus prompts and resources for settings, plugins and presets. The built-in agent uses the same tools with Codex CLI, Claude Code CLI, an Anthropic or OpenAI key or any OpenAI-compatible endpoint; prompts and tool results go to the provider you choose.</p>
       </article>
     </div>
     <p class="clients__foot reveal">These examples reflect the <em>browser preview’s store</em>. Mute BGV above and watch the displayed values follow.</p>
@@ -220,16 +248,17 @@
 
   <section id="architecture" class="section">
     <p class="eyebrow reveal">Architecture</p>
-    <h2 class="reveal">API first. The GUI is just one client.</h2>
-    <p class="lede reveal">Ondera’s native interface, CLI and MCP server share a Rust command registry and session store. The live bridge applies commands between interface frames; audio processing runs separately from file operations and the interface.</p>
+    <h2 class="reveal">API first. The window is just one client.</h2>
+    <p class="lede reveal">Ondera’s desktop window, CLI, MCP server and built-in agent share a Rust command registry and session store. Since 0.4 the window is a Tauri 2 shell with a React renderer in the system WebView; the session, undo history, plugins and the real-time audio callback stay in Rust, and no audio runs in JavaScript.</p>
 
     <div class="arch reveal" aria-label="Architecture diagram">
       <div class="arch__clients">
-        <div class="arch__box"><b>Native Rust UI</b><span>egui + wgpu</span></div>
+        <div class="arch__box"><b>Desktop window</b><span>Tauri 2 · React renderer</span></div>
         <div class="arch__box"><b>CLI</b><span>generated from the registry</span></div>
         <div class="arch__box"><b>MCP server</b><span>generated from the registry</span></div>
+        <div class="arch__box"><b>Built-in agent</b><span>Codex · Claude Code · API keys</span></div>
       </div>
-      <div class="arch__bus" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="arch__bus" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <div class="arch__core">
         <b>ondera-engine</b>
         <span>command registry · session store · model · undo · <code>dispatch(command)</code></span>
@@ -239,14 +268,15 @@
       <div class="arch__engine">
         <b>Audio engine</b>
         <span>native Rust DSP and device audio</span>
-        <em>stock, CLAP, VST3 and macOS Audio Units</em>
+        <em>24 stock plugins on the Rust plugin SDK · native, CLAP, VST3 and macOS Audio Units</em>
       </div>
     </div>
 
     <ul class="rules reveal">
       <li><b>Edits go through the store.</b> The interface keeps hover and drag previews local. Persistent changes dispatch commands and participate in undo.</li>
-      <li><b>One shared registry.</b> CLI help and MCP tool schemas come from the same command definitions. Compact queries inspect the arrangement without returning opaque plugin state.</li>
-      <li><b>Consistent materials.</b> The native app centralizes its visual tokens and drawing helpers. This site preserves the original palette and material recipes.</li>
+      <li><b>One shared registry.</b> CLI help, MCP tool schemas and the agent’s tool list come from the same command definitions. Compact queries inspect the arrangement without returning opaque plugin state.</li>
+      <li><b>Agents on a leash.</b> Permissions gate file operations, transport, replacing the session, settings and application control for the panel, MCP clients and <code>--agent</code>. Every agent edit gets a Revert button.</li>
+      <li><b>Consistent materials.</b> The desktop interface keeps its tokens and material recipes in one theme module. This site preserves the same palette and recipes.</li>
     </ul>
   </section>
 
@@ -254,28 +284,34 @@
     <p class="eyebrow reveal">Roadmap</p>
     <h2 class="reveal">Where it is, honestly.</h2>
     <ol class="phases reveal">
+      <li class="phase">
+        <span class="led led--on"></span>
+        <span class="phase__n">01</span>
+        <div><b>Song workflow</b><span>Record audio and MIDI, arrange regions, edit notes, automate parameters, mix and export stereo WAV or track stems. Embedded-audio projects, MIDI interchange and recovery copies.</span></div>
+        <span class="phase__tag">0.2</span>
+      </li>
+      <li class="phase">
+        <span class="led led--on"></span>
+        <span class="phase__n">02</span>
+        <div><b>Plugins</b><span>24 stock plugins rewritten on the Rust plugin SDK and loaded through the same frozen C ABI as third-party libraries, plus external CLAP, VST3 and macOS Audio Units. Factory and user presets.</span></div>
+        <span class="phase__tag">0.3</span>
+      </li>
+      <li class="phase">
+        <span class="led led--on"></span>
+        <span class="phase__n">03</span>
+        <div><b>Built-in agent, Settings, signed updates</b><span>A conversation with one card per tool call and a Revert on every edit. Codex CLI, Claude Code CLI, Anthropic or OpenAI keys or any compatible endpoint. Full CLI and MCP parity across 118 commands. Ed25519-signed releases verified by the updater.</span></div>
+        <span class="phase__tag">0.3</span>
+      </li>
       <li class="phase phase--now">
         <span class="led led--accent"></span>
-        <span class="phase__n">01</span>
-        <div><b>Native song workflow</b><span>Record audio and MIDI, arrange regions, edit notes, automate parameters, mix and export stereo WAV or track stems.</span></div>
-        <span class="phase__tag">now</span>
-      </li>
-      <li class="phase">
-        <span class="led"></span>
-        <span class="phase__n">02</span>
-        <div><b>CLI, MCP and Agents</b><span>78 shared commands, live session control and natural-language tasks through an installed Codex CLI. Completed edits remain available in Undo.</span></div>
-        <span class="phase__tag">0.2</span>
-      </li>
-      <li class="phase">
-        <span class="led"></span>
-        <span class="phase__n">03</span>
-        <div><b>Files and plugins</b><span>Embedded-audio projects, MIDI interchange, recovery copies, 24 stock plugins and external CLAP, VST3 and macOS Audio Units.</span></div>
-        <span class="phase__tag">0.2</span>
-      </li>
-      <li class="phase">
-        <span class="led"></span>
         <span class="phase__n">04</span>
-        <div><b>Current limits</b><span>No time stretching, comping, automation write modes, VST2 or AAX. External plugin editors are macOS-only. Packages are not notarized or publicly code-signed.</span></div>
+        <div><b>Tauri interface</b><span>The window moves to Tauri 2 with a React renderer, keeping the same layout and materials. Real decoded waveforms, native dialogs, no Node at runtime. The engine, undo history and audio callback are unchanged Rust.</span></div>
+        <span class="phase__tag">0.4 · now</span>
+      </li>
+      <li class="phase">
+        <span class="led"></span>
+        <span class="phase__n">05</span>
+        <div><b>Current limits</b><span>No time stretching, comping, automation write modes, VST2 or AAX. External plugin editors are macOS-only. Windows and Linux windows are built in CI but not yet checked by hand. Packages are ad-hoc signed, not notarized.</span></div>
         <span class="phase__tag">limits</span>
       </li>
     </ol>
@@ -283,9 +319,9 @@
 
   <section class="section cta">
     <h2 class="reveal">Built in the open.</h2>
-    <p class="lede reveal">MIT licensed. Download the native app for your platform, or build from source with Rust and the platform prerequisites in the README. Release archives include the CLI and MCP companions.</p>
+    <p class="lede reveal">MIT licensed. Download the desktop app for your platform, or build from source with Rust 1.88, Node 24 and the platform prerequisites in the README. Release archives include the CLI and MCP companions. macOS uses the system WebKit; Windows needs the Edge WebView2 runtime; Linux needs WebKitGTK 4.1.</p>
     <div class="codewell reveal">
-      <code id="clone-cmd">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; cargo build --release --workspace &amp;&amp; cargo run --release</code>
+      <code id="clone-cmd">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; npm --prefix frontend ci &amp;&amp; npm --prefix frontend run build &amp;&amp; cargo run --release</code>
       <button class="btn btn--raised btn--xs" id="copy" type="button">Copy</button>
     </div>
     <div class="hero__cta reveal">

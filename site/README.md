@@ -6,12 +6,13 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
 
 - `tokens.css` and `tokens.js` are **generated** from `legacy/packages/app/src/theme/tokens.ts` by
   `node scripts/gen-site-tokens.mjs` (run from the repo root). These preserve the site's original
-  colours, radii and material recipes. The native app uses `desktop/src/theme.rs`.
+  colours, radii and material recipes. The desktop interface uses `frontend/src/theme`.
   Do not edit the generated files.
 - `styles.css` holds the site-level scale (type sizes, section rhythm) at the top, then composes
   everything else from the tokens.
 - `main.js` runs the interactive DAW mock on the hero: a tiny command store, canvas drawing for
-  the arrangement, and the hardware rack demo.
+  the arrangement, the agent panel (Conversation and Changes tabs, Revert through `history.undo`)
+  and the hardware rack demo. Keep its copy in step with `docs/releases/` when the app changes.
 
 Run it locally:
 
