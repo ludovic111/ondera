@@ -243,19 +243,36 @@ p code, li code { font-size: 0.92em; color: var(--color-ink100); background: var
   background: var(--color-agent-panel); box-shadow: var(--shadow-panel-agent);
   padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0;
 }
-.agent__head { display: flex; align-items: center; gap: 8px; height: 20px; font-size: var(--fs-panel-title); font-weight: var(--fw-semibold); }
+.agent__head { display: flex; align-items: center; gap: 8px; height: 20px; font-size: var(--fs-panel-title); font-weight: var(--fw-semibold); flex: none; }
 .agent__status { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-caps); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink500); }
-.agent__card {
-  padding: 12px; border-radius: var(--radius-glass);
+.agent__tabs { flex: none; }
+.agent__tabs button { flex: 1; }
+.agent__body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.agent__msgs { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+.agent__msgs[hidden] { display: none; }
+.agent__msg {
+  padding: 10px 12px; border-radius: var(--radius-glass);
   background: var(--fill-glass-card); backdrop-filter: blur(var(--blur-glass-card)); -webkit-backdrop-filter: blur(var(--blur-glass-card));
-  box-shadow: var(--shadow-glass-card); transition: box-shadow 400ms var(--ease);
+  box-shadow: var(--shadow-glass-card);
+  font-size: var(--fs-body); line-height: var(--lh-prose); color: var(--color-ink100);
+  display: flex; flex-direction: column; gap: 4px; flex: none;
 }
-.agent__card--done { box-shadow: var(--shadow-glass); }
-.agent__cardtitle { font-size: var(--fs-list); color: var(--color-ink300); margin-bottom: 6px; }
-.agent__cardtitle b { color: var(--color-ink-bright); font-weight: var(--fw-semibold); }
-.agent__card p { font-size: var(--fs-body); line-height: var(--lh-prose); color: var(--color-ink100); }
-.agent__actions { display: flex; gap: 6px; margin-top: 10px; }
-.agent__logtitle { display: flex; align-items: baseline; justify-content: space-between; font-family: var(--font-mono); font-size: var(--fs-caps); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink500); margin-top: 4px; }
+.agent__msg--you { background: var(--color-log-entry); box-shadow: var(--shadow-log-entry); }
+.agent__msg--tool { box-shadow: var(--shadow-glass-agent); }
+.agent__caps { font-family: var(--font-mono); font-size: var(--fs-caps); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink500); }
+.agent__msg--tool .agent__caps { color: var(--color-accent); }
+.agent__msg--tool .agent__caps::before { content: '▸ '; }
+.agent__mono { font-family: var(--font-mono); font-size: var(--fs-value); color: var(--color-ink300); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent__msg details { font-family: var(--font-mono); font-size: var(--fs-value); color: var(--color-ink500); }
+.agent__msg summary { cursor: pointer; list-style: none; color: var(--color-ink300); }
+.agent__msg summary::before { content: '▸ '; color: var(--color-ink500); }
+.agent__msg details[open] summary::before { content: '▾ '; }
+.agent__msg pre { margin: 6px 0 0; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--color-well-deep); box-shadow: var(--shadow-well-input); color: var(--color-ink300); white-space: pre-wrap; }
+.agent__change strong { color: var(--color-ink-bright); font-weight: var(--fw-semibold); font-size: var(--fs-list); }
+.agent__change p { margin: 0; font-family: var(--font-mono); font-size: var(--fs-value); color: var(--color-ink500); }
+.agent__change--reverted strong, .agent__change--reverted p { text-decoration: line-through; color: var(--color-ink500); }
+.agent__actions { display: flex; gap: 6px; margin-top: 6px; }
+.agent__logtitle { display: flex; align-items: baseline; justify-content: space-between; font-family: var(--font-mono); font-size: var(--fs-caps); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink500); margin-top: 4px; flex: none; }
 .agent__logsub { text-transform: none; letter-spacing: 0; color: var(--color-ink-separator); }
 .agent__log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; overflow: hidden; flex: 1; min-height: 0; justify-content: flex-end; }
 .agent__log li {
@@ -269,11 +286,13 @@ p code, li code { font-size: 0.92em; color: var(--color-ink100); background: var
 .agent__log .log__params { color: var(--color-ink500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent__log .log__empty { color: var(--color-ink500); box-shadow: var(--shadow-led-empty); background: none; animation: none; }
 @keyframes logIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.agent__composer { flex: none; display: flex; flex-direction: column; gap: 6px; }
 .agent__input {
-  height: 32px; padding: 0 10px; border-radius: var(--radius-control); display: flex; align-items: center; justify-content: space-between;
+  height: 44px; padding: 8px 10px; border-radius: var(--radius-control); display: flex; align-items: flex-start;
   background: var(--color-well-deep); box-shadow: var(--shadow-well-input);
   font-size: var(--fs-agent-input); color: var(--color-ink500);
 }
+.agent__send { display: flex; align-items: center; justify-content: space-between; }
 .agent__key { font-family: var(--font-mono); font-size: var(--fs-caps); color: var(--color-ink-separator); }
 
 .demo__hint { margin-top: 22px; text-align: center; color: var(--color-ink500); font-size: 13px; }
@@ -390,13 +409,13 @@ p code, li code { font-size: 0.92em; color: var(--color-ink100); background: var
 /* ---------- architecture ---------- */
 
 .arch { margin-top: 48px; display: flex; flex-direction: column; align-items: stretch; max-width: 820px; }
-.arch__clients { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.arch__clients { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .arch__box, .arch__core, .arch__engine { border-radius: var(--radius-lg); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
 .arch__box { background: var(--gradient-raised); box-shadow: var(--shadow-raised); }
 .arch__box b, .arch__core b, .arch__engine b { font-size: 15px; font-weight: var(--fw-semibold); color: var(--color-ink-bright); }
 .arch__box span, .arch__core span, .arch__engine span { font-size: 12.5px; color: var(--color-ink300); }
 .arch__core em, .arch__engine em { font-style: normal; font-family: var(--font-mono); font-size: var(--fs-value); color: var(--color-ink500); margin-top: 6px; }
-.arch__bus { display: grid; grid-template-columns: repeat(3, 1fr); height: 40px; }
+.arch__bus { display: grid; grid-template-columns: repeat(4, 1fr); height: 40px; }
 .arch__bus i { justify-self: center; width: 1px; height: 100%; background: var(--line-ruler-bar); position: relative; }
 .arch__bus i::after { content: ''; position: absolute; bottom: -3px; left: -3px; width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); box-shadow: var(--shadow-accent-dot); }
 .arch__core { background: var(--color-raised); box-shadow: var(--shadow-glass-agent), var(--shadow-menu); padding: 22px 24px; }
@@ -406,6 +425,7 @@ p code, li code { font-size: 0.92em; color: var(--color-ink100); background: var
 .arch__ipc span { position: relative; padding: 2px 8px; border-radius: var(--radius-sm); background: var(--color-desk); font-family: var(--font-mono); font-size: var(--fs-caps); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--color-ink500); }
 .arch__engine { background: var(--color-well-deep); box-shadow: var(--shadow-well-deep); }
 .arch__engine b { color: var(--color-ink300); }
+@media (max-width: 900px) { .arch__clients { grid-template-columns: repeat(2, 1fr); } .arch__bus { grid-template-columns: repeat(2, 1fr); } .arch__bus i:nth-child(n+3) { display: none; } }
 @media (max-width: 640px) { .arch__clients { grid-template-columns: 1fr; } .arch__bus { grid-template-columns: 1fr; } .arch__bus i:not(:first-child) { display: none; } }
 
 .rules { list-style: none; margin: 40px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
