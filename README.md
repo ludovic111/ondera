@@ -153,8 +153,9 @@ The exercised native song workflow, test evidence and remaining platform limits 
   Stem settings choose track effects/sends and master processing; the result reports paths,
   clipping and warnings. Undo/redo uses Cmd/Ctrl+Z / Shift+Z. A drag or text edit is one undo gesture.
 - **Agent**: the panel at the right edge (or `ondera --agents`) is a conversation with the
-  built-in agent. Type a musical request, ⌘↵, and watch it inspect and edit the session through
-  the same commands as the CLI, one card per tool call with a Revert button. Settings > Agent
+  built-in agent. Use **Set up agent** to connect a service, then type a musical request and
+  press Enter (Shift+Enter for a newline). Watch it inspect and edit the session through
+  the same commands as the CLI, one card per tool call and a Changes view with Undo. Settings > Agent
   chooses the provider: Codex CLI or Claude Code CLI with their own sign-in, the Anthropic or
   OpenAI API with a key, or any OpenAI-compatible endpoint; permissions gate file operations,
   transport, replacing the session, settings and application control. See [docs/AGENT.md](docs/AGENT.md).

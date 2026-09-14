@@ -18,6 +18,7 @@ export interface UiState {
   agentPanel: boolean;
   automation: boolean;
   settings: boolean;
+  settingsSection: string;
   help: boolean;
   export: boolean;
   recovery: boolean;
@@ -150,6 +151,7 @@ export class NativeStore {
   private metadataListeners = new Set<() => void>();
   private queue: Promise<unknown> = Promise.resolve();
   private snapshotSequence = 0;
+  private agentSequence = 0;
   private ids = new Map<string, string>();
   private unlisten: UnlistenFn[] = [];
   private localView: Partial<View> = {};
@@ -171,6 +173,40 @@ export class NativeStore {
     transcript: { entries: [] },
     changes: [],
   };
+  private composer = { draft: "", sending: false, error: "" };
+  getComposer = () => this.composer;
+  setAgentDraft = (draft: string) => {
+    this.composer = { ...this.composer, draft, error: "" };
+    this.notifyMeta();
+  };
+  async sendAgent(): Promise<boolean> {
+    const draft = this.composer.draft;
+    if (!draft.trim() || this.composer.sending || this.agent.status.running)
+      return false;
+    this.composer = { ...this.composer, sending: true, error: "" };
+    this.notifyMeta();
+    const sequence = this.agentSequence;
+    const task = this.queue.then(() =>
+      native<AgentData["status"]>("agent.send", { prompt: draft.trim() }),
+    );
+    this.queue = task.catch(() => {});
+    try {
+      const status = await task;
+      if (sequence === this.agentSequence)
+        this.agent = { ...this.agent, status };
+      this.composer = {
+        ...this.composer,
+        draft: this.composer.draft === draft ? "" : this.composer.draft,
+      };
+      return true;
+    } catch (error) {
+      this.composer = { ...this.composer, error: String(error) };
+      return false;
+    } finally {
+      this.composer = { ...this.composer, sending: false };
+      this.notifyMeta();
+    }
+  }
   getState = () => this.state;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -213,6 +249,7 @@ export class NativeStore {
       listen<DocumentData>("daw:document", (e) => this.receive(e.payload)),
       listen<UiState>("daw:ui", (e) => this.receiveUi(e.payload)),
       listen<AgentData>("daw:agent", (e) => {
+        this.agentSequence++;
         this.agent = e.payload;
         this.notifyMeta();
       }),

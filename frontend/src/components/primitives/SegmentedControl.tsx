@@ -35,7 +35,9 @@ export function SegmentedControl<T extends string>({
       ].join(" ")}
     >
       {items.map((it) => (
-        <div
+        <button
+          type="button"
+          aria-pressed={it.id === value}
           key={it.id}
           title={it.title}
           className={[
@@ -45,7 +47,7 @@ export function SegmentedControl<T extends string>({
           onClick={onChange ? () => onChange(it.id) : undefined}
         >
           {it.label}
-        </div>
+        </button>
       ))}
     </div>
   );

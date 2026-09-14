@@ -21,13 +21,14 @@ root.render(<div className="startup">Opening Ondera…</div>);
 async function start() {
   await listen("daw:capture", async () => {
     try {
+      await document.fonts.ready;
+      window.dispatchEvent(new Event("ondera:before-capture"));
       if (store.platform === "macos") {
         const png = await invoke<string>("daw_snapshot");
         await native("web.capture", { png });
         return;
       }
       const { toPng } = await import("html-to-image");
-      await document.fonts.ready;
       const png = await toPng(document.getElementById("root")!, {
         pixelRatio: window.devicePixelRatio,
         cacheBust: false,

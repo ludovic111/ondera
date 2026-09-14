@@ -49,6 +49,13 @@ export function useCanvasSurface(
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(render);
     };
+    // WebViews may pause animation frames in the background. Agent screenshots
+    // still need the current arrangement and notes, not empty or stale canvases.
+    const capture = () => {
+      if (raf) cancelAnimationFrame(raf);
+      render();
+    };
+    window.addEventListener("ondera:before-capture", capture);
     scheduleRef.current = schedule;
 
     const ro = new ResizeObserver(schedule);
@@ -62,6 +69,7 @@ export function useCanvasSurface(
       ro.disconnect();
       off();
       offLibrary();
+      window.removeEventListener("ondera:before-capture", capture);
       if (raf) cancelAnimationFrame(raf);
       scheduleRef.current = () => {};
     };

@@ -100,6 +100,7 @@ pub const SPECS: &[Spec] = &[
     edit("ui.showPanel", "Show or hide an interface panel: agent, automation, settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
         req("panel", Kind::String, "agent, automation, settings, help, export, recovery, master, bus-a or bus-b."),
         opt("visible", Kind::Boolean, "Show (default) or hide."),
+        opt("section", Kind::String, "Settings section: general, audio, interface, agent, plugins, control, updates or about."),
     ]),
     edit("ui.openPluginWindow", "Open a plugin's parameter panel in the window, or its native editor with native=true.", &[
         TRACK_ID, SLOT,

@@ -28,6 +28,16 @@ const SECTIONS: [&str; 8] = [
     "Updates",
     "About",
 ];
+pub(crate) const SECTION_KEYS: [&str; 8] = [
+    "general",
+    "audio",
+    "interface",
+    "agent",
+    "plugins",
+    "control",
+    "updates",
+    "about",
+];
 const SIDEBAR: f32 = 168.0;
 const WINDOW: Vec2 = vec2(820.0, 560.0);
 
@@ -921,11 +931,14 @@ impl Ondera {
 
 /// Run a vendor CLI to completion with a deadline, returning its combined output.
 pub(crate) fn run_cli(exe: &Path, args: &[String], timeout: Duration) -> Result<String> {
-    let mut child = Command::new(exe)
+    let mut command = Command::new(exe);
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::agent::cli::group(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Could not start {}: {e}", exe.display()))?;
     let stdout = child.stdout.take();
@@ -940,13 +953,16 @@ pub(crate) fn run_cli(exe: &Path, args: &[String], timeout: Duration) -> Result<
                 std::thread::sleep(Duration::from_millis(50))
             }
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                crate::agent::cli::terminate_tree(&mut child);
                 return Err("Timed out waiting for the command; finish the sign-in in the browser and check again".into());
             }
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                crate::agent::cli::terminate_tree(&mut child);
+                return Err(e.to_string());
+            }
         }
     };
+    crate::agent::cli::terminate_tree(&mut child);
     let output = format!(
         "{}\n{}",
         out.join().unwrap_or_default(),
@@ -969,12 +985,18 @@ pub(crate) fn run_cli(exe: &Path, args: &[String], timeout: Duration) -> Result<
     }
 }
 fn read_all(stream: Option<impl std::io::Read>) -> String {
-    use std::io::Read;
-    let mut text = String::new();
-    if let Some(stream) = stream {
-        let _ = stream.take(64 * 1024).read_to_string(&mut text);
+    let mut bytes = Vec::new();
+    if let Some(mut stream) = stream {
+        let mut buffer = [0; 4096];
+        while let Ok(count) = stream.read(&mut buffer) {
+            if count == 0 {
+                break;
+            }
+            let keep = count.min((64 * 1024_usize).saturating_sub(bytes.len()));
+            bytes.extend_from_slice(&buffer[..keep]);
+        }
     }
-    text
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 fn one_line(text: &str) -> String {
     let line: String = text
@@ -1097,4 +1119,43 @@ fn row_choice(
 }
 fn row_note(ui: &mut egui::Ui, note: String) {
     ui.add(egui::Label::new(text(note, FS_SECONDARY, Weight::Medium, FAINT)).wrap());
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn cli_output_capture_is_bounded_but_drains_the_pipe() {
+        let bytes = vec![b'x'; 200_000];
+        let mut stream = std::io::Cursor::new(bytes);
+        assert_eq!(read_all(Some(&mut stream)).len(), 64 * 1024);
+        assert_eq!(stream.position(), 200_000);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_timeout_terminates_the_owned_process_group() {
+        let started = Instant::now();
+        let result = run_cli(
+            Path::new("/bin/sh"),
+            &["-c".into(), "sleep 30 & wait".into()],
+            Duration::from_millis(100),
+        );
+        assert!(result.unwrap_err().contains("Timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn successful_cli_exit_does_not_wait_on_descendants_holding_stdout() {
+        let started = Instant::now();
+        let result = run_cli(
+            Path::new("/bin/sh"),
+            &["-c".into(), "sleep 30 & printf connected".into()],
+            Duration::from_secs(2),
+        );
+        assert_eq!(result.unwrap(), "connected");
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
 }

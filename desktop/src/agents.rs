@@ -937,6 +937,9 @@ impl Ondera {
             ondera_engine::settings::Provider::Codex | ondera_engine::settings::Provider::Claude
         );
         let connection = self.connection();
+        if needs_bridge && !self.settings.control.enable_bridge {
+            return Err("The local connection is disabled. Enable it in Settings > Control, or choose an API provider in Settings > Agent.".into());
+        }
         if needs_bridge && connection.port.is_none() {
             self.bridge_wanted = true;
             return Err(
