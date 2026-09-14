@@ -10,6 +10,12 @@ import { useStore, useSession } from "../state/session";
 import { native, type Params } from "../state/native";
 import { PluginPanel } from "./PluginPanel";
 import { AutomationPanel } from "./AutomationPanel";
+import {
+  exportProblem,
+  exportSummary,
+  type AudioExportReport,
+} from "../state/export";
+import { AgentSettings } from "./agent/AgentSettings";
 
 export function Modal({
   title,
@@ -43,8 +49,8 @@ export function Modal({
       aria-label={title}
       style={{ translate: `${offset.x}px ${offset.y}px` }}
       onKeyDown={(e) => {
+        e.stopPropagation();
         if (e.key === "Escape" && !blocking) {
-          e.stopPropagation();
           onClose();
         }
       }}
@@ -206,20 +212,24 @@ const label = (key: string) =>
 function Settings({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const [settings, setSettings] = useState<Record<string, Params>>({});
-  const [signingIn, setSigningIn] = useState(false);
-  const [signInStatus, setSignInStatus] = useState("");
-  const [section, setSection] = useState("general");
+  const ui = useSyncExternalStore(store.subscribeMeta, store.getUi);
+  const section = ui.settingsSection || "general";
+  const [agentDirty, setAgentDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  useEffect(() => {
+    if (!agentDirty) setConfirmClose(false);
+  }, [agentDirty]);
   const [devices, setDevices] = useState<{
     outputs: string[];
     inputs: string[];
     midiInputs: string[];
   }>({ outputs: [], inputs: [], midiInputs: [] });
   const refresh = () =>
-    native<Record<string, Params>>("settings.get")
-      .then(setSettings)
-      .catch(store.reportError);
+    native<Record<string, Params>>("settings.get").then((value) => {
+      setSettings(value);
+    });
   useEffect(() => {
-    void refresh();
+    void refresh().catch(store.reportError);
     void native<typeof devices>("audio.devices")
       .then(setDevices)
       .catch(store.reportError);
@@ -230,15 +240,34 @@ function Settings({ onClose }: { onClose: () => void }) {
       await refresh();
     } catch {}
   };
+  const closeSettingsAndChat = () => {
+    onClose();
+    store.fire("ui.showPanel", { panel: "agent", visible: true });
+  };
   return (
-    <Modal title="Settings" onClose={onClose}>
+    <Modal
+      title="Settings"
+      onClose={() => {
+        if (agentDirty) setConfirmClose(true);
+        else onClose();
+      }}
+    >
+      {confirmClose && (
+        <div className="settings-close-confirm" role="alert">
+          <p>Discard unsaved agent connection changes?</p>
+          <button onClick={() => setConfirmClose(false)}>Keep editing</button>
+          <button onClick={onClose}>Discard changes</button>
+        </div>
+      )}
       <div className="settings-layout">
         <nav>
           {Object.entries(titles).map(([key, title]) => (
             <button
               key={key}
               className={section === key ? "selected" : ""}
-              onClick={() => setSection(key)}
+              onClick={() =>
+                store.fire("ui.showPanel", { panel: "settings", section: key })
+              }
             >
               {title}
             </button>
@@ -254,119 +283,113 @@ function Settings({ onClose }: { onClose: () => void }) {
               </button>
             </>
           )}
-          {Object.entries(settings[section] ?? {})
-            .filter(([key]) => !["lastSession", "recentSessions"].includes(key))
-            .map(([key, value]) => {
-              const path = `${section}.${key}`;
-              const options =
-                key === "provider"
-                  ? ["codex", "claude", "anthropic", "openai", "compatible"]
-                  : key === "outputDevice"
-                    ? devices.outputs
-                    : key === "inputDevice"
-                      ? devices.inputs
-                      : key === "midiInput"
-                        ? devices.midiInputs
-                        : null;
-              if (value && typeof value === "object" && !Array.isArray(value))
-                return (
-                  <fieldset key={key}>
-                    <legend>{label(key)}</legend>
-                    {Object.entries(value).map(([child, v]) => (
-                      <label key={child}>
-                        <span>{label(child)}</span>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(v)}
-                          onChange={(e) =>
-                            void save(`${path}.${child}`, e.target.checked)
-                          }
-                        />
-                      </label>
-                    ))}
-                  </fieldset>
-                );
-              return (
-                <label key={path}>
-                  <span>{label(key)}</span>
-                  {options ? (
-                    <select
-                      value={String(value ?? "")}
-                      onChange={(e) => void save(path, e.target.value || null)}
-                    >
-                      <option value="">System default</option>
-                      {options.map((v) => (
-                        <option key={v}>{v}</option>
+          {settings.agent && (section === "agent" || agentDirty) && (
+            <div hidden={section !== "agent"}>
+              <AgentSettings
+                key={String(settings.agent.provider)}
+                settings={settings.agent}
+                refresh={refresh}
+                onStartChat={closeSettingsAndChat}
+                onDirtyChange={setAgentDirty}
+              />
+            </div>
+          )}
+          {section !== "agent" &&
+            Object.entries(
+              settings[section === "updates" ? "general" : section] ?? {},
+            )
+              .filter(([key]) => {
+                if (["lastSession", "recentSessions"].includes(key))
+                  return false;
+                const update = [
+                  "checkUpdatesOnStart",
+                  "installUpdatesAutomatically",
+                ].includes(key);
+                return section === "updates" ? update : !update;
+              })
+              .map(([key, value]) => {
+                const path = `${section === "updates" ? "general" : section}.${key}`;
+                const options =
+                  key === "provider"
+                    ? ["codex", "claude", "anthropic", "openai", "compatible"]
+                    : key === "outputDevice"
+                      ? devices.outputs
+                      : key === "inputDevice"
+                        ? devices.inputs
+                        : key === "midiInput"
+                          ? devices.midiInputs
+                          : null;
+                if (value && typeof value === "object" && !Array.isArray(value))
+                  return (
+                    <fieldset key={key}>
+                      <legend>{label(key)}</legend>
+                      {Object.entries(value).map(([child, v]) => (
+                        <label key={child}>
+                          <span>{label(child)}</span>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(v)}
+                            onChange={(e) =>
+                              void save(`${path}.${child}`, e.target.checked)
+                            }
+                          />
+                        </label>
                       ))}
-                    </select>
-                  ) : typeof value === "boolean" ? (
-                    <input
-                      type="checkbox"
-                      checked={value}
-                      onChange={(e) => void save(path, e.target.checked)}
-                    />
-                  ) : (
-                    <input
-                      key={`${path}:${JSON.stringify(value)}`}
-                      type={
-                        key.toLowerCase().includes("apikey")
-                          ? "password"
-                          : typeof value === "number"
-                            ? "number"
-                            : "text"
-                      }
-                      defaultValue={
-                        Array.isArray(value)
-                          ? value.join("; ")
-                          : String(value ?? "")
-                      }
-                      onBlur={(e) => {
-                        const next = Array.isArray(value)
-                          ? e.target.value
-                              .split(";")
-                              .map((s) => s.trim())
-                              .filter(Boolean)
-                          : typeof value === "number"
-                            ? Number(e.target.value)
-                            : e.target.value;
-                        if (JSON.stringify(next) !== JSON.stringify(value))
-                          void save(path, next);
-                      }}
-                    />
-                  )}
-                </label>
-              );
-            })}
-          {section === "agent" &&
-            ["codex", "claude"].includes(String(settings.agent?.provider)) && (
-              <div className="update-controls">
-                {[false, true].map((status) => (
-                  <button
-                    key={String(status)}
-                    disabled={signingIn}
-                    onClick={async () => {
-                      setSigningIn(true);
-                      setSignInStatus("Waiting for sign-in…");
-                      try {
-                        setSignInStatus(
-                          await invoke<string>("daw_signin", {
-                            provider: settings.agent.provider,
-                            status,
-                          }),
-                        );
-                      } catch (error) {
-                        setSignInStatus(String(error));
-                      } finally {
-                        setSigningIn(false);
-                      }
-                    }}
-                  >
-                    {status ? "Check sign-in" : "Sign in"}
-                  </button>
-                ))}
-                <p role="status">{signInStatus}</p>
-              </div>
-            )}
+                    </fieldset>
+                  );
+                return (
+                  <label key={path}>
+                    <span>{label(key)}</span>
+                    {options ? (
+                      <select
+                        value={String(value ?? "")}
+                        onChange={(e) =>
+                          void save(path, e.target.value || null)
+                        }
+                      >
+                        <option value="">System default</option>
+                        {options.map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                    ) : typeof value === "boolean" ? (
+                      <input
+                        type="checkbox"
+                        checked={value}
+                        onChange={(e) => void save(path, e.target.checked)}
+                      />
+                    ) : (
+                      <input
+                        key={`${path}:${JSON.stringify(value)}`}
+                        type={
+                          key.toLowerCase().includes("apikey")
+                            ? "password"
+                            : typeof value === "number"
+                              ? "number"
+                              : "text"
+                        }
+                        defaultValue={
+                          Array.isArray(value)
+                            ? value.join("; ")
+                            : String(value ?? "")
+                        }
+                        onBlur={(e) => {
+                          const next = Array.isArray(value)
+                            ? e.target.value
+                                .split(";")
+                                .map((s) => s.trim())
+                                .filter(Boolean)
+                            : typeof value === "number"
+                              ? Number(e.target.value)
+                              : e.target.value;
+                          if (JSON.stringify(next) !== JSON.stringify(value))
+                            void save(path, next);
+                        }}
+                      />
+                    )}
+                  </label>
+                );
+              })}
           {section === "plugins" && (
             <button
               onClick={() => {
@@ -421,7 +444,22 @@ function Export({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState(session.tracks.map((t) => t.id));
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState("");
+  const liveSelected = selected.filter((id) =>
+    session.tracks.some((track) => track.id === id),
+  );
+  const problem = exportProblem({
+    range,
+    start,
+    end,
+    tail,
+    stems,
+    trackCount: liveSelected.length,
+  });
+  const exporting = useRef(false);
   const run = async () => {
+    if (exporting.current || problem) return;
+    exporting.current = true;
+    setReport("");
     setBusy(true);
     try {
       const path = await invoke<string | null>("daw_pick", {
@@ -433,31 +471,35 @@ function Export({ onClose }: { onClose: () => void }) {
         sampleRate: rate,
         format,
         tailSeconds: tail,
-        dither,
+        dither: format !== "float32" && dither,
         ...(range ? { startBar: start - 1, endBar: end - 1 } : {}),
       };
       if (stems) {
         params.directory = `${path}/${session.name}-stems-${Date.now()}`;
-        params.trackIds = selected;
+        params.trackIds = liveSelected;
         params.includeEffects = includeEffects;
         params.includeMaster = includeMaster;
       } else params.path = path;
-      await store.run(
+      const result = await store.run<AudioExportReport>(
         stems ? "session.exportStems" : "session.exportAudio",
         params,
       );
-      setReport(
-        `Export complete. Saved to ${stems ? params.directory : path}.`,
-      );
+      setReport(exportSummary(result));
     } catch (error) {
       store.reportError(error);
     } finally {
+      exporting.current = false;
       setBusy(false);
     }
   };
   return (
-    <Modal title="Export audio" onClose={onClose}>
-      <div className="settings-fields">
+    <Modal
+      title="Export audio"
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <fieldset className="settings-fields export-fields" disabled={busy}>
         <label>
           Sample rate
           <select
@@ -480,10 +522,11 @@ function Export({ onClose }: { onClose: () => void }) {
           </select>
         </label>
         <label>
-          Dither
+          Dither (PCM only)
           <input
             type="checkbox"
-            checked={dither}
+            disabled={format === "float32"}
+            checked={format !== "float32" && dither}
             onChange={(e) => setDither(e.target.checked)}
           />
         </label>
@@ -506,21 +549,26 @@ function Export({ onClose }: { onClose: () => void }) {
           />
         </label>
         {range && (
-          <label>
-            From / to
-            <input
-              type="number"
-              min={1}
-              value={start}
-              onChange={(e) => setStart(Number(e.target.value))}
-            />
-            <input
-              type="number"
-              min={start}
-              value={end}
-              onChange={(e) => setEnd(Number(e.target.value))}
-            />
-          </label>
+          <>
+            <label>
+              Start bar
+              <input
+                type="number"
+                min={1}
+                value={start}
+                onChange={(e) => setStart(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              End bar (excluded)
+              <input
+                type="number"
+                min={start + 0.01}
+                value={end}
+                onChange={(e) => setEnd(Number(e.target.value))}
+              />
+            </label>
+          </>
         )}
         <label>
           Export track stems
@@ -567,14 +615,21 @@ function Export({ onClose }: { onClose: () => void }) {
               />
             </label>
           ))}
-      </div>
+      </fieldset>
+      {problem && <p role="status">{problem}</p>}
       <footer>
-        <button onClick={onClose}>Close</button>
-        <button disabled={busy} onClick={() => void run()}>
+        <button disabled={busy} onClick={onClose}>
+          Close
+        </button>
+        <button disabled={busy || Boolean(problem)} onClick={() => void run()}>
           {busy ? "Exporting…" : "Export…"}
         </button>
       </footer>
-      {report && <pre className="export-report">{report}</pre>}
+      {report && (
+        <pre role="status" className="export-report">
+          {report}
+        </pre>
+      )}
     </Modal>
   );
 }

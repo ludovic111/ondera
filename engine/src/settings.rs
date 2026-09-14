@@ -416,8 +416,11 @@ impl Settings {
             return Err(format!("`{path}` is a section; set one of its fields"));
         }
         *slot = coerce(slot, value)?;
-        let next: Settings = serde_json::from_value(document)
+        let mut next: Settings = serde_json::from_value(document)
             .map_err(|e| format!("Invalid value for `{path}`: {e}"))?;
+        if next.agent.provider != self.agent.provider {
+            next.agent.model.clear();
+        }
         next.validate()?;
         *self = next;
         Ok(())
@@ -451,10 +454,15 @@ impl Settings {
 fn mask(secret: &str) -> String {
     if secret.is_empty() {
         String::new()
-    } else if secret.len() <= 6 {
+    } else if secret.chars().count() <= 6 {
         MASKED.to_string()
     } else {
-        format!("{MASKED}{}", &secret[secret.len() - 4..])
+        let start = secret
+            .char_indices()
+            .rev()
+            .nth(3)
+            .map_or(0, |(index, _)| index);
+        format!("{MASKED}{}", &secret[start..])
     }
 }
 fn lookup<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
@@ -494,6 +502,47 @@ fn coerce(current: &Value, value: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn switching_provider_resets_an_incompatible_model_but_keeps_credentials() {
+        let mut settings = Settings::default();
+        settings.agent.model = "a-codex-model".into();
+        settings.agent.openai_api_key = "keep-this-key".into();
+        settings.set("agent.provider", json!("codex")).unwrap();
+        assert_eq!(settings.agent.model, "a-codex-model");
+        settings.set("agent.provider", json!("openai")).unwrap();
+        assert!(settings.agent.model.is_empty());
+        assert_eq!(settings.agent.openai_api_key, "keep-this-key");
+    }
+
+    #[test]
+    fn masked_keys_are_unicode_safe_and_do_not_expose_short_keys() {
+        for key in [
+            "",
+            "a",
+            "abcdef",
+            "é😀短",
+            "aé😀longsecret",
+            "abcde🦀é文ß",
+            "1234567",
+        ] {
+            let mut settings = Settings::default();
+            settings.set("agent.openaiApiKey", json!(key)).unwrap();
+            let shown = settings.get(Some("agent.openaiApiKey")).unwrap();
+            if key.is_empty() {
+                assert_eq!(shown, "");
+            } else if key.chars().count() <= 6 {
+                assert_eq!(shown, MASKED);
+            } else {
+                let masked = shown.as_str().unwrap();
+                assert!(masked.starts_with(MASKED));
+                assert_eq!(masked.chars().count(), 8);
+                assert!(!masked.contains(key));
+                assert!(key.ends_with(masked.strip_prefix(MASKED).unwrap()));
+            }
+            settings.set("agent.openaiApiKey", shown).unwrap();
+            assert_eq!(settings.agent.openai_api_key, key);
+        }
+    }
     #[test]
     fn settings_round_trip_redact_secrets_and_validate_paths() {
         let dir = tempfile::tempdir().unwrap();

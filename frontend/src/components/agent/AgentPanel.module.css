@@ -247,3 +247,74 @@
   font-size: var(--fs-caps);
   color: var(--color-ink500);
 }
+
+.welcome {
+  padding: 18px 16px;
+}
+.welcome h2 {
+  margin: 0 0 10px;
+  color: var(--color-ink100);
+  font-size: var(--fs-prose);
+  line-height: 1.5;
+}
+.welcome p,
+.historyNote {
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  color: var(--color-ink300);
+}
+.welcome .hint {
+  font-size: var(--fs-small);
+  margin-bottom: 0;
+}
+.welcomeActions,
+.newConversation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.starters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+.starters button {
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+.starters span {
+  color: var(--color-accent);
+}
+.historyNote {
+  padding: 0 14px;
+}
+.context {
+  font-size: var(--fs-small);
+  color: var(--color-ink300);
+  margin: 8px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error {
+  margin: 8px 0;
+  padding: 10px;
+  background: var(--color-groove-alt);
+  border-radius: var(--radius-control);
+  overflow-wrap: anywhere;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.error p {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+.newConversation {
+  font-size: var(--fs-small);
+  color: var(--color-ink300);
+  margin-top: 10px;
+}

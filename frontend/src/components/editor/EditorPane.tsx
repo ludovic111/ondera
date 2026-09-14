@@ -27,9 +27,13 @@ import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { size } from "../../theme/tokens";
 import styles from "./EditorPane.module.css";
 
-const MODES: { id: EditorMode; label: string }[] = [
+const MODES: { id: EditorMode; label: string; title?: string }[] = [
   { id: "pianoRoll", label: "Piano Roll" },
-  { id: "score", label: "Score" },
+  {
+    id: "score",
+    label: "Score",
+    title: "Score preview. Edit notes in Piano Roll or Step.",
+  },
   { id: "step", label: "Step" },
 ];
 
@@ -115,7 +119,13 @@ export function EditorPane() {
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || !clip || clip.data.kind !== "midi") return;
+    if (
+      mode === "score" ||
+      e.button !== 0 ||
+      !clip ||
+      clip.data.kind !== "midi"
+    )
+      return;
     const state = store.getState();
     const p = point(e);
     const geo = rollGeometry(state, p.w);
@@ -296,7 +306,7 @@ export function EditorPane() {
 
   const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (!clip || clip.data.kind !== "midi") return;
+    if (mode === "score" || !clip || clip.data.kind !== "midi") return;
     const p = point(e);
     const geo = rollGeometry(store.getState(), p.w);
     const hit = hitTestNote(geo, p.x, p.y);
@@ -377,6 +387,11 @@ export function EditorPane() {
           <div className={styles.range}>
             Select a MIDI clip to edit it, or draw one with the pencil tool
           </div>
+        )}
+        {mode === "score" && (
+          <span className={styles.range}>
+            Preview · edit in Piano Roll or Step
+          </span>
         )}
         <div className={styles.params}>
           <span>

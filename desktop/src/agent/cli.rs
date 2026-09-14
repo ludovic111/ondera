@@ -16,7 +16,7 @@ use std::{
 
 const LINE_LIMIT: usize = 64 * 1024 * 1024;
 
-fn group(command: &mut Command) {
+pub(crate) fn group(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -29,7 +29,7 @@ fn group(command: &mut Command) {
     }
 }
 
-fn terminate_tree(child: &mut Child) {
+pub(crate) fn terminate_tree(child: &mut Child) {
     #[cfg(unix)]
     {
         unsafe extern "C" {

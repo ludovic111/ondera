@@ -70,7 +70,7 @@ pub(crate) fn discover_claude(configured: &str) -> PathBuf {
     )
 }
 
-/// Every provider with whether it can run right now.
+/// Local configuration availability, not a remote authentication or model test.
 pub(crate) fn providers_json(settings: &Settings) -> Value {
     Value::Array(
         Provider::ALL
@@ -90,7 +90,8 @@ pub(crate) fn providers_json(settings: &Settings) -> Value {
                         "API key in settings or environment".into(),
                     ),
                     Provider::Compatible => (
-                        !settings.agent.compatible_base_url.is_empty(),
+                        !settings.agent.compatible_base_url.trim().is_empty()
+                            && !settings.agent.model.trim().is_empty(),
                         settings.agent.compatible_base_url.clone(),
                     ),
                 };
@@ -109,6 +110,7 @@ pub(crate) fn providers_json(settings: &Settings) -> Value {
 
 pub(crate) mod anthropic;
 pub(crate) mod cli;
+pub(crate) mod connection;
 pub(crate) mod openai;
 
 use ondera_engine::{control, Result};

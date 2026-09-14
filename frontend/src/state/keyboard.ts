@@ -95,12 +95,13 @@ export function useKeyboardShortcuts(): void {
     const begin = () => store.fire("web.gesture", { active: true });
     const end = () => store.fire("web.gesture", { active: false });
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return;
+      if (store.ui.prompt || store.ui.error) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target?.closest("dialog")) return;
       if (e.repeat && e.code === "Space") return;
       if (isTextTarget(e.target)) return;
-      if (
-        e.key === "Enter" &&
-        (e.target as HTMLElement | null)?.closest("button")
-      )
+      if ((e.key === "Enter" || e.key === " ") && target?.closest("button"))
         return;
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
         if (e.key === ",") {
@@ -149,6 +150,14 @@ export function useKeyboardShortcuts(): void {
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", release);
+    const focus = (event: FocusEvent) => {
+      if (
+        isTextTarget(event.target) ||
+        (event.target instanceof HTMLElement && event.target.closest("dialog"))
+      )
+        release();
+    };
+    window.addEventListener("focusin", focus);
     window.addEventListener("pointerdown", begin, true);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
@@ -156,6 +165,7 @@ export function useKeyboardShortcuts(): void {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", release);
+      window.removeEventListener("focusin", focus);
       window.removeEventListener("pointerdown", begin, true);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);

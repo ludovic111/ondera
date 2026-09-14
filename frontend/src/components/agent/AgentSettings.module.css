@@ -1,0 +1,89 @@
+.setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.setup h2 {
+  margin: 0 0 8px;
+  font-size: var(--fs-prose);
+  color: var(--color-ink100);
+}
+.setup p {
+  margin: 0;
+  line-height: 1.65;
+  color: var(--color-ink300);
+}
+.setup fieldset {
+  margin: 0;
+  padding: 14px;
+  min-width: 0;
+}
+.setup input,
+.setup select {
+  max-width: 60%;
+  min-width: 0;
+}
+.setup summary {
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--color-ink100);
+}
+.setup a {
+  color: var(--color-accent);
+  display: inline-block;
+  margin-top: 12px;
+}
+.setup small {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--color-ink300);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+}
+.connection {
+  padding: 16px;
+  background: var(--color-groove-alt);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--shadow-well-input);
+}
+.connection strong {
+  display: block;
+  color: var(--color-ink100);
+  margin-bottom: 8px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.setup .privacy {
+  font-size: var(--fs-small);
+}
+.setup textarea {
+  width: 210px;
+  max-width: 60%;
+  min-height: 80px;
+  resize: vertical;
+  background: var(--color-groove-alt);
+  border: 1px solid var(--color-groove);
+  padding: 8px;
+  border-radius: var(--radius-control);
+}
+.setup .help {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin-top: 12px;
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

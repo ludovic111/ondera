@@ -113,3 +113,34 @@
   position: absolute;
   z-index: 3;
 }
+
+.emptyProject {
+  position: absolute;
+  z-index: 2;
+  top: 28px;
+  left: 24px;
+  right: 24px;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 24px;
+  background: var(--color-panel);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--shadow-log-entry);
+}
+.emptyProject h2 {
+  margin: 0 0 10px;
+  font-size: var(--fs-prose);
+  color: var(--color-ink100);
+}
+.emptyProject p {
+  margin: 0 0 18px;
+  color: var(--color-ink300);
+  line-height: 1.65;
+  font-size: var(--fs-body);
+}
+.emptyProject > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}

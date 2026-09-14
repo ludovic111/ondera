@@ -483,6 +483,7 @@ impl Ondera {
             "agentPanel": self.agents.open,
             "automation": self.automation.open,
             "settings": self.settings_ui.open,
+            "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)],
             "help": self.show_help,
             "tool": TOOLS[self.tool.min(2)],
             "musicalTyping": self.musical_typing,
@@ -806,7 +807,17 @@ impl Host for Ondera {
                 match panel {
                     "agent" => self.agents.open = visible,
                     "automation" => self.automation.open = visible,
-                    "settings" => self.settings_ui.open = visible,
+                    "settings" => {
+                        let section = params["section"].as_str().map(|key| {
+                            crate::settings::SECTION_KEYS.iter().position(|candidate| *candidate == key)
+                                .ok_or_else(|| format!("Unknown settings section `{key}`"))
+                        }).transpose()?;
+                        if visible {
+                            self.open_settings(section);
+                        } else {
+                            self.settings_ui.open = false;
+                        }
+                    }
                     "help" => self.show_help = visible,
                     "export" => {
                         if visible {

@@ -38,3 +38,10 @@
 .inactive {
   color: var(--color-ink500);
 }
+
+.segment {
+  border: 0;
+}
+.inactive {
+  background: transparent;
+}

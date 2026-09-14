@@ -25,7 +25,7 @@ import { Button } from "../primitives/Button";
 import { InlineEdit } from "../primitives/InlineEdit";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { actionItem, separator, type MenuEntry } from "../../state/menus";
-import { reportLaneViewportWidth } from "../../state/actions";
+import { runAction, reportLaneViewportWidth } from "../../state/actions";
 import { size } from "../../theme/tokens";
 import styles from "./Arrangement.module.css";
 
@@ -230,6 +230,41 @@ function TrackList() {
 
   return (
     <div ref={scrollerRef} className={styles.scroller}>
+      {tracks.length === 0 && (
+        <div className={styles.emptyProject}>
+          <h2>Your next track starts here</h2>
+          <p>
+            Add an instrument and draw a region, import a recording, or explore
+            the demo.
+          </p>
+          <div>
+            <Button
+              size="auto"
+              onClick={() => runAction(store, "addMidiTrack")}
+            >
+              Add an instrument
+            </Button>
+            <Button
+              size="auto"
+              onClick={() => store.fire("web.file", { action: "import" })}
+            >
+              Import audio…
+            </Button>
+            <Button
+              size="auto"
+              onClick={() => store.fire("web.file", { action: "demo" })}
+            >
+              Open demo
+            </Button>
+          </div>
+          <button
+            className="m-button"
+            onClick={() => store.fire("ui.showPanel", { panel: "agent" })}
+          >
+            Make something with an agent →
+          </button>
+        </div>
+      )}
       <div className={styles.content}>
         <div className={styles.headers}>
           {tracks.map((t) => (

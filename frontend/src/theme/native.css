@@ -41,11 +41,11 @@ textarea:focus-visible {
 }
 .native-dialog {
   position: fixed;
-  top: 12vh;
+  top: calc(10vh / var(--ui-scale, 1));
   margin: 0 auto;
   z-index: 50;
-  width: min(780px, 90vw);
-  max-height: 85vh;
+  width: min(780px, calc(90vw / var(--ui-scale, 1)));
+  max-height: calc(80vh / var(--ui-scale, 1));
   border: 1px solid #161615;
   border-radius: 7px;
   padding: 0;
@@ -61,7 +61,12 @@ textarea:focus-visible {
 .native-dialog::backdrop {
   background: #0005;
 }
+.native-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
 .native-dialog > header {
+  flex: none;
   height: 38px;
   display: flex;
   align-items: center;
@@ -77,6 +82,8 @@ textarea:focus-visible {
   color: #a9a8a4;
 }
 .dialog-content {
+  min-height: 0;
+  overscroll-behavior: contain;
   padding: 16px;
   overflow: auto;
 }
@@ -394,4 +401,36 @@ textarea:focus-visible {
 }
 .dialog-content {
   overscroll-behavior: contain;
+}
+
+.export-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.settings-fields {
+  min-width: 0;
+}
+.agent-send > span {
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+.agent-message {
+  overflow-wrap: anywhere;
+}
+.agent-message > div {
+  white-space: pre-wrap;
+}
+.native-dialog button.primary {
+  color: var(--color-accent);
+}
+.settings-close-confirm {
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--color-groove-alt);
+  border-radius: var(--radius-control);
+}
+.settings-close-confirm button {
+  margin-right: 8px;
 }

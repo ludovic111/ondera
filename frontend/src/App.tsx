@@ -26,6 +26,7 @@ export function App() {
   useEffect(() => {
     const root = document.getElementById("root")!;
     root.style.zoom = String(scale);
+    root.style.setProperty("--ui-scale", String(scale));
     root.style.width = `${100 / scale}vw`;
     root.style.height = `${100 / scale}vh`;
   }, [scale]);

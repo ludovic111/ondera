@@ -98,6 +98,38 @@ async fn daw_snapshot(window: tauri::WebviewWindow) -> Result<String> {
 }
 
 #[tauri::command]
+fn daw_agent_help(provider: String) -> Result<()> {
+    let url = match provider.as_str() {
+        "codex" => "https://developers.openai.com/codex/cli/",
+        "claude" => "https://code.claude.com/docs/en/quickstart",
+        "anthropic" => "https://console.anthropic.com/settings/keys",
+        "openai" => "https://platform.openai.com/api-keys",
+        _ => return Err("No installation help for this provider".into()),
+    };
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(program)
+        .arg(url)
+        .spawn()
+        .map_err(|e| format!("Could not open your browser: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn daw_agent_connection() -> Result<crate::agent::connection::Connection> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent::connection::check(&ondera_engine::settings::Settings::load())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn daw_signin(provider: String, status: bool) -> Result<String> {
     tauri::async_runtime::spawn_blocking(move || {
         let settings = ondera_engine::settings::Settings::load();
@@ -565,7 +597,9 @@ pub fn run(
             daw_command,
             daw_pick,
             daw_snapshot,
-            daw_signin
+            daw_signin,
+            daw_agent_help,
+            daw_agent_connection
         ])
         .setup(move |application| {
             let context = egui::Context::default();
