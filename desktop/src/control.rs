@@ -137,7 +137,22 @@ impl Ondera {
         self.attach_live = None;
         let result = (|| {
             control::validate_request(method, params)?;
+            if method.starts_with("take.") && method != "take.list" && self.agents.runtime.running()
+            {
+                return Err("Stop the agent before switching or saving creative takes".into());
+            }
             if agent {
+                if method == "agent.configure"
+                    || (matches!(method, "settings.set" | "settings.reset")
+                        && params["path"].as_str().is_none_or(|p| {
+                            p.trim() == "agent"
+                                || p.trim().starts_with("agent.")
+                                || p.trim() == "control"
+                                || p.trim().starts_with("control.")
+                        }))
+                {
+                    return Err("Agent connections and permissions must be changed by the person in Settings".into());
+                }
                 if let Some(denied) =
                     control_app::denied_for_agent(method, &self.settings.agent.permissions)
                 {
@@ -959,6 +974,25 @@ impl Host for Ondera {
                 self.recovery.select(path);
                 self.request(Intent::Recover);
                 Ok(json!({ "status": "requested", "prompted": self.intent.is_some() }))
+            }
+            "agent.configure" => {
+                if self.agents.runtime.running() {
+                    return Err("Stop the agent before changing its model".into());
+                }
+                let mut next = self.settings.clone();
+                next.agent.provider = serde_json::from_value(params["provider"].clone())
+                    .map_err(|e| format!("Invalid provider: {e}"))?;
+                next.agent.model = params["model"]
+                    .as_str()
+                    .ok_or("Missing model")?
+                    .trim()
+                    .into();
+                next.agent.reasoning_effort = params["reasoningEffort"]
+                    .as_str()
+                    .ok_or("Missing effort")?
+                    .into();
+                self.apply_settings(next)?;
+                Ok(self.agents.status_json(&self.settings))
             }
             "agent.status" => Ok(self.agents.status_json(&self.settings)),
             "agent.providers" => Ok(crate::agent::providers_json(&self.settings)),

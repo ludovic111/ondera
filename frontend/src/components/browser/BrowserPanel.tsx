@@ -119,7 +119,7 @@ export function BrowserPanel() {
 
   return (
     <div className={styles.panel}>
-      <div className={styles.tabs}>
+      <div className={styles.tabs} data-surface="browser-header">
         <SegmentedControl
           items={TABS}
           value={tab}

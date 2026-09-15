@@ -22,6 +22,17 @@ const SLOT: control::Param = opt(
 );
 
 pub const SPECS: &[Spec] = &[
+    edit("rhythm.create", "Create a Euclidean drum groove on a new Drum Machine track, in one undo step. Each lane has its own subdivision per bar.", &[req("lanes", Kind::Array, "1-8 objects with steps (1-64), pulses (0-steps), rotation (0-steps-1), pitch (0-127), velocity (1-127)."), req("bars", Kind::Integer, "Groove length, 1-16 bars."), opt("startBar", Kind::Number, "Arrangement start, default zero."), opt("name", Kind::String, "Groove and track name.")]),
+    edit("clip.humanize", "Humanize MIDI timing and velocity reproducibly without changing pitch, inside region bounds. One undo step.", &[CLIP_ID, opt("timingMs", Kind::Number, "Maximum timing offset, 0-100 ms (default 10)."), opt("velocity", Kind::Integer, "Maximum velocity offset, 0-32 (default 8)."), opt("seed", Kind::Integer, "Random seed, 0-4294967295 (default 1).")]),
+    edit("clip.velocityRamp", "Shape MIDI dynamics from the first to last onset, preserving chords at equal velocity. One undo step.", &[CLIP_ID, req("from", Kind::Integer, "Starting velocity 1-127."), req("to", Kind::Integer, "Ending velocity 1-127.")]),
+    edit("clip.fitScale", "Move MIDI pitches to the closest note in a scale, choosing down on ties. Timing and velocity stay intact.", &[CLIP_ID, req("root", Kind::Integer, "Root pitch class 0-11, C=0."), req("scale", Kind::String, "major, minor, dorian, mixolydian, pentatonicMajor or pentatonicMinor.")]),
+    edit("clip.reverseMidi", "Reverse MIDI note timing within the region, preserving pitch, duration and velocity.", &[CLIP_ID]),
+    edit("clip.legato", "Extend MIDI notes to the next distinct onset or region end. Simultaneous chord notes remain together.", &[CLIP_ID]),
+    edit("clip.repeat", "Repeat a MIDI or audio region immediately after itself in one undo step, assigning unique IDs.", &[CLIP_ID, req("count", Kind::Integer, "Number of additional copies, 1-64.")]),
+    query("take.list", "List creative takes saved inside this project, including the active one.", &[]),
+    edit("take.create", "Save the current music as a named creative take. Create Original then Variation before experimenting; edits follow the active take. Up to eight takes travel with the saved project.", &[req("name", Kind::String, "Take name, 1-120 characters.")]),
+    edit("take.select", "Switch to a creative take, preserving edits in the current take. Stops playback; one Undo restores the previous arrangement.", &[req("id", Kind::String, "Take ID from take.list.")]),
+    edit("take.remove", "Remove an inactive creative take. The active arrangement is preserved; undoable.", &[req("id", Kind::String, "Inactive take ID from take.list.")]),
     query("view.get", "Read the view: zoom in pixels per bar, first visible bar, follow mode, editor mode and the clip open in the editor.", &[]),
     edit("view.set", "Change the arrangement view and the editor. Omitted fields keep their values. Not an undo step.", &[
         opt("pixelsPerBar", Kind::Number, "Arrangement zoom, 12-480 pixels per bar."),
@@ -125,6 +136,11 @@ pub const SPECS: &[Spec] = &[
         req("path", Kind::String, "Snapshot path from session.snapshots."),
     ]),
     query("agent.status", "The built-in agent: provider, model, whether a task is running, turn count and last reply.", &[]),
+    edit("agent.configure", "Select the agent provider, model and reasoning effort together. Only while idle.", &[
+        req("provider", Kind::String, "codex, claude, anthropic, openai or compatible."),
+        req("model", Kind::String, "Model ID; empty uses the provider default."),
+        req("reasoningEffort", Kind::String, "Provider effort level; empty uses its default."),
+    ]),
     query("agent.providers", "Available agent providers and whether each is configured.", &[]),
     edit("agent.send", "Send a prompt to the built-in agent panel, like typing in the window.", &[
         req("prompt", Kind::String, "The request, in plain language."),
@@ -209,6 +225,12 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
         return host.live(name, &args_value(a));
     }
     match name {
+        "rhythm.create" => crate::rhythm::call(host, a, agent),
+        "clip.humanize" | "clip.velocityRamp" | "clip.fitScale" | "clip.reverseMidi"
+        | "clip.legato" | "clip.repeat" => crate::midi_tools::call(host, name, a, agent),
+        "take.list" | "take.create" | "take.select" | "take.remove" => {
+            crate::takes::call(host, name, a)
+        }
         "view.get" => Ok(view_json(host)),
         "view.set" => {
             let mut view = host.store().session().view.clone();

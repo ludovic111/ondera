@@ -17,13 +17,15 @@ import type { Params } from "../../state/native";
 const show = (settings: Params) => {
   const store = new NativeStore();
   const refresh = vi.fn(async () => {});
-  mock.invoke
-    .mockReset()
-    .mockResolvedValue({
-      provider: settings.provider,
-      state: "configured",
-      message: "Configured only.",
-    });
+  mock.invoke.mockReset().mockImplementation(async (method) =>
+    method === "daw_agent_models"
+      ? []
+      : {
+          provider: settings.provider,
+          state: "configured",
+          message: "Configured only.",
+        },
+  );
   render(
     <SessionProvider store={store}>
       <AgentSettings

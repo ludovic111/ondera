@@ -30,12 +30,14 @@ export interface UiState {
   busy: boolean;
   prompt: string | null;
   scale: number;
+  appearance?: "aero" | "graphite";
   recoveryStatus: string;
   update: { available: string | null; installed: boolean; busy: boolean };
 }
 export interface AgentEntry {
   role: string;
   text: string;
+  streaming?: boolean;
   tool?: { name: string; args: Params; ok: boolean; result: unknown };
 }
 export interface Change {
@@ -52,6 +54,7 @@ export interface AgentData {
   status: {
     provider: string;
     model: string;
+    reasoningEffort?: string;
     running: boolean;
     status: string;
     error: string | null;

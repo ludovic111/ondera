@@ -23,3 +23,9 @@ pub mod stock;
 pub mod store;
 
 pub type Result<T> = std::result::Result<T, String>;
+
+pub mod takes;
+
+mod midi_tools;
+
+mod rhythm;

@@ -83,6 +83,28 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("deleteSelection"),
         separator,
         call("Quantize region notes", "web.quantize"),
+        ...[
+          [
+            "Humanize timing & velocity",
+            "clip.humanize",
+            { timingMs: 10, velocity: 8, seed: 1 },
+          ],
+          ["Velocity crescendo", "clip.velocityRamp", { from: 55, to: 110 }],
+          ["Velocity diminuendo", "clip.velocityRamp", { from: 110, to: 55 }],
+          ["Legato notes", "clip.legato", {}],
+          ["Reverse MIDI phrase", "clip.reverseMidi", {}],
+          ["Fit to C major", "clip.fitScale", { root: 0, scale: "major" }],
+          ["Fit to C minor", "clip.fitScale", { root: 0, scale: "minor" }],
+          ["Repeat region × 4", "clip.repeat", { count: 3 }],
+        ].map(([label, method, params]) => ({
+          label: String(label),
+          disabled: !store.getState().view.selectedClipId,
+          onSelect: () =>
+            store.fire(String(method), {
+              ...(params as Record<string, unknown>),
+              clipId: store.getState().view.selectedClipId,
+            }),
+        })),
         ...[1, -1, 12, -12].map((n) =>
           call(
             `Transpose region ${n > 0 ? "up" : "down"}${Math.abs(n) === 12 ? " an octave" : ""}`,

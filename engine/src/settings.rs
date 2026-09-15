@@ -48,6 +48,7 @@ pub struct Audio {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Interface {
+    pub appearance: String,
     /// Interface zoom, 0.75-1.75.
     pub scale: f32,
     pub agent_panel_open_on_start: bool,
@@ -115,6 +116,8 @@ pub struct Agent {
     pub provider: Provider,
     /// Model name; blank uses the provider's default.
     pub model: String,
+    /// Empty delegates effort to the provider.
+    pub reasoning_effort: String,
     pub anthropic_api_key: String,
     pub openai_api_key: String,
     pub compatible_base_url: String,
@@ -198,6 +201,7 @@ impl Default for Interface {
     fn default() -> Self {
         Self {
             scale: 1.0,
+            appearance: "aero".into(),
             agent_panel_open_on_start: false,
             show_tooltips: true,
             follow_playhead: true,
@@ -209,6 +213,7 @@ impl Default for Agent {
         Self {
             provider: Provider::Codex,
             model: String::new(),
+            reasoning_effort: String::new(),
             anthropic_api_key: String::new(),
             openai_api_key: String::new(),
             compatible_base_url: String::new(),
@@ -312,6 +317,21 @@ impl Settings {
         }
         if self.agent.instructions.len() > 20_000 {
             return Err("Agent instructions exceed 20,000 characters".into());
+        }
+        if self.agent.model.len() > 200 || self.agent.model.chars().any(char::is_control) {
+            return Err("Model names must be printable and at most 200 characters".into());
+        }
+        if !["graphite", "aero"].contains(&self.interface.appearance.as_str()) {
+            return Err("Appearance must be graphite or aero".into());
+        }
+        if self.agent.reasoning_effort.len() > 40
+            || self
+                .agent
+                .reasoning_effort
+                .chars()
+                .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+        {
+            return Err("Reasoning effort must be a short provider level name".into());
         }
         let url = &self.agent.compatible_base_url;
         if !(url.is_empty() || url.starts_with("http://") || url.starts_with("https://")) {
@@ -420,6 +440,7 @@ impl Settings {
             .map_err(|e| format!("Invalid value for `{path}`: {e}"))?;
         if next.agent.provider != self.agent.provider {
             next.agent.model.clear();
+            next.agent.reasoning_effort.clear();
         }
         next.validate()?;
         *self = next;

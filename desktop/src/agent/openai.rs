@@ -117,7 +117,7 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
         let _ = turn
             .events
             .send(Event::Status(format!("Thinking with {model}…")));
-        let body = json!({
+        let mut body = json!({
             "model": model,
             "messages": wire(&system, &history),
             "tools": tools,
@@ -126,6 +126,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             "stream_options": { "include_usage": true },
             "max_completion_tokens": turn.settings.agent.max_output_tokens,
         });
+        if !turn.settings.agent.reasoning_effort.is_empty() {
+            body["reasoning_effort"] = json!(turn.settings.agent.reasoning_effort);
+        }
         let mut request = agent
             .post(&format!("{base}/chat/completions"))
             .header("content-type", "application/json");
@@ -147,6 +150,7 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
         let mut text = String::new();
         let mut calls: Vec<(String, String, String)> = vec![];
         let mut finish = String::new();
+        let mut completed = false;
         loop {
             if turn.cancel.load(Ordering::Acquire) {
                 let _ = turn.events.send(Event::Done {
@@ -166,9 +170,11 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             };
             let payload = payload.trim();
             if payload == "[DONE]" {
+                completed = true;
                 break;
             }
-            let chunk: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
+            let chunk: Value =
+                serde_json::from_str(payload).map_err(|e| format!("Invalid stream event: {e}"))?;
             if let Some(error) = chunk["error"]["message"].as_str() {
                 return Err(format!("API error: {error}"));
             }
@@ -187,6 +193,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             let delta = &choice["delta"];
             if let Some(t) = delta["content"].as_str() {
                 if !t.is_empty() {
+                    if text.len() + t.len() > 1024 * 1024 {
+                        return Err("Agent response exceeds 1 MiB".into());
+                    }
                     text.push_str(t);
                     let _ = turn.events.send(Event::Text {
                         text: t.into(),
@@ -196,6 +205,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             }
             for call in delta["tool_calls"].as_array().into_iter().flatten() {
                 let index = call["index"].as_u64().unwrap_or(0) as usize;
+                if index >= 128 {
+                    return Err("Too many tool calls in one response".into());
+                }
                 while calls.len() <= index {
                     calls.push((String::new(), String::new(), String::new()));
                 }
@@ -210,9 +222,24 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
                     )));
                 }
                 if let Some(arguments) = call["function"]["arguments"].as_str() {
+                    if calls[index].2.len() + arguments.len() > 1024 * 1024 {
+                        return Err("Tool arguments exceed 1 MiB".into());
+                    }
                     calls[index].2.push_str(arguments);
                 }
             }
+        }
+        if !completed && finish.is_empty() {
+            return Err("The response stream ended before completion. Try again.".into());
+        }
+        if matches!(finish.as_str(), "length" | "content_filter") {
+            return Err(format!(
+                "The provider stopped the response ({finish}); no incomplete tool was run."
+            ));
+        }
+        if !calls.is_empty() && !matches!(finish.as_str(), "tool_calls" | "function_call" | "stop")
+        {
+            return Err("The provider did not finish its tool request; no tool was run.".into());
         }
         if !text.is_empty() {
             let _ = turn.events.send(Event::TextEnd);
@@ -228,7 +255,8 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             let input: Value = if arguments.trim().is_empty() {
                 json!({})
             } else {
-                serde_json::from_str(arguments).unwrap_or(json!({}))
+                serde_json::from_str(arguments)
+                    .map_err(|e| format!("Invalid tool arguments: {e}"))?
             };
             parts.push(Part::ToolUse {
                 id: id.clone(),
@@ -243,19 +271,6 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             role: "assistant",
             parts,
         });
-        if calls.is_empty()
-            || (finish != "tool_calls"
-                && finish != "function_call"
-                && !finish.is_empty()
-                && finish != "stop")
-        {
-            let _ = turn.events.send(Event::Done {
-                error: None,
-                cancelled: false,
-                history,
-            });
-            return Ok(());
-        }
         if calls.is_empty() {
             let _ = turn.events.send(Event::Done {
                 error: None,
@@ -281,7 +296,8 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             let input: Value = if arguments.trim().is_empty() {
                 json!({})
             } else {
-                serde_json::from_str(&arguments).unwrap_or(json!({}))
+                serde_json::from_str(&arguments)
+                    .map_err(|e| format!("Invalid tool arguments: {e}"))?
             };
             let (tx, rx) = mpsc::sync_channel(1);
             turn.events
@@ -312,4 +328,106 @@ fn api_error(text: &str) -> String {
         .ok()
         .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
         .unwrap_or_else(|| bounded(text, 600))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{atomic::AtomicBool, Arc},
+    };
+
+    fn fixture(stream: &str) -> (Result<()>, Vec<Event>, Value) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let stream = stream.to_owned();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            let headers = String::from_utf8(request).unwrap();
+            let length: usize = headers
+                .lines()
+                .find_map(|s| {
+                    s.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|s| s.trim().parse().unwrap())
+                })
+                .unwrap();
+            let mut body = vec![0; length];
+            socket.read_exact(&mut body).unwrap();
+            write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",stream.len(),stream).unwrap();
+            serde_json::from_slice::<Value>(&body).unwrap()
+        });
+        let (tx, rx) = mpsc::sync_channel(64);
+        let mut settings = ondera_engine::settings::Settings::default();
+        settings.agent.provider = Provider::Compatible;
+        settings.agent.compatible_base_url = endpoint;
+        settings.agent.model = "fixture".into();
+        settings.agent.reasoning_effort = "high".into();
+        let result = run(Turn {
+            prompt: "Hi".into(),
+            history: vec![],
+            settings,
+            session_summary: json!({}),
+            discovery: Default::default(),
+            mcp_executable: String::new(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            events: tx,
+        });
+        (result, rx.try_iter().collect(), server.join().unwrap())
+    }
+
+    #[test]
+    fn streaming_delivers_fragments_and_passes_the_selected_effort() {
+        let (result, events, request) = fixture(concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"**Hello\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" world**\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n"
+        ));
+        result.unwrap();
+        assert_eq!(request["reasoning_effort"], "high");
+        let fragments: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Text {
+                    text,
+                    replace: false,
+                } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fragments, vec!["**Hello", " world**"]);
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::Done {
+                error: None,
+                cancelled: false,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn truncated_and_malformed_streams_fail_without_executing_tools() {
+        for stream in [
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Partial\"}}]}\n\n",
+            "data: invalid json\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":128}]}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"track_remove\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n",
+        ] {
+            let (result, events, _) = fixture(stream);
+            assert!(result.is_err());
+            assert!(!events.iter().any(|e| matches!(e, Event::ToolCall(_))));
+        }
+    }
 }

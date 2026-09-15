@@ -310,15 +310,17 @@ function Settings({ onClose }: { onClose: () => void }) {
               .map(([key, value]) => {
                 const path = `${section === "updates" ? "general" : section}.${key}`;
                 const options =
-                  key === "provider"
-                    ? ["codex", "claude", "anthropic", "openai", "compatible"]
-                    : key === "outputDevice"
-                      ? devices.outputs
-                      : key === "inputDevice"
-                        ? devices.inputs
-                        : key === "midiInput"
-                          ? devices.midiInputs
-                          : null;
+                  key === "appearance"
+                    ? ["aero", "graphite"]
+                    : key === "provider"
+                      ? ["codex", "claude", "anthropic", "openai", "compatible"]
+                      : key === "outputDevice"
+                        ? devices.outputs
+                        : key === "inputDevice"
+                          ? devices.inputs
+                          : key === "midiInput"
+                            ? devices.midiInputs
+                            : null;
                 if (value && typeof value === "object" && !Array.isArray(value))
                   return (
                     <fieldset key={key}>
@@ -347,9 +349,17 @@ function Settings({ onClose }: { onClose: () => void }) {
                           void save(path, e.target.value || null)
                         }
                       >
-                        <option value="">System default</option>
+                        {key !== "appearance" && (
+                          <option value="">System default</option>
+                        )}
                         {options.map((v) => (
-                          <option key={v}>{v}</option>
+                          <option key={v} value={v}>
+                            {key === "appearance"
+                              ? v === "aero"
+                                ? "Frutiger Aero"
+                                : "Anthracite"
+                              : v}
+                          </option>
                         ))}
                       </select>
                     ) : typeof value === "boolean" ? (

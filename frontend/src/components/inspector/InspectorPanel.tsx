@@ -75,7 +75,9 @@ export function InspectorPanel() {
   if (!track)
     return (
       <div className={styles.panel}>
-        <div className={styles.title}>Select a track</div>
+        <div className={styles.title} data-surface="inspector-header">
+          Select a track
+        </div>
       </div>
     );
   const strip = stored ?? defaultStrip(track.kind);
@@ -213,7 +215,7 @@ export function InspectorPanel() {
 
   return (
     <div className={styles.panel}>
-      <div className={styles.title}>
+      <div className={styles.title} data-surface="inspector-header">
         <span
           className={`${styles.swatch} m-swatch`}
           style={{ background: track.color }}
