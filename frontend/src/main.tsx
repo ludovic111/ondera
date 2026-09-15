@@ -7,6 +7,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "./theme/global.css";
 import "./theme/materials.css";
 import "./theme/native.css";
+import "./theme/aero.css";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";

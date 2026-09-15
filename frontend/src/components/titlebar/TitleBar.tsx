@@ -28,6 +28,7 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
+      data-surface="titlebar"
       className={`${styles.bar} ${isMac ? styles.mac : ""}`}
     >
       <div className={styles.menu}>

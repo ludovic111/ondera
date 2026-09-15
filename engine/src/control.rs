@@ -270,11 +270,15 @@ pub const BASE_COMMANDS: &[Spec] = &[
         req("parameterId", Kind::Integer, "Parameter ID from strip.parameters."),
         req("value", Kind::Number, "Plain parameter value within its min and max."),
     ]),
+    edit("strip.setParameters", "Set several plugin parameters atomically in one undo step. Read strip.parameters first.", &[
+        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
+        req("values", Kind::Object, "Object mapping parameter IDs to plain numeric values."),
+    ]),
     edit("strip.setBypass", "Bypass or enable a plugin without replacing its settings.", &[
         TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
         req("bypassed", Kind::Boolean, "Whether to bypass the processor."),
     ]),
-    query("strip.getState", "Read the selected plugin's persisted parameters and base64 state. Saving first captures changes from its native editor.", &[
+    query("strip.getState", "Capture and read the selected plugin's current parameters and base64 state, including changes from its native editor.", &[
         TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
     ]),
     edit("strip.setState", "Restore base64 state previously captured from this plugin, replacing its explicit parameter overrides.", &[
@@ -1158,12 +1162,19 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             Ok(strip_json(host.store().session(), id))
         }
         "strip.parameters" => host.plugin_parameters(a.str("trackId")?, plugin_slot(&a)?),
-        "strip.getState" => Ok(json!(selected_plugin(
-            host.store().session(),
-            a.str("trackId")?,
-            plugin_slot(&a)?
-        )?)),
-        "strip.setPlugin" | "strip.setParameter" | "strip.setBypass" | "strip.setState" => {
+        "strip.getState" => {
+            host.capture_states()?;
+            Ok(json!(selected_plugin(
+                host.store().session(),
+                a.str("trackId")?,
+                plugin_slot(&a)?
+            )?))
+        }
+        "strip.setPlugin"
+        | "strip.setParameter"
+        | "strip.setParameters"
+        | "strip.setBypass"
+        | "strip.setState" => {
             let id = a.str("trackId")?;
             let slot = plugin_slot(&a)?;
             check_strip(host.store().session(), id)?;
@@ -1193,26 +1204,60 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 selected_plugin(host.store().session(), id, slot)?
             };
             match name {
-                "strip.setParameter" => {
-                    let parameter = whole(a.int("parameterId")?, "parameterId")?;
+                "strip.setParameter" | "strip.setParameters" => {
+                    let values = if name == "strip.setParameter" {
+                        vec![(
+                            whole(a.int("parameterId")?, "parameterId")?,
+                            a.f64("value")?,
+                        )]
+                    } else {
+                        let values = a
+                            .get("values")
+                            .and_then(Value::as_object)
+                            .ok_or("Expected parameter values")?;
+                        if values.is_empty() || values.len() > 512 {
+                            return Err("Set between 1 and 512 parameters per call".into());
+                        }
+                        values
+                            .iter()
+                            .map(|(key, value)| {
+                                let id = key
+                                    .parse::<u32>()
+                                    .map_err(|_| "Parameter IDs must be unsigned integers")?;
+                                if id.to_string() != *key {
+                                    return Err(
+                                        "Use canonical parameter IDs from strip.parameters".into(),
+                                    );
+                                }
+                                let value = value
+                                    .as_f64()
+                                    .filter(|v| v.is_finite())
+                                    .ok_or("Parameter values must be finite numbers")?;
+                                Ok((id, value))
+                            })
+                            .collect::<Result<Vec<_>>>()?
+                    };
                     let metadata = host.plugin_parameters(id, slot)?;
-                    let param = metadata["parameters"]
-                        .as_array()
-                        .and_then(|p| p.iter().find(|p| p["id"] == parameter))
-                        .ok_or_else(|| {
-                            format!("Unknown parameter `{parameter}`. Use strip.parameters.")
-                        })?;
-                    let value = a.f64("value")?;
-                    let min = param["min"]
-                        .as_f64()
-                        .ok_or("Plugin parameter has invalid bounds")?;
-                    let max = param["max"]
-                        .as_f64()
-                        .ok_or("Plugin parameter has invalid bounds")?;
-                    if !(min..=max).contains(&value) {
-                        return Err(format!("Parameter value must be between {min} and {max}"));
+                    for (parameter, value) in values {
+                        let param = metadata["parameters"]
+                            .as_array()
+                            .and_then(|p| p.iter().find(|p| p["id"] == parameter))
+                            .ok_or_else(|| {
+                                format!("Unknown parameter `{parameter}`. Use strip.parameters.")
+                            })?;
+                        let min = param["min"]
+                            .as_f64()
+                            .ok_or("Plugin parameter has invalid bounds")?;
+                        let max = param["max"]
+                            .as_f64()
+                            .ok_or("Plugin parameter has invalid bounds")?;
+                        if !(min..=max).contains(&value) {
+                            return Err(format!(
+                                "Parameter {parameter} must be between {min} and {max}"
+                            ));
+                        }
+                        insert.params.insert(parameter, value);
                     }
-                    insert.params.insert(parameter, value);
                 }
                 "strip.setBypass" => {
                     insert.state = if a.bool("bypassed")? {
@@ -1763,7 +1808,7 @@ fn inspect(host: &dyn Host, include_notes: bool) -> Value {
         json!(session.clips.iter().map(clip_summary).collect::<Vec<_>>())
     };
     json!({
-        "info":info(host),"tracks":session.tracks,"clips":clips,"sources":session.sources,
+        "info":info(host),"tracks":session.tracks.iter().map(|t| track_json(session, t)).collect::<Vec<_>>(),"clips":clips,"sources":session.sources,
         "strips":strips,"automation":session.automation,"masterVolume":session.master_volume,
         "includesNotes":include_notes,"includesPluginState":false
     })
@@ -1829,6 +1874,13 @@ pub(crate) fn track_json(s: &Session, t: &Track) -> Value {
         "mute": t.mute,
         "solo": t.solo,
         "armed": t.armed,
+        "audibility": {
+            "muted": t.mute,
+            "excludedBySolo": !t.solo && s.tracks.iter().any(|track| track.solo),
+            "silentFader": t.volume == 0.0,
+            "silentMaster": s.master_volume == 0.0,
+            "instrumentBypassed": t.kind == "midi" && full_strip(s, &t.id).synth.as_ref().is_some_and(|i| i.state == "bypassed"),
+        },
         "instrument": if t.kind == "midi" { Some(full_strip(s, &t.id).instrument_name()) } else { None },
         "clipCount": s.clips.iter().filter(|c| c.track_id == t.id).count(),
         "index": s.tracks.iter().position(|x| x.id == t.id),

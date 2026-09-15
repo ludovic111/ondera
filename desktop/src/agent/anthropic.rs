@@ -67,7 +67,7 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
         let _ = turn
             .events
             .send(Event::Status(format!("Thinking with {model}…")));
-        let body = json!({
+        let mut body = json!({
             "model": model,
             "max_tokens": turn.settings.agent.max_output_tokens,
             "system": system,
@@ -75,6 +75,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             "messages": wire(&history),
             "stream": true,
         });
+        if !turn.settings.agent.reasoning_effort.is_empty() {
+            body["output_config"] = json!({"effort":turn.settings.agent.reasoning_effort});
+        }
         let mut response = agent
             .post(ENDPOINT)
             .header("x-api-key", &key)
@@ -96,6 +99,7 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
         let mut current: Option<usize> = None;
         let mut stop_reason = String::new();
         let mut data = String::new();
+        let mut completed = false;
         loop {
             if turn.cancel.load(Ordering::Acquire) {
                 let _ = turn.events.send(Event::Done {
@@ -112,6 +116,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             };
             let line = line.trim_end();
             if let Some(payload) = line.strip_prefix("data:") {
+                if data.len() + payload.len() > LINE_LIMIT {
+                    return Err("Stream event is too large".into());
+                }
                 data.push_str(payload.trim());
                 continue;
             }
@@ -121,7 +128,8 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             if data.is_empty() {
                 continue;
             }
-            let event: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            let event: Value =
+                serde_json::from_str(&data).map_err(|e| format!("Invalid stream event: {e}"))?;
             data.clear();
             match event["type"].as_str().unwrap_or("") {
                 "message_start" => {
@@ -134,6 +142,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
                 "content_block_start" => {
                     let block = &event["content_block"];
                     if block["type"] == "tool_use" {
+                        if blocks.len() >= 128 {
+                            return Err("Too many tool calls in one response".into());
+                        }
                         blocks.push((
                             block["id"].as_str().unwrap_or("").into(),
                             block["name"].as_str().unwrap_or("").into(),
@@ -154,6 +165,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
                 "content_block_delta" => {
                     let delta = &event["delta"];
                     if let Some(t) = delta["text"].as_str() {
+                        if text.len() + t.len() > 1024 * 1024 {
+                            return Err("Agent response exceeds 1 MiB".into());
+                        }
                         text.push_str(t);
                         let _ = turn.events.send(Event::Text {
                             text: t.into(),
@@ -162,6 +176,9 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
                     } else if let (Some(index), Some(partial)) =
                         (current, delta["partial_json"].as_str())
                     {
+                        if blocks[index].2.len() + partial.len() > 1024 * 1024 {
+                            return Err("Tool arguments exceed 1 MiB".into());
+                        }
                         blocks[index].2.push_str(partial);
                     }
                 }
@@ -172,6 +189,10 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
                         output: event["usage"]["output_tokens"].as_u64().unwrap_or(0),
                     });
                 }
+                "message_stop" => {
+                    completed = true;
+                    break;
+                }
                 "error" => {
                     return Err(format!(
                         "Anthropic API error: {}",
@@ -180,6 +201,12 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
                 }
                 _ => {}
             }
+        }
+        if !completed {
+            return Err("The response stream ended before completion. Try again.".into());
+        }
+        if stop_reason == "max_tokens" {
+            return Err("The response reached its token limit. Increase it in Agent settings; no incomplete tool was run.".into());
         }
         if !text.is_empty() {
             let _ = turn.events.send(Event::TextEnd);
@@ -192,7 +219,7 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             let input: Value = if input.trim().is_empty() {
                 json!({})
             } else {
-                serde_json::from_str(input).unwrap_or(json!({}))
+                serde_json::from_str(input).map_err(|e| format!("Invalid tool arguments: {e}"))?
             };
             parts.push(Part::ToolUse {
                 id: id.clone(),
@@ -232,7 +259,7 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             let input: Value = if input.trim().is_empty() {
                 json!({})
             } else {
-                serde_json::from_str(&input).unwrap_or(json!({}))
+                serde_json::from_str(&input).map_err(|e| format!("Invalid tool arguments: {e}"))?
             };
             let (tx, rx) = mpsc::sync_channel(1);
             turn.events

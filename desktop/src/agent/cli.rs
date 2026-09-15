@@ -112,7 +112,7 @@ fn preflight(
     Ok(text)
 }
 
-fn prompt_with_context(turn: &Turn, prefix: &str) -> String {
+pub(super) fn prompt_with_context(turn: &Turn, prefix: &str) -> String {
     let summary = bounded(
         &serde_json::to_string(&turn.session_summary).unwrap_or_default(),
         3000,
@@ -125,84 +125,6 @@ fn prompt_with_context(turn: &Turn, prefix: &str) -> String {
             turn.prompt
         )
     }
-}
-
-/// Codex: `codex exec --json` with this window as its only MCP server.
-pub(crate) fn run_codex(turn: Turn) -> Result<()> {
-    let executable = super::discover_codex(&turn.settings.agent.codex_executable);
-    let hint = "Install Codex CLI, set its path in Settings > Agent, then sign in there.";
-    let _ = turn
-        .events
-        .send(Event::Status("Checking Codex CLI…".into()));
-    let help = preflight(&executable, &["exec", "--help"], &turn.cancel, hint)?;
-    if !help.contains("--ignore-user-config") {
-        return Err("Update Codex CLI: this integration needs `codex exec --ignore-user-config` to isolate this window's tools.".into());
-    }
-    let workspace = ondera_engine::host::scan::data_dir().join("agent-workspace");
-    fs::create_dir_all(&workspace)
-        .map_err(|e| format!("Could not create the agent workspace: {e}"))?;
-    let mut command = Command::new(&executable);
-    command
-        .args([
-            "exec",
-            "--json",
-            "--ephemeral",
-            "--ignore-user-config",
-            "--skip-git-repo-check",
-            "--sandbox",
-            "read-only",
-            "--color",
-            "never",
-            "-C",
-        ])
-        .arg(&workspace);
-    for option in [
-        "features.shell_tool=false",
-        "features.unified_exec=false",
-        "features.apps=false",
-        "features.plugins=false",
-        "features.memories=false",
-        "features.multi_agent=false",
-        "features.hooks=false",
-        "web_search=\"disabled\"",
-        "approval_policy=\"never\"",
-        "mcp_servers.ondera.args=[\"--live\"]",
-        "mcp_servers.ondera.default_tools_approval_mode=\"approve\"",
-        "mcp_servers.ondera.tool_timeout_sec=3600",
-    ] {
-        command.args(["-c", option]);
-    }
-    // JSON strings are valid TOML basic strings; quoting protects quotes, slashes,
-    // newlines and Windows paths without putting any prompt or token into argv.
-    for (key, value) in [
-        ("mcp_servers.ondera.command", json!(turn.mcp_executable)),
-        (
-            "developer_instructions",
-            json!(system_prompt(&turn.settings)),
-        ),
-    ] {
-        command.args(["-c", &format!("{key}={value}")]);
-    }
-    command.args([
-        "-c",
-        &format!(
-            "mcp_servers.ondera.env={{ONDERA_CONTROL={}}}",
-            json!(turn.discovery.to_string_lossy())
-        ),
-    ]);
-    let model = turn.settings.model();
-    if !model.is_empty() {
-        command.args(["--model", &model]);
-    }
-    command
-        .arg("-")
-        .current_dir(&workspace)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    group(&mut command);
-    let prompt = prompt_with_context(&turn, &turn_prefix(&turn));
-    run_child(command, prompt, &turn, parse_codex_event, "Codex")
 }
 
 /// Claude Code: `claude -p --output-format stream-json` with this window's MCP server.
@@ -235,6 +157,12 @@ pub(crate) fn run_claude(turn: Turn) -> Result<()> {
             "--output-format",
             "stream-json",
             "--verbose",
+            "--include-partial-messages",
+            "--no-session-persistence",
+            "--setting-sources",
+            "",
+            "--tools",
+            "",
             "--mcp-config",
         ])
         .arg(&config_path)
@@ -251,6 +179,9 @@ pub(crate) fn run_claude(turn: Turn) -> Result<()> {
     if !model.is_empty() {
         command.args(["--model", &model]);
     }
+    if !turn.settings.agent.reasoning_effort.is_empty() {
+        command.args(["--effort", &turn.settings.agent.reasoning_effort]);
+    }
     command
         .current_dir(&workspace)
         .stdin(Stdio::piped())
@@ -263,7 +194,7 @@ pub(crate) fn run_claude(turn: Turn) -> Result<()> {
     result
 }
 
-fn turn_prefix(turn: &Turn) -> String {
+pub(super) fn turn_prefix(turn: &Turn) -> String {
     // CLI providers restart per turn; carry the recent exchange as plain text.
     turn.history
         .iter()
@@ -377,13 +308,6 @@ fn run_child(
             bounded(&stderr, 400)
         )));
     }
-    if !transcript.response.is_empty() {
-        let _ = turn.events.send(Event::Text {
-            text: transcript.response.clone(),
-            replace: true,
-        });
-        let _ = turn.events.send(Event::TextEnd);
-    }
     let mut history = turn.history.clone();
     history.push(super::Message {
         role: "user",
@@ -427,6 +351,7 @@ fn read_events(
     Ok(transcript)
 }
 
+#[cfg(test)]
 fn parse_codex_event(event: &Value, transcript: &mut Transcript, events: &mpsc::SyncSender<Event>) {
     match event["type"].as_str().unwrap_or("") {
         "item.started" | "item.updated" | "item.completed" => {
@@ -470,25 +395,46 @@ fn parse_claude_event(
     events: &mpsc::SyncSender<Event>,
 ) {
     match event["type"].as_str().unwrap_or("") {
-        "assistant" => {
-            for block in event["message"]["content"].as_array().into_iter().flatten() {
-                match block["type"].as_str().unwrap_or("") {
-                    "text" => {
-                        if let Some(text) = block["text"].as_str() {
-                            transcript.response = bounded(text, TEXT_LIMIT);
-                            let _ = events.send(Event::Text {
-                                text: transcript.response.clone(),
-                                replace: true,
-                            });
-                        }
-                    }
-                    "tool_use" => {
-                        let _ = events.send(Event::ToolNote {
-                            name: block["name"].as_str().unwrap_or("Ondera command").into(),
-                            done: false,
+        "stream_event" => {
+            let stream = &event["event"];
+            match stream["type"].as_str().unwrap_or("") {
+                "message_start" => transcript.response.clear(),
+                "content_block_delta" if stream["delta"]["type"] == "text_delta" => {
+                    if let Some(text) = stream["delta"]["text"].as_str() {
+                        transcript.response =
+                            bounded(&format!("{}{text}", transcript.response), TEXT_LIMIT);
+                        let _ = events.send(Event::Text {
+                            text: text.into(),
+                            replace: false,
                         });
                     }
-                    _ => {}
+                }
+                _ => {}
+            }
+        }
+        "assistant" => {
+            let blocks = event["message"]["content"].as_array();
+            let text = blocks
+                .into_iter()
+                .flatten()
+                .filter(|b| b["type"] == "text")
+                .filter_map(|b| b["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if !text.is_empty() {
+                transcript.response = bounded(&text, TEXT_LIMIT);
+                let _ = events.send(Event::Text {
+                    text: transcript.response.clone(),
+                    replace: true,
+                });
+                let _ = events.send(Event::TextEnd);
+            }
+            for block in blocks.into_iter().flatten() {
+                if block["type"] == "tool_use" {
+                    let _ = events.send(Event::ToolNote {
+                        name: block["name"].as_str().unwrap_or("Ondera command").into(),
+                        done: false,
+                    });
                 }
             }
         }
@@ -505,8 +451,13 @@ fn parse_claude_event(
         "result" => {
             transcript.completed = true;
             if let Some(text) = event["result"].as_str() {
-                if !text.is_empty() {
+                if !text.is_empty() && transcript.response != text {
                     transcript.response = bounded(text, TEXT_LIMIT);
+                    let _ = events.send(Event::Text {
+                        text: transcript.response.clone(),
+                        replace: true,
+                    });
+                    let _ = events.send(Event::TextEnd);
                 }
             }
             if event["is_error"].as_bool().unwrap_or(false) {
@@ -532,7 +483,7 @@ fn parse_claude_event(
     }
 }
 
-fn read_errors(mut reader: impl BufRead) -> Result<String> {
+pub(super) fn read_errors(mut reader: impl BufRead) -> Result<String> {
     let mut output = String::new();
     while let Some(line) = read_line_limited(&mut reader, LINE_LIMIT).map_err(|e| e.to_string())? {
         output.push_str(&line);
@@ -617,6 +568,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.error.as_deref(), Some("Login required"));
+    }
+
+    #[test]
+    fn claude_partial_text_is_replaced_once_by_final_snapshot() {
+        let (tx, rx) = mpsc::sync_channel(32);
+        let source = [
+            json!({"type":"stream_event","event":{"type":"message_start"}}),
+            json!({"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"**One"}}}),
+            json!({"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":" beat.**"}}}),
+            json!({"type":"assistant","message":{"content":[{"type":"text","text":"**One beat.**"}]}}),
+            json!({"type":"result","result":"**One beat.**","is_error":false})
+        ].iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        let result = read_events(source.as_bytes(), &tx, parse_claude_event).unwrap();
+        assert!(result.completed);
+        let events: Vec<Event> = rx.try_iter().collect();
+        let text_events: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Text { text, replace } => Some((text.as_str(), *replace)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            text_events,
+            vec![
+                ("**One", false),
+                (" beat.**", false),
+                ("**One beat.**", true)
+            ]
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, Event::TextEnd))
+                .count(),
+            1
+        );
     }
 
     #[test]

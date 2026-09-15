@@ -7,6 +7,11 @@ import {
   providers,
   useAgentConnection,
 } from "./connection";
+import { RhythmLab } from "./RhythmLab";
+import { TakePanel } from "./TakePanel";
+import { slashCommands } from "./slashCommands";
+import { AgentMessage, humanStatus } from "./AgentMessage";
+import { ModelSelector } from "./ModelSelector";
 import styles from "./AgentPanel.module.css";
 
 const starters = [
@@ -41,7 +46,29 @@ export function AgentPanel() {
     error: connectionError,
     check,
   } = useAgentConnection(`${settingsOpen}:${agent.status.provider}`);
-  const [tab, setTab] = useState<"conversation" | "changes">("conversation");
+  const [tab, setTab] = useState<
+    "conversation" | "changes" | "takes" | "rhythm"
+  >("conversation");
+  const [slashIndex, setSlashIndex] = useState(0);
+  const slashMatches =
+    composer.draft.startsWith("/") && !composer.draft.includes(" ")
+      ? slashCommands.filter((c) =>
+          c.name.startsWith(composer.draft.slice(1).toLowerCase()),
+        )
+      : [];
+  const chooseSlash = (command: (typeof slashCommands)[number]) => {
+    if (command.name === "rhythm") {
+      setTab("rhythm");
+      store.setAgentDraft("");
+    } else if (command.name === "takes" || command.name === "variation") {
+      setTab("takes");
+      store.setAgentDraft("");
+    } else {
+      store.setAgentDraft(command.prompt);
+      input.current?.focus();
+    }
+    setSlashIndex(0);
+  };
   const [confirmClear, setConfirmClear] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const conversation = useRef<HTMLDivElement>(null);
@@ -56,8 +83,13 @@ export function AgentPanel() {
   const openSettings = () =>
     store.fire("ui.showPanel", { panel: "settings", section: "agent" });
   useEffect(() => {
-    if (follow.current) end.current?.scrollIntoView({ block: "nearest" });
+    if (tab === "conversation" && follow.current)
+      end.current?.scrollIntoView({ block: "nearest" });
   }, [agent.transcript, tab]);
+  useEffect(() => {
+    if (tab !== "conversation" && conversation.current)
+      conversation.current.scrollTop = 0;
+  }, [tab]);
   const send = async () => {
     if (!ready || busy) return;
     follow.current = true;
@@ -67,7 +99,7 @@ export function AgentPanel() {
   };
   return (
     <aside className={styles.panel} aria-label="Agent">
-      <div className={styles.header}>
+      <div className={styles.header} data-surface="agent-header">
         <span className={`${styles.dot} ${ready ? "m-led-accent" : ""}`} />
         <strong className={styles.title}>Agent</strong>
         <span className={styles.status}>
@@ -103,7 +135,21 @@ export function AgentPanel() {
           className={tab === "changes" ? "m-segment-selected" : ""}
           onClick={() => setTab("changes")}
         >
-          Changes · {agent.changes.length}
+          Activity · {agent.changes.length}
+        </button>
+        <button
+          aria-pressed={tab === "takes"}
+          className={tab === "takes" ? "m-segment-selected" : ""}
+          onClick={() => setTab("takes")}
+        >
+          Takes A/B
+        </button>
+        <button
+          aria-pressed={tab === "rhythm"}
+          className={tab === "rhythm" ? "m-segment-selected" : ""}
+          onClick={() => setTab("rhythm")}
+        >
+          Rhythm Lab
         </button>
       </div>
       <div
@@ -171,36 +217,52 @@ export function AgentPanel() {
                 </p>
               </div>
             )}
-            {agent.transcript.entries.map((entry, index) => (
-              <article className="agent-message" key={index}>
-                <span className="caps">
-                  {entry.role === "user"
-                    ? "You"
-                    : entry.role === "assistant"
-                      ? "Agent"
-                      : (entry.tool?.name ?? "Notice")}
-                </span>
-                <div>{entry.text}</div>
-                {entry.tool && (
-                  <details>
-                    <summary>
-                      {entry.tool.result == null
-                        ? "Working…"
-                        : entry.tool.ok
-                          ? "View result"
-                          : "Could not complete this step"}
-                    </summary>
-                    <pre>{JSON.stringify(entry.tool.result, null, 2)}</pre>
-                  </details>
-                )}
-              </article>
-            ))}
+            {agent.transcript.entries
+              .filter(
+                (entry) => entry.role === "user" || entry.role === "assistant",
+              )
+              .map((entry, index) => (
+                <article className="agent-message" key={index}>
+                  <span className="caps">
+                    {entry.role === "user" ? "You" : "Agent"}
+                  </span>
+                  {entry.role === "assistant" ? (
+                    <AgentMessage
+                      text={entry.text}
+                      streaming={entry.streaming}
+                    />
+                  ) : (
+                    <div>{entry.text}</div>
+                  )}
+                </article>
+              ))}
           </>
+        ) : tab === "rhythm" ? (
+          <RhythmLab busy={busy} />
+        ) : tab === "takes" ? (
+          <TakePanel
+            busy={busy}
+            onVariation={() => {
+              setTab("conversation");
+              store.setAgentDraft(
+                "Explore a different musical direction in this creative take: [describe your idea]. The original version is preserved in Takes. Inspect the current project and preserve its identity.",
+              );
+              input.current?.focus();
+            }}
+          />
         ) : (
           <>
+            {agent.transcript.entries
+              .filter((entry) => entry.role === "notice")
+              .map((entry, index) => (
+                <article className="agent-message" key={`notice-${index}`}>
+                  <strong>Details</strong>
+                  <p>{entry.text}</p>
+                </article>
+              ))}
             {agent.changes.length === 0 ? (
               <div className={styles.welcome}>
-                <h2>Your changes will appear here</h2>
+                <h2>Your activity will appear here</h2>
                 <p>
                   When the agent edits your project, you can review the result
                   and undo it here.
@@ -247,13 +309,28 @@ export function AgentPanel() {
         )}
         <div ref={end} />
       </div>
-      <div className="agent-composer">
+      <div
+        className="agent-composer"
+        hidden={tab === "rhythm" || tab === "takes"}
+      >
+        <ModelSelector
+          key={`${agent.status.provider}:${agent.status.model}:${agent.status.reasoningEffort}`}
+          provider={agent.status.provider}
+          model={agent.status.model}
+          effort={agent.status.reasoningEffort}
+          disabled={busy}
+        />
         <div className="agent-status" role="status">
           <span>
             {composer.sending
               ? "Sending…"
-              : agent.status.status ||
-                (ready ? "Ready when you are" : "Connect a service to send")}
+              : !ready
+                ? "Connect a service to send"
+                : humanStatus(
+                    agent.status.status,
+                    agent.status.running,
+                    Boolean(error),
+                  )}
           </span>
           {agent.status.running && (
             <button
@@ -281,10 +358,9 @@ export function AgentPanel() {
                 Edit last request
               </button>
             )}
-            <details>
-              <summary>Technical details</summary>
-              <p>{error}</p>
-            </details>
+            <button className="m-button" onClick={() => setTab("changes")}>
+              View activity details
+            </button>
           </div>
         )}
         <div className={styles.context} title={selectedTrack?.name}>
@@ -293,14 +369,67 @@ export function AgentPanel() {
             ? `“${selectedTrack.name}” selected · current project`
             : "Current project"}
         </div>
+        {slashMatches.length > 0 && (
+          <div
+            className={styles.slashMenu}
+            role="listbox"
+            id="agent-slash-menu"
+            aria-label="Agent commands"
+          >
+            {slashMatches.map((command, index) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === slashIndex}
+                id={`agent-slash-${index}`}
+                key={command.name}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => chooseSlash(command)}
+              >
+                <strong>/{command.name}</strong>
+                <span>{command.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={input}
           aria-label="Message to agent"
           aria-describedby="agent-send-help"
-          placeholder="Describe the music you want to make…"
+          placeholder="Describe your idea, or type / for commands…"
+          aria-controls={slashMatches.length ? "agent-slash-menu" : undefined}
+          aria-activedescendant={
+            slashMatches.length ? `agent-slash-${slashIndex}` : undefined
+          }
           value={composer.draft}
-          onChange={(e) => store.setAgentDraft(e.target.value)}
+          onChange={(e) => {
+            store.setAgentDraft(e.target.value);
+            setSlashIndex(0);
+          }}
           onKeyDown={(e) => {
+            if (slashMatches.length && !e.nativeEvent.isComposing) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setSlashIndex(
+                  (i) =>
+                    (i +
+                      (e.key === "ArrowDown" ? 1 : -1) +
+                      slashMatches.length) %
+                    slashMatches.length,
+                );
+                return;
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                chooseSlash(slashMatches[slashIndex] ?? slashMatches[0]);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                store.setAgentDraft("");
+                return;
+              }
+            }
             if (
               e.key === "Enter" &&
               !e.shiftKey &&

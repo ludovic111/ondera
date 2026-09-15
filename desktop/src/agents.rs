@@ -1124,6 +1124,14 @@ impl Ondera {
         depth_before: usize,
         result: &Result<Value>,
     ) {
+        // Observing the agent must not change its activity or recursively capture
+        // previous transcripts in the next transcript.
+        if matches!(
+            method,
+            "agent.status" | "agent.transcript" | "agent.providers"
+        ) {
+            return;
+        }
         let depth_after = self.store.undo_depth();
         let (title, color) = describe(method, params, self.store.session());
         self.agents.sequence += 1;
@@ -1136,7 +1144,7 @@ impl Ondera {
             .as_ref()
             .is_ok_and(|value| value["status"] == "running");
         let sequence = self.agents.sequence;
-        if self.agents.runtime.running() && !running {
+        if self.agents.runtime.running() && !running && matches!(source, "Agent" | "MCP / agent") {
             if mutated {
                 self.agents.runtime.note_edit();
             }
@@ -1193,6 +1201,7 @@ impl AgentPanel {
         json!({
             "provider": settings.agent.provider.key(),
             "model": settings.model(),
+            "reasoningEffort": settings.agent.reasoning_effort,
             "running": self.runtime.running(),
             "status": self.runtime.status,
             "reply": self.runtime.last_reply,
@@ -1220,6 +1229,7 @@ impl AgentPanel {
                         Role::Notice => "notice",
                     },
                     "text": entry.text,
+                    "streaming": entry.streaming,
                 });
                 if let Some(tool) = &entry.tool {
                     value["tool"] = json!({
@@ -1617,6 +1627,16 @@ mod tests {
         let tool = app.agents.runtime.transcript[0].tool.clone().unwrap();
         assert!(tool.result.as_ref().unwrap().is_ok());
         assert!(tool.sequence.is_some());
+        assert_eq!(app.agents.runtime.edits(), 1);
+        let activity_count = app.agents.history.len();
+        for method in ["agent.status", "agent.transcript", "agent.providers"] {
+            app.run_control_command(method, &json!({}), false, "CLI")
+                .unwrap();
+        }
+        assert_eq!(app.agents.history.len(), activity_count);
+        app.run_control_command("session.info", &json!({}), false, "CLI")
+            .unwrap();
+        assert_eq!(app.agents.runtime.transcript.len(), 1);
         assert_eq!(app.agents.runtime.edits(), 1);
         app.run_control_command("session.info", &json!({}), true, "MCP / agent")
             .unwrap();

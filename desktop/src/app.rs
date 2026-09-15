@@ -312,7 +312,10 @@ impl Ondera {
         {
             fn changes_recording(command: &Command, old: &Transport) -> bool {
                 match command {
-                    Command::Undo | Command::Redo | Command::RemoveTrack(_) => true,
+                    Command::Undo
+                    | Command::Redo
+                    | Command::RemoveTrack(_)
+                    | Command::RestoreTake(_) => true,
                     Command::SetTransport(t) => {
                         t.tempo != old.tempo
                             || t.time_signature.numerator != old.time_signature.numerator

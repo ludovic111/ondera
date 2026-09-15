@@ -6,6 +6,7 @@ use std::sync::Arc;
 #[serde(tag = "command", content = "params", rename_all = "camelCase")]
 pub enum Command {
     Rename(String),
+    RestoreTake(Box<Session>),
     AddTrack(Track),
     UpdateTrack(Track),
     RemoveTrack(String),
@@ -173,6 +174,7 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
     }
     match command {
         Command::Rename(name) => s.name = name,
+        Command::RestoreTake(session) => *s = *session,
         Command::AddTrack(track) => {
             if s.tracks.iter().any(|t| t.id == track.id) {
                 return Err("Track ID already exists".into());

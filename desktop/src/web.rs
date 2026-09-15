@@ -121,6 +121,64 @@ fn daw_agent_help(provider: String) -> Result<()> {
 }
 
 #[tauri::command]
+async fn daw_rhythm_preview(
+    params: Value,
+    tempo: f64,
+    numerator: u8,
+    denominator: u8,
+) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        if params["bars"]
+            .as_u64()
+            .is_none_or(|bars| !(1..=4).contains(&bars))
+        {
+            return Err("Preview supports 1–4 bars".into());
+        }
+        let mut host = control::Headless::new();
+        let mut transport = host.store.session().transport.clone();
+        transport.tempo = tempo;
+        transport.time_signature.numerator = u32::from(numerator);
+        transport.time_signature.denominator = u32::from(denominator);
+        host.store.dispatch(Command::SetTransport(transport))?;
+        let mut params = params;
+        params["startBar"] = json!(0);
+        control::call(&mut host, "rhythm.create", &params, false)?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("preview.wav");
+        let bars = params["bars"].as_u64().unwrap_or(1) as f64;
+        let seconds = bars * host.store.session().beats_per_bar() * 60.0 / tempo;
+        if seconds > 30.0 {
+            return Err(
+                "Preview is limited to 30 seconds. Choose fewer bars or a faster tempo.".into(),
+            );
+        }
+        control::call(
+            &mut host,
+            "session.exportAudio",
+            &json!({
+                "path": path, "sampleRate":44100, "format":"pcm16", "startBar":0,
+                "endBar":bars, "tailSeconds":0.5
+            }),
+            false,
+        )?;
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn daw_agent_models() -> Result<Vec<crate::agent::catalog::Group>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::agent::catalog::discover(&ondera_engine::settings::Settings::load())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn daw_agent_connection() -> Result<crate::agent::connection::Connection> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::agent::connection::check(&ondera_engine::settings::Settings::load())
@@ -248,6 +306,7 @@ impl WebHost {
         value["recovery"] = json!(self.app.recovery.is_open());
         value["recoveryStatus"] = json!(self.app.recovery.status());
         value["scale"] = json!(self.app.settings.interface.scale);
+        value["appearance"] = json!(self.app.settings.interface.appearance);
         value["update"] = json!({"available":self.app.updates.available.as_ref().map(|r| &r.version),
             "installed":self.app.updates.installed.is_some(),"busy":self.app.updates.busy()});
         Ok(value)
@@ -599,7 +658,9 @@ pub fn run(
             daw_snapshot,
             daw_signin,
             daw_agent_help,
-            daw_agent_connection
+            daw_agent_connection,
+            daw_agent_models,
+            daw_rhythm_preview
         ])
         .setup(move |application| {
             let context = egui::Context::default();

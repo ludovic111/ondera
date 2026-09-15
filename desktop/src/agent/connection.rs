@@ -7,7 +7,7 @@ use std::time::Duration;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Connection {
     provider: &'static str,
-    state: &'static str,
+    pub(super) state: &'static str,
     message: String,
 }
 
@@ -62,11 +62,11 @@ pub(crate) fn check(settings: &Settings) -> Connection {
     if provider == Provider::Codex {
         let help = crate::settings::run_cli(
             &executable,
-            &["exec".into(), "--help".into()],
+            &["app-server".into(), "--help".into()],
             Duration::from_secs(15),
         );
         match help {
-            Ok(help) if help.contains("--ignore-user-config") => {}
+            Ok(help) if help.contains("--listen") => {}
             Ok(_) => {
                 return result(
                     "updateRequired",
@@ -109,8 +109,8 @@ mod tests {
         settings.agent.codex_executable = executable.to_string_lossy().into();
         for (script, expected) in [
             ("#!/bin/sh\nprintf old-version\n", "updateRequired"),
-            ("#!/bin/sh\nif [ \"$1\" = exec ]; then printf '%s' --ignore-user-config; else exit 1; fi\n", "signInRequired"),
-            ("#!/bin/sh\nif [ \"$1\" = exec ]; then printf '%s' --ignore-user-config; else printf signed-in; fi\n", "signedIn"),
+            ("#!/bin/sh\nif [ \"$1\" = app-server ]; then printf '%s' --listen; else exit 1; fi\n", "signInRequired"),
+            ("#!/bin/sh\nif [ \"$1\" = app-server ]; then printf '%s' --listen; else printf signed-in; fi\n", "signedIn"),
         ] {
             std::fs::write(&executable, script).unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();

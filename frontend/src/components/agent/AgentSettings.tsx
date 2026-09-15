@@ -8,6 +8,7 @@ import {
   providers,
   useAgentConnection,
 } from "./connection";
+import { effortName, useModels } from "./models";
 import styles from "./AgentSettings.module.css";
 
 const permissionLabels: Record<string, [string, string]> = {
@@ -42,6 +43,10 @@ export function AgentSettings({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const store = useStore();
+  const catalog = useModels();
+  useEffect(() => {
+    void catalog.refresh();
+  }, [catalog.refresh]);
   const agent = useSyncExternalStore(store.subscribeMeta, store.getAgent);
   const provider = isProvider(settings.provider) ? settings.provider : "codex";
   const service = providers[provider];
@@ -56,6 +61,7 @@ export function AgentSettings({
     error: checkError,
     check,
   } = useAgentConnection(provider);
+  const [effort, setEffort] = useState(String(settings.reasoningEffort ?? ""));
   const [model, setModel] = useState(String(settings.model ?? ""));
   const [url, setUrl] = useState(String(settings.compatibleBaseUrl ?? ""));
   const [instructions, setInstructions] = useState(
@@ -79,6 +85,7 @@ export function AgentSettings({
         : "compatibleApiKey";
   const hasKey = Boolean(settings[keyPath]);
   const unsaved =
+    effort !== String(settings.reasoningEffort ?? "") ||
     instructions !== String(settings.instructions ?? "") ||
     maxTokens !== Number(settings.maxOutputTokens ?? 4096) ||
     maxRounds !== Number(settings.maxToolRounds ?? 48) ||
@@ -163,6 +170,7 @@ export function AgentSettings({
           event.preventDefault();
           void save([
             ["model", model.trim()],
+            ["reasoningEffort", effort],
             ["instructions", instructions],
             ["maxOutputTokens", maxTokens],
             ["maxToolRounds", maxRounds],
@@ -243,6 +251,24 @@ export function AgentSettings({
               )}
             </>
           )}
+          <label>
+            <span>Reasoning effort</span>
+            <select value={effort} onChange={(e) => setEffort(e.target.value)}>
+              {[
+                ...new Set([
+                  "",
+                  effort,
+                  ...(catalog.groups
+                    .find((g) => g.provider === provider)
+                    ?.models.find((m) => m.id === model)?.efforts ?? []),
+                ]),
+              ].map((id) => (
+                <option key={id} value={id}>
+                  {id ? effortName(id) : "Provider default"}
+                </option>
+              ))}
+            </select>
+          </label>
           <details>
             <summary>Advanced connection settings</summary>
             <div className={styles.advanced}>

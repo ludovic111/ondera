@@ -366,7 +366,7 @@ export function EditorPane() {
 
   return (
     <div className={styles.pane}>
-      <div className={styles.header}>
+      <div className={styles.header} data-surface="editor-header">
         <SegmentedControl
           items={MODES}
           value={mode}

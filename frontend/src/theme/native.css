@@ -20,7 +20,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #47d6cf;
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 .startup {
@@ -29,8 +29,8 @@ textarea:focus-visible {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #222221;
-  color: #e8e7e4;
+  background: var(--color-timeline);
+  color: var(--color-ink100);
   font:
     13px Manrope,
     sans-serif;
@@ -46,11 +46,11 @@ textarea:focus-visible {
   z-index: 50;
   width: min(780px, calc(90vw / var(--ui-scale, 1)));
   max-height: calc(80vh / var(--ui-scale, 1));
-  border: 1px solid #161615;
+  border: 1px solid var(--color-well-deep);
   border-radius: 7px;
   padding: 0;
-  background: linear-gradient(#333332, #2c2c2b);
-  color: #e8e7e4;
+  background: linear-gradient(var(--color-transport-top), var(--color-panel));
+  color: var(--color-ink100);
   box-shadow:
     0 18px 55px #0009,
     inset 0 1px #ffffff20;
@@ -72,14 +72,14 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
-  border-bottom: 1px solid #161615;
+  border-bottom: 1px solid var(--color-well-deep);
   box-shadow: 0 1px #ffffff0a;
 }
 .native-dialog > header button {
   border: 0;
   background: transparent;
   font-size: 20px;
-  color: #a9a8a4;
+  color: var(--color-ink300);
 }
 .dialog-content {
   min-height: 0;
@@ -90,13 +90,16 @@ textarea:focus-visible {
 .native-dialog button,
 .m-button {
   padding: 5px 10px;
-  border: 1px solid #1a1a19;
+  border: 1px solid var(--color-groove);
   border-radius: 4px;
-  background: linear-gradient(#42423f, #313130);
+  background: linear-gradient(
+    var(--color-control-top),
+    var(--color-control-bottom)
+  );
   box-shadow:
     inset 0 1px #ffffff19,
     0 1px 2px #0006;
-  color: #d6d5d1;
+  color: var(--color-ink-control);
 }
 .native-dialog footer {
   display: flex;
@@ -106,14 +109,14 @@ textarea:focus-visible {
 }
 .native-dialog input:not([type="checkbox"]):not([type="range"]),
 .native-dialog select {
-  background: #1c1c1b;
-  border: 1px solid #161615;
+  background: var(--color-groove-alt);
+  border: 1px solid var(--color-well-deep);
   border-radius: 4px;
   padding: 6px;
   min-width: 0;
 }
 .native-dialog input[type="checkbox"] {
-  accent-color: #47d6cf;
+  accent-color: var(--color-accent);
 }
 .settings-layout {
   display: flex;
@@ -135,7 +138,10 @@ textarea:focus-visible {
   padding: 9px;
 }
 .settings-layout nav .selected {
-  background: linear-gradient(#45453f, #363634);
+  background: linear-gradient(
+    var(--color-segment-top),
+    var(--color-segment-bottom)
+  );
   box-shadow: inset 0 1px #ffffff18;
 }
 .settings-fields {
@@ -158,7 +164,7 @@ textarea:focus-visible {
   width: 210px;
 }
 .settings-fields fieldset {
-  border: 1px solid #5a5957;
+  border: 1px solid var(--color-ink-separator);
   border-radius: 4px;
   display: flex;
   flex-direction: column;
@@ -189,34 +195,37 @@ textarea:focus-visible {
   border-bottom: 1px solid #ffffff08;
 }
 .parameter-list input[type="range"] {
-  accent-color: #a9a8a4;
+  accent-color: var(--color-ink300);
 }
 .parameter-list small {
-  color: #a9a8a4;
+  color: var(--color-ink300);
 }
 .caps {
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: #7f7e7a;
+  color: var(--color-ink500);
 }
 .agent-tabs {
   display: flex;
   padding: 8px 14px;
   gap: 8px;
-  border-bottom: 1px solid #1a1a19;
+  border-bottom: 1px solid var(--color-groove);
 }
 .agent-tabs button {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #a9a8a4;
+  color: var(--color-ink300);
   padding: 5px 8px;
 }
 .agent-tabs .m-segment-selected {
-  background: linear-gradient(#45453f, #363634);
-  color: #e8e7e4;
+  background: linear-gradient(
+    var(--color-segment-top),
+    var(--color-segment-bottom)
+  );
+  color: var(--color-ink100);
 }
 .agent-conversation {
   overflow: auto;
@@ -244,20 +253,20 @@ textarea:focus-visible {
   overflow: auto;
 }
 .agent-empty {
-  color: #a9a8a4;
+  color: var(--color-ink300);
   font-size: 13px;
   line-height: 1.6;
 }
 .agent-composer {
   padding: 14px;
-  border-top: 1px solid #161615;
+  border-top: 1px solid var(--color-well-deep);
 }
 .agent-composer textarea {
   width: 100%;
   min-height: 90px;
   resize: vertical;
-  background: #1c1c1b;
-  border: 1px solid #161615;
+  background: var(--color-groove-alt);
+  border: 1px solid var(--color-well-deep);
   border-radius: 5px;
   padding: 10px;
   font-size: 12.5px;
@@ -269,7 +278,7 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 8px;
   margin: 8px 0 0;
-  color: #a9a8a4;
+  color: var(--color-ink300);
   font-size: 10px;
 }
 .agent-status {
@@ -286,8 +295,8 @@ textarea:focus-visible {
       #ffffff12 calc(12.5% - 1px),
       #ffffff12 12.5%
     ),
-    #1f1f1e;
-  border: 1px solid #161615;
+    var(--color-timeline-empty);
+  border: 1px solid var(--color-well-deep);
   touch-action: none;
 }
 .automation-points {
@@ -311,7 +320,7 @@ textarea:focus-visible {
 }
 .recovery-item small {
   display: block;
-  color: #a9a8a4;
+  color: var(--color-ink300);
 }
 
 [data-tauri-drag-region] {
@@ -322,20 +331,20 @@ textarea:focus-visible {
   font:
     10px "IBM Plex Mono",
     monospace;
-  color: #7f7e7a;
+  color: var(--color-ink500);
   white-space: nowrap;
 }
 .region-fields {
   padding: 12px;
-  border-top: 1px solid #161615;
+  border-top: 1px solid var(--color-well-deep);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .region-fields input {
   width: 100%;
-  background: #1a1a19;
-  border: 1px solid #161615;
+  background: var(--color-groove);
+  border: 1px solid var(--color-well-deep);
   border-radius: 4px;
   padding: 5px;
 }
@@ -351,7 +360,7 @@ textarea:focus-visible {
   display: flex;
   gap: 4px;
   padding: 8px;
-  border-top: 1px solid #161615;
+  border-top: 1px solid var(--color-well-deep);
 }
 
 .plain-control {
@@ -379,7 +388,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   width: 50%;
-  background: #191918;
+  background: var(--color-groove);
   border-radius: 4px;
   padding: 4px 6px;
   color: var(--color-ink500);
@@ -433,4 +442,20 @@ textarea:focus-visible {
 }
 .settings-close-confirm button {
   margin-right: 8px;
+}
+
+.provider-logo {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #273e4e;
+  border: 1px solid #dce5e9;
+  border-radius: 6px;
+}
+.provider-logo img {
+  object-fit: contain;
 }

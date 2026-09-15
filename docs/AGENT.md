@@ -2,7 +2,7 @@
 
 Ondera can be driven four ways: the window, `ondera-cli`, `ondera-mcp` and the built-in
 agent panel. All four call the same command registry (`ondera-cli commands` lists it), so an
-agent's edits are ordinary undo steps, appear in the Changes log with a Revert button, and are
+agent's edits are ordinary undo steps, appear in the Activity log with an Undo button, and are
 marked in the arrangement with the accent colour.
 
 ## Connect and start a conversation
@@ -48,8 +48,9 @@ Settings > Agent chooses how the agent thinks:
 | OpenAI API | API key in Settings or `OPENAI_API_KEY` | `api.openai.com` directly |
 | OpenAI-compatible | base URL and optional key | your server (Ollama, LM Studio, OpenRouter…) |
 
-The CLI providers run in their own process group with a read-only sandbox and see only this
-window's Ondera tools over the local bridge; the CLI keeps the credentials. The API providers
+The CLI providers run in their own process group and receive this window's Ondera tools.
+Codex streams through app-server dynamic tools; Claude Code uses the local MCP bridge.
+Personal shell tools, hooks and unrelated integrations are excluded from these music sessions. The API providers
 stream replies and tool calls directly; keys live in `settings.json` (mode 0600) and are shown
 masked everywhere, including `settings.get`.
 
@@ -61,19 +62,42 @@ application control. Plain document edits are always allowed and always undoable
 
 ## The panel
 
-- **Conversation** shows your prompts, the streamed reply and one card per tool call. Click a
-  card for its CLI form and result; Revert undoes that edit and everything after it.
-- **Changes** lists every command an agent ran against this window, including MCP and CLI
-  clients, with the same Revert/Redo controls.
+- **Conversation** shows your prompts and streamed Markdown replies, with a short human-readable
+  activity status. Technical command names, raw results and provider diagnostics live in **Activity**.
+- **Activity** keeps the command history and **Undo from here / Redo to here** controls. Undo
+  also removes later manual edits. These controls are disabled while the agent is working.
+- The model picker groups the models reported by connected accounts and APIs, shows maker logos,
+  supports search, and offers each model's advertised reasoning levels. Refreshing lists models
+  without sending an inference request. A model's actual use still depends on provider access.
+- Type `/` for commands, including `/diagnose` for any project problem, arrangement/mixing prompts,
+  `/takes`, `/variation` and `/rhythm`. Commands fill a prompt or open a local feature; the prompt
+  remains editable before sending.
+- **Takes A/B** preserves the original before exploring a variation. Up to eight alternatives travel
+  inside the saved project. Selecting a take preserves current edits, stops playback and is undoable.
+- **Rhythm Lab** builds interlocking drum patterns, previews them through the system audio output,
+  and creates an editable MIDI track with Drum Machine in one undo step. The preview does not
+  alter the arrangement. Existing Solo states are reported rather than silently changed.
+- MIDI region menus also offer humanize, velocity ramps, fit-to-scale, reverse, legato and repeat.
 - Enter or Cmd/Ctrl+Enter sends; Shift+Enter adds a newline. Stop cancels the task and keeps
   finished edits. New conversation asks before clearing context and leaves the project intact.
-- Changes uses **Undo from here** / **Redo to here**. Undo also removes later edits, including
-  manual edits; these controls are disabled while the agent is working.
-- Errors explain the next step in plain language; raw provider messages remain available under
-  Technical details. Edit last request fills the composer without running completed edits again.
+- Errors explain the next step in plain language; raw provider messages remain in Activity.
+
+## Appearance and connection limits
+
+**Settings > Interface > Appearance** switches immediately between **Frutiger Aero** and the
+original **Anthracite** theme; the choice is saved. Aero uses smoked glass frames, green convex
+controls and silver bevels, with opaque reading/editing surfaces.
+
+Model discovery uses Codex app-server `model/list`, Claude Code's initialized model list, or an
+API's authenticated `/models` endpoint. It does not invent future model IDs or thinking modes.
+If the server does not advertise thinking capabilities, the picker uses its default. One
+OpenAI-compatible endpoint can be saved at a time; it can serve several vendors' models.
+Codex currently needs file-backed CLI authentication (`cli_auth_credentials_store="file"`);
+a keychain-only sign-in produces setup guidance. Third-party plugin control covers the parameters,
+state, presets and native editor exposed by the host; it cannot guarantee every vendor plugin.
 
 ## From the outside
 
 `agent.send`, `agent.stop`, `agent.status`, `agent.transcript`, `agent.providers` and
-`agent.clear` drive the panel from `ondera-cli` or MCP. `ui.screenshot` returns a PNG of the
+`agent.clear` and `agent.configure` drive the panel from `ondera-cli` or MCP. `ui.screenshot` returns a PNG of the
 window so a model can see it; `ui.showPanel`, `view.set` and `ui.status` complete the picture.

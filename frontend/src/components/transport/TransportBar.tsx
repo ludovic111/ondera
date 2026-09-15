@@ -50,7 +50,7 @@ export function TransportBar() {
     20 * Math.log10(Math.max(1e-6, Math.max(meters.masterL, meters.masterR)));
 
   return (
-    <div className={styles.bar}>
+    <div className={styles.bar} data-surface="transport">
       <div className={styles.group}>
         <Button
           title="Return"
@@ -74,6 +74,7 @@ export function TransportBar() {
       <div className={styles.group}>
         <Button
           title="Play (Space)"
+          className="aero-play"
           size="wide"
           pressed={playing}
           onClick={() => dispatch(commands.transport.play({}))}

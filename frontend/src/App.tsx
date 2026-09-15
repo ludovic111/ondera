@@ -11,6 +11,7 @@ import { InspectorPanel } from "./components/inspector/InspectorPanel";
 import { AgentPanel } from "./components/agent/AgentPanel";
 import { AgentRail } from "./components/agent/AgentRail";
 import { Dialogs } from "./components/Dialogs";
+import { applyAppearance } from "./theme/applyTokens";
 import styles from "./App.module.css";
 
 export function App() {
@@ -19,6 +20,13 @@ export function App() {
   useEffect(() => {
     store.fire("web.rendered");
   }, [store]);
+  const appearance = useSyncExternalStore(
+    store.subscribeMeta,
+    () => store.ui.appearance ?? "aero",
+  );
+  useEffect(() => {
+    applyAppearance(appearance);
+  }, [appearance]);
   const scale = useSyncExternalStore(
     store.subscribeMeta,
     () => store.ui.scale ?? 1,
@@ -32,7 +40,7 @@ export function App() {
   }, [scale]);
   const agentOpen = useSession((s) => s.view.agentPanelOpen);
   return (
-    <div className={styles.window}>
+    <div className={styles.window} data-surface="window">
       <TitleBar />
       <TransportBar />
       <div className={styles.body}>
