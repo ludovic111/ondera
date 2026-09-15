@@ -72,8 +72,7 @@ was installed and used for the visual review. Provider SVGs are local assets fro
   no error. Reasoning text is not exposed.
 - Real Codex tool turn after the JSON-RPC fix: created exactly one Drum Machine MIDI track,
   one bar and four kick notes (pitch 36, velocity 90, beats 0/1/2/3), then inspected routing.
-  Independent comparison confirmed the original tracks, clips, strips, sources and automation
-  were preserved.
+  Independent comparison confirmed the original tracks, clips, strips and sources were preserved.
 - Native UI: checked Markdown headings/lists, model logos and catalog, Rhythm Lab preview,
   creation of 34 MIDI notes, and immediate Aero/Anthracite switching. Screenshots were inspected.
 - Full song workflow through MCP and CLI using stock instruments: passed. Repeated with real
