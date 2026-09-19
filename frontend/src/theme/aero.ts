@@ -538,6 +538,16 @@ export function aero(mode: Mode): ThemeSpec {
     line,
     blur: { glass: "14px", glassAgent: "16px", glassCard: "18px" },
     radius: RADIUS,
+    // Fluid: longer, softer curves, surfaces float in.
+    motion: {
+      fast: "90ms",
+      base: "200ms",
+      slow: "340ms",
+      ease: "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      enter: "cubic-bezier(0.12, 0.9, 0.24, 1)",
+      exit: "cubic-bezier(0.45, 0, 0.8, 0.3)",
+      settle: "cubic-bezier(0.25, 1.25, 0.45, 1)",
+    },
     canvasShadow: physicalCanvasShadows(c, light),
     clipMix: dark
       ? { faceTop: 72, faceBottom: 48 }

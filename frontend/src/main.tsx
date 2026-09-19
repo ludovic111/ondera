@@ -10,6 +10,7 @@ import "./theme/native.css";
 import "./theme/modern.css";
 import "./theme/skeuo.css";
 import "./theme/aero.css";
+import "./theme/motion.css";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";

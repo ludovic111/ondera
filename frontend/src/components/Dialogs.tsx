@@ -48,6 +48,7 @@ export function Modal({
     <dialog
       ref={ref}
       className="native-dialog"
+      data-motion="sheet"
       aria-label={title}
       style={{ translate: `${offset.x}px ${offset.y}px` }}
       onKeyDown={(e) => {

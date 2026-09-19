@@ -80,7 +80,9 @@ export function App() {
         <CommandPalette onClose={() => store.setOverlay("palette", false)} />
       )}
       {dropping && (
-        <div className={styles.drop}>Drop audio or MIDI to import</div>
+        <div className={styles.drop} data-motion="fade">
+          Drop audio or MIDI to import
+        </div>
       )}
     </div>
   );

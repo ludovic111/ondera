@@ -72,6 +72,7 @@ export function PopupMenu({ items, x, y, onClose }: PopupMenuProps) {
     <div
       ref={ref}
       className={styles.menu}
+      data-motion="pop"
       role="menu"
       tabIndex={-1}
       onKeyDown={(e) => {

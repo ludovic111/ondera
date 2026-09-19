@@ -39,6 +39,7 @@ export const fill = { ...initial.fill };
 export const line = { ...initial.line };
 export const blur = { ...initial.blur };
 export const radius = { ...initial.radius };
+export const motion = { ...initial.motion };
 export const canvasShadow = { ...initial.canvasShadow };
 export const clipMix = { ...initial.clipMix };
 let themeVars: Record<string, string> = { ...initial.vars };
@@ -190,6 +191,7 @@ export function setTheme(theme: ThemeId, mode: Mode): ThemeSpec {
   Object.assign(line, spec.line);
   Object.assign(blur, spec.blur);
   Object.assign(radius, spec.radius);
+  Object.assign(motion, spec.motion);
   Object.assign(canvasShadow, spec.canvasShadow);
   Object.assign(clipMix, spec.clipMix);
   font.ui = spec.fontUi;
@@ -237,5 +239,6 @@ export function cssVariables(): Record<string, string> {
   emit(vars, "fill", fill);
   emit(vars, "line", line);
   emit(vars, "blur", blur);
+  emit(vars, "motion", motion);
   return { ...vars, ...themeVars };
 }

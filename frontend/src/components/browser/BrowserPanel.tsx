@@ -270,6 +270,7 @@ export function BrowserPanel() {
                   onClick={() => toggleFolder(key)}
                 >
                   <span
+                    data-motion="turn"
                     className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
                   >
                     <ChevronRightIcon />

@@ -210,7 +210,7 @@ export function Mixer() {
   const store = useStore();
   const tracks = useSession((s) => s.tracks);
   return (
-    <div className={styles.pane} data-surface="mixer">
+    <div className={styles.pane} data-surface="mixer" data-motion="from-bottom">
       <div className={styles.header}>
         <strong>Mixer</strong>
         <span className={styles.dim}>

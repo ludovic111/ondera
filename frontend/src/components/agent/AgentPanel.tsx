@@ -117,7 +117,7 @@ export function AgentPanel() {
     input.current?.focus();
   };
   return (
-    <aside className={styles.panel} aria-label="Agent">
+    <aside className={styles.panel} aria-label="Agent" data-motion="from-right">
       <div className={styles.header} data-surface="agent-header">
         <span className={`${styles.dot} ${ready ? "m-led-accent" : ""}`} />
         <strong className={styles.title}>Agent</strong>
@@ -582,7 +582,11 @@ function Steps({ steps }: { steps: ToolCall[] }) {
   const edits = steps.filter((s) => !isReading(s) || !s.ok);
   const reads = steps.length - edits.length;
   return (
-    <div className={styles.steps} aria-label="What the agent did">
+    <div
+      className={styles.steps}
+      aria-label="What the agent did"
+      data-motion="reveal"
+    >
       {reads > 0 && (
         <div className={styles.stepQuiet}>
           Looked at your project{reads > 1 ? ` · ${reads} checks` : ""}

@@ -397,6 +397,16 @@ export function modern(mode: Mode): ThemeSpec {
     line,
     blur: { glass: "16px", glassAgent: "16px", glassCard: "20px" },
     radius: RADIUS,
+    // Crisp and short: nothing overshoots, nothing lingers.
+    motion: {
+      fast: "70ms",
+      base: "130ms",
+      slow: "200ms",
+      ease: "cubic-bezier(0.2, 0, 0, 1)",
+      enter: "cubic-bezier(0.1, 0.8, 0.2, 1)",
+      exit: "cubic-bezier(0.4, 0, 1, 1)",
+      settle: "cubic-bezier(0.2, 0, 0, 1)",
+    },
     canvasShadow: NO_CANVAS_SHADOWS,
     clipMix: dark
       ? { faceTop: 58, faceBottom: 58 }

@@ -113,7 +113,7 @@ export function TransportBar() {
       </div>
 
       {countingIn && (
-        <span className={styles.countIn} role="status">
+        <span className={styles.countIn} role="status" data-motion="pulse">
           Count-in
         </span>
       )}

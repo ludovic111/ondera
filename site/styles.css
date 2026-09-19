@@ -16,8 +16,9 @@
   --fs-h3: 18px;
   --fs-lede: clamp(15px, 1.35vw, 17.5px);
   --fs-site-body: 14px;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --t-fast: 120ms;
+  /* The site moves the way the chosen theme does: tokens.css carries --motion-*. */
+  --ease: var(--motion-enter, cubic-bezier(0.2, 0.7, 0.2, 1));
+  --t-fast: var(--motion-base, 120ms);
   --t-reveal: 700ms;
 }
 
@@ -599,3 +600,59 @@ kbd { padding: 1px 5px; border-radius: 4px; font-size: 0.86em; background: var(-
 [data-theme="aero"] .tbtn--play { width: 40px; height: 40px; border-radius: 50%; }
 [data-theme="aero"] .tbtn--play[aria-pressed="true"] { background: var(--aero-lime-pressed); box-shadow: var(--shadow-pressed); }
 [data-theme="aero"] .display em { background: linear-gradient(180deg, var(--color-accent-hi), var(--color-accent) 60%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* ---------- sound families ---------- */
+
+.families { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--line-divider-dark); box-shadow: var(--shadow-divider-top); }
+.families__lede { color: var(--color-ink300); font-size: 13.5px; line-height: 1.6; max-width: 62ch; }
+.families__row { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.families__row li {
+  position: relative; padding: 7px 12px 7px 22px; border-radius: var(--radius-control);
+  background: var(--fill-row-shade); box-shadow: 0 0 0 1px var(--line-divider-dark);
+  color: var(--color-ink300); font-size: 12.5px; font-weight: var(--fw-medium);
+  transition: color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--motion-settle, var(--ease));
+}
+.families__row li::before {
+  content: ''; position: absolute; left: 10px; top: 50%; width: 4px; height: 12px; margin-top: -6px;
+  border-radius: 2px; background: var(--fam);
+  transition: height var(--t-fast) var(--ease), margin-top var(--t-fast) var(--ease);
+}
+.families__row li:hover { color: var(--color-ink100); box-shadow: 0 0 0 1px var(--fam); transform: translateY(-2px); }
+.families__row li:hover::before { height: 18px; margin-top: -9px; }
+/* The folders light one after another when the strip scrolls in. */
+html.js .families .families__row li { opacity: 0; transform: translateY(8px); }
+html.js .families.in .families__row li { opacity: 1; transform: none; transition-delay: calc(var(--i, 0) * 35ms); }
+
+/* ---------- pointer sheen on cards ---------- */
+
+.feature, .switch__col { position: relative; isolation: isolate; }
+.feature::after, .switch__col::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0;
+  border-radius: inherit;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 0%), var(--site-accent-glow), transparent 70%);
+  transition: opacity 240ms var(--ease);
+}
+.feature:hover::after, .switch__col:hover::after { opacity: 1; }
+
+/* ---------- the demo leans back as it arrives, then faces you ---------- */
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .daw-wrap { perspective: 1600px; }
+    .daw {
+      transform-origin: 50% 100%;
+      animation: daw-arrive linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 38%;
+    }
+    @keyframes daw-arrive {
+      from { transform: rotateX(14deg) scale(0.94); filter: brightness(0.75); }
+      to { transform: none; filter: none; }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.js .families .families__row li { opacity: 1; transform: none; transition: none; }
+  .feature::after, .switch__col::after { display: none; }
+}

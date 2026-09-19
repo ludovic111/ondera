@@ -317,8 +317,17 @@ export type CanvasShadowKey =
   | "noteSelected"
   | "note";
 
+/**
+ * How a theme moves. Durations are CSS times, easings are timing functions. Interaction
+ * feedback (`fast`) must stay under 100 ms so a control never feels late; `enter` and `exit`
+ * are for surfaces arriving and leaving, `settle` for things that land with weight.
+ */
+export type MotionKey =
+  "fast" | "base" | "slow" | "ease" | "enter" | "exit" | "settle";
+
 export interface ThemeSpec {
   scheme: Mode;
+  motion: Record<MotionKey, string>;
   color: Record<ColorKey, string>;
   gradient: Record<GradientKey, string>;
   shadow: Record<ShadowKey, string>;
