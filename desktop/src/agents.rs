@@ -1365,6 +1365,28 @@ fn brief(value: &Value) -> String {
 
 /// A one-line human title for a log entry and the swatch of the track it touched.
 fn describe(method: &str, params: &Value, session: &Session) -> (String, Color32) {
+    if method == "session.batch" {
+        // One change, as it is one undo step: say how much it did and what kind of thing.
+        let commands: Vec<&str> = params["commands"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry["command"].as_str())
+            .collect();
+        let mut kinds: Vec<&str> = vec![];
+        for command in &commands {
+            if !kinds.contains(command) {
+                kinds.push(command);
+            }
+        }
+        let shown = kinds.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+        let more = if kinds.len() > 3 { ", …" } else { "" };
+        let plural = if commands.len() == 1 { "" } else { "s" };
+        return (
+            format!("Batch · {} command{plural} · {shown}{more}", commands.len()),
+            NEUTRAL_DOT,
+        );
+    }
     let (object, action) = method.split_once('.').unwrap_or((method, ""));
     let clip = params["clipId"]
         .as_str()

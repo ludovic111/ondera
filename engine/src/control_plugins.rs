@@ -390,7 +390,8 @@ pub fn automatic_folder(d: &Descriptor) -> &'static str {
     {
         return named;
     }
-    let text = format!("{} {}", d.category, d.name).to_lowercase();
+    // Padded, so a rule can ask for a whole word (" q1 ") wherever the name puts it.
+    let text = format!(" {} {} ", d.category, d.name).to_lowercase();
     if d.instrument && (!d.effect || has(&text, &["instrument", "synth"])) {
         return if has(&text, &["bass", "808"]) {
             "Bass"
@@ -441,11 +442,31 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "vocals",
             "microphone",
             "mic collection",
+            "redd.",
+            "tg12345",
+            "audiotrack",
+            "vt-737",
+            "voxbox",
+            "ua 610",
+            "cs-1",
+            "centric",
         ],
     ),
     (
         "Mastering",
-        &["mastering", "master ", "ozone", "loudness", "maximiz"],
+        &[
+            "mastering",
+            "master ",
+            "ozone",
+            "loudness",
+            "maximiz",
+            "l2-",
+            "impusher",
+            "inflator",
+            "masterdesk",
+            "bx_digital",
+            "elysia alpha",
+        ],
     ),
     (
         "Restoration",
@@ -465,12 +486,37 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "fdbk",
             "feedback supp",
             "soothe",
+            "debreath",
+            " ns1 ",
+            "wns",
+            "w43",
+            "soundsoap",
+            "soundisolation",
+            "feedback hunter",
+            "c-suite",
+            "silk vocal",
         ],
     ),
     (
         "Pitch",
         &[
-            "pitch", "tune", "auto-key", "vocoder", "harmon", "shift", "formant",
+            "pitch",
+            "tune",
+            "auto-key",
+            "vocoder",
+            "harmon",
+            "shift",
+            "formant",
+            "melodyne",
+            "vocal bender",
+            "sync vx",
+            "torque",
+            "throat",
+            "mutator",
+            "articulator",
+            "aspire",
+            "key detect",
+            "key finder",
         ],
     ),
     (
@@ -508,13 +554,80 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "l2 ",
             "l3",
             "maxxvolume",
+            "rs124",
+            "cla-76",
+            "cla-2a",
+            "cla-3a",
+            "dpr-402",
+            "c6-",
+            "mv2",
+            "linmb",
+            "pro-c",
+            "pro-l",
+            "pro-ds",
+            "pro-g",
+            "pro-mb",
+            "rvox",
+            " axx",
+            "smack attack",
+            "louder",
+            "pressure",
+            "pumper",
+            "sibilance",
+            "distressor",
+            "fatso",
+            "variable mu",
+            "2254",
+            "envolution",
+            "supresser",
+            "tla-100",
+            "cl 1b",
+            "ua 175",
+            "ua 176",
+            "dyna-mite",
+            "vsc-2",
+            "mpressor",
+            "tone shaper",
+            "tripled",
+            "intrigger",
+            "emo-d5",
+            " pse ",
         ],
     ),
     (
         "Space & Time",
         &[
-            "reverb", "verb", "delay", "echo", "space", "room", "hall", "plate", "shimmer",
-            "spring", "emt", "supertap", "ir-l", "ir1", "ir360", "tap",
+            "reverb",
+            "verb",
+            "delay",
+            "echo",
+            "space",
+            "room",
+            "hall",
+            "plate",
+            "shimmer",
+            "spring",
+            "emt",
+            "supertap",
+            "ir-l",
+            "ir1",
+            "ir360",
+            "tap",
+            "chambers",
+            "irlive",
+            "bx 20",
+            "dmx 15",
+            "rmx16",
+            "time cube",
+            "sdd-3000",
+            "lexicon",
+            "ocean way studios",
+            "sound city",
+            "re-201",
+            "pro-r",
+            "timeless",
+            "wetter",
+            "reflection engine",
         ],
     ),
     (
@@ -535,21 +648,123 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "auto pan",
             "mondomod",
             "metaflanger",
+            "brauer motion",
+            "doppler",
+            "enigma",
+            "kaleidoscopes",
+            "multimod rack",
+            "cyclosonic",
+            "dimension d",
+            "morphoder",
+            "vocodist",
+            "ovox",
+            " choir ",
+            " duo ",
         ],
     ),
     (
         "Distortion",
         &[
-            "distort", "satur", "drive", "fuzz", "crush", "amp", "tape", "clip", "lo-fi", "lofi",
-            "guitar", "gtr", "stomp", "vinyl", "retro", "j37", "kramer", "exciter", "enhancer",
-            "diezel", "marshall", "fender", "cabinet",
+            "distort",
+            "satur",
+            "drive",
+            "fuzz",
+            "crush",
+            "amp",
+            "tape",
+            "clip",
+            "lo-fi",
+            "lofi",
+            "guitar",
+            "gtr",
+            "stomp",
+            "vinyl",
+            "retro",
+            "j37",
+            "kramer",
+            "exciter",
+            "enhancer",
+            "diezel",
+            "marshall",
+            "fender",
+            "cabinet",
+            "magma",
+            "mdmx",
+            "screamer",
+            "nls ",
+            "saphira",
+            "prs ",
+            "engl ",
+            "friedman",
+            "fuchs",
+            "suhr",
+            "eden wt",
+            "gallien",
+            "gav19t",
+            "bermuda triangle",
+            "biscuit",
+            "studer",
+            "culture vulture",
+            "twintube",
+            "vsm-3",
+            "uad raw",
+            "verve",
+            "vitamin",
         ],
     ),
     (
         "EQ & Filter",
         &[
-            "eq", "filter", "tilt", "shelf", "pultec", "puigtec", "1073", "1081", "88rs", "helios",
-            "curves", "bass", "loair", "brighter", "q4", "q6", "q10", "f6",
+            "eq",
+            "filter",
+            "tilt",
+            "shelf",
+            "pultec",
+            "puigtec",
+            "1073",
+            "1081",
+            "88rs",
+            "helios",
+            "curves",
+            "bass",
+            "loair",
+            "brighter",
+            "q4",
+            "q6",
+            "q10",
+            "f6",
+            "api-5",
+            "api 5",
+            "bandpass",
+            "hipass",
+            "lowpass",
+            "pro-q",
+            " q1 ",
+            " q2 ",
+            " q3 ",
+            " q8 ",
+            "q-clone",
+            "q-capture",
+            "scheps 73",
+            "cambridge",
+            "harrison",
+            "massive passive",
+            "neve 1084",
+            "neve 31102",
+            "trident",
+            "me 1b",
+            "pe 1c",
+            "little labs vog",
+            "bx_refinement",
+            "bx_subsynth",
+            "submarine",
+            "fresh air",
+            "vitalizer",
+            "volcano",
+            "simplon",
+            "phatter",
+            "parallel particles",
+            "emo-f2",
         ],
     ),
     (
@@ -579,6 +794,23 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "dorrough",
             "monitor",
             "nx ",
+            "ps22",
+            "s1 ms",
+            "s1 shuffler",
+            " center ",
+            "paz",
+            "wlm",
+            "tonal balance",
+            "sub align",
+            "um22",
+            "tract",
+            "emo-generator",
+            "rogerbeep",
+            "roundtrip",
+            "studioverse",
+            "little labs ibp",
+            "studio 3",
+            "wood works",
         ],
     ),
 ];
@@ -597,6 +829,92 @@ fn entry(d: &Descriptor, library: &Plugins) -> Value {
     value["folder"] = json!(folder(d, library));
     value["favorite"] = json!(library.favorites.contains(&d.id));
     value
+}
+
+/// Split a channel-layout suffix off a plugin name: `"API-2500 (m->s)"` is `API-2500` in
+/// the layout `m->s`. Waves registers every layout of an Audio Unit as a plugin of its own.
+pub fn layout_of(name: &str) -> (&str, Option<&str>) {
+    let trimmed = name.trim_end();
+    // The VST3 spelling of the same thing: "C1 comp Mono", "Doubler2 Mono/Stereo".
+    for (suffix, layout) in [(" Mono/Stereo", "m->s"), (" Stereo", "s"), (" Mono", "m")] {
+        if let Some(base) = trimmed.strip_suffix(suffix).filter(|b| !b.is_empty()) {
+            return (base, Some(layout));
+        }
+    }
+    let Some(open) = trimmed.rfind(" (") else {
+        return (name, None);
+    };
+    let Some(layout) = trimmed[open + 2..].strip_suffix(')') else {
+        return (name, None);
+    };
+    let channel = |part: &str| {
+        matches!(part, "m" | "s" | "5.0" | "5.1" | "7.0" | "7.1" | "quad")
+            || (part.len() == 1 && part.chars().all(|c| c.is_ascii_digit()))
+    };
+    let known = match layout.split_once("->") {
+        Some((from, to)) => channel(from) && channel(to),
+        None => channel(layout),
+    };
+    if known {
+        (&trimmed[..open], Some(layout))
+    } else {
+        (name, None)
+    }
+}
+/// How well a layout suits a track, which is always stereo: stereo, then mono in and stereo
+/// out, then mono, then the surround ones.
+fn layout_rank(layout: Option<&str>) -> u8 {
+    match layout {
+        Some("s") | None => 0,
+        Some("m->s") => 1,
+        Some("m") => 2,
+        Some(_) => 3,
+    }
+}
+/// One row per plugin: layouts of the same plugin fold into the one a stereo track wants,
+/// and the others stay reachable under `layouts`. Order follows the first of each group.
+/// What the layouts of one plugin have in common, and nothing else shares.
+fn row_key(plugin: &Descriptor) -> String {
+    let (base, layout) = layout_of(&plugin.name);
+    format!(
+        "{}|{}|{}|{}",
+        plugin.format.prefix(),
+        plugin.vendor,
+        plugin.instrument,
+        if layout.is_some() {
+            base
+        } else {
+            plugin.id.as_str()
+        }
+    )
+}
+fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins) -> Vec<Value> {
+    let mut rows: Vec<(String, Vec<Descriptor>)> = vec![];
+    for plugin in plugins {
+        let key = row_key(&plugin);
+        match rows.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, group)) => group.push(plugin),
+            None => rows.push((key, vec![plugin])),
+        }
+    }
+    rows.into_iter()
+        .map(|(_, group)| {
+            let best = group
+                .iter()
+                .min_by_key(|d| layout_rank(layout_of(&d.name).1))
+                .expect("a group has at least one plugin");
+            let mut value = entry(best, library);
+            if group.len() > 1 {
+                value["name"] = json!(layout_of(&best.name).0);
+                value["favorite"] = json!(group.iter().any(|d| library.favorites.contains(&d.id)));
+                value["layouts"] = group
+                    .iter()
+                    .map(|d| json!({ "id": d.id, "layout": layout_of(&d.name).1 }))
+                    .collect();
+            }
+            value
+        })
+        .collect()
 }
 
 pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
@@ -653,13 +971,15 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
         filtered.retain(|d| rank(d) != usize::MAX);
         filtered.sort_by_key(rank);
     }
-    let total = filtered.len();
+    let rows: Vec<Value> = if args.opt_bool("everyLayout").unwrap_or(false) {
+        filtered.iter().map(|d| entry(d, library)).collect()
+    } else {
+        collapse_layouts(filtered, library)
+    };
+    let total = rows.len();
     let offset = usize::try_from(offset).map_err(|_| "Plugin offset is too large")?;
     let end = offset.saturating_add(limit as usize).min(total);
-    let page: Vec<Value> = filtered[offset.min(total)..end]
-        .iter()
-        .map(|d| entry(d, library))
-        .collect();
+    let page: Vec<Value> = rows[offset.min(total)..end].to_vec();
     Ok(
         json!({"plugins":page,"total":total,"offset":offset,"limit":limit,
         "nextOffset":if end<total {Some(end)} else {None},"cachePath":scan::cache_path()}),
@@ -715,7 +1035,13 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
             let folders: Vec<Value> = names
                 .iter()
                 .map(|name| {
-                    let inside: Vec<&Descriptor> = installed.iter().filter(|d| folder(d, &library) == *name).collect();
+                    // Counted as the browser shows them: one per plugin, not one per layout.
+                    let mut rows = std::collections::HashSet::new();
+                    let inside: Vec<&Descriptor> = installed
+                        .iter()
+                        .filter(|d| folder(d, &library) == *name)
+                        .filter(|d| rows.insert(row_key(d)))
+                        .collect();
                     json!({ "name": name,
                         "custom": !INSTRUMENT_FOLDERS.contains(&name.as_str()) && !EFFECT_FOLDERS.contains(&name.as_str()),
                         "instruments": inside.iter().filter(|d| d.instrument).count(),
@@ -857,9 +1183,113 @@ mod tests {
             ("Channel EQ", "EQ & Filter", "EQ & Filter"),
             ("MaxxBass (m)", "Bass", "EQ & Filter"),
             ("CLA Drums (m->s)", "Drums", "Channel Strips"),
+            // From what was in Other Effects on the owner's Mac, 2026-09-19.
+            ("Pro-Q 3", "", "EQ & Filter"),
+            ("Q1 (m)", "", "EQ & Filter"),
+            ("Q10 Stereo", "", "EQ & Filter"),
+            ("API-550A (s)", "", "EQ & Filter"),
+            ("UAD Manley Massive Passive MST", "", "EQ & Filter"),
+            ("AULowpass", "", "EQ & Filter"),
+            ("CLA-76 (m)", "", "Dynamics"),
+            ("Pro-MB", "", "Dynamics"),
+            ("UADx Empirical Labs Distressor", "", "Dynamics"),
+            ("UAD Tube-Tech CL 1B mk II", "", "Dynamics"),
+            ("Renaissance Axx (s)", "", "Dynamics"),
+            ("OneKnob Pumper (m)", "", "Dynamics"),
+            ("Pro-L 2", "", "Dynamics"),
+            ("S360 Panner (2->6)", "Spatial + Panner", "Utility"),
+            ("UAD Moog Multimode Filter XL", "", "EQ & Filter"),
+            ("UAD bx_masterdesk Classic", "", "Mastering"),
+            ("Abbey Road Chambers (m->s)", "", "Space & Time"),
+            ("UAD Lexicon 480L", "", "Space & Time"),
+            ("Timeless 3", "", "Space & Time"),
+            ("Pro-R 2", "", "Space & Time"),
+            ("Brauer Motion (s)", "", "Modulation"),
+            ("UAD Roland Dimension D", "", "Modulation"),
+            ("OVox (s)", "", "Modulation"),
+            ("UAD Friedman BE100", "", "Distortion"),
+            ("UAD Studer A800", "", "Distortion"),
+            ("Magma BB Tubes (s)", "", "Distortion"),
+            ("Melodyne", "", "Pitch"),
+            ("Vocal Bender (m)", "", "Pitch"),
+            ("WNS (m)", "", "Restoration"),
+            ("DeBreath (m)", "", "Restoration"),
+            ("Abbey Road REDD.37.51 (s)", "", "Channel Strips"),
+            ("UAD Avalon VT-737sp", "", "Channel Strips"),
+            ("S1 Shuffler (s)", "", "Utility"),
+            ("PAZ- Position (s)", "", "Utility"),
+            ("Center (s)", "", "Utility"),
+            // Names too plain to guess from stay where the user can see and re-file them.
+            ("Warm", "", "Other Effects"),
         ] {
             assert_eq!(automatic_folder(&effect(name, category)), folder, "{name}");
         }
+    }
+
+    #[test]
+    fn channel_layouts_of_one_plugin_share_a_browser_row() {
+        assert_eq!(layout_of("API-2500 (m->s)"), ("API-2500", Some("m->s")));
+        assert_eq!(
+            layout_of("S360 Panner (2->6)"),
+            ("S360 Panner", Some("2->6"))
+        );
+        assert_eq!(
+            layout_of("PS22 Spread(10) (s)"),
+            ("PS22 Spread(10)", Some("s"))
+        );
+        assert_eq!(layout_of("Pro-Q 3"), ("Pro-Q 3", None));
+        assert_eq!(layout_of("C1 comp Mono"), ("C1 comp", Some("m")));
+        assert_eq!(
+            layout_of("Doubler2 Mono/Stereo"),
+            ("Doubler2", Some("m->s"))
+        );
+        assert_eq!(layout_of("Stereo"), ("Stereo", None));
+        assert_eq!(layout_of("Reverb (Hall)"), ("Reverb (Hall)", None));
+        let au = |name: &str, vendor: &str| Descriptor {
+            id: format!("au:{name}"),
+            format: crate::plugin::Format::AudioUnit,
+            name: name.into(),
+            vendor: vendor.into(),
+            path: String::new(),
+            instrument: false,
+            effect: true,
+            category: String::new(),
+        };
+        let mut library = Plugins::default();
+        library.favorites.push("au:C1 comp (m)".into());
+        let rows = collapse_layouts(
+            vec![
+                au("C1 comp (m)", "Waves"),
+                au("C1 comp (m->s)", "Waves"),
+                au("C1 comp (s)", "Waves"),
+                au("Doubler2 (m)", "Waves"),
+                au("Doubler2 (m->s)", "Waves"),
+                au("Pro-Q 3", "FabFilter"),
+                au("C1 comp (s)", "Someone Else"),
+            ],
+            &library,
+        );
+        let seen: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|r| (r["name"].as_str().unwrap(), r["id"].as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("C1 comp", "au:C1 comp (s)"),
+                // No stereo layout: mono in, stereo out is the one a stereo track wants.
+                ("Doubler2", "au:Doubler2 (m->s)"),
+                ("Pro-Q 3", "au:Pro-Q 3"),
+                ("C1 comp (s)", "au:C1 comp (s)"),
+            ]
+        );
+        assert_eq!(rows[0]["layouts"].as_array().unwrap().len(), 3);
+        assert_eq!(rows[0]["layouts"][0]["layout"], "m");
+        assert_eq!(
+            rows[0]["favorite"], true,
+            "a star on any layout stars the row"
+        );
+        assert!(rows[2].get("layouts").is_none());
     }
 
     #[test]

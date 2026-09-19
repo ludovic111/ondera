@@ -114,6 +114,10 @@
 }
 
 /* Sound folders. */
+/* Carries data-motion="reveal" for the folder that was just opened. */
+.rows {
+  display: contents;
+}
 .group {
   display: flex;
   flex-direction: column;

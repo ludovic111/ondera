@@ -296,7 +296,11 @@ impl Ondera {
             }
             Ok(result)
         })();
-        self.record_agent_activity(method, params, source, before, depth_before, &result);
+        // The entries of a batch share one undo step, so they are one change: `run_batch`
+        // records it. A change per entry would offer Reverts that each undo the whole batch.
+        if !self.batching {
+            self.record_agent_activity(method, params, source, before, depth_before, &result);
+        }
         result
     }
     /// `session.batch` in the window: every entry passes the same permission and busy checks
@@ -306,6 +310,7 @@ impl Ondera {
         control::validate_request("session.batch", params)?;
         let entries = control_edit::batch_entries(params)?;
         let atomic = params["atomic"].as_bool().unwrap_or(true);
+        let (before, depth_before) = (self.store.revision, self.store.undo_depth());
         self.store.set_gesture(true);
         self.batching = true;
         let mut results = Vec::with_capacity(entries.len());
@@ -333,6 +338,14 @@ impl Ondera {
             None => Ok(control_edit::batch_reply(results)),
         };
         self.store.set_gesture(false);
+        self.record_agent_activity(
+            "session.batch",
+            params,
+            source,
+            before,
+            depth_before,
+            &outcome,
+        );
         outcome
     }
     pub(crate) fn poll_control_job(&mut self) {
@@ -1680,6 +1693,62 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         };
         assert!(refused.unwrap_err().contains("1 to 4 bars"));
+    }
+
+    #[test]
+    fn a_batch_is_one_change_because_it_is_one_undo_step() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.preparing = false;
+        app.sync_needed = false;
+        let clips = app.store.session().clips.len();
+        let batch = json!({"commands":[
+            {"command":"clip.create","params":{"trackId":"bass","startBar":40,"lengthBars":1}},
+            {"command":"clip.create","params":{"trackId":"bass","startBar":41,"lengthBars":1}},
+            {"command":"track.setVolume","params":{"trackId":"bass","volume":0.5}},
+        ]});
+        app.run_control_command("session.batch", &batch, true, "MCP / agent")
+            .unwrap();
+        assert_eq!(app.store.session().clips.len(), clips + 2);
+        let changes = app.agents.changes_json(app.store.undo_depth());
+        let list = changes.as_array().unwrap();
+        assert_eq!(list.len(), 1, "{changes}");
+        assert!(list[0]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("Batch · 3 commands · clip.create"));
+        // Reverting that one change takes the whole batch back, which is what it says.
+        let sequence = list[0]["sequence"].clone();
+        app.run_control_command("agent.revert", &json!({"sequence":sequence}), false, "test")
+            .unwrap();
+        assert_eq!(app.store.session().clips.len(), clips);
+        // A batch that fails and rolls back is still one entry, marked as not having succeeded.
+        let bad = json!({"commands":[
+            {"command":"clip.create","params":{"trackId":"bass","startBar":50,"lengthBars":1}},
+            {"command":"clip.remove","params":{"clipId":"no-such-clip"}},
+        ]});
+        assert!(app
+            .run_control_command("session.batch", &bad, true, "MCP / agent")
+            .is_err());
+        assert_eq!(app.store.session().clips.len(), clips);
+        let after = app.agents.changes_json(app.store.undo_depth());
+        let after = after.as_array().unwrap();
+        // The revert above is itself on the list; the failed batch added exactly one more.
+        let failed: Vec<_> = after
+            .iter()
+            .filter(|c| c["title"].as_str().unwrap().starts_with("Batch"))
+            .collect();
+        assert_eq!(failed.len(), 2);
+        let outcomes: Vec<bool> = failed
+            .iter()
+            .map(|c| c["succeeded"].as_bool().unwrap())
+            .collect();
+        assert!(
+            outcomes.contains(&true) && outcomes.contains(&false),
+            "{outcomes:?}"
+        );
+        assert!(after
+            .iter()
+            .all(|c| !c["title"].as_str().unwrap().starts_with("Clip")));
     }
 
     #[test]

@@ -499,6 +499,140 @@ function peaks() {
   return out;
 }
 
+/**
+ * A conversation with every kind of step the panel draws: a read, single edits, a batch, a
+ * failure, and a reply still streaming. `?agent=empty` starts with none; `?agent=busy` leaves
+ * the last step running.
+ */
+const busy = query.get("agent") === "busy";
+const step = (name: string, args: Params, result: unknown = {}, ok = true) => ({
+  role: "tool",
+  text: "",
+  tool: { name, args, ok, result },
+});
+const agentFixture = {
+  status: {
+    provider: "claude",
+    model: "claude-sonnet-5",
+    reasoningEffort: "medium",
+    running: busy,
+    status: busy ? "Running strip.setParameters…" : "Done",
+    error: null,
+    elapsedSeconds: busy ? 14 : 0,
+  },
+  transcript: {
+    entries:
+      query.get("agent") === "empty"
+        ? []
+        : [
+            {
+              role: "user",
+              text: "Give the second verse a busier bass line and glue the drums a little.",
+            },
+            step("session.inspect", {}, { tracks: 6, clips: 9 }),
+            {
+              role: "assistant",
+              text: "I'll write a sixteenth-note variation on **Bass verse** and add gentle bus compression to the drums.",
+            },
+            step("clip.duplicate", { clipId: "bass-2" }, { id: "bass-3" }),
+            step(
+              "clip.setNotes",
+              {
+                clipId: "bass-3",
+                notes: Array.from({ length: 24 }, (_, i) => ({
+                  start: i / 4,
+                  length: 0.25,
+                  pitch: 36 + (i % 5),
+                })),
+              },
+              { noteCount: 24 },
+            ),
+            step(
+              "session.batch",
+              {
+                commands: [
+                  {
+                    command: "strip.setInsert",
+                    params: {
+                      trackId: "drums",
+                      slot: 0,
+                      effect: "Ondera Comp",
+                    },
+                  },
+                  {
+                    command: "strip.setParameters",
+                    params: { trackId: "drums", slot: 0 },
+                  },
+                  {
+                    command: "strip.setSendLevel",
+                    params: { trackId: "drums", send: 0, levelDb: -18 },
+                  },
+                ],
+              },
+              { results: 3 },
+            ),
+            step(
+              "preset.load",
+              { trackId: "drums", slot: 0, name: "Drum glue" },
+              "No preset named “Drum glue”",
+              false,
+            ),
+            {
+              role: "assistant",
+              text: "The bass variation is on bars 13–20 and the drums have 2–3 dB of glue. There was no “Drum glue” preset, so I set the compressor by hand",
+              streaming: busy,
+            },
+          ],
+  },
+  changes:
+    query.get("agent") === "empty"
+      ? []
+      : [
+          {
+            sequence: 1,
+            title: "Clip duplicate · Bass verse",
+            detail: "ondera-cli clip.duplicate --clipId bass-2",
+            output: '{"id":"bass-3"}',
+            succeeded: true,
+            running: false,
+            mutated: true,
+            applied: true,
+          },
+          {
+            sequence: 2,
+            title: "Clip set notes · Bass verse",
+            detail: "ondera-cli clip.setNotes --clipId bass-3 --params '{…}'",
+            output: '{"noteCount":24}',
+            succeeded: true,
+            running: false,
+            mutated: true,
+            applied: true,
+          },
+          {
+            sequence: 3,
+            title:
+              "Batch · 3 commands · strip.setInsert, strip.setParameters, strip.setSendLevel",
+            detail: "ondera-cli session.batch --params '{…}'",
+            output: '{"results":3}',
+            succeeded: true,
+            running: busy,
+            mutated: true,
+            applied: true,
+          },
+          {
+            sequence: 4,
+            title: "Preset load · Drums · “Drum glue”",
+            detail:
+              "ondera-cli preset.load --trackId drums --slot 0 --name 'Drum glue'",
+            output: "No preset named “Drum glue”",
+            succeeded: false,
+            running: false,
+            mutated: false,
+            applied: false,
+          },
+        ],
+};
+
 function command(method: string, params: Params): unknown {
   switch (method) {
     case "web.ready":
@@ -604,6 +738,12 @@ function command(method: string, params: Params): unknown {
       }
       return {};
     }
+    case "agent.transcript":
+      return agentFixture.transcript;
+    case "agent.changes":
+      return agentFixture.changes;
+    case "agent.status":
+      return agentFixture.status;
     case "agent.models":
       return [];
     case "agent.connection":
@@ -631,6 +771,8 @@ export function install(): void {
     },
     { shouldMockEvents: true },
   );
+  // After the window has subscribed; the real host sends this whenever the agent changes.
+  setTimeout(() => void emit("daw:agent", agentFixture), 300);
   let phase = 0;
   setInterval(() => {
     phase += 0.13;

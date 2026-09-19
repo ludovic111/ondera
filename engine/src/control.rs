@@ -124,7 +124,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     query("session.get", "Return the complete session document as JSON (tracks, clips with notes, sources, strips, transport, view).", &[]),
     query("session.inspect", "Inspect the arrangement, mixer and automation without opaque plugin state. Clips are summaries by default; use clip.get for individual notes.", &[opt("includeNotes",Kind::Boolean,"Include all MIDI notes instead of clip summaries (default false).")]),
     query("session.catalog", "List built-in instruments, effects and bundled MIDI loops.", &[]),
-    query("plugin.list", "Search a page of installed plugins from the scanner cache. Use query/kind/format to avoid returning a large library; follow nextOffset for more.", &[
+    query("plugin.list", "Search a page of installed plugins from the scanner cache. Use query/kind/format to avoid returning a large library; follow nextOffset for more. Channel layouts that a vendor registers as separate plugins (\"C1 comp (m)\", \"(s)\", \"(m->s)\") are one row: its id is the layout a stereo track wants and `layouts` lists the others.", &[
+        opt("everyLayout", Kind::Boolean, "List each channel layout as its own row instead (default false)."),
         opt("query",Kind::String,"Case-insensitive name, vendor or plugin ID search."),
         opt("format",Kind::String,"stock, native, clap, vst3 or au."),
         opt("kind",Kind::String,"instrument or effect."),
