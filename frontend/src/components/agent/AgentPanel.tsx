@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useSession, useStore } from "../../state/session";
 import { Button } from "../primitives/Button";
 import {
@@ -12,6 +18,8 @@ import { TakePanel } from "./TakePanel";
 import { slashCommands } from "./slashCommands";
 import { AgentMessage, humanStatus } from "./AgentMessage";
 import { ModelSelector } from "./ModelSelector";
+import { selectionContext, splitContext } from "../../state/native";
+import { describeTool, isReading, toolError, type ToolCall } from "./toolSteps";
 import styles from "./AgentPanel.module.css";
 
 const starters = [
@@ -37,9 +45,13 @@ export function AgentPanel() {
     store.subscribeMeta,
     () => store.ui.settings,
   );
-  const selectedTrack = useSession((s) =>
-    s.tracks.find((track) => track.id === s.view.selectedTrackId),
+  // Chips change only with the selection, not with every playhead tick.
+  const chipKey = useSession((s) =>
+    selectionContext(s)
+      .map((c) => c.detail)
+      .join("|"),
   );
+  const chips = useMemo(() => selectionContext(store.getState()), [chipKey]);
   const {
     connection,
     checking,
@@ -90,6 +102,13 @@ export function AgentPanel() {
     if (tab !== "conversation" && conversation.current)
       conversation.current.scrollTop = 0;
   }, [tab]);
+  // A context menu elsewhere asked for the agent: put the cursor in the message box.
+  useEffect(() => {
+    if (composer.focus > 0) {
+      setTab("conversation");
+      input.current?.focus();
+    }
+  }, [composer.focus]);
   const send = async () => {
     if (!ready || busy) return;
     follow.current = true;
@@ -135,7 +154,7 @@ export function AgentPanel() {
           className={tab === "changes" ? "m-segment-selected" : ""}
           onClick={() => setTab("changes")}
         >
-          Activity · {agent.changes.length}
+          Changes · {agent.changes.length}
         </button>
         <button
           aria-pressed={tab === "takes"}
@@ -217,25 +236,25 @@ export function AgentPanel() {
                 </p>
               </div>
             )}
-            {agent.transcript.entries
-              .filter(
-                (entry) => entry.role === "user" || entry.role === "assistant",
-              )
-              .map((entry, index) => (
+            {threadItems(agent.transcript.entries).map((item, index) =>
+              item.kind === "steps" ? (
+                <Steps key={index} steps={item.steps} />
+              ) : (
                 <article className="agent-message" key={index}>
                   <span className="caps">
-                    {entry.role === "user" ? "You" : "Agent"}
+                    {item.entry.role === "user" ? "You" : "Agent"}
                   </span>
-                  {entry.role === "assistant" ? (
+                  {item.entry.role === "assistant" ? (
                     <AgentMessage
-                      text={entry.text}
-                      streaming={entry.streaming}
+                      text={item.entry.text}
+                      streaming={item.entry.streaming}
                     />
                   ) : (
-                    <div>{entry.text}</div>
+                    <UserMessage text={item.entry.text} />
                   )}
                 </article>
-              ))}
+              ),
+            )}
           </>
         ) : tab === "rhythm" ? (
           <RhythmLab busy={busy} />
@@ -359,15 +378,39 @@ export function AgentPanel() {
               </button>
             )}
             <button className="m-button" onClick={() => setTab("changes")}>
-              View activity details
+              View changes
             </button>
           </div>
         )}
-        <div className={styles.context} title={selectedTrack?.name}>
-          Context:{" "}
-          {selectedTrack
-            ? `“${selectedTrack.name}” selected · current project`
-            : "Current project"}
+        <div className={styles.context}>
+          {chips.length === 0 ? (
+            <span>The agent sees your whole project.</span>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.contextToggle}
+                aria-pressed={composer.withContext}
+                title={
+                  composer.withContext
+                    ? "Your selection goes with the message. Click to send without it."
+                    : "Click to send your selection with the message."
+                }
+                onClick={() => store.setAgentContext(!composer.withContext)}
+              >
+                {composer.withContext ? "About" : "Not about"}
+              </button>
+              {chips.map((chip) => (
+                <span
+                  key={chip.label}
+                  className={`${styles.subject} ${composer.withContext ? "" : styles.subjectOff}`}
+                  title={chip.detail}
+                >
+                  {chip.label}
+                </span>
+              ))}
+            </>
+          )}
         </div>
         {slashMatches.length > 0 && (
           <div
@@ -489,5 +532,82 @@ export function AgentPanel() {
         )}
       </div>
     </aside>
+  );
+}
+
+type Entry = {
+  role: string;
+  text: string;
+  streaming?: boolean;
+  tool?: ToolCall;
+};
+type Item =
+  { kind: "message"; entry: Entry } | { kind: "steps"; steps: ToolCall[] };
+
+/** Messages in order, with each run of tool calls folded into one block of steps. */
+function threadItems(entries: Entry[]): Item[] {
+  const items: Item[] = [];
+  for (const entry of entries) {
+    if (entry.role === "tool" && entry.tool) {
+      const last = items[items.length - 1];
+      if (last?.kind === "steps") last.steps.push(entry.tool);
+      else items.push({ kind: "steps", steps: [entry.tool] });
+    } else if (entry.role === "user" || entry.role === "assistant") {
+      items.push({ kind: "message", entry });
+    }
+  }
+  return items;
+}
+
+/** What the person typed, with the selection that went along shown as a quiet caption. */
+function UserMessage({ text }: { text: string }) {
+  const { text: words, context } = splitContext(text);
+  return (
+    <div>
+      {words}
+      {context && (
+        <div className={styles.sentContext} title={context}>
+          about {context.replace(/ \((?:clipId|trackId)[^)]*\)/g, "")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the agent did between two messages. Edits are listed; a run of pure reading
+ * collapses to one line, because "looked at the project" six times is noise.
+ */
+function Steps({ steps }: { steps: ToolCall[] }) {
+  const edits = steps.filter((s) => !isReading(s) || !s.ok);
+  const reads = steps.length - edits.length;
+  return (
+    <div className={styles.steps} aria-label="What the agent did">
+      {reads > 0 && (
+        <div className={styles.stepQuiet}>
+          Looked at your project{reads > 1 ? ` · ${reads} checks` : ""}
+        </div>
+      )}
+      {edits.map((step, index) => (
+        <details key={index} className={styles.step}>
+          <summary>
+            <span
+              className={`${styles.stepMark} ${step.ok ? "" : styles.stepFailed}`}
+              aria-hidden
+            >
+              {step.ok ? "✓" : "!"}
+            </span>
+            <span className={styles.stepLabel}>{describeTool(step)}</span>
+            {!step.ok && (
+              <span className={styles.stepWhy}>{toolError(step)}</span>
+            )}
+          </summary>
+          <pre>
+            {step.name.replace("_", ".")}{" "}
+            {JSON.stringify(step.args ?? {}, null, 1)}
+          </pre>
+        </details>
+      ))}
+    </div>
   );
 }

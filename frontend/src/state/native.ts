@@ -112,6 +112,53 @@ export const native = <T = unknown>(
   method: string,
   params: Params = {},
 ): Promise<T> => invoke<T>("daw_command", { method, params });
+/** Marks where the person's words end and the window's description of the selection begins. */
+export const CONTEXT_MARK = "\n\n[Selected in the window: ";
+
+export interface ContextChip {
+  label: string;
+  /** What the agent reads: names for the person, ids for the tools. */
+  detail: string;
+}
+
+/** What is selected right now, as the agent should hear it. Empty when nothing is. */
+export function selectionContext(s: Session): ContextChip[] {
+  const chips: ContextChip[] = [];
+  const track = s.tracks.find((t) => t.id === s.view.selectedTrackId);
+  const clip = s.clips.find((c) => c.id === s.view.selectedClipId);
+  const bar = (n: number) => String(Math.round((n + 1) * 100) / 100);
+  if (clip)
+    chips.push({
+      label: `${clip.name} · bars ${bar(clip.startBar)}–${bar(clip.startBar + clip.lengthBars)}`,
+      detail: `region "${clip.name}" (clipId ${clip.id}, ${clip.data.kind === "midi" ? "MIDI" : "audio"}, bars ${bar(clip.startBar)} to ${bar(clip.startBar + clip.lengthBars)})`,
+    });
+  if (track)
+    chips.push({
+      label: track.name,
+      detail: `track "${track.name}" (trackId ${track.id}, ${track.kind === "midi" ? "instrument" : "audio"})`,
+    });
+  if (s.transport.cycle)
+    chips.push({
+      label: `Cycle ${bar(s.transport.cycleStartBar)}–${bar(s.transport.cycleEndBar)}`,
+      detail: `cycle range bars ${bar(s.transport.cycleStartBar)} to ${bar(s.transport.cycleEndBar)}`,
+    });
+  return chips;
+}
+const withSelection = (prompt: string, chips: ContextChip[]) =>
+  chips.length && !prompt.startsWith("/")
+    ? `${prompt}${CONTEXT_MARK}${chips.map((c) => c.detail).join("; ")}]`
+    : prompt;
+/** A sent message split back into the person's words and the selection that went with it. */
+export function splitContext(text: string): { text: string; context: string } {
+  const at = text.lastIndexOf(CONTEXT_MARK);
+  return at < 0 || !text.endsWith("]")
+    ? { text, context: "" }
+    : {
+        text: text.slice(0, at),
+        context: text.slice(at + CONTEXT_MARK.length, -1),
+      };
+}
+
 /** Commands that set an absolute value and are sent on every pointer move. */
 const CONTINUOUS = new Set([
   "track.setVolume",
@@ -230,12 +277,38 @@ export class NativeStore {
   };
   /** Post-fader peak per track, in track order; read by the mixer's meters. */
   trackPeaks: number[] = [];
-  private composer = { draft: "", sending: false, error: "" };
+  private composer = {
+    draft: "",
+    sending: false,
+    error: "",
+    /** Send the selection along with the message. */
+    withContext: true,
+    /** Bumped to ask the panel to focus its message box. */
+    focus: 0,
+  };
   getComposer = () => this.composer;
   setAgentDraft = (draft: string) => {
     this.composer = { ...this.composer, draft, error: "" };
     this.notifyMeta();
   };
+  setAgentContext(withContext: boolean) {
+    this.composer = { ...this.composer, withContext };
+    this.notifyMeta();
+  }
+  /**
+   * Open the agent with the current selection as its subject, from a context menu or a
+   * shortcut. `seed` fills the message only when the person has not started one.
+   */
+  askAgent(seed = "") {
+    this.fire("ui.showPanel", { panel: "agent", visible: true });
+    this.composer = {
+      ...this.composer,
+      draft: this.composer.draft.trim() ? this.composer.draft : seed,
+      withContext: true,
+      focus: this.composer.focus + 1,
+    };
+    this.notifyMeta();
+  }
   async sendAgent(): Promise<boolean> {
     const draft = this.composer.draft;
     if (!draft.trim() || this.composer.sending || this.agent.status.running)
@@ -244,7 +317,12 @@ export class NativeStore {
     this.notifyMeta();
     const sequence = this.agentSequence;
     const task = this.queue.then(() =>
-      native<AgentData["status"]>("agent.send", { prompt: draft.trim() }),
+      native<AgentData["status"]>("agent.send", {
+        prompt: withSelection(
+          draft.trim(),
+          this.composer.withContext ? selectionContext(this.state) : [],
+        ),
+      }),
     );
     this.queue = task.catch(() => {});
     try {

@@ -188,7 +188,7 @@ describe("agent composer", () => {
     store.setAgentDraft("Write a warm bass line");
     mock.invoke.mockRejectedValueOnce("Bridge unavailable");
     expect(await store.sendAgent()).toBe(false);
-    expect(store.getComposer()).toEqual({
+    expect(store.getComposer()).toMatchObject({
       draft: "Write a warm bass line",
       sending: false,
       error: "Bridge unavailable",

@@ -74,6 +74,8 @@ export function TrackHeader({ track }: { track: Track }) {
         actionItem(store, "addAudioTrack"),
         actionItem(store, "addMidiTrack"),
         actionItem(store, "removeSelectedTrack"),
+        separator,
+        actionItem(store, "askAgent", "Ask Agent About This Track…"),
       ],
     });
   };

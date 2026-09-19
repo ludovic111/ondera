@@ -194,6 +194,8 @@ function TrackList() {
         actionItem(store, "splitAtPlayhead"),
         separator,
         actionItem(store, "deleteSelection", "Delete Clip"),
+        separator,
+        actionItem(store, "askAgent", "Ask Agent About This Region…"),
       ];
       setMenu({ x: e.clientX, y: e.clientY, items });
       return;
@@ -213,6 +215,8 @@ function TrackList() {
           label: "Import Audio…",
           onSelect: () => void importAudioFiles(store),
         },
+        separator,
+        actionItem(store, "askAgent", "Ask Agent…"),
       ],
     });
   };

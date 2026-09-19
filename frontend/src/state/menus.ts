@@ -158,7 +158,8 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
     case "Agent":
       return [
         a("toggleAgentPanel", "Show agent panel"),
-        call("Stop agent", "agent.stop"),
+        a("askAgent"),
+        a("stopAgent", "Stop agent"),
         panel("Agent settings…", "settings"),
       ];
     case "View":
