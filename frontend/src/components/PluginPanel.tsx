@@ -60,10 +60,22 @@ export function PluginPanel({
       setError(String(e));
     }
   };
+  // Parameter values are document state: re-read them when the document moves
+  // (automation write, undo, an agent edit) rather than on a timer.
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 1000);
-    return () => clearInterval(timer);
+    let seen = store.document;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = store.subscribe(() => {
+      if (store.document === seen) return;
+      seen = store.document;
+      clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), 150);
+    });
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
   }, [id]);
   const change = (p: Parameter, value: number) => {
     setParameters((list) =>

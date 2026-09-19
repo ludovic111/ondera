@@ -222,7 +222,7 @@ struct WebHost {
     last_document: Option<(u64, Value)>,
     snapshot_sequence: std::cell::Cell<u64>,
     last_ui: Value,
-    last_agent: Value,
+    last_agent: u64,
     last_telemetry: Value,
     last_metadata: Instant,
     ready: bool,
@@ -645,10 +645,27 @@ impl WebHost {
                     self.last_ui = ui;
                 }
             }
-            let agent = json!({"status":self.app.agents.status_json(&self.app.settings),
-                "transcript":self.app.agents.transcript_json(100),"changes":self.app.agents.changes_json(self.app.store.undo_depth())});
+            let depth = self.app.store.undo_depth();
+            let agent = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                self.app.agents.fingerprint(depth).hash(&mut h);
+                let a = &self.app.settings.agent;
+                (
+                    a.provider.key(),
+                    self.app.settings.model(),
+                    &a.reasoning_effort,
+                )
+                    .hash(&mut h);
+                h.finish()
+            };
             if agent != self.last_agent {
-                let _ = handle.emit("daw:agent", &agent);
+                let _ = handle.emit(
+                    "daw:agent",
+                    json!({"status":self.app.agents.status_json(&self.app.settings),
+                        "transcript":self.app.agents.transcript_json(100),
+                        "changes":self.app.agents.changes_json(depth)}),
+                );
                 self.last_agent = agent;
             }
         }
@@ -702,7 +719,7 @@ pub fn run(
                     last_document: None,
                     snapshot_sequence: Default::default(),
                     last_ui: Value::Null,
-                    last_agent: Value::Null,
+                    last_agent: 0,
                     last_telemetry: Value::Null,
                     last_metadata: Instant::now(),
                     ready: false,
@@ -801,7 +818,7 @@ mod tests {
             last_document: None,
             snapshot_sequence: Default::default(),
             last_ui: Value::Null,
-            last_agent: Value::Null,
+            last_agent: 0,
             last_telemetry: Value::Null,
             last_metadata: Instant::now(),
             ready: false,

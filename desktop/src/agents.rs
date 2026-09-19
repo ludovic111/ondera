@@ -93,6 +93,42 @@ fn small_button(ui: &mut egui::Ui, label: &str, face_kind: Face) -> egui::Respon
 }
 
 impl AgentPanel {
+    /// Cheap digest of everything `status_json`, `transcript_json` and `changes_json` report,
+    /// so the window only serialises the conversation when it actually changed.
+    pub(crate) fn fingerprint(&self, depth: usize) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let r = &self.runtime;
+        (
+            r.running(),
+            &r.status,
+            &r.last_error,
+            r.tokens,
+            r.turns,
+            r.edits(),
+        )
+            .hash(&mut h);
+        r.elapsed().as_secs().hash(&mut h);
+        r.transcript.len().hash(&mut h);
+        for entry in r.transcript.iter().rev().take(100) {
+            (&entry.text, entry.streaming).hash(&mut h);
+            if let Some(tool) = &entry.tool {
+                (&tool.name, tool.result.as_ref().map(|r| r.is_ok())).hash(&mut h);
+            }
+        }
+        for e in &self.history {
+            (
+                e.sequence,
+                e.succeeded,
+                e.running,
+                e.applied(depth),
+                e.output.len(),
+            )
+                .hash(&mut h);
+        }
+        h.finish()
+    }
+
     pub(crate) fn changes_json(&self, depth: usize) -> Value {
         json!(self
             .history

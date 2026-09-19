@@ -29,6 +29,23 @@ const flush = () => store.run("barrier");
 const edits = () =>
   calls.filter((c) => !["barrier", "web.document"].includes(c.method));
 describe("Rust document ownership", () => {
+  it("sends only the newest value of a fader drag and one snapshot", async () => {
+    for (const volume of [0.1, 0.2, 0.3, 0.4])
+      store.dispatch({
+        name: "track.setVolume",
+        params: { trackId: "t", volume },
+      });
+    store.dispatch({
+      name: "track.setVolume",
+      params: { trackId: "u", volume: 0.9 },
+    });
+    await flush();
+    expect(edits().map((c) => c.params)).toEqual([
+      { trackId: "t", volume: 0.4 },
+      { trackId: "u", volume: 0.9 },
+    ]);
+    expect(calls.filter((c) => c.method === "web.document")).toHaveLength(1);
+  });
   it("ignores older command snapshots arriving after a newer event", () => {
     store.receive({ ...doc, snapshotSequence: 20, name: "New session" });
     store.receive({ ...doc, snapshotSequence: 19, name: "Old session" });

@@ -107,6 +107,25 @@ export const native = <T = unknown>(
   method: string,
   params: Params = {},
 ): Promise<T> => invoke<T>("daw_command", { method, params });
+/** Commands that set an absolute value and are sent on every pointer move. */
+const CONTINUOUS = new Set([
+  "track.setVolume",
+  "track.setPan",
+  "master.setVolume",
+  "strip.setSendLevel",
+  "strip.setParameter",
+  "transport.setTempo",
+]);
+const continuousKey = (name: string, params: Params): string | null =>
+  CONTINUOUS.has(name)
+    ? [
+        name,
+        params.trackId,
+        params.slot,
+        params.sendIndex ?? params.send,
+        params.parameterId,
+      ].join("|")
+    : null;
 const emptyGroups: Record<BrowserTab, BrowserGroup[]> = {
   instruments: [],
   plugins: [],
@@ -159,6 +178,9 @@ export class NativeStore {
   private listeners = new Set<() => void>();
   private metadataListeners = new Set<() => void>();
   private queue: Promise<unknown> = Promise.resolve();
+  /** Newest queued edit per continuous control; older ones are dropped unsent. */
+  private newest = new Map<string, unknown>();
+  private waiting = 0;
   private snapshotSequence = 0;
   private agentSequence = 0;
   private ids = new Map<string, string>();
@@ -469,11 +491,37 @@ export class NativeStore {
     this.queue = task.catch(this.reportError);
     return task;
   }
+  /**
+   * Fire and forget. Continuous absolute edits (a dial under the pointer) keep
+   * only the newest queued value: the host never sees a backlog of stale ones.
+   */
   fire(method: string, params: Params = {}) {
-    void this.run(method, params).catch(() => {});
+    const key = continuousKey(method, params);
+    if (!key) {
+      void this.run(method, params).catch(() => {});
+      return;
+    }
+    const token = {};
+    this.newest.set(key, token);
+    const task = this.queue.then(() => {
+      if (this.newest.get(key) !== token) return undefined;
+      this.newest.delete(key);
+      return native(method, params);
+    });
+    this.queue = task.catch(this.reportError);
   }
   dispatch = (command: Command): void => {
-    const task = this.queue.then(() => this.translate(command));
+    const key = continuousKey(command.name, command.params);
+    if (key) this.newest.set(key, command);
+    this.waiting++;
+    const task = this.queue.then(() => {
+      this.waiting--;
+      if (key) {
+        if (this.newest.get(key) !== command) return undefined;
+        this.newest.delete(key);
+      }
+      return this.translate(command, key !== null);
+    });
     this.queue = task.catch(this.reportError);
   };
   setEditorPitch(low: number) {
@@ -484,7 +532,7 @@ export class NativeStore {
     this.state = { ...this.state, view: { ...this.state.view, ...patch } };
     this.notify();
   }
-  private async translate({ name, params }: Command) {
+  private async translate({ name, params }: Command, continuous = false) {
     const p = { ...params };
     for (const field of ["trackId", "clipId", "noteId"])
       if (typeof p[field] === "string")
@@ -672,6 +720,8 @@ export class NativeStore {
         break;
     }
     await native(method, p);
+    // Mid-drag the next value is already queued; the snapshot after the last one is enough.
+    if (continuous && this.waiting > 0) return;
     if (!name.startsWith("agent."))
       this.receive(await native<DocumentData>("web.document"));
   }
