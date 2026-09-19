@@ -18,9 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <script src="theme.js?v=0.6"></script>
-  <link rel="stylesheet" href="tokens.css?v=0.6">
-  <link rel="stylesheet" href="styles.css?v=0.6">
+  <script src="theme.js?v=0.7"></script>
+  <link rel="stylesheet" href="tokens.css?v=0.7">
+  <link rel="stylesheet" href="styles.css?v=0.7">
 </head>
 <body>
 <a class="skip" href="#top">Skip to content</a>
@@ -60,7 +60,7 @@
       <a class="btn btn--lit" href="/download" data-download data-download-label>Download Ondera</a>
       <a class="btn btn--raised" href="#downloads">All platforms</a>
     </div>
-    <p class="hero__fine reveal">Version 0.6 · MIT licensed · no account, no subscription, no telemetry</p>
+    <p class="hero__fine reveal">Version 0.7 · MIT licensed · no account, no subscription, no telemetry</p>
   </section>
 
   <section class="demo" aria-label="Interactive preview of the Ondera arrangement window">
@@ -457,15 +457,21 @@
         <div><b>Tauri interface</b><span>The window moves to Tauri 2 with a React renderer, keeping the same layout and materials. Real decoded waveforms, native dialogs, no Node at runtime. The engine, undo history and audio callback are unchanged Rust.</span></div>
         <span class="phase__tag">0.4</span>
       </li>
-      <li class="phase phase--now">
-        <span class="led led--accent"></span>
+      <li class="phase">
+        <span class="led"></span>
         <span class="phase__n">05</span>
         <div><b>Mixer, palette, faster editing</b><span>A mixer with a live meter on every channel, a command palette, copy and paste, track duplication, transpose keys, audio files dropped from the file manager, and a streaming agent with slash commands, Rhythm Lab, takes and two themes.</span></div>
-        <span class="phase__tag">0.6 · now</span>
+        <span class="phase__tag">0.6</span>
+      </li>
+      <li class="phase phase--now">
+        <span class="led led--accent"></span>
+        <span class="phase__n">06</span>
+        <div><b>Recording, sound folders, a faster bridge</b><span>A count-in and a microphone meter, every plugin filed by sound with favourites and recents, ten new stock plugins, contained plugin panics and a plugin scaffold, AIFF export and surround import, 150 commands answered between frames, an agent that shows its work in plain words, and motion in every theme.</span></div>
+        <span class="phase__tag">0.7 · now</span>
       </li>
       <li class="phase">
         <span class="led"></span>
-        <span class="phase__n">06</span>
+        <span class="phase__n">07</span>
         <div><b>Next, and current limits</b><span>Clip fades and gain, time stretching, comping, tempo changes and user buses are not built yet. No VST2 or AAX. External plugin editors are macOS-only. Windows and Linux windows are built and tested in CI but not yet checked by hand. Packages are ad-hoc signed, not notarized; Windows binaries are unsigned.</span></div>
         <span class="phase__tag">next</span>
       </li>
@@ -487,7 +493,7 @@
   </section>
 
   <section id="downloads" class="section cta">
-    <h2 class="reveal">Download Ondera 0.6</h2>
+    <h2 class="reveal">Download Ondera 0.7</h2>
     <p class="lede reveal">Free and MIT licensed. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
     <div class="downloads reveal">
       <a class="dl" href="/download/macos-arm64" data-os="macos-arm64"><b>macOS</b><span>Apple silicon · macOS 11+</span></a>
@@ -512,6 +518,6 @@
   </div>
 </footer>
 
-<script type="module" src="main.js?v=0.6"></script>
+<script type="module" src="main.js?v=0.7"></script>
 </body>
 </html>
