@@ -152,7 +152,7 @@ export function Dialogs() {
         <Modal
           blocking
           title={`Save changes to ${name}?`}
-          onClose={() => store.fire("web.confirm", { choice: "cancel" })}
+          onClose={() => store.fire("app.confirm", { choice: "cancel" })}
         >
           <p>
             Your session has unsaved changes, or confirmation before quitting is
@@ -160,18 +160,18 @@ export function Dialogs() {
           </p>
           <footer>
             <button
-              onClick={() => store.fire("web.confirm", { choice: "cancel" })}
+              onClick={() => store.fire("app.confirm", { choice: "cancel" })}
             >
               Cancel
             </button>
             <button
-              onClick={() => store.fire("web.confirm", { choice: "discard" })}
+              onClick={() => store.fire("app.confirm", { choice: "discard" })}
             >
               Don't save
             </button>
             <button
               className="primary"
-              onClick={() => store.fire("web.confirm", { choice: "save" })}
+              onClick={() => store.fire("app.confirm", { choice: "save" })}
             >
               Save
             </button>
@@ -299,7 +299,7 @@ function Settings({ onClose }: { onClose: () => void }) {
             <>
               <h2>Ondera {store.version}</h2>
               <p>Digital audio workstation for macOS, Linux and Windows.</p>
-              <button onClick={() => store.fire("web.sdk")}>
+              <button onClick={() => store.fire("app.openGuide", { guide: "plugins" })}>
                 Native plugin SDK…
               </button>
             </>

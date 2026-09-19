@@ -96,6 +96,55 @@ pub(crate) fn call(host: &mut dyn Host, args: &Args<'_>, agent: bool) -> Result<
     host.dispatch(select)?;
     Ok(result)
 }
+/// Render a groove to a WAV without touching the session: the same lanes as `rhythm.create`,
+/// at the session's tempo and meter, on a scratch document.
+pub(crate) fn preview(host: &dyn Host, params: &Value) -> Result<Value> {
+    use base64::Engine as _;
+    let bars = params["bars"].as_u64().unwrap_or(0);
+    if !(1..=4).contains(&bars) {
+        return Err("A preview is 1 to 4 bars".into());
+    }
+    let mut scratch = crate::control::Headless::new();
+    scratch.store.dispatch(crate::store::Command::SetTransport(
+        host.store().session().transport.clone(),
+    ))?;
+    let seconds = bars as f64 * scratch.store.session().beats_per_bar() * 60.0
+        / scratch.store.session().transport.tempo;
+    if seconds > 30.0 {
+        return Err("A preview is at most 30 seconds. Choose fewer bars or a faster tempo.".into());
+    }
+    let mut create = json!({ "lanes": params["lanes"], "bars": bars, "startBar": 0 });
+    if let Some(name) = params.get("name") {
+        create["name"] = name.clone();
+    }
+    crate::control::call(&mut scratch, "rhythm.create", &create, false)?;
+    let path = match params["path"].as_str() {
+        Some(path) => std::path::PathBuf::from(path),
+        // One file, replaced by each preview, so previews never pile up.
+        None => crate::host::scan::data_dir()
+            .join("previews")
+            .join("groove.wav"),
+    };
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    crate::control::call(
+        &mut scratch,
+        "session.exportAudio",
+        &json!({
+            "path": path, "sampleRate": 44100, "format": "pcm16", "startBar": 0,
+            "endBar": bars, "tailSeconds": 0.5,
+        }),
+        false,
+    )?;
+    let mut result = json!({ "path": path, "seconds": seconds + 0.5, "bars": bars });
+    if params["inline"].as_bool().unwrap_or(false) {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        result["wavBase64"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
+    Ok(result)
+}
+
 fn hit(index: u32, steps: u32, pulses: u32, rotation: u32) -> bool {
     (((index + steps - rotation) % steps) * pulses) % steps < pulses
 }

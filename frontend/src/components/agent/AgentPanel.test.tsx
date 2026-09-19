@@ -25,8 +25,8 @@ beforeEach(() => {
   store = new NativeStore();
   store.agent.status.provider = "codex";
   Element.prototype.scrollIntoView = vi.fn();
-  mock.invoke.mockReset().mockImplementation(async (method) => {
-    if (method === "daw_agent_connection")
+  mock.invoke.mockReset().mockImplementation(async (_method, args) => {
+    if (args?.method === "agent.connection")
       return { provider: "codex", state: "signedIn", message: "Signed in." };
     return { ...store.agent.status, running: true };
   });
@@ -41,7 +41,12 @@ describe("agent conversation", () => {
       "four-bar drum groove",
     );
     expect(
-      mock.invoke.mock.calls.some(([method]) => method === "daw_command"),
+      mock.invoke.mock.calls.some(
+        ([method, args]) =>
+          method === "daw_command" &&
+          // Looking up models and the connection is not talking to the agent.
+          !["agent.models", "agent.connection"].includes(args?.method),
+      ),
     ).toBe(false);
     await waitFor(() =>
       expect(
@@ -71,7 +76,12 @@ describe("agent conversation", () => {
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Enter", repeat: true });
     expect(
-      mock.invoke.mock.calls.some(([method]) => method === "daw_command"),
+      mock.invoke.mock.calls.some(
+        ([method, args]) =>
+          method === "daw_command" &&
+          // Looking up models and the connection is not talking to the agent.
+          !["agent.models", "agent.connection"].includes(args?.method),
+      ),
     ).toBe(false);
   });
   it("retains a draft after collapsing and reopening the panel", async () => {
@@ -127,7 +137,12 @@ describe("agent conversation", () => {
       screen.getByText("Clear the conversation? Your music stays."),
     ).toBeTruthy();
     expect(
-      mock.invoke.mock.calls.some(([method]) => method === "daw_command"),
+      mock.invoke.mock.calls.some(
+        ([method, args]) =>
+          method === "daw_command" &&
+          // Looking up models and the connection is not talking to the agent.
+          !["agent.models", "agent.connection"].includes(args?.method),
+      ),
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     store.agent.status.running = true;

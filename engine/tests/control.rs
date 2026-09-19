@@ -940,3 +940,139 @@ fn monitoring_is_a_track_setting_that_saves_undoes_and_stays_out_of_old_files() 
     )
     .contains("Only audio tracks"));
 }
+
+#[test]
+fn the_browser_the_piano_roll_and_zoom_to_fit_are_view_commands() {
+    let mut host = Headless::new();
+    let view = call(&mut host, "view.get", json!({}));
+    assert_eq!(view["browserTab"], "instruments");
+    assert_eq!(view["browserSelection"], "E-Piano Mk I");
+    assert_eq!(
+        view["editorLowPitch"],
+        Value::Null,
+        "the piano roll frames the clip itself"
+    );
+    assert!(view["laneWidth"].as_f64().unwrap() > 0.0);
+    let saved = serde_json::to_value(host.store().session()).unwrap();
+    assert!(
+        saved["view"].get("editorLowPitch").is_none(),
+        "automatic stays out of the file"
+    );
+    let view = call(
+        &mut host,
+        "view.set",
+        json!({"browserTab":"plugins","browserSelection":"Channel EQ","editorLowPitch":36,"laneWidth":1000}),
+    );
+    assert_eq!(view["browserTab"], "plugins");
+    assert_eq!(view["browserSelection"], "Channel EQ");
+    assert_eq!(view["editorLowPitch"], 36);
+    assert_eq!(view["laneWidth"], 1000.0);
+    let cleared = call(
+        &mut host,
+        "view.set",
+        json!({"browserSelection":"","editorLowPitch":-1}),
+    );
+    assert_eq!(cleared["browserSelection"], Value::Null);
+    assert_eq!(cleared["editorLowPitch"], Value::Null);
+    assert!(fail(&mut host, "view.set", json!({"browserTab":"presets"})).contains("instruments"));
+    assert!(fail(&mut host, "view.set", json!({"editorLowPitch":120})).contains("0 and 108"));
+    assert!(fail(&mut host, "view.set", json!({"laneWidth":5})).contains("laneWidth"));
+    // The view is not document history.
+    assert_eq!(call(&mut host, "history.info", json!({}))["canUndo"], false);
+
+    // Fit: the song plus one bar across the lane, from the first bar; never beyond the zoom range.
+    let track = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":20,"lengthBars":4}),
+    );
+    call(&mut host, "view.set", json!({"scrollBar":7}));
+    let fit = call(&mut host, "view.fit", json!({}));
+    assert_eq!(fit["scrollBar"], 0.0);
+    assert_eq!(
+        fit["pixelsPerBar"], 40.0,
+        "1000 px over 24 bars and one spare"
+    );
+    call(&mut host, "view.set", json!({"laneWidth":20000}));
+    assert_eq!(
+        call(&mut host, "view.fit", json!({}))["pixelsPerBar"],
+        480.0
+    );
+}
+
+#[test]
+fn the_clipboard_lives_in_the_host_so_any_client_can_paste() {
+    let mut host = Headless::new();
+    let midi = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let other = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let audio = call(&mut host, "track.add", json!({"kind":"audio"}))["id"].clone();
+    assert!(fail(&mut host, "clip.paste", json!({})).contains("Nothing has been copied"));
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":midi,"startBar":2,"lengthBars":2,"name":"Riff",
+               "notes":[{"start":0,"length":1,"pitch":60},{"start":1,"length":1,"pitch":64}]}),
+    );
+    let id = clip["id"].clone();
+    // Copy: by id, or the selected clip.
+    assert!(fail(&mut host, "clip.copy", json!({})).contains("Select a clip"));
+    let copied = call(&mut host, "clip.copy", json!({"clipId":id}));
+    assert_eq!(copied["copied"]["name"], "Riff");
+    // Paste with nothing said: the selected track when its kind fits, at the playhead.
+    call(&mut host, "track.select", json!({"trackId":other}));
+    call(&mut host, "transport.locate", json!({"bar":8}));
+    let pasted = call(&mut host, "clip.paste", json!({}));
+    assert_eq!(pasted["trackId"], other);
+    assert_eq!(pasted["startBar"], 8.0);
+    assert_eq!(pasted["noteCount"], 2);
+    assert_ne!(pasted["id"], id);
+    // Pasting twice gives two independent clips with their own note ids.
+    let again = call(&mut host, "clip.paste", json!({"trackId":midi,"bar":12}));
+    let notes = |host: &mut Headless, id: &Value| {
+        call(host, "clip.get", json!({"clipId":id}))["data"]["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let (a, b) = (
+        notes(&mut host, &pasted["id"]),
+        notes(&mut host, &again["id"]),
+    );
+    assert!(a.iter().all(|n| !b.contains(n)));
+    // A MIDI clip does not go on an audio track; with an audio track selected it goes home.
+    assert!(fail(&mut host, "clip.paste", json!({"trackId":audio})).contains("MIDI"));
+    call(&mut host, "track.select", json!({"trackId":audio}));
+    assert_eq!(
+        call(&mut host, "clip.paste", json!({"bar":30}))["trackId"],
+        midi
+    );
+    // Cut removes the clip in one undo step and keeps it on the clipboard.
+    let before = call(&mut host, "clip.list", json!({}))
+        .as_array()
+        .unwrap()
+        .len();
+    call(&mut host, "clip.cut", json!({"clipId":id}));
+    assert_eq!(
+        call(&mut host, "clip.list", json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        before - 1
+    );
+    assert_eq!(
+        call(&mut host, "clip.paste", json!({"bar":40}))["name"],
+        "Riff"
+    );
+    call(&mut host, "history.undo", json!({}));
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(
+        call(&mut host, "clip.list", json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        before
+    );
+}

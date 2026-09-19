@@ -85,7 +85,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("splitAtPlayhead"),
         a("deleteSelection"),
         separator,
-        call("Quantize region notes", "web.quantize"),
+        a("quantizeRegion", "Quantize region notes"),
         ...[
           [
             "Humanize timing & velocity",
@@ -137,12 +137,14 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
     case "Mix":
       return [
         file("Save recovered take…", "recoverTake"),
-        call("Reconnect output", "web.reconnect"),
+        call("Reconnect output", "audio.reconnect"),
         panel("Output device…", "settings"),
         panel("Input device…", "settings"),
         panel("MIDI input…", "settings"),
         {
-          ...call("Musical typing", "web.typing"),
+          ...call("Musical typing", "ui.musicalTyping", {
+            enabled: !store.ui.musicalTyping,
+          }),
           checked: store.ui.musicalTyping,
         },
         separator,
@@ -178,7 +180,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
       return [
         a("showShortcuts"),
         call("Check for updates…", "app.checkUpdates"),
-        call("Native plugin SDK…", "web.sdk"),
+        call("Native plugin SDK…", "app.openGuide", { guide: "plugins" }),
         separator,
         { label: `Ondera ${store.version}`, disabled: true },
       ];

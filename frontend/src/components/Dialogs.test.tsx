@@ -26,8 +26,8 @@ beforeEach(() => {
     this.open = false;
   };
   mock.invoke.mockReset().mockImplementation(async (command, args) => {
-    if (command === "daw_agent_models") return [];
-    if (command === "daw_agent_connection")
+    if (args?.method === "agent.models") return [];
+    if (args?.method === "agent.connection")
       return {
         provider: "openai",
         state: "configured",

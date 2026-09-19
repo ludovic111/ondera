@@ -120,6 +120,12 @@ pub struct Ondera {
     pub show_help: bool,
     /// The web window shows the mixer in place of the region editor.
     pub show_mixer: bool,
+    /// The command palette is open.
+    pub show_palette: bool,
+    /// The copied clip, shared by the window, the CLI and agents.
+    pub(crate) clipboard: Option<Clip>,
+    /// Width of the arrangement lanes as the window last reported it.
+    pub(crate) lane_width: f64,
     pub plugins: Bank,
     pub catalog: Vec<Descriptor>,
     pub(crate) scan_job: Option<mpsc::Receiver<ScanEvent>>,
@@ -281,6 +287,9 @@ impl Ondera {
             frontend_ready: false,
             show_help: false,
             show_mixer: false,
+            show_palette: false,
+            clipboard: None,
+            lane_width: 960.0,
             plugins: Bank::default(),
             catalog: vec![],
             scan_job: None,

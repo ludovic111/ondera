@@ -146,10 +146,18 @@ function TrackList() {
   useEffect(() => {
     const el = lanesRef.current;
     if (!el) return;
-    reportLaneViewportWidth(el.clientWidth);
-    const ro = new ResizeObserver(() =>
-      reportLaneViewportWidth(el.clientWidth),
-    );
+    // The host keeps the width too: view.fit and scripts need it.
+    let reported = 0;
+    const report = () => {
+      const width = Math.round(el.clientWidth);
+      reportLaneViewportWidth(width);
+      if (width >= 50 && width !== reported) {
+        reported = width;
+        store.fire("view.set", { laneWidth: width });
+      }
+    };
+    report();
+    const ro = new ResizeObserver(report);
     ro.observe(el);
     const off = store.subscribe(() => {
       const s = store.getState();

@@ -604,6 +604,10 @@ function command(method: string, params: Params): unknown {
       }
       return {};
     }
+    case "agent.models":
+      return [];
+    case "agent.connection":
+      return { provider: "claude", state: "configured", message: "" };
     case "ui.showPanel": {
       const name = String(params.panel);
       if (name in ui)
@@ -623,9 +627,6 @@ export function install(): void {
       const args = (payload ?? {}) as { method?: string; params?: Params };
       if (cmd === "daw_command")
         return command(args.method ?? "", args.params ?? {});
-      if (cmd === "daw_agent_models") return [];
-      if (cmd === "daw_agent_connection")
-        return { provider: "claude", state: "configured", message: "" };
       return null;
     },
     { shouldMockEvents: true },

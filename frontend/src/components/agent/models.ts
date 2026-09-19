@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { native } from "../../state/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Provider } from "./connection";
 
@@ -34,7 +34,7 @@ export function useModels() {
     setLoading(true);
     setError("");
     try {
-      const data = await invoke<ModelGroup[]>("daw_agent_models");
+      const data = await native<ModelGroup[]>("agent.models");
       if (id === request.current) setGroups(data);
     } catch {
       if (id === request.current)

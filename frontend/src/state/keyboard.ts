@@ -82,7 +82,7 @@ export function useKeyboardShortcuts(): void {
     };
     const release = () => {
       held.clear();
-      store.fire("web.releaseKeys");
+      store.fire("note.releaseAll");
       store.fire("web.gesture", { active: false });
     };
     const up = (e: KeyboardEvent) => {
@@ -112,7 +112,7 @@ export function useKeyboardShortcuts(): void {
         if (e.key.toLowerCase() === "k") {
           e.preventDefault();
           release();
-          store.fire("web.typing");
+          store.fire("ui.musicalTyping", { enabled: !store.ui.musicalTyping });
           return;
         }
       }

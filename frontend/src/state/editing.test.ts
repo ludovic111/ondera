@@ -69,31 +69,24 @@ beforeEach(() => {
 });
 
 describe("clipboard", () => {
-  it("pastes a copied MIDI region at the playhead on its own track when the selected track is another kind", () => {
-    const dispatch = vi.spyOn(store, "dispatch").mockImplementation(() => {});
-    expect(actions.paste.enabled!(store.getState(), store)).toBe(false);
+  // The host holds the clipboard and chooses where a paste lands (engine test
+  // `the_clipboard_lives_in_the_host_so_any_client_can_paste`), so the window only says what
+  // the person did.
+  it("copies and cuts the selected region, and pastes at the playhead bar", () => {
+    const fire = vi.spyOn(store, "fire").mockImplementation(() => {});
     runAction(store, "copy");
-    expect(actions.paste.enabled!(store.getState(), store)).toBe(true);
+    runAction(store, "cut");
     runAction(store, "paste");
-    const { name, params } = dispatch.mock.calls[0][0];
-    expect(name).toBe("clip.create");
-    expect(params).toMatchObject({
-      trackId: "t1",
-      startBar: 0,
-      lengthBars: 2,
-      name: "Riff",
-    });
-    expect(params.notes).toEqual([
-      { start: 0, length: 1, pitch: 60, velocity: 90 },
+    expect(fire.mock.calls).toEqual([
+      ["clip.copy", { clipId: "c1" }],
+      ["clip.cut", { clipId: "c1" }],
+      ["clip.paste", { bar: 0 }],
     ]);
   });
-  it("cut copies, then removes", () => {
-    const dispatch = vi.spyOn(store, "dispatch").mockImplementation(() => {});
-    runAction(store, "cut");
-    expect(dispatch.mock.calls[0][0]).toMatchObject({
-      name: "clip.remove",
-      params: { clipId: "c1" },
-    });
+  it("fits the session through the host, which knows the lane width", () => {
+    const fire = vi.spyOn(store, "fire").mockImplementation(() => {});
+    runAction(store, "zoomToFit");
+    expect(fire).toHaveBeenCalledWith("view.fit");
   });
 });
 

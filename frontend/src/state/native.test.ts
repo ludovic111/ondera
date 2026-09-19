@@ -142,15 +142,40 @@ describe("Rust document ownership", () => {
       "web.gesture",
     ]);
   });
-  it("does not send browser search/selection to the audio engine", async () => {
+  it("keeps the browser tab and selection in the host's view, shown before the host answers", async () => {
     store.dispatch({ name: "view.setBrowserTab", params: { tab: "plugins" } });
     store.dispatch({
       name: "view.setBrowserSelection",
       params: { name: "Space" },
     });
     await flush();
-    expect(edits()).toEqual([]);
+    // A view change, not a document edit: two view.set calls and nothing else.
+    expect(edits()).toEqual([
+      { method: "view.set", params: { browserTab: "plugins" } },
+      { method: "view.set", params: { browserSelection: "Space" } },
+    ]);
+    // The snapshot fetched meanwhile still says "instruments"; the window does not flicker back.
     expect(store.getState().view.browserTab).toBe("plugins");
+    // Once the host's view changes under it (a CLI or an agent), the window follows.
+    store.receive({ ...doc, view: { ...doc.view, browserTab: "loops" } });
+    expect(store.getState().view.browserTab).toBe("loops");
+  });
+  it("opens the command palette when the host says so, and tells the host when the person does", async () => {
+    const ui = { ...store.ui, palette: false };
+    store.receiveUi(ui);
+    expect(store.getOverlays().palette).toBe(false);
+    // ondera-cli ui.showPanel panel=palette
+    store.receiveUi({ ...ui, palette: true });
+    expect(store.getOverlays().palette).toBe(true);
+    // An unrelated update that still carries the old value does not close what was just opened.
+    store.receiveUi({ ...ui, palette: true, status: "Saved" });
+    store.setOverlay("palette", false);
+    store.receiveUi({ ...ui, palette: true, status: "Ready" });
+    expect(store.getOverlays().palette).toBe(false);
+    await flush();
+    expect(edits()).toEqual([
+      { method: "ui.showPanel", params: { panel: "palette", visible: false } },
+    ]);
   });
   it("provides actions for every enabled menu entry", () => {
     for (const title of MENU_TITLES)

@@ -51,6 +51,6 @@ describe("keyboard ownership", () => {
     fireEvent.keyDown(window, { key: " ", code: "Space" });
     expect(dispatch).not.toHaveBeenCalled();
     fireEvent.focusIn(getByRole("textbox"));
-    expect(fire).toHaveBeenCalledWith("web.releaseKeys");
+    expect(fire).toHaveBeenCalledWith("note.releaseAll");
   });
 });

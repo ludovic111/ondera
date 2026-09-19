@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { native } from "../../state/native";
 import { useSession, useStore } from "../../state/session";
 import styles from "./AgentPanel.module.css";
 const initial = [
@@ -63,12 +63,10 @@ export function RhythmLab({ busy }: { busy: boolean }) {
     sound.current?.pause();
     try {
       if (preview) {
-        const wav = await invoke<string>("daw_rhythm_preview", {
-          params: params(),
-          tempo,
-          numerator: meter.numerator,
-          denominator: meter.denominator,
-        });
+        const { wavBase64: wav } = await native<{ wavBase64: string }>(
+          "rhythm.preview",
+          { ...params(), inline: true },
+        );
         if (!mounted.current) return;
         const audio = new Audio(`data:audio/wav;base64,${wav}`);
         sound.current = audio;

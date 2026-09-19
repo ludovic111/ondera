@@ -45,6 +45,7 @@ export type ActionId =
   | "muteSelectedTrack"
   | "soloSelectedTrack"
   | "armSelectedTrack"
+  | "quantizeRegion"
   | "cycleMonitorSelectedTrack"
   | "zoomIn"
   | "zoomOut"
@@ -335,6 +336,15 @@ export const actions = define([
     },
   },
   {
+    id: "quantizeRegion",
+    label: "Quantize Region Notes",
+    enabled: (s) => selectedClip(s)?.data.kind === "midi",
+    run: (store) => {
+      const clip = selectedClip(store.getState());
+      if (clip) store.fire("clip.quantize", { clipId: clip.id });
+    },
+  },
+  {
     id: "cycleMonitorSelectedTrack",
     label: "Input Monitoring: Off / Auto / On",
     shortcut: { key: "i" },
@@ -369,14 +379,8 @@ export const actions = define([
     id: "zoomToFit",
     label: "Zoom to Fit Session",
     shortcut: { key: "z" },
-    run: (store) => {
-      const s = store.getState();
-      const end =
-        Math.max(8, ...s.clips.map((c) => c.startBar + c.lengthBars)) + 1;
-      const width = viewportWidth(store);
-      store.dispatch(commands.view.setZoom({ pixelsPerBar: width / end }));
-      store.dispatch(commands.view.scrollTo({ bar: 0 }));
-    },
+    // The host knows the lane width (the arrangement reports it), so a script can fit too.
+    run: (store) => store.fire("view.fit"),
   },
   {
     id: "followPlayhead",
@@ -462,9 +466,6 @@ export const actions = define([
   ...editingActions(),
 ]);
 
-/** The copied region. It stays in the window: a clip only makes sense inside its own session. */
-let clipboard: Clip | null = null;
-
 /** Semitone shift of the selected note, or of every note in the selected region. */
 function transpose(store: SessionStore, semitones: number): void {
   const s = store.getState();
@@ -479,18 +480,14 @@ function transpose(store: SessionStore, semitones: number): void {
     );
     return;
   }
-  store.fire("web.transpose", { semitones });
+  const clip = selectedClip(s);
+  if (clip) store.fire("clip.transpose", { clipId: clip.id, semitones });
 }
 function canTranspose(s: Session): boolean {
   return selectedNote(s) !== null || selectedClip(s)?.data.kind === "midi";
 }
 
 function editingActions(): ActionDef[] {
-  const copy = (store: SessionStore) => {
-    const clip = selectedClip(store.getState());
-    if (clip) clipboard = structuredClone(clip);
-    return clip;
-  };
   const step = (
     id: ActionId,
     label: string,
@@ -510,7 +507,10 @@ function editingActions(): ActionDef[] {
       label: "Copy",
       shortcut: { key: "c", meta: true },
       enabled: (s) => selectedClip(s) !== null,
-      run: (store) => void copy(store),
+      run: (store) => {
+        const clip = selectedClip(store.getState());
+        if (clip) store.fire("clip.copy", { clipId: clip.id });
+      },
     },
     {
       id: "cut",
@@ -518,42 +518,18 @@ function editingActions(): ActionDef[] {
       shortcut: { key: "x", meta: true },
       enabled: (s) => selectedClip(s) !== null,
       run: (store) => {
-        const clip = copy(store);
-        if (clip) store.dispatch(commands.clip.remove({ clipId: clip.id }));
+        const clip = selectedClip(store.getState());
+        if (clip) store.fire("clip.cut", { clipId: clip.id });
       },
     },
     {
+      // The clipboard is the host's, so this also pastes what the CLI or an agent copied.
+      // It picks the track: the selected one when its kind fits, else the clip's own.
       id: "paste",
       label: "Paste at Playhead",
       shortcut: { key: "v", meta: true },
-      enabled: (s) => pasteTarget(s) !== null,
-      run: (store) => {
-        const s = store.getState();
-        const track = pasteTarget(s);
-        if (!clipboard || !track) return;
-        const data = clipboard.data;
-        store.dispatch(
-          commands.clip.create({
-            clipId: newId("clip"),
-            trackId: track.id,
-            startBar: playheadBar(s),
-            lengthBars: clipboard.lengthBars,
-            name: clipboard.name,
-            ...(data.kind === "midi"
-              ? {
-                  notes: data.notes.map(
-                    ({ start, length, pitch, velocity }) => ({
-                      start,
-                      length,
-                      pitch,
-                      velocity,
-                    }),
-                  ),
-                }
-              : { sourceId: data.sourceId, offsetSeconds: data.offsetSeconds }),
-          }),
-        );
-      },
+      run: (store) =>
+        store.fire("clip.paste", { bar: playheadBar(store.getState()) }),
     },
     {
       id: "duplicateTrack",
@@ -601,15 +577,6 @@ function editingActions(): ActionDef[] {
         store.fire("ui.showPanel", { panel: "help", visible: true }),
     },
   ];
-}
-
-/** Where a paste lands: the selected track when its kind matches, else the clip's own track. */
-function pasteTarget(s: Session) {
-  if (!clipboard) return null;
-  const kind = clipboard.data.kind;
-  const selected = selectedTrack(s);
-  if (selected?.kind === kind) return selected;
-  return s.tracks.find((t) => t.id === clipboard!.trackId) ?? null;
 }
 
 /** New tracks go right below the selected one. */

@@ -286,8 +286,22 @@ pub struct View {
     pub scroll_bars: f64,
     pub follow_playhead: bool,
     pub editor_mode: String,
+    /// Browser tab: instruments, loops, plugins or files. Sessions have carried it and the
+    /// selected row since the first format; they are fields now so commands can reach them.
+    #[serde(default = "default_browser_tab")]
+    pub browser_tab: String,
+    /// The browser row that is selected, by name.
+    #[serde(default)]
+    pub browser_selection: Option<String>,
+    /// Lowest pitch the piano roll shows; `None` lets it frame the open clip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor_low_pitch: Option<u8>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+pub const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
+fn default_browser_tab() -> String {
+    BROWSER_TABS[0].into()
 }
 
 impl Session {

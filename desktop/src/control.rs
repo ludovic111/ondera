@@ -50,7 +50,12 @@ pub(crate) struct ControlJob {
 
 /// Interface work that completes on a later frame: a screenshot, an update check or install.
 pub(crate) enum LiveWait {
-    Screenshot { path: PathBuf, requested: bool },
+    /// Work on another thread (the network, an offline render) that answers when it is done.
+    Worker(mpsc::Receiver<Result<Value>>),
+    Screenshot {
+        path: PathBuf,
+        requested: bool,
+    },
     UpdateCheck,
     UpdateInstall,
 }
@@ -218,6 +223,8 @@ impl Ondera {
                     library: self.library.clone(),
                     path: self.path.clone(),
                     position: self.position,
+                    clipboard: None,
+                    lane_width: self.lane_width,
                 };
                 let revision = self.store.revision;
                 let (method_owned, mut params_owned) = (method.to_string(), params.clone());
@@ -266,6 +273,18 @@ impl Ondera {
                 });
                 self.status = format!("Running {method}…");
                 return Ok(json!({"status":"running", "command":method}));
+            }
+            if method == "rhythm.preview" {
+                // An offline render: seconds of work that must not hold the interface, and that
+                // needs nothing from the open document but its tempo and meter.
+                let mut scratch = Headless::new();
+                scratch.store.dispatch(Command::SetTransport(
+                    self.store.session().transport.clone(),
+                ))?;
+                let params_owned = params.clone();
+                return Ok(self.start_worker(method, params, source, move || {
+                    control::call(&mut scratch, "rhythm.preview", &params_owned, false)
+                }));
             }
             if source != "Interface" && !self.batching {
                 self.store.set_gesture(false);
@@ -421,8 +440,64 @@ impl Ondera {
         self.attach_live = Some(self.live_jobs.len() - 1);
         json!({ "status": "running", "command": method })
     }
+    /// Run `work` off the interface thread as a live job: the caller is told "running" and
+    /// gets the result when it arrives, and the window never waits on the network.
+    fn start_worker(
+        &mut self,
+        method: &str,
+        params: &Value,
+        source: &str,
+        work: impl FnOnce() -> Result<Value> + Send + 'static,
+    ) -> Value {
+        let (tx, rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                .unwrap_or_else(|_| Err("The background job failed".into()));
+            let _ = tx.send(result);
+            if let Some(wake) = CONTROL_WAKE.get() {
+                wake();
+            }
+        });
+        self.start_live(LiveWait::Worker(rx), method, params, source)
+    }
+    /// Answer the worker jobs that have finished.
+    pub(crate) fn poll_workers(&mut self) {
+        let mut index = 0;
+        while index < self.live_jobs.len() {
+            let outcome = match &self.live_jobs[index].wait {
+                LiveWait::Worker(receiver) => match receiver.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        Some(Err("The background job stopped before it finished".into()))
+                    }
+                    Err(mpsc::TryRecvError::Empty) => None,
+                },
+                _ => None,
+            };
+            let Some(result) = outcome else {
+                index += 1;
+                continue;
+            };
+            let job = self.live_jobs.remove(index);
+            if self.attach_live.is_some_and(|waiting| waiting >= index) {
+                self.attach_live = None;
+            }
+            self.record_agent_activity(
+                &job.method,
+                &job.params,
+                &job.source,
+                job.revision,
+                job.undo_depth,
+                &result,
+            );
+            if let Some(reply) = job.reply {
+                reply.respond(result);
+            }
+        }
+    }
     /// Ask the viewport for pending screenshots; time out jobs nobody can finish.
     pub(crate) fn poll_live_jobs(&mut self, ctx: &eframe::egui::Context) {
+        self.poll_workers();
         let mut request_capture = false;
         for job in &mut self.live_jobs {
             if let LiveWait::Screenshot { requested, .. } = &mut job.wait {
@@ -585,6 +660,7 @@ impl Ondera {
             "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)],
             "help": self.show_help,
             "mixer": self.show_mixer,
+            "palette": self.show_palette,
             "tool": TOOLS[self.tool.min(2)],
             "musicalTyping": self.musical_typing,
             "pluginWindows": self.plugins.windows.keys().cloned().collect::<Vec<_>>(),
@@ -594,7 +670,8 @@ impl Ondera {
             "recordEnabled": self.record_enabled,
             "pixelsPerBar": self.zoom,
             "scrollBar": self.scroll,
-            "browserTab": BROWSER_TABS[self.browser_tab.min(3)],
+            "browserTab": session.view.browser_tab,
+            "browserSelection": session.view.browser_selection,
             "selectedTrackId": session.view.selected_track_id,
             "selectedClipId": session.view.selected_clip_id,
             "busy": self.job.is_some() || self.control_job.is_some(),
@@ -809,6 +886,22 @@ impl Host for Ondera {
         let view = &self.store.session().view;
         self.zoom = view.pixels_per_bar.clamp(12.0, 480.0);
         self.scroll = view.scroll_bars.max(0.0);
+        self.browser_tab = BROWSER_TABS
+            .iter()
+            .position(|tab| *tab == view.browser_tab)
+            .unwrap_or(0);
+    }
+    fn lane_width(&self) -> f64 {
+        self.lane_width
+    }
+    fn set_lane_width(&mut self, pixels: f64) {
+        self.lane_width = pixels;
+    }
+    fn clipboard(&self) -> Option<&ondera_engine::model::Clip> {
+        self.clipboard.as_ref()
+    }
+    fn set_clipboard(&mut self, clip: Option<ondera_engine::model::Clip>) {
+        self.clipboard = clip;
     }
     fn capture_states(&mut self) -> Result<()> {
         self.guarded(Ondera::capture_plugin_states)
@@ -978,6 +1071,15 @@ impl Host for Ondera {
                 }
                 Ok(self.ui_status())
             }
+            "app.openGuide" => match params["guide"].as_str().unwrap_or("") {
+                "plugins" => {
+                    let url =
+                        "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md";
+                    crate::settings::reveal(std::path::Path::new(url));
+                    Ok(json!({ "opened": url }))
+                }
+                other => Err(format!("Unknown guide `{other}`. Guides: plugins.")),
+            },
             "app.relaunch" => {
                 self.request(crate::app::Intent::Relaunch);
                 Ok(json!({ "prompt": self.intent.is_some() }))
@@ -1074,6 +1176,7 @@ impl Host for Ondera {
                     }
                     "help" => self.show_help = visible,
                     "mixer" => self.show_mixer = visible,
+                    "palette" => self.show_palette = visible,
                     "export" => {
                         if visible {
                             self.open_export_dialog();
@@ -1097,7 +1200,7 @@ impl Host for Ondera {
                     }
                     other => {
                         return Err(format!(
-                            "Unknown panel `{other}`. Panels: agent, automation, mixer, settings, help, export, recovery, master, bus-a, bus-b."
+                            "Unknown panel `{other}`. Panels: agent, automation, mixer, palette, settings, help, export, recovery, master, bus-a, bus-b."
                         ))
                     }
                 }
@@ -1236,6 +1339,20 @@ impl Host for Ondera {
             }
             "agent.status" => Ok(self.agents.status_json(&self.settings)),
             "agent.providers" => Ok(crate::agent::providers_json(&self.settings)),
+            "agent.models" => {
+                let settings = self.settings.clone();
+                Ok(self.start_worker(action, params, source, move || {
+                    serde_json::to_value(crate::agent::catalog::discover(&settings))
+                        .map_err(|e| e.to_string())
+                }))
+            }
+            "agent.connection" => {
+                let settings = self.settings.clone();
+                Ok(self.start_worker(action, params, source, move || {
+                    serde_json::to_value(crate::agent::connection::check(&settings))
+                        .map_err(|e| e.to_string())
+                }))
+            }
             "agent.send" => {
                 let prompt = params["prompt"].as_str().unwrap_or("").trim().to_string();
                 if prompt.is_empty() {
@@ -1499,6 +1616,70 @@ mod tests {
             .is_err());
         assert!(app.control_job.is_none());
         assert!(!app.store.dirty());
+    }
+
+    #[test]
+    fn a_groove_preview_is_a_job_that_answers_later_and_leaves_the_song_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("groove.wav");
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.preparing = false;
+        app.sync_needed = false;
+        let revision = app.store.revision;
+        let tracks = app.store.session().tracks.len();
+        let lanes = json!([{"steps":16,"pulses":4,"rotation":0,"pitch":36,"velocity":110}]);
+        let result = app
+            .run_control_command(
+                "rhythm.preview",
+                &json!({"lanes":lanes,"bars":1,"path":path}),
+                false,
+                "test",
+            )
+            .unwrap();
+        assert_eq!(result["status"], "running");
+        let (tx, rx) = mpsc::sync_channel(1);
+        assert!(app.attach_reply(Reply::Channel(tx)).is_ok());
+        // Unlike a file job, a preview does not lock the document while it renders.
+        app.try_dispatch(Command::Rename("still editable".into()))
+            .unwrap();
+        let answer = loop {
+            app.poll_workers();
+            if let Ok(answer) = rx.try_recv() {
+                break answer.unwrap();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(app.live_jobs.is_empty());
+        assert_eq!(answer["bars"], 1);
+        let decoded = audio::decode(std::fs::read(&path).unwrap(), Some("wav")).unwrap();
+        assert!(
+            decoded.frames.iter().flatten().any(|v| v.abs() > 0.01),
+            "the kick is audible"
+        );
+        assert_eq!(
+            app.store.session().tracks.len(),
+            tracks,
+            "nothing was created"
+        );
+        assert_eq!(app.store.revision, revision + 1, "only the rename happened");
+        // Bad input is refused by the job, not by a panic.
+        app.run_control_command(
+            "rhythm.preview",
+            &json!({"lanes":lanes,"bars":9}),
+            false,
+            "test",
+        )
+        .unwrap();
+        let (tx, rx) = mpsc::sync_channel(1);
+        assert!(app.attach_reply(Reply::Channel(tx)).is_ok());
+        let refused = loop {
+            app.poll_workers();
+            if let Ok(answer) = rx.try_recv() {
+                break answer;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(refused.unwrap_err().contains("1 to 4 bars"));
     }
 
     #[test]

@@ -218,6 +218,12 @@ pub const BASE_COMMANDS: &[Spec] = &[
         req("bar", Kind::Number, "Absolute bar inside the clip."),
     ]),
     edit("clip.duplicate", "Duplicate a clip immediately after itself.", &[CLIP_ID]),
+    edit("clip.copy", "Copy a clip to the clipboard the window, the CLI and agents share. The session does not change.", &[opt("clipId", Kind::String, "Clip to copy; defaults to the selected clip.")]),
+    edit("clip.cut", "Copy a clip to the shared clipboard and remove it, in one undo step.", &[opt("clipId", Kind::String, "Clip to cut; defaults to the selected clip.")]),
+    edit("clip.paste", "Paste the clipboard as a new clip. MIDI goes on instrument tracks and audio on audio tracks.", &[
+        opt("trackId", Kind::String, "Destination track. Defaults to the selected track when its kind fits, else the track the clip came from."),
+        opt("bar", Kind::Number, "Zero-based start bar; defaults to the bar the playhead is in."),
+    ]),
     edit("clip.remove", "Delete a clip.", &[CLIP_ID]),
     edit("clip.setNotes", "Replace every note of a MIDI clip in one undo step.", &[
         CLIP_ID,
@@ -448,6 +454,18 @@ pub trait Host {
     }
     /// Called after `view.set` so the window can adopt zoom and scroll.
     fn view_changed(&mut self) {}
+    /// Width of the arrangement lanes in pixels, as the window last reported it; a headless
+    /// host assumes a common one. `view.fit` needs it.
+    fn lane_width(&self) -> f64 {
+        960.0
+    }
+    fn set_lane_width(&mut self, _pixels: f64) {}
+    /// The copied clip. It belongs to the host, so a copy in the window can be pasted from the
+    /// CLI and the other way round.
+    fn clipboard(&self) -> Option<&Clip> {
+        None
+    }
+    fn set_clipboard(&mut self, _clip: Option<Clip>) {}
     /// Capture live plugin state into the document before it is read (presets, state).
     fn capture_states(&mut self) -> Result<()> {
         Ok(())
@@ -478,6 +496,8 @@ pub struct Headless {
     pub library: Library,
     pub path: Option<PathBuf>,
     pub position: f64,
+    pub clipboard: Option<Box<Clip>>,
+    pub lane_width: f64,
 }
 impl Default for Headless {
     fn default() -> Self {
@@ -491,6 +511,8 @@ impl Headless {
             library: Library::new(),
             path: None,
             position: 0.0,
+            clipboard: None,
+            lane_width: 960.0,
         }
     }
     pub fn open(path: &Path) -> Result<Self> {
@@ -500,6 +522,18 @@ impl Headless {
     }
 }
 impl Host for Headless {
+    fn lane_width(&self) -> f64 {
+        self.lane_width
+    }
+    fn set_lane_width(&mut self, pixels: f64) {
+        self.lane_width = pixels;
+    }
+    fn clipboard(&self) -> Option<&Clip> {
+        self.clipboard.as_deref()
+    }
+    fn set_clipboard(&mut self, clip: Option<Clip>) {
+        self.clipboard = clip.map(Box::new);
+    }
     fn store(&self) -> &Store {
         &self.store
     }
@@ -1056,6 +1090,86 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             let mut clip = find_clip(host.store().session(), a.str("clipId")?)?.clone();
             clip.id = new_id("clip");
             clip.start_bar += clip.length_bars;
+            clip.agent = agent;
+            if let ClipData::Midi { notes } = &mut clip.data {
+                for n in notes {
+                    n.id = new_id("note");
+                }
+            }
+            let id = clip.id.clone();
+            host.dispatch(Command::PutClip(clip))?;
+            Ok(clip_summary(find_clip(host.store().session(), &id)?))
+        }
+        "clip.copy" | "clip.cut" => {
+            let s = host.store().session();
+            let id = match a.opt_str("clipId") {
+                Some(id) => id.to_string(),
+                None => s
+                    .view
+                    .selected_clip_id
+                    .clone()
+                    .ok_or("Select a clip or pass clipId")?,
+            };
+            let clip = find_clip(s, &id)?.clone();
+            let summary = clip_summary(&clip);
+            host.set_clipboard(Some(clip));
+            if name == "clip.cut" {
+                host.dispatch(Command::RemoveClip(id))?;
+                return Ok(json!({ "cut": summary }));
+            }
+            Ok(json!({ "copied": summary }))
+        }
+        "clip.paste" => {
+            let mut clip = host
+                .clipboard()
+                .cloned()
+                .ok_or("Nothing has been copied yet; use clip.copy or clip.cut first")?;
+            let s = host.store().session();
+            let kind = if matches!(clip.data, ClipData::Midi { .. }) {
+                "midi"
+            } else {
+                "audio"
+            };
+            let label = if kind == "midi" { "MIDI" } else { "audio" };
+            let fits = |id: &str| s.tracks.iter().any(|t| t.id == id && t.kind == kind);
+            let track = match a.opt_str("trackId") {
+                Some(id) => {
+                    find_track(s, id)?;
+                    if !fits(id) {
+                        return Err(format!(
+                            "The clipboard holds {label}; paste it on {} track",
+                            if kind == "midi" {
+                                "an instrument"
+                            } else {
+                                "an audio"
+                            }
+                        ));
+                    }
+                    id.to_string()
+                }
+                None => s
+                    .view
+                    .selected_track_id
+                    .clone()
+                    .filter(|id| fits(id))
+                    .or_else(|| Some(clip.track_id.clone()).filter(|id| fits(id)))
+                    .ok_or_else(|| {
+                        format!("Select a track for the copied {label} clip, or pass trackId")
+                    })?,
+            };
+            if let ClipData::Audio { source_id, .. } = &clip.data {
+                if !s.sources.contains_key(source_id) {
+                    return Err("The copied audio belongs to another session".into());
+                }
+            }
+            let bar = match a.opt_f64("bar") {
+                Some(bar) if valid_time(bar) => bar,
+                Some(_) => return Err("bar must be between 0 and 1,000,000".into()),
+                None => (host.position() / s.beats_per_bar()).floor(),
+            };
+            clip.id = new_id("clip");
+            clip.track_id = track;
+            clip.start_bar = bar;
             clip.agent = agent;
             if let ClipData::Midi { notes } = &mut clip.data {
                 for n in notes {
