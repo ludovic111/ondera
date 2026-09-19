@@ -26,10 +26,15 @@
 //! Build it as a `cdylib`, drop the library into an Ondera plugin directory and rescan.
 //! Parameters are document state in Ondera: they undo, save and automate without any work
 //! on the plugin side. `process` runs on the audio thread and must not allocate, block or log.
+//!
+//! A plugin that panics is contained: the host stops calling it, an effect passes audio
+//! through, an instrument falls silent, and the session keeps playing. Test a plugin the way
+//! the host runs it with [`testing::Bench`].
 
 pub mod dsp;
 pub mod ffi;
 mod plugin;
+pub mod testing;
 
 pub use plugin::*;
 

@@ -20,6 +20,9 @@ const BY_FOLDER: Record<string, FamilyKey> = {
   Modulation: "famMod",
   "Space & Time": "famSpace",
   Pitch: "famPitch",
+  "Channel Strips": "famKeys",
+  Mastering: "famSampler",
+  Restoration: "famTexture",
   Utility: "famUtility",
   "Other Effects": "famUtility",
 };

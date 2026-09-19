@@ -19,6 +19,18 @@ when a third-party plugin is installed. CLAP, VST3 and Audio Units keep working 
 
 ## Write one
 
+The quickest start is the scaffold, which writes a crate with a working plugin and a test that
+runs it through the real ABI:
+
+```sh
+ondera-cli plugin.scaffold path=./warm-drive name="Warm Drive" vendor="Night Owl"   # kind=instrument for a synth
+cd warm-drive && cargo test && cargo build --release
+ondera-cli plugin.install path=target/release/libwarm_drive.dylib
+ondera-cli plugin.scan
+```
+
+By hand it is this much:
+
 ```toml
 [package]
 name = "my-plugin"
@@ -101,3 +113,31 @@ A library built for another ABI version is refused with a clear message rather t
 - No custom editor window yet: Ondera draws knobs and menus from the parameter metadata.
 - Stereo only, one audio bus, note input for instruments; no sidechain or MIDI output.
 - State beyond parameters is not captured; keep everything the sound depends on in parameters.
+
+## Testing
+
+`ondera_plugin::testing::Bench` drives a plugin through the same vtable the host uses, in
+host-sized blocks, with a moving transport:
+
+```rust
+use ondera_plugin::testing::Bench;
+
+let mut bench = Bench::<Gain>::new(48_000.0);
+bench.set("Gain", -6.0);                       // by display name; panics on a typo or a value out of range
+let out = bench.sine(440.0, 0.5, 0.25);        // also: silence(seconds, notes), note(pitch, velocity, held, seconds)
+Bench::<Gain>::assert_sane(&out);              // finite and not absurdly loud
+assert!(Bench::<Gain>::peak(&out) < 0.3);
+```
+
+## When a plugin panics
+
+Every call into a plugin is guarded. A panic poisons that instance: the host never calls it
+again, an effect passes audio through, an instrument falls silent, and the session keeps
+playing. Fix the bug and reload; do not rely on the guard as control flow.
+
+## Sound folders
+
+The browser files plugins by sound. A native plugin chooses its folder by using one of these
+as its category: Dynamics, EQ & Filter, Distortion, Modulation, Space & Time, Pitch,
+Channel Strips, Mastering, Restoration, Utility. Instruments are filed by name (Synths, Keys,
+Bass, Drums, Pads, Samplers, Textures); the user can re-file anything from the browser.

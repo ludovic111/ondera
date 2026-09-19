@@ -225,6 +225,8 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         | "preset.save"
         | "preset.delete"
         | "session.saveRecoveredTake"
+        | "plugin.scaffold"
+        | "plugin.install"
             if !permissions.file_operations =>
         {
             deny("file operations", "fileOperations")
