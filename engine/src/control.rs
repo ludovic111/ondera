@@ -128,6 +128,9 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("query",Kind::String,"Case-insensitive name, vendor or plugin ID search."),
         opt("format",Kind::String,"stock, native, clap, vst3 or au."),
         opt("kind",Kind::String,"instrument or effect."),
+        opt("folder",Kind::String,"Sound folder from plugin.folders, for example Synths, Drums, Dynamics or Space & Time."),
+        opt("favorite",Kind::Boolean,"Only favourites."),
+        opt("sort",Kind::String,"name (default) or recent: most recently loaded first."),
         opt("offset",Kind::Integer,"Zero-based result offset, default 0."),
         opt("limit",Kind::Integer,"Page size 1-200, default 50."),
     ]),
@@ -299,6 +302,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .iter()
         .chain(crate::control_media::SPECS)
         .chain(crate::control_edit::SPECS)
+        .chain(crate::control_plugins::SPECS)
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_app::SPECS)
         .copied()
@@ -705,6 +709,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     if name.starts_with("automation.") {
         return crate::control_automation::call(host, name, params, agent);
     }
+    if crate::control_plugins::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_plugins::call(host, name, &a);
+    }
     if crate::control_edit::SPECS.iter().any(|s| s.name == name) {
         return crate::control_edit::call(host, name, params, agent);
     }
@@ -714,12 +721,12 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     if crate::control_app::SPECS.iter().any(|s| s.name == name) {
         return crate::control_app::call(host, name, &a, agent);
     }
-    match name {
+    let result = match name {
         "session.info" => Ok(info(host)),
         "session.get" => serde_json::to_value(host.store().session()).map_err(|e| e.to_string()),
         "session.inspect" => Ok(inspect(host, a.opt_bool("includeNotes").unwrap_or(false))),
         "session.catalog" => Ok(catalog()),
-        "plugin.list" => plugin_page(&a, plugin_host::scan::installed()),
+        "plugin.list" => crate::control_plugins::page(&a, &host.settings().plugins),
         "plugin.scan" => {
             let cache = plugin_host::scan::scan_all(|_| {});
             plugin_host::scan::store_cache(&cache)?;
@@ -1387,7 +1394,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         _ => Err(format!(
             "Command `{name}` is registered but not implemented"
         )),
+    };
+    if name == "strip.setPlugin" && result.is_ok() {
+        crate::control_plugins::note_recent(host, a.str("pluginId")?);
     }
+    result
 }
 
 /// Exports must not replace the document that the host is currently editing,
@@ -1750,47 +1761,6 @@ fn catalog() -> Value {
         "buses": [MASTER, BUS_A, BUS_B],
         "insertSlots": MAX_INSERTS,
     })
-}
-fn plugin_page(args: &Args, plugins: Vec<crate::plugin::Descriptor>) -> Result<Value> {
-    let format = args.opt_str("format");
-    if format.is_some_and(|format| !["stock", "native", "clap", "vst3", "au"].contains(&format)) {
-        return Err("Plugin format must be stock, native, clap, vst3 or au".into());
-    }
-    let kind = args.opt_str("kind");
-    if kind.is_some_and(|kind| !["instrument", "effect"].contains(&kind)) {
-        return Err("Plugin kind must be instrument or effect".into());
-    }
-    let limit = args.opt_int("limit").unwrap_or(50);
-    let offset = args.opt_int("offset").unwrap_or(0);
-    if !(1..=200).contains(&limit) || offset < 0 {
-        return Err("Plugin limit must be 1-200 and offset must be non-negative".into());
-    }
-    let query = args.opt_str("query").unwrap_or("").to_lowercase();
-    let filtered: Vec<_> = plugins
-        .into_iter()
-        .filter(|plugin| {
-            let format_name = plugin.format.prefix();
-            format.is_none_or(|format| format == format_name)
-                && kind.is_none_or(|kind| {
-                    if kind == "instrument" {
-                        plugin.instrument
-                    } else {
-                        plugin.effect
-                    }
-                })
-                && (query.is_empty()
-                    || plugin.name.to_lowercase().contains(&query)
-                    || plugin.vendor.to_lowercase().contains(&query)
-                    || plugin.id.to_lowercase().contains(&query))
-        })
-        .collect();
-    let total = filtered.len();
-    let offset = usize::try_from(offset).map_err(|_| "Plugin offset is too large")?;
-    let end = offset.saturating_add(limit as usize).min(total);
-    let page = &filtered[offset.min(total)..end];
-    Ok(
-        json!({"plugins":page,"total":total,"offset":offset,"limit":limit,"nextOffset":if end<total {Some(end)} else {None},"cachePath":plugin_host::scan::cache_path()}),
-    )
 }
 fn inspect(host: &dyn Host, include_notes: bool) -> Value {
     let session = host.store().session();

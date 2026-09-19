@@ -6,6 +6,7 @@ pub mod control_app;
 pub mod control_automation;
 pub mod control_edit;
 pub mod control_media;
+pub mod control_plugins;
 pub mod device;
 pub mod document;
 pub mod dsp;

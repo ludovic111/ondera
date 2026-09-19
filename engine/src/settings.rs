@@ -156,6 +156,12 @@ pub struct Plugins {
     pub extra_clap_paths: Vec<String>,
     pub extra_vst3_paths: Vec<String>,
     pub extra_native_paths: Vec<String>,
+    /// Plugin ids starred in the browser.
+    pub favorites: Vec<String>,
+    /// Plugin id to the sound folder the user filed it under, overriding the automatic one.
+    pub folders: std::collections::BTreeMap<String, String>,
+    /// Most recently loaded plugin ids, newest first.
+    pub recent: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -387,6 +393,15 @@ impl Settings {
             if paths.len() > 64 || paths.iter().any(|p| p.is_empty() || p.len() > 4096) {
                 return Err("Plugin search paths must be 1-64 non-empty entries".into());
             }
+        }
+        if self.plugins.favorites.len() > 4096
+            || self.plugins.folders.len() > 4096
+            || self.plugins.recent.len() > 64
+            || self.plugins.folders.values().any(|f| {
+                f.trim().is_empty() || f.chars().count() > 40 || f.chars().any(char::is_control)
+            })
+        {
+            return Err("Plugin folders need a name of 1-40 characters".into());
         }
         Ok(())
     }
