@@ -12,9 +12,7 @@ import {
   radius,
   size,
   timeline,
-  white,
 } from "../theme/tokens";
-import { withAlpha } from "../theme/color";
 import { cc, hline, monoFont, roundRectPath, withShadows } from "./paint";
 import { barToX, laneGeometry } from "./timeline";
 
@@ -118,11 +116,11 @@ export function drawRuler(
     roundRectPath(ctx, bx, by, bw, bh, radius.md);
     ctx.fill();
   });
-  ctx.strokeStyle = withAlpha(color.desk, 0.4);
+  ctx.strokeStyle = cc(line.border);
   ctx.lineWidth = 1;
   roundRectPath(ctx, bx + 0.5, by + 0.5, bw - 1, bh - 1, radius.md);
   ctx.stroke();
-  ctx.fillStyle = white(0.15);
+  ctx.fillStyle = cc(line.hairline);
   ctx.fillRect(bx + 2, by + 1, bw - 4, 1);
   ctx.fillStyle = color.inkBright;
   ctx.textBaseline = "middle";

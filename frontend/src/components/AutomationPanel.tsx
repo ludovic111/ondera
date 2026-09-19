@@ -180,7 +180,7 @@ export function AutomationPanel({ onClose }: { onClose: () => void }) {
           >
             <polyline
               fill="none"
-              stroke="#47d6cf"
+              stroke="var(--color-accent)"
               strokeWidth="2"
               points={points
                 .flatMap((p, i) =>
@@ -200,7 +200,7 @@ export function AutomationPanel({ onClose }: { onClose: () => void }) {
                 cx={(p.beat / end) * 800}
                 cy={200 - ((p.value - lane.min) / (lane.max - lane.min)) * 200}
                 r="5"
-                fill="#f0e8d8"
+                fill="var(--color-indicator)"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.currentTarget.ownerSVGElement?.setPointerCapture(

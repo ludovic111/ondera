@@ -1,188 +1,102 @@
-/* Aero glass belongs to the frame; the score and conversations stay opaque. */
-:root[data-appearance="aero"] {
-  color-scheme: light;
-}
-:root[data-appearance="aero"] [data-surface="window"] {
+/*
+ * Frutiger Aero structure. Colours live in aero.ts as --aero-* properties so
+ * the same rules serve day and night; this file only says where glass goes.
+ * Glass belongs to the frame; the score and the conversation stay opaque.
+ */
+:root[data-theme="aero"] [data-surface="window"] {
   padding: 0 8px 8px;
-  background:
-    linear-gradient(
-      118deg,
-      transparent 12%,
-      #d8ffe745 14%,
-      transparent 20%,
-      transparent 61%,
-      #eeffff36 63%,
-      transparent 71%
-    ),
-    radial-gradient(ellipse at 22% -10%, #83b55e, transparent 60%),
-    linear-gradient(125deg, #24432f, #38635e 60%, #183c4b);
-  box-shadow:
-    inset 0 0 0 1px #d2faff80,
-    inset 0 0 0 2px #142b3566;
+  background: var(--aero-frame);
+  box-shadow: var(--aero-frame-shadow);
 }
-:root[data-appearance="aero"] [data-surface="titlebar"] {
-  --color-ink100: #effaff;
-  --color-ink300: #effaff;
-  --color-ink500: #d3e8e5;
-  color: #fff;
-  background:
-    linear-gradient(
-      112deg,
-      transparent 30%,
-      #ffffff35 31%,
-      #ffffff08 42%,
-      transparent 43%
-    ),
-    linear-gradient(#c1d6c273, #314e47a6 50%, #18393080);
+:root[data-theme="aero"] [data-surface="titlebar"] {
+  --color-ink100: var(--aero-bar-ink);
+  --color-ink300: var(--aero-bar-ink);
+  --color-ink500: var(--aero-bar-ink-dim);
+  --color-menu-hover: rgba(255, 255, 255, 0.24);
+  color: var(--aero-bar-ink);
+  background: var(--aero-title);
   height: 34px;
-  text-shadow: 0 1px 3px #071b13;
+  box-shadow: none;
+  text-shadow: var(--aero-bar-text-shadow);
 }
-:root[data-appearance="aero"] [data-surface="transport"] {
-  --color-ink300: #e4f1e9;
-  --color-ink500: #cbded3;
-  background:
-    linear-gradient(
-      115deg,
-      transparent 18%,
-      #ffffff35 19%,
-      #ffffff05 25%,
-      transparent 26%,
-      transparent 68%,
-      #ffffff25 69%,
-      transparent 78%
-    ),
-    linear-gradient(#738c91 0%, #344c52 46%, #152e34 49%, #2d5258 100%);
-  border: 1px solid #102e2e;
-  border-radius: 8px 8px 0 0;
+:root[data-theme="aero"] [data-surface="transport"] {
+  --color-ink300: var(--aero-bar-ink);
+  --color-ink500: var(--aero-bar-ink-dim);
+  background: var(--aero-bar);
+  border: 1px solid var(--aero-bar-edge);
+  border-radius: 10px 10px 0 0;
   height: 58px;
-  box-shadow:
-    inset 0 1px 0 #efffff90,
-    inset 0 -1px 0 #071d25,
-    0 2px 5px #10242c55;
+  box-shadow: var(--aero-bar-shadow);
 }
-:root[data-appearance="aero"] [data-surface="transport"] .m-well-deep {
-  --color-ink-bright: #d9faba;
-  --color-ink300: #a1ca84;
-  --color-ink500: #a2bc9d;
-  --color-ink-dim: #a6c999;
-  --color-ink-separator: #557649;
-  background: linear-gradient(#061c16, #193626);
-  box-shadow:
-    inset 0 2px 5px #000b,
-    0 1px 0 #d8f0e05c,
-    0 0 0 1px #0d2420;
-  text-shadow: 0 0 5px #92e15730;
+:root[data-theme="aero"] .m-well-deep {
+  background: var(--aero-lcd);
+  text-shadow: var(--aero-lcd-glow);
 }
-:root[data-appearance="aero"] [data-surface="agent-header"] {
-  --color-ink100: #fff;
-  --color-ink500: #e0f4d2;
-  background:
-    linear-gradient(115deg, transparent 35%, #ffffff24 36%, transparent 56%),
-    linear-gradient(#8cac8d, #46654a 48%, #1f3f27 51%, #3d6539);
-  box-shadow:
-    inset 0 1px 0 #f6ffeb8c,
-    inset 0 -1px 0 #122e19;
-  text-shadow: 0 1px 2px #163019;
+:root[data-theme="aero"]
+  :is([data-surface="agent-header"], .native-dialog > header) {
+  --color-ink100: var(--aero-bar-ink);
+  --color-ink300: var(--aero-bar-ink);
+  --color-ink500: var(--aero-bar-ink-dim);
+  color: var(--aero-bar-ink);
+  text-shadow: var(--aero-bar-text-shadow);
 }
-:root[data-appearance="aero"] .m-button,
-:root[data-appearance="aero"] .native-dialog button {
-  color: var(--color-ink-control);
-  background: var(--gradient-raised);
-  border: 0;
-  box-shadow: var(--shadow-raised);
-  border-radius: var(--radius-control);
+:root[data-theme="aero"] [data-surface="agent-header"] {
+  background: var(--aero-bar);
+  box-shadow: var(--aero-bar-shadow);
 }
-:root[data-appearance="aero"]
-  :is(.m-button, .m-raised, .m-raised-sm):hover:not(:disabled) {
-  background:
-    radial-gradient(ellipse at 50% 110%, #edffff, transparent 60%),
-    linear-gradient(#fff, #bde3f3 46%, #76afc9 49%, #bceafa);
+:root[data-theme="aero"] .native-dialog > header button {
+  color: var(--aero-bar-ink);
+  text-shadow: inherit;
 }
-:root[data-appearance="aero"]
-  :is(.m-button, .m-raised, .m-raised-sm):active:not(:disabled) {
-  background: var(--gradient-pressed);
-  box-shadow: var(--shadow-pressed);
-}
-:root[data-appearance="aero"] .agent-tabs {
+:root[data-theme="aero"] .agent-tabs {
   gap: 3px;
-  background: linear-gradient(#7c9283, #364e41 48%, #1e392c 50%, #44644c);
-  border-bottom: 1px solid #183827;
+  background: var(--aero-tabs);
+  border-bottom: 1px solid var(--aero-bar-edge);
   padding-top: 7px;
   padding-bottom: 7px;
 }
-:root[data-appearance="aero"] .agent-tabs .m-segment-selected,
-:root[data-appearance="aero"] .settings-layout nav .selected {
+:root[data-theme="aero"] .agent-tabs button {
+  color: var(--aero-bar-ink);
+  text-shadow: var(--aero-bar-text-shadow);
+}
+:root[data-theme="aero"] .agent-tabs .m-segment-selected,
+:root[data-theme="aero"] .settings-layout nav .selected {
   background: var(--gradient-lit);
-  color: var(--color-accent-ink);
   box-shadow: var(--shadow-segment);
+  color: var(--color-accent-ink);
+  text-shadow: 0 1px 0 #dcffb680;
 }
-:root[data-appearance="aero"] .agent-composer {
-  border-top: 1px solid #bfd4df;
-  background: linear-gradient(#eef7fb, #e0eef5);
+:root[data-theme="aero"] .agent-composer {
+  background: var(--aero-composer);
 }
-:root[data-appearance="aero"] .agent-composer textarea {
-  background: #fcfeff;
-  border: 1px solid #a5bfce;
-  box-shadow:
-    inset 0 1px 3px #264d6614,
-    0 1px 0 #fff;
-}
-:root[data-appearance="aero"] .agent-message {
-  border-bottom: 1px solid #dce8ee;
-}
-:root[data-appearance="aero"] .native-dialog {
-  background: linear-gradient(135deg, #f4fcff, #e2f0f7);
-  color: var(--color-ink100);
-  border: 1px solid #9bbdce;
-  border-radius: 9px;
-  box-shadow:
-    inset 0 1px 0 #fff,
-    0 18px 55px #193a5266;
-}
-
-:root[data-appearance="aero"]
+:root[data-theme="aero"] .agent-composer textarea,
+:root[data-theme="aero"]
   .native-dialog
   :is(input, select):not([type="checkbox"]):not([type="range"]) {
-  background: #fcfeff;
-  border-color: #a5bfce;
+  background: var(--aero-input);
 }
-:root[data-appearance="aero"] .m-accent-dot {
+:root[data-theme="aero"] .agent-conversation {
+  background: var(--aero-conversation);
+}
+:root[data-theme="aero"] .m-accent-dot {
   background: radial-gradient(circle at 35% 25%, #f4ffe2, #8bcf51 40%, #448f22);
   box-shadow:
     inset 0 0 0 1px #4f8b37,
-    0 1px 2px #325c2333;
-}
-:root[data-appearance="aero"] :focus-visible {
-  outline: 2px solid #087bac;
-  outline-offset: 2px;
-}
-@media (prefers-reduced-transparency: reduce) {
-  :root[data-appearance="aero"] .m-glass,
-  :root[data-appearance="aero"] .m-glass-agent,
-  :root[data-appearance="aero"] .m-glass-card {
-    backdrop-filter: none;
-    background: #edf7fc;
-  }
+    0 0 6px var(--color-led-glow-soft);
 }
 
-/* Curved lens, bright upper reflection, darker waist and a luminous lower rim. */
-:root[data-appearance="aero"]
-  :is(.aero-primary, .agent-send .m-button, .aero-play) {
+/* The lens: curved glass with a bright upper reflection, used for the one
+   primary action of a surface (play, send, apply). */
+:root[data-theme="aero"] :is(.aero-primary, .agent-send .m-button, .aero-play) {
   position: relative;
   isolation: isolate;
-  background:
-    radial-gradient(ellipse at 50% 120%, #c9ff76 0%, transparent 60%),
-    linear-gradient(#acd86e, #68aa35 45%, #276814 50%, #78b837);
-  color: #fff;
-  text-shadow: 0 1px 2px #16310b;
+  background: var(--aero-lime);
+  color: var(--aero-lime-ink);
+  text-shadow: var(--aero-lime-text-shadow);
   border-radius: 16px;
-  box-shadow:
-    inset 0 1px 1px #f4ffdc,
-    inset 0 -2px 3px #1c521a99,
-    0 0 0 1px #254e17,
-    0 3px 5px #10241866;
+  box-shadow: var(--aero-lime-shadow);
 }
-:root[data-appearance="aero"]
+:root[data-theme="aero"]
   :is(.aero-primary, .agent-send .m-button, .aero-play)::before {
   content: "";
   position: absolute;
@@ -190,92 +104,32 @@
   pointer-events: none;
   inset: 2px 4px 52%;
   border-radius: 50% 50% 42% 42% / 75% 75% 25% 25%;
-  background: linear-gradient(#ffffffed, #ffffff26);
+  background: var(--aero-gloss);
 }
-:root[data-appearance="aero"]
+:root[data-theme="aero"]
   :is(.aero-primary, .agent-send .m-button, .aero-play):hover:not(:disabled) {
-  background:
-    radial-gradient(ellipse at 50% 115%, #e1ffa8, transparent 65%),
-    linear-gradient(#bce986, #7bbf43 45%, #337b19 50%, #8acb46);
-  box-shadow:
-    inset 0 1px 1px #fff,
-    inset 0 -2px 3px #1c521a80,
-    0 0 0 1px #426d20,
-    0 2px 7px #80cb6a88;
+  background: var(--aero-lime-hover);
 }
-:root[data-appearance="aero"]
+:root[data-theme="aero"]
   :is(.aero-primary, .agent-send .m-button, .aero-play):active:not(:disabled),
-:root[data-appearance="aero"] .aero-play[aria-pressed="true"] {
-  background:
-    radial-gradient(ellipse at 50% 110%, #b6f279, transparent 60%),
-    linear-gradient(#40692c, #2b5818 48%, #3c7b22 50%, #6aad42);
-  box-shadow:
-    inset 0 2px 4px #09200899,
-    inset 0 0 0 1px #2e571c,
-    0 1px 0 #f0ffb060;
+:root[data-theme="aero"] .aero-play[aria-pressed="true"] {
+  background: var(--aero-lime-pressed);
+  box-shadow: var(--shadow-pressed);
 }
-:root[data-appearance="aero"] .aero-play {
+:root[data-theme="aero"] .aero-play {
   width: 40px;
   height: 40px;
   border-radius: 50%;
 }
-:root[data-appearance="aero"] .aero-play::before {
+:root[data-theme="aero"] .aero-play::before {
   inset: 3px 5px 52%;
 }
-
-:root[data-appearance="aero"] .agent-tabs button {
-  color: #f2f9ee;
-  text-shadow: 0 1px 1px #16311d;
-}
-:root[data-appearance="aero"] .agent-tabs .m-segment-selected {
-  color: #102908;
-  text-shadow: 0 1px 0 #dcffb680;
-}
-:root[data-appearance="aero"] .native-dialog > header {
-  background:
-    linear-gradient(
-      110deg,
-      #ffffff36,
-      transparent 40%,
-      #ffffff40 70%,
-      transparent
-    ),
-    linear-gradient(#99b6b6, #486d75 48%, #2a4b55 51%, #6a9496);
-  color: #fff;
-  border-bottom: 1px solid #426775;
-  text-shadow: 0 1px 2px #14313a;
-}
-:root[data-appearance="aero"] .m-well-meter {
-  background: #152b27;
-}
-
-:root[data-appearance="aero"] [data-surface="browser-header"],
-:root[data-appearance="aero"] [data-surface="editor-header"],
-:root[data-appearance="aero"] [data-surface="inspector-header"] {
-  background:
-    linear-gradient(
-      118deg,
-      #ffffff60,
-      transparent 36%,
-      #ffffff55 65%,
-      transparent 85%
-    ),
-    linear-gradient(#e9f3f4, #b1c9d0 48%, #89abb7 50%, #c2dce2);
-  box-shadow:
-    inset 0 1px 0 #fff,
-    inset 0 -1px 0 #7196a7,
-    0 1px 2px #30596b26;
-}
-:root[data-appearance="aero"] :is(.caps, .t-caps) {
-  letter-spacing: 0.025em;
+:root[data-theme="aero"] :is(.caps, .t-caps) {
   font-size: 10px;
 }
-:root[data-appearance="aero"] .provider-logo {
-  box-shadow:
-    inset 0 1px 0 #fff,
-    0 1px 2px #24495930;
-}
-:root[data-appearance="aero"] .agent-conversation {
-  background:
-    linear-gradient(90deg, #fff8, transparent 24px), var(--color-agent-panel);
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="aero"] :is(.m-glass, .m-glass-agent, .m-glass-card) {
+    backdrop-filter: none;
+    background: var(--color-material-card);
+  }
 }

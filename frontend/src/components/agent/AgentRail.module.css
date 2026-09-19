@@ -31,7 +31,7 @@
 }
 
 .idle {
-  background: #686864;
+  background: var(--color-neutral-dot);
   border-radius: 50%;
-  box-shadow: 0 1px 2px #000;
+  box-shadow: var(--shadow-swatch-sm);
 }

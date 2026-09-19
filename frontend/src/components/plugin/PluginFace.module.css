@@ -1,0 +1,290 @@
+.face {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nameplate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.led {
+  width: 8px;
+  height: 8px;
+  flex: none;
+}
+
+.name {
+  font-size: 17px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  color: var(--color-ink100);
+  line-height: 1.15;
+}
+
+.category {
+  margin-top: 2px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.toolbar :is(select, input) {
+  width: 132px;
+}
+
+/* Display --------------------------------------------------------------- */
+
+.display {
+  position: relative;
+  height: 148px;
+  border-radius: var(--radius-glass);
+  overflow: hidden;
+}
+
+.display svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.display text {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  fill: var(--color-well-ink-faint);
+}
+
+.gridLine {
+  stroke: var(--fill-eq-grid-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.zeroLine {
+  stroke: var(--fill-eq-zero-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.unityLine {
+  stroke: var(--fill-eq-zero-line);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.gridText,
+.markerText {
+  paint-order: stroke;
+}
+
+.curve {
+  fill: none;
+  stroke: var(--color-eq-curve);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* A soft halo under the trace, as on a phosphor screen. Flat themes have no
+   glow colour, so it disappears there. */
+.curveGlow {
+  fill: none;
+  stroke: var(--color-eq-curve);
+  stroke-width: 6;
+  stroke-linejoin: round;
+  opacity: var(--display-glow, 0.18);
+  vector-effect: non-scaling-stroke;
+}
+
+.ghost {
+  fill: none;
+  stroke: var(--color-well-ink-faint);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.fillTop {
+  stop-color: var(--color-eq-fill);
+  stop-opacity: 0.32;
+}
+
+.fillBottom {
+  stop-color: var(--color-eq-fill);
+  stop-opacity: 0.02;
+}
+
+.handle {
+  fill: var(--color-well-deep);
+  stroke: var(--color-eq-handle);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.marker {
+  stroke: var(--color-eq-handle);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.display .markerText {
+  fill: var(--color-eq-handle);
+}
+
+.bar {
+  fill: var(--color-eq-curve);
+  opacity: 0.85;
+}
+
+.barDry {
+  fill: var(--color-well-ink);
+}
+
+.field {
+  fill: var(--color-eq-fill);
+  fill-opacity: 0.22;
+  stroke: var(--color-eq-curve);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Controls -------------------------------------------------------------- */
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.choice select {
+  min-width: 120px;
+}
+
+.switch {
+  min-width: 52px;
+  height: 24px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-value);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dials {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 16px 6px;
+  padding: 16px 10px 12px;
+}
+
+.control {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dial {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+}
+
+.ring {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.ringTrack,
+.ringValue {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.ringTrack {
+  stroke: var(--color-groove);
+}
+
+.ringValue {
+  stroke: var(--color-accent);
+  filter: drop-shadow(0 0 3px var(--ring-glow, transparent));
+}
+
+.value {
+  font-size: var(--fs-value);
+  color: var(--color-ink300);
+  white-space: nowrap;
+}
+
+.automate {
+  position: absolute;
+  top: 14px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fill-hover);
+  color: var(--color-ink500);
+  font-size: 8.5px;
+  font-weight: var(--fw-bold);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.control:hover .automate,
+.automate:focus-visible {
+  opacity: 1;
+}
+
+.automate:hover {
+  color: var(--color-accent);
+}
+
+/* External plugins: their own window is the editor; this is the fallback. */
+.list {
+  max-height: 55vh;
+  overflow: auto;
+}

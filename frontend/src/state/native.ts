@@ -31,7 +31,9 @@ export interface UiState {
   busy: boolean;
   prompt: string | null;
   scale: number;
-  appearance?: "aero" | "graphite";
+  /** Theme id; "graphite" and unknown values fall back to skeuo. */
+  appearance?: string;
+  mode?: "dark" | "light" | "auto";
   recoveryStatus: string;
   update: { available: string | null; installed: boolean; busy: boolean };
 }

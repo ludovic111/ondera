@@ -59,7 +59,7 @@ export function InspectorPanel() {
                 ? "Reverb (A)"
                 : "Delay (B)",
           kind: "audio",
-          color: "#46c7c0",
+          color: "var(--color-accent)",
           volume: masterVolume,
           pan: 0,
           mute: false,
@@ -506,7 +506,9 @@ function EqDisplay({ active }: { active: boolean }) {
         <path
           d={path}
           fill="none"
-          stroke={active ? "#c6b3e4" : "#777773"}
+          stroke={
+            active ? "var(--color-eq-curve)" : "var(--color-well-ink-faint)"
+          }
           strokeWidth="1.5"
         />
       </svg>

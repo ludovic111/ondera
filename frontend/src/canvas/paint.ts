@@ -45,6 +45,11 @@ export function withShadows(
   layers: readonly CanvasShadowLayer[],
   paint: () => void,
 ): void {
+  // A flat theme has no layers; the shape itself must still be painted.
+  if (layers.length === 0) {
+    paint();
+    return;
+  }
   for (const layer of layers) {
     ctx.save();
     ctx.shadowColor = cc(layer.color);

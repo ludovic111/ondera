@@ -38,6 +38,18 @@
   box-shadow: var(--shadow-groove-shallow);
 }
 
+/* A well may be darker than the faceplate around it (smoked glass on light
+   hardware), so text inside one reads the well inks, not the panel inks. */
+.m-well-deep,
+.m-well-meter {
+  --color-ink-bright: var(--color-well-ink);
+  --color-ink100: var(--color-well-ink);
+  --color-ink-dim: var(--color-well-ink-dim);
+  --color-ink300: var(--color-well-ink-dim);
+  --color-ink500: var(--color-well-ink-faint);
+  --color-ink-separator: var(--color-well-ink-faint);
+}
+
 .m-well-deep {
   background: var(--color-well-deep);
   box-shadow: var(--shadow-well-deep);
@@ -83,4 +95,27 @@
 
 .m-swatch {
   box-shadow: var(--shadow-swatch);
+}
+
+.m-plate {
+  background: var(--gradient-plate);
+  box-shadow: var(--shadow-plate);
+  border-radius: var(--radius-lg);
+}
+
+button.m-raised:hover:not(:disabled),
+button.m-raised-sm:hover:not(:disabled),
+.m-button:hover:not(:disabled) {
+  background: var(--gradient-raised-hover);
+}
+
+button.m-raised:active:not(:disabled),
+button.m-raised-sm:active:not(:disabled),
+.m-button:active:not(:disabled) {
+  background: var(--gradient-pressed);
+  box-shadow: var(--shadow-pressed);
+}
+
+[data-surface$="-header"]:not([data-surface="agent-header"]) {
+  background: var(--gradient-panel-header);
 }

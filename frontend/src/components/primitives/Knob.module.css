@@ -23,6 +23,22 @@
   box-shadow: var(--shadow-knob-big);
 }
 
+.xl {
+  width: var(--size-knob-xl);
+  height: var(--size-knob-xl);
+  background: var(--gradient-knob-big);
+  box-shadow: var(--shadow-knob-big);
+}
+
+.xl .inner {
+  inset: 8px;
+}
+
+.xl .indicator {
+  top: 3px;
+  height: 11px;
+}
+
 .inner {
   position: absolute;
   inset: 6px;
@@ -38,7 +54,7 @@
   width: 2px;
   height: 6px;
   border-radius: 1px;
-  background: var(--color-ink100);
+  background: var(--color-indicator);
   box-shadow: var(--shadow-knob-indicator);
 }
 
