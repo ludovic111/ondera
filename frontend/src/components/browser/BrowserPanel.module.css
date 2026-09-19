@@ -178,8 +178,10 @@
   margin-left: 12px;
 }
 
+/* The name is what people look for; vendor and format give way to it first. */
 .itemName {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 55%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -210,5 +212,9 @@
 }
 
 .meta {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

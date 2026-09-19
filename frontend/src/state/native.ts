@@ -553,7 +553,7 @@ export class NativeStore {
       meta:
         p.format === "stock"
           ? ""
-          : `${p.vendor} · ${FORMAT[p.format] ?? p.format}`,
+          : `${FORMAT[p.format] ?? p.format} · ${p.vendor}`,
       color: familyVar(p.folder),
       favorite: p.favorite,
       folder: p.folder,
