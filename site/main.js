@@ -259,7 +259,7 @@ subscribe((s, name) => {
     change.classList.toggle('agent__change--reverted', !s.agentApplied);
     const btn = $('#agent-revert');
     btn.dataset.cmd = s.agentApplied ? 'history.undo' : 'history.redo';
-    btn.textContent = s.agentApplied ? 'Revert' : 'Redo';
+    btn.textContent = s.agentApplied ? 'Undo from here' : 'Redo to here';
     btn.classList.toggle('btn--lit', !s.agentApplied);
     btn.classList.toggle('btn--raised', s.agentApplied);
   }
@@ -475,6 +475,7 @@ if (cpu) {
   const segs = $$('i', cpu);
   let level = 2;
   setInterval(() => {
+    if (document.hidden || reducedMotion) return;
     const target = state.playing ? 4 + Math.random() * 4 : 1 + Math.random() * 1.2;
     level += (target - level) * 0.5;
     segs.forEach((el, i) => { el.classList.toggle('on', i < Math.round(level)); el.classList.toggle('hot', i >= 10); });
@@ -540,14 +541,14 @@ if (fader && meter) {
   let phase = 0, rackVisible = false, shown = 0;
   new IntersectionObserver(([e]) => { rackVisible = e.isIntersecting; }, { threshold: 0.1 }).observe(meter);
   const tickMeter = () => {
-    if (rackVisible) {
+    if (rackVisible && !document.hidden) {
       phase += 0.06;
       const wobble = reducedMotion ? 0 : 0.12 * Math.sin(phase * 1.7) + 0.08 * Math.sin(phase * 5.3) + 0.05 * Math.sin(phase * 13.1);
       const target = clamp(v * (0.88 + wobble), 0, 1) * segs.length;
       shown = target > shown ? target : shown - 0.6;
       segs.forEach((el, i) => { el.classList.toggle('on', i < shown); el.classList.toggle('hot', i >= segs.length - 2); });
     }
-    setTimeout(tickMeter, 50);
+    setTimeout(tickMeter, rackVisible && !document.hidden ? 50 : 400);
   };
   tickMeter();
 }
@@ -576,3 +577,31 @@ const revealer = new IntersectionObserver((entries) => {
   for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); revealer.unobserve(e.target); }
 }, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
 for (const el of $$('.reveal')) revealer.observe(el);
+
+// ---------------------------------------------------------------------------
+// Downloads: name the visitor's platform on the buttons. The links already work
+// without this (the server redirects /download by User-Agent).
+// ---------------------------------------------------------------------------
+
+async function detectPlatform() {
+  const ua = navigator.userAgent;
+  if (/Android|iPhone|iPad/i.test(ua)) return null;
+  if (/Windows/i.test(ua)) return 'windows-x86_64';
+  if (/Mac/i.test(ua)) {
+    // Safari and Firefox report Intel on every Mac; only Chromium can tell them apart.
+    try {
+      const { architecture } = await navigator.userAgentData.getHighEntropyValues(['architecture']);
+      if (architecture === 'x86') return 'macos-x86_64';
+    } catch { /* not Chromium */ }
+    return 'macos-arm64';
+  }
+  if (/Linux|X11/i.test(ua)) return 'linux-x86_64';
+  return null;
+}
+detectPlatform().then((platform) => {
+  if (!platform) return;
+  const names = { 'macos-arm64': 'macOS', 'macos-x86_64': 'macOS (Intel)', 'windows-x86_64': 'Windows', 'linux-x86_64': 'Linux' };
+  $$('[data-download]').forEach((a) => { a.href = `/download/${platform}`; });
+  $$('[data-download-label]').forEach((a) => { a.textContent = `Download for ${names[platform]}`; });
+  $(`.dl[data-os="${platform}"]`)?.classList.add('is-yours');
+});

@@ -108,8 +108,8 @@ pub const SPECS: &[Spec] = &[
     edit("ui.screenshot", "Capture the window to a PNG so an agent can see the interface. Returns the file path and size.", &[
         opt("path", Kind::String, "Destination .png. Defaults to a timestamped file in the app data directory."),
     ]),
-    edit("ui.showPanel", "Show or hide an interface panel: agent, automation, settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
-        req("panel", Kind::String, "agent, automation, settings, help, export, recovery, master, bus-a or bus-b."),
+    edit("ui.showPanel", "Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
+        req("panel", Kind::String, "agent, automation, mixer, settings, help, export, recovery, master, bus-a or bus-b."),
         opt("visible", Kind::Boolean, "Show (default) or hide."),
         opt("section", Kind::String, "Settings section: general, audio, interface, agent, plugins, control, updates or about."),
     ]),

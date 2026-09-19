@@ -434,6 +434,24 @@ fn solo_excludes_unsoloed_tracks() {
     assert_eq!(energy(&mut r, &mut rack, 4800), 0.0);
 }
 #[test]
+fn each_track_publishes_its_own_meter() {
+    let mut s = midi_session();
+    let mut silent = s.tracks[0].clone();
+    silent.id = "silent".into();
+    s.tracks.push(silent);
+    let (mut r, mut rack) = offline(s, &Library::new(), 48000);
+    r.playing = true;
+    let mut block = [[0.0f32; 2]; 64];
+    let mut loudest = 0.0f32;
+    for _ in 0..40 {
+        r.begin_block();
+        r.render(&mut rack, &mut block);
+        loudest = loudest.max(r.track_peaks[0]);
+        assert_eq!(r.track_peaks[1], 0.0, "a track without clips stays silent");
+    }
+    assert!(loudest > 0.001, "the playing track moves its meter");
+}
+#[test]
 fn every_instrument_is_finite_and_audible() {
     for name in INSTRUMENTS {
         let mut s = midi_session();

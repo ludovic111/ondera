@@ -27,7 +27,7 @@ export function actionItem(
     label: label ?? def.label,
     ...(def.shortcut ? { shortcut: formatShortcut(def.shortcut) } : {}),
     disabled: def.enabled ? !def.enabled(state, store) : false,
-    checked: def.checked ? def.checked(state) : false,
+    checked: def.checked ? def.checked(state, store) : false,
     onSelect: () => runAction(store, id),
   };
 }
@@ -78,6 +78,9 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("undo"),
         a("redo"),
         separator,
+        a("cut"),
+        a("copy"),
+        a("paste"),
         a("duplicateClip", "Duplicate region"),
         a("splitAtPlayhead"),
         a("deleteSelection"),
@@ -105,18 +108,22 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
               clipId: store.getState().view.selectedClipId,
             }),
         })),
-        ...[1, -1, 12, -12].map((n) =>
-          call(
-            `Transpose region ${n > 0 ? "up" : "down"}${Math.abs(n) === 12 ? " an octave" : ""}`,
-            "web.transpose",
-            { semitones: n },
-          ),
-        ),
+        separator,
+        a("transposeUp"),
+        a("transposeDown"),
+        a("transposeOctaveUp"),
+        a("transposeOctaveDown"),
       ];
     case "Track":
       return [
         a("addMidiTrack", "Add instrument track"),
         a("addAudioTrack", "Add audio track"),
+        a("duplicateTrack"),
+        a("removeSelectedTrack"),
+        separator,
+        a("muteSelectedTrack"),
+        a("soloSelectedTrack"),
+        a("armSelectedTrack"),
         separator,
         ...[
           ["Show master strip", "master"],
@@ -151,11 +158,13 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
     case "Agent":
       return [
         a("toggleAgentPanel", "Show agent panel"),
-        call("Stop", "agent.stop"),
+        call("Stop agent", "agent.stop"),
         panel("Agent settings…", "settings"),
       ];
     case "View":
       return [
+        a("commandPalette"),
+        a("toggleMixer"),
         panel("Automation", "automation"),
         separator,
         a("followPlayhead"),
@@ -165,7 +174,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
       ];
     case "Help":
       return [
-        panel("Working in Ondera", "help"),
+        a("showShortcuts"),
         call("Check for updates…", "app.checkUpdates"),
         call("Native plugin SDK…", "web.sdk"),
         separator,

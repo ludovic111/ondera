@@ -1,3 +1,4 @@
+import { ShortcutList } from "./palette/Shortcuts";
 import {
   useEffect,
   useRef,
@@ -110,23 +111,11 @@ export function Dialogs() {
       {ui.recovery && <Recovery onClose={() => close("recovery")} />}
       {ui.help && (
         <Modal title="Working in Ondera" onClose={() => close("help")}>
-          <p>Space: play / stop. Enter: return to start. R: record arm.</p>
           <p>
-            Double-click a MIDI lane to create a region. Draw notes in the piano
-            roll. Drag notes and clips to move; drag their edges to resize.
+            Press ⌘/Ctrl P for the command palette: every menu command, by name.
+            X swaps the region editor for the mixer.
           </p>
-          <p>
-            ⌘/Ctrl S: save · O: open · I: import · B: export · Z: undo · Shift
-            Z: redo · D: duplicate · T: split.
-          </p>
-          <p>
-            1 / 2 / 3: pointer, pencil, scissors. C: cycle. K: metronome. F:
-            follow. Z: fit.
-          </p>
-          <p>
-            ⌘/Ctrl K: musical typing. A–L play notes; Z / X shift octave. ⌘/Ctrl
-            , opens Settings.
-          </p>
+          <ShortcutList />
           <p>Ondera {store.version}</p>
         </Modal>
       )}

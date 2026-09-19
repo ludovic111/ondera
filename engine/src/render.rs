@@ -11,6 +11,8 @@ use crate::{
 };
 use std::{collections::HashMap, sync::Arc};
 
+/// Channels with a published meter; later tracks still play but read as silent in the mixer.
+pub const METER_TRACKS: usize = 32;
 const MAX_VOICES: usize = 256;
 const NOTE_CAPACITY: usize = 512;
 const QUEUE_CAPACITY: usize = 2048;
@@ -134,6 +136,8 @@ pub struct Renderer {
     pub recording: bool,
     pub peak: [f32; 2],
     pub channel_peak: [f32; 2],
+    /// Post-fader peak of the first `METER_TRACKS` channels, for the mixer's meters.
+    pub track_peaks: [f32; METER_TRACKS],
     pub voice_overflows: u64,
     pub note_overflows: u64,
     idle_frames: u32,
@@ -335,6 +339,7 @@ impl Renderer {
             recording: false,
             peak: [0.0; 2],
             channel_peak: [0.0; 2],
+            track_peaks: [0.0; METER_TRACKS],
             voice_overflows: 0,
             note_overflows: 0,
             idle_frames: rate * 3,
@@ -726,6 +731,7 @@ impl Renderer {
     pub fn begin_block(&mut self) {
         self.peak = [0.0; 2];
         self.channel_peak = [0.0; 2];
+        self.track_peaks = [0.0; METER_TRACKS];
     }
     /// True while anything may still produce sound; lets the device idle.
     fn busy(&self) -> bool {
@@ -976,8 +982,10 @@ impl Renderer {
             }
             channel.delay.process(buffer);
             let selected = self.selected == Some(index);
+            let mut track_peak = 0.0f32;
             for (i, v) in buffer.iter().enumerate() {
                 for (c, value) in v.iter().enumerate() {
+                    track_peak = track_peak.max(value.abs());
                     self.mix[i][c] += value;
                     self.sends[0][i][c] += value * channel.sends[0];
                     self.sends[1][i][c] += value * channel.sends[1];
@@ -985,6 +993,9 @@ impl Renderer {
                         self.channel_peak[c] = self.channel_peak[c].max(value.abs());
                     }
                 }
+            }
+            if let Some(slot) = self.track_peaks.get_mut(index) {
+                *slot = track_peak;
             }
         }
         self.dry_delay.process(&mut self.mix[..n]);

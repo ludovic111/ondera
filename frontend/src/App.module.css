@@ -19,3 +19,18 @@
   flex-direction: column;
   background: var(--color-timeline);
 }
+
+.drop {
+  position: fixed;
+  inset: 8px;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--color-accent);
+  border-radius: 10px;
+  background: #0006;
+  color: var(--color-ink100);
+  font-size: 18px;
+  font-weight: var(--fw-semibold);
+  pointer-events: none;
+}

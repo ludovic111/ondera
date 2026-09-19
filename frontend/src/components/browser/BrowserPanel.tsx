@@ -7,6 +7,7 @@ import {
 } from "@ondera/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { importAudioFiles } from "../../state/document";
+import { playheadBar } from "../../state/actions";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import { Button } from "../primitives/Button";
 import { CapsLabel } from "../primitives/CapsLabel";
@@ -31,7 +32,8 @@ const HINT: Record<BrowserTab, string> = {
   instruments: "Double-click: load on the selected MIDI track, or add one",
   loops: "Double-click: add a MIDI loop at the playhead",
   plugins: "Double-click: insert on the selected track",
-  files: "Double-click: open or import",
+  files:
+    "Double-click: place at the playhead · drop files on the window to import",
 };
 
 export function BrowserPanel() {
@@ -65,6 +67,31 @@ export function BrowserPanel() {
       return;
     }
     if (tab === "files") {
+      const s = store.getState();
+      const source = item.id ? s.sources[item.id] : undefined;
+      if (!source) return;
+      try {
+        const track =
+          selected?.kind === "audio"
+            ? selected
+            : await store.run<{ id: string }>("track.add", {
+                kind: "audio",
+                name: source.name,
+              });
+        const { numerator, denominator } = s.transport.timeSignature;
+        const barSeconds =
+          (60 / s.transport.tempo) * numerator * (4 / denominator);
+        await store.run("clip.create", {
+          trackId: track.id,
+          sourceId: source.id,
+          name: source.name,
+          startBar: playheadBar(s),
+          lengthBars: Math.max(0.25, source.durationSeconds / barSeconds),
+        });
+        store.receive(await store.run("web.document"));
+      } catch (error) {
+        store.reportError(error);
+      }
       return;
     }
     const plugin = store.plugins.find((p) => p.id === item.id);

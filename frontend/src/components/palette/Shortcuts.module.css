@@ -1,0 +1,46 @@
+.sheet {
+  columns: 2;
+  column-gap: 28px;
+}
+
+.sheet section {
+  break-inside: avoid;
+  margin-bottom: 14px;
+}
+
+.sheet h3 {
+  margin: 0 0 6px;
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-ink500);
+}
+
+.sheet dl {
+  margin: 0;
+}
+
+.sheet dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid #ffffff0a;
+}
+
+.sheet dt {
+  color: var(--color-ink100);
+}
+
+.sheet dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--color-ink300);
+}
+
+.note {
+  column-span: all;
+  margin: 4px 0 0;
+  color: var(--color-ink300);
+  line-height: 1.5;
+}

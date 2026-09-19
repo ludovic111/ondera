@@ -49,6 +49,7 @@ export function TrackHeader({ track }: { track: Track }) {
         actionItem(store, "muteSelectedTrack"),
         actionItem(store, "soloSelectedTrack"),
         actionItem(store, "armSelectedTrack"),
+        actionItem(store, "duplicateTrack"),
         separator,
         {
           label: "Move Up",

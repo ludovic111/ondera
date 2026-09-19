@@ -118,6 +118,8 @@ pub struct Ondera {
     pub(crate) frames: usize,
     pub(crate) frontend_ready: bool,
     pub show_help: bool,
+    /// The web window shows the mixer in place of the region editor.
+    pub show_mixer: bool,
     pub plugins: Bank,
     pub catalog: Vec<Descriptor>,
     pub(crate) scan_job: Option<mpsc::Receiver<ScanEvent>>,
@@ -263,6 +265,7 @@ impl Ondera {
             frames: 0,
             frontend_ready: false,
             show_help: false,
+            show_mixer: false,
             plugins: Bank::default(),
             catalog: vec![],
             scan_job: None,
