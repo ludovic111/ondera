@@ -482,6 +482,7 @@ function Export({ onClose }: { onClose: () => void }) {
   const session = useSession((s) => s);
   const [rate, setRate] = useState(48000);
   const [format, setFormat] = useState("pcm24");
+  const [container, setContainer] = useState("wav");
   const [tail, setTail] = useState(3);
   const [dither, setDither] = useState(true);
   const [range, setRange] = useState(false);
@@ -515,7 +516,7 @@ function Export({ onClose }: { onClose: () => void }) {
     try {
       const path = await invoke<string | null>("daw_pick", {
         kind: stems ? "folder" : "wav",
-        name: `${session.name}.wav`,
+        name: `${session.name}.${container}`,
       });
       if (!path) return;
       const params: Params = {
@@ -523,6 +524,7 @@ function Export({ onClose }: { onClose: () => void }) {
         format,
         tailSeconds: tail,
         dither: format !== "float32" && dither,
+        ...(stems ? { container } : {}),
         ...(range ? { startBar: start - 1, endBar: end - 1 } : {}),
       };
       if (stems) {
@@ -530,7 +532,10 @@ function Export({ onClose }: { onClose: () => void }) {
         params.trackIds = liveSelected;
         params.includeEffects = includeEffects;
         params.includeMaster = includeMaster;
-      } else params.path = path;
+      } else
+        params.path = /\.(wav|aiff?|flac)$/i.test(path)
+          ? path
+          : `${path}.${container}`;
       const result = await store.run<AudioExportReport>(
         stems ? "session.exportStems" : "session.exportAudio",
         params,
@@ -565,11 +570,28 @@ function Export({ onClose }: { onClose: () => void }) {
           </select>
         </label>
         <label>
+          File type
+          <select
+            value={container}
+            onChange={(e) => {
+              setContainer(e.target.value);
+              if (e.target.value !== "wav" && format === "float32")
+                setFormat("pcm24");
+            }}
+          >
+            <option value="wav">WAV</option>
+            <option value="aiff">AIFF</option>
+            <option value="flac">FLAC (lossless, smaller)</option>
+          </select>
+        </label>
+        <label>
           Format
           <select value={format} onChange={(e) => setFormat(e.target.value)}>
             <option value="pcm16">16-bit PCM</option>
             <option value="pcm24">24-bit PCM</option>
-            <option value="float32">32-bit float</option>
+            <option value="float32" disabled={container !== "wav"}>
+              32-bit float{container !== "wav" ? " (WAV only)" : ""}
+            </option>
           </select>
         </label>
         <label>

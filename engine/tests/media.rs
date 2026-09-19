@@ -527,3 +527,95 @@ fn aiff_export_holds_the_same_audio_as_wav() {
         "a refused export leaves the previous file alone"
     );
 }
+
+#[test]
+fn flac_export_holds_the_same_audio_as_wav() {
+    use ondera_engine::{audio, export, store};
+    let session = store::demo();
+    let dir = tempfile::tempdir().unwrap();
+    let library = audio::Library::new();
+    let mut prepared = library.clone();
+    audio::prepare_sources(&session, &mut prepared).unwrap();
+    for format in [export::SampleFormat::Pcm16, export::SampleFormat::Pcm24] {
+        let options = export::ExportOptions {
+            // Not a whole number of FLAC blocks, so the short last frame is covered.
+            end_beat: Some(5.3),
+            tail_seconds: 0.0,
+            dither: false,
+            format,
+            ..Default::default()
+        };
+        let wav = dir.path().join("mix.wav");
+        let flac = dir.path().join("mix.flac");
+        export::mix(&session, &prepared, &wav, &options).unwrap();
+        let report = export::mix(&session, &prepared, &flac, &options).unwrap();
+        let a = audio::decode(std::fs::read(&wav).unwrap(), Some("wav")).unwrap();
+        let b = audio::decode(std::fs::read(&flac).unwrap(), Some("flac")).unwrap();
+        assert_eq!(a.sample_rate, b.sample_rate);
+        assert_eq!(report.frames as usize, b.frames.len());
+        assert!(a.frames.iter().flatten().any(|v| v.abs() > 0.01));
+        assert_eq!(a.frames, b.frames, "{format:?} is lossless");
+        let (wav_size, flac_size) = (
+            std::fs::metadata(&wav).unwrap().len(),
+            std::fs::metadata(&flac).unwrap().len(),
+        );
+        assert!(
+            flac_size * 10 < wav_size * 8,
+            "FLAC compresses: {flac_size} vs {wav_size}"
+        );
+    }
+    let float = export::ExportOptions {
+        format: export::SampleFormat::Float32,
+        end_bar: Some(1.0),
+        ..Default::default()
+    };
+    let flac = dir.path().join("mix.flac");
+    assert!(export::mix(&session, &prepared, &flac, &float)
+        .unwrap_err()
+        .contains("FLAC"));
+    assert!(
+        flac.exists(),
+        "a refused export leaves the previous file alone"
+    );
+}
+
+#[test]
+fn stems_take_the_container_that_was_asked_for() {
+    use ondera_engine::{audio, export, store};
+    let session = store::demo();
+    let mut prepared = audio::Library::new();
+    audio::prepare_sources(&session, &mut prepared).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let options = export::ExportOptions {
+        end_bar: Some(1.0),
+        tail_seconds: 0.0,
+        container: export::Container::Flac,
+        ..Default::default()
+    };
+    let ids = [session.tracks[0].id.clone()];
+    let report = export::stems(
+        &session,
+        &prepared,
+        &dir.path().join("stems"),
+        &options,
+        Some(&ids),
+        true,
+        true,
+    )
+    .unwrap();
+    let path = &report.files[0].path;
+    assert_eq!(path.extension().unwrap(), "flac");
+    audio::decode(std::fs::read(path).unwrap(), Some("flac")).unwrap();
+    assert_eq!(
+        export::Container::of(std::path::Path::new("a.AIF")),
+        export::Container::Aiff
+    );
+    assert_eq!(
+        export::Container::of(std::path::Path::new("a.flac")),
+        export::Container::Flac
+    );
+    assert_eq!(
+        export::Container::of(std::path::Path::new("a.bin")),
+        export::Container::Wav
+    );
+}

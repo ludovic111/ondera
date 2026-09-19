@@ -34,6 +34,7 @@ async fn daw_pick(kind: String, name: Option<String>) -> Result<Option<String>> 
             "wav" => dialog
                 .add_filter("WAV", &["wav"])
                 .add_filter("AIFF", &["aiff", "aif"])
+                .add_filter("FLAC", &["flac"])
                 .save_file(),
             "saveMidi" => dialog.add_filter("MIDI", &["mid"]).save_file(),
             "folder" => dialog.pick_folder(),

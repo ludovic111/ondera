@@ -11,6 +11,7 @@ pub mod device;
 pub mod document;
 pub mod dsp;
 pub mod export;
+pub mod flac;
 pub mod host;
 pub mod midi;
 pub mod midi_file;

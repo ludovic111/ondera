@@ -31,6 +31,44 @@ impl SampleFormat {
         }
     }
 }
+/// The file written. A mix takes it from the destination's extension; stems, which are
+/// given a folder, from `ExportOptions::container`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Container {
+    #[default]
+    Wav,
+    Aiff,
+    Flac,
+}
+impl Container {
+    pub fn of(path: &Path) -> Self {
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
+        match extension.as_deref() {
+            Some("aif" | "aiff") => Self::Aiff,
+            Some("flac") => Self::Flac,
+            _ => Self::Wav,
+        }
+    }
+    pub fn parse(text: &str) -> Result<Self> {
+        match text.to_ascii_lowercase().as_str() {
+            "wav" => Ok(Self::Wav),
+            "aiff" | "aif" => Ok(Self::Aiff),
+            "flac" => Ok(Self::Flac),
+            other => Err(format!("Container must be wav, aiff or flac, not {other}")),
+        }
+    }
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Wav => "wav",
+            Self::Aiff => "aiff",
+            Self::Flac => "flac",
+        }
+    }
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportOptions {
@@ -43,6 +81,8 @@ pub struct ExportOptions {
     pub tail_seconds: f64,
     /// Triangular dither at one LSB for integer PCM. Floating-point ignores it.
     pub dither: bool,
+    /// File type of each stem. A mix follows its destination's extension instead.
+    pub container: Container,
 }
 impl Default for ExportOptions {
     fn default() -> Self {
@@ -55,6 +95,7 @@ impl Default for ExportOptions {
             end_beat: None,
             tail_seconds: 3.0,
             dither: true,
+            container: Container::Wav,
         }
     }
 }
@@ -218,8 +259,10 @@ pub fn mix(
     Ok(report)
 }
 /// Where rendered samples go. The container follows the file extension: `.aif`/`.aiff`
-/// write AIFF, anything else WAV. Both stream, so an export never holds the song in memory.
+/// write AIFF, `.flac` FLAC, anything else WAV. All stream, so an export never holds the
+/// song in memory.
 enum Sink<'a> {
+    Flac(Box<crate::flac::Encoder<std::io::BufWriter<&'a mut std::fs::File>>>),
     Wav(hound::WavWriter<std::io::BufWriter<&'a mut std::fs::File>>),
     Aiff {
         out: std::io::BufWriter<&'a mut std::fs::File>,
@@ -251,6 +294,17 @@ impl<'a> Sink<'a> {
         frames: u64,
     ) -> Result<Self> {
         use std::io::Write;
+        if Container::of(path) == Container::Flac {
+            if options.format == SampleFormat::Float32 {
+                return Err("FLAC holds 16 or 24-bit audio here; choose pcm16 or pcm24, or export float32 as WAV".into());
+            }
+            return crate::flac::Encoder::new(
+                std::io::BufWriter::new(file),
+                options.sample_rate,
+                options.format.bits() as u32,
+            )
+            .map(|encoder| Sink::Flac(Box::new(encoder)));
+        }
         if !is_aiff(path) {
             let spec = hound::WavSpec {
                 channels: 2,
@@ -295,6 +349,7 @@ impl<'a> Sink<'a> {
         use std::io::Write;
         match self {
             Sink::Wav(writer) => writer.write_sample(pcm).map_err(|e| e.to_string()),
+            Sink::Flac(encoder) => encoder.write(pcm),
             Sink::Aiff { out, bytes } => {
                 let be = pcm.to_be_bytes();
                 out.write_all(&be[4 - *bytes..]).map_err(|e| e.to_string())
@@ -305,12 +360,14 @@ impl<'a> Sink<'a> {
         match self {
             Sink::Wav(writer) => writer.write_sample(sample).map_err(|e| e.to_string()),
             Sink::Aiff { .. } => Err("AIFF export is integer PCM".into()),
+            Sink::Flac(_) => Err("FLAC export is integer PCM".into()),
         }
     }
     fn finish(self) -> Result<()> {
         use std::io::Write;
         match self {
             Sink::Wav(writer) => writer.finalize().map_err(|e| e.to_string()),
+            Sink::Flac(encoder) => encoder.finish(),
             Sink::Aiff { mut out, .. } => out.flush().map_err(|e| e.to_string()),
         }
     }
@@ -428,9 +485,10 @@ pub fn stems(
             .take(80)
             .collect();
         let filename = format!(
-            "{:02}-{}.wav",
+            "{:02}-{}.{}",
             index + 1,
-            if clean.is_empty() { "Track" } else { &clean }
+            if clean.is_empty() { "Track" } else { &clean },
+            options.container.extension()
         );
         let mut report = mix(&song, library, &staging.path().join(&filename), &resolved)?;
         report.path = directory.join(&filename);
