@@ -28,10 +28,13 @@ async fn daw_pick(kind: String, name: Option<String>) -> Result<Option<String>> 
         let dialog = rfd::FileDialog::new().set_file_name(name.unwrap_or_default());
         let path = match kind.as_str() {
             "audio" => dialog
-                .add_filter("Audio", &["wav", "aiff", "flac", "mp3", "m4a", "ogg"])
+                .add_filter("Audio", ondera_engine::audio::IMPORT_EXTENSIONS)
                 .pick_file(),
             "midi" => dialog.add_filter("MIDI", &["mid", "midi"]).pick_file(),
-            "wav" => dialog.add_filter("WAV", &["wav"]).save_file(),
+            "wav" => dialog
+                .add_filter("WAV", &["wav"])
+                .add_filter("AIFF", &["aiff", "aif"])
+                .save_file(),
             "saveMidi" => dialog.add_filter("MIDI", &["mid"]).save_file(),
             "folder" => dialog.pick_folder(),
             _ => return Err("Unknown file chooser".into()),
@@ -223,6 +226,7 @@ struct WebHost {
     snapshot_sequence: std::cell::Cell<u64>,
     last_ui: Value,
     last_agent: u64,
+    last_drop: Option<(Vec<std::path::PathBuf>, Instant)>,
     last_telemetry: Value,
     last_metadata: Instant,
     ready: bool,
@@ -324,24 +328,14 @@ impl WebHost {
                     "open" => self.app.request(Intent::Open),
                     "save" => self.app.save(params["saveAs"].as_bool().unwrap_or(false)),
                     "import" => self.app.import(None),
-                    // Files dropped on the window: only audio the decoder knows is imported.
                     "importPaths" => {
-                        let paths: Vec<std::path::PathBuf> = params["paths"]
+                        let paths = params["paths"]
                             .as_array()
                             .into_iter()
                             .flatten()
                             .filter_map(|p| p.as_str().map(std::path::PathBuf::from))
-                            .filter(|p| {
-                                p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                                    ["wav", "aif", "aiff", "flac", "mp3", "ogg", "m4a", "aac"]
-                                        .contains(&e.to_ascii_lowercase().as_str())
-                                })
-                            })
                             .collect();
-                        if paths.is_empty() {
-                            return Err("Drop WAV, AIFF, FLAC, MP3, Ogg or AAC files".into());
-                        }
-                        self.app.import(Some(paths));
+                        self.drop_files(paths)?;
                     }
                     "export" => self.app.open_export_dialog(),
                     "relaunch" => self.app.request(Intent::Relaunch),
@@ -467,6 +461,46 @@ impl WebHost {
                 .app
                 .run_control_command(method, params, false, "Interface"),
         }
+    }
+    /// Files dropped on the window: audio is imported, a MIDI file lands at the playhead.
+    /// The webview and the window both report a drop, so an identical one within a second
+    /// is the same gesture.
+    fn drop_files(&mut self, paths: Vec<std::path::PathBuf>) -> Result<()> {
+        if self
+            .last_drop
+            .as_ref()
+            .is_some_and(|(prior, at)| *prior == paths && at.elapsed() < Duration::from_secs(1))
+        {
+            return Ok(());
+        }
+        self.last_drop = Some((paths.clone(), Instant::now()));
+        let is_midi = |p: &std::path::PathBuf| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| ["mid", "midi", "smf"].contains(&e.to_ascii_lowercase().as_str()))
+        };
+        let (midi, rest): (Vec<_>, Vec<_>) = paths.into_iter().partition(is_midi);
+        let audio: Vec<_> = rest
+            .into_iter()
+            .filter(|p| ondera_engine::audio::is_importable(p))
+            .collect();
+        if midi.is_empty() && audio.is_empty() {
+            return Err(
+                "Drop audio (WAV, AIFF, FLAC, MP3, Ogg, AAC/M4A, CAF, WebM) or a MIDI file".into(),
+            );
+        }
+        if !audio.is_empty() {
+            self.app.import(Some(audio));
+        } else if let Some(path) = midi.first() {
+            let bar = (self.app.position / self.app.store.session().beats_per_bar()).floor();
+            self.app.run_control_command(
+                "session.importMidi",
+                &json!({ "path": path, "startBar": bar }),
+                false,
+                "Interface",
+            )?;
+        }
+        Ok(())
     }
     /// Answer waiting control requests between ticks. Events still go out on the next tick.
     fn serve(&mut self) {
@@ -640,6 +674,7 @@ pub fn run(
                     snapshot_sequence: Default::default(),
                     last_ui: Value::Null,
                     last_agent: 0,
+                    last_drop: None,
                     last_telemetry: Value::Null,
                     last_metadata: Instant::now(),
                     ready: false,
@@ -715,7 +750,9 @@ pub fn run(
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                 HOST.with_borrow_mut(|slot| {
                     if let Some(host) = slot {
-                        host.app.import(Some(paths.clone()))
+                        if let Err(error) = host.drop_files(paths.clone()) {
+                            host.app.error = Some(error);
+                        }
                     }
                 });
             }
@@ -763,6 +800,7 @@ mod tests {
             snapshot_sequence: Default::default(),
             last_ui: Value::Null,
             last_agent: 0,
+            last_drop: None,
             last_telemetry: Value::Null,
             last_metadata: Instant::now(),
             ready: false,

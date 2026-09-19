@@ -79,7 +79,7 @@ export function App() {
       {overlays.palette && (
         <CommandPalette onClose={() => store.setOverlay("palette", false)} />
       )}
-      {dropping && <div className={styles.drop}>Drop audio to import</div>}
+      {dropping && <div className={styles.drop}>Drop audio or MIDI to import</div>}
     </div>
   );
 }

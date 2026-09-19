@@ -1309,10 +1309,7 @@ impl Ondera {
         self.spawn("Importing audio…", move || {
             let paths = paths.or_else(|| {
                 rfd::FileDialog::new()
-                    .add_filter(
-                        "Audio",
-                        &["wav", "aif", "aiff", "flac", "mp3", "ogg", "m4a", "aac"],
-                    )
+                    .add_filter("Audio", audio::IMPORT_EXTENSIONS)
                     .pick_files()
             });
             let Some(paths) = paths else {

@@ -20,7 +20,7 @@ pub const SPECS:&[Spec]=&[
         opt("trackIds",Kind::Array,"MIDI track IDs to export; defaults to all MIDI tracks."),
     ]),
     edit("session.exportAudio","Export an offline stereo WAV using the live plugin graph, with chosen rate, format, range and tail. PCM clips above full scale; float retains headroom. Reports peak/clipping.",&[
-        req("path",Kind::String,"Destination .wav, replaced atomically after success."),
+        req("path",Kind::String,"Destination .wav, or .aiff for AIFF (pcm16 or pcm24). Replaced atomically after success."),
         opt("sampleRate",Kind::Integer,"44100, 48000 (default), or 96000 Hz."),
         opt("format",Kind::String,"pcm16, pcm24 (default), or float32."),
         opt("startBar",Kind::Number,"Zero-based range start bar, default 0. Use bars or beats, never both."),
