@@ -556,6 +556,14 @@ impl Ondera {
             return;
         }
         self.midi_recording = false;
+        // An audio take reports its own progress from here; a MIDI take is over.
+        if self.recorder.is_none() && self.record_pending.is_none() {
+            self.status = if self.midi_take.is_empty() {
+                "Ready".into()
+            } else {
+                "MIDI take recorded".into()
+            };
+        }
         let end_position = self.position;
         // Key down/up can arrive in the same UI frame. Keep a one-millisecond
         // tap instead of silently deleting it because both saw one playhead time.
@@ -647,6 +655,7 @@ impl Ondera {
                 Err(e) => self.error = Some(e),
             }
         }
+        self.refresh_recording_status();
         self.poll_scan();
         self.collect_retired();
         self.poll_midi();
@@ -1024,6 +1033,40 @@ impl Ondera {
                 telemetry, input, link, buffer,
             ));
         });
+    }
+    /// What the status line says while a take runs; `None` leaves it alone (the microphone
+    /// is still opening and its permission hint matters more).
+    pub(crate) fn recording_status(
+        counting_in: bool,
+        audio: bool,
+        midi: bool,
+        opening: bool,
+    ) -> Option<&'static str> {
+        match (counting_in, audio, midi, opening) {
+            (_, false, false, _) | (false, false, _, true) => None,
+            (true, ..) => Some("Count-in…"),
+            (false, true, ..) => Some("Recording…"),
+            (false, false, true, false) => Some("Recording MIDI…"),
+        }
+    }
+    fn refresh_recording_status(&mut self) {
+        if !self.playing {
+            return;
+        }
+        let counting_in = self
+            .device
+            .as_ref()
+            .is_some_and(|d| d.telemetry.counting_in.load(Ordering::Relaxed));
+        if let Some(status) = Self::recording_status(
+            counting_in,
+            self.recorder.is_some(),
+            self.midi_recording,
+            self.record_pending.is_some(),
+        ) {
+            if self.status != status {
+                self.status = status.into();
+            }
+        }
     }
     pub(crate) fn start_recording(&mut self) {
         if self.recorder.is_some()
@@ -2168,6 +2211,40 @@ mod tests {
             panic!()
         };
         notes
+    }
+
+    #[test]
+    fn the_status_line_follows_the_take_and_lets_go_of_it_afterwards() {
+        let status = Ondera::recording_status;
+        assert_eq!(status(true, false, true, false), Some("Count-in…"));
+        assert_eq!(status(true, true, false, false), Some("Count-in…"));
+        assert_eq!(status(false, true, true, false), Some("Recording…"));
+        assert_eq!(status(false, false, true, false), Some("Recording MIDI…"));
+        // Still opening the microphone: keep the permission hint, but never hide the count.
+        assert_eq!(status(false, false, true, true), None);
+        assert_eq!(status(true, false, true, true), Some("Count-in…"));
+        assert_eq!(status(false, false, false, false), None);
+
+        let (mut app, _) = setup();
+        app.midi_recording = true;
+        app.status = "Recording MIDI…".into();
+        app.finish_recording();
+        assert_eq!(
+            app.status, "Ready",
+            "an empty MIDI take leaves nothing behind"
+        );
+        app.midi_recording = true;
+        app.recording_midi_tracks = vec!["bass".into()];
+        app.midi_take.push(RecordedNote {
+            pitch: 60,
+            velocity: 100,
+            start: 0.0,
+            end: Some(1.0),
+            channel: 0,
+        });
+        app.status = "Recording MIDI…".into();
+        app.finish_recording();
+        assert_eq!(app.status, "MIDI take recorded");
     }
 
     #[test]
