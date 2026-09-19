@@ -93,6 +93,8 @@ export interface TimeSignature {
 export interface Transport {
   playing: boolean;
   recording: boolean;
+  /** The count-in click is running; the song starts when it ends. */
+  countingIn?: boolean;
   /** Playhead position in beats. */
   positionBeats: number;
   tempo: number;
@@ -168,11 +170,17 @@ export interface BrowserItem {
   name: string;
   meta: string;
   color: string | null;
+  /** Plugins only: starred, and the sound folder it is filed under. */
+  favorite?: boolean;
+  folder?: string;
 }
 
 export interface BrowserGroup {
   name: string;
   items: BrowserItem[];
+  /** Plugin tabs: a sound folder, or one of the two shortcuts above them. */
+  kind?: "folder" | "favorites" | "recent";
+  color?: string;
 }
 
 export interface InsertSlot {
@@ -209,6 +217,8 @@ export interface Meters {
   cpu: number;
   channelL: number;
   channelR: number;
+  /** Microphone level while an audio track is armed or recording, 0-1. */
+  input?: number;
 }
 
 export interface Session {

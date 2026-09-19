@@ -1,3 +1,4 @@
+import { memo } from "react";
 import styles from "./LedStrip.module.css";
 
 export interface LedStripProps {
@@ -11,8 +12,21 @@ export interface LedStripProps {
   segmentHeight?: number;
 }
 
-/** Discrete LED meter: warm-white segments in a dark well, accent for peaks. */
-export function LedStrip({
+/**
+ * Discrete LED meter: warm-white segments in a dark well, accent for peaks.
+ * Levels arrive 30 times a second; the strip only re-renders when a segment flips.
+ */
+export const LedStrip = memo(LedStripView, (a, b) => {
+  return (
+    Math.round(a.level * a.segments) === Math.round(b.level * b.segments) &&
+    a.segments === b.segments &&
+    a.hot === b.hot &&
+    a.orientation === b.orientation &&
+    a.segmentHeight === b.segmentHeight
+  );
+});
+
+function LedStripView({
   segments,
   level,
   hot = 0,

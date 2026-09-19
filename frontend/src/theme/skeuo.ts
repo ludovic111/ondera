@@ -14,6 +14,7 @@ import {
 import {
   alpha,
   black,
+  families,
   ok,
   white,
   type ColorKey,
@@ -113,6 +114,7 @@ const darkColor: Record<ColorKey, string> = {
   eqCurve: ok(0.78, 0.12, 300),
   eqHandle: ok(0.85, 0.1, 300),
   eqFill: ok(0.72, 0.13, 300),
+  ...families(0.78, 0.12),
   neutralDot: "#5a5a57",
   menu: "#333332",
   menuHover: "#3f3f3d",
@@ -201,6 +203,7 @@ const lightColor: Record<ColorKey, string> = {
   eqCurve: ok(0.8, 0.12, 300),
   eqHandle: ok(0.88, 0.1, 300),
   eqFill: ok(0.72, 0.13, 300),
+  ...families(0.52, 0.13),
   neutralDot: al(0.62),
   menu: al(0.945),
   menuHover: al(0.875),
@@ -368,6 +371,16 @@ export function skeuo(mode: Mode): ThemeSpec {
     line,
     blur: { glass: "8px", glassAgent: "10px", glassCard: "12px" },
     radius: RADIUS,
+    // Mechanical: switches travel and seat, panels arrive with a little mass.
+    motion: {
+      fast: "80ms",
+      base: "160ms",
+      slow: "260ms",
+      ease: "cubic-bezier(0.3, 0, 0.2, 1)",
+      enter: "cubic-bezier(0.16, 0.84, 0.3, 1)",
+      exit: "cubic-bezier(0.5, 0, 0.9, 0.4)",
+      settle: "cubic-bezier(0.3, 1.35, 0.5, 1)",
+    },
     canvasShadow: physicalCanvasShadows(color, light),
     clipMix: dark
       ? { faceTop: 66, faceBottom: 50 }

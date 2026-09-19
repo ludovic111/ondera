@@ -69,6 +69,55 @@ impl AudioBuffer {
     }
 }
 
+/// Every extension the importer accepts, for file pickers and drag-and-drop. The decoder
+/// probes content, so a correct file with an unusual extension still opens from the CLI.
+pub const IMPORT_EXTENSIONS: &[&str] = &[
+    "wav", "wave", "aif", "aiff", "aifc", "flac", "mp3", "mp2", "ogg", "oga", "m4a", "m4b", "mp4",
+    "aac", "caf", "mka", "mkv", "webm",
+];
+pub fn is_importable(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMPORT_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// Fold one interleaved frame of any channel count to stereo. Mono goes to both sides;
+/// 5.1 and 7.1 follow the ITU-R BS.775 downmix (centre and surrounds at -3 dB, LFE dropped);
+/// any other layout alternates channels left and right.
+fn to_stereo(frame: &[f32]) -> [f32; 2] {
+    const H: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    match frame.len() {
+        1 => [frame[0], frame[0]],
+        2 => [frame[0], frame[1]],
+        // L R C LFE Ls Rs (and Lb Rb for 7.1), scaled so full-scale input cannot clip.
+        6 => {
+            let n = 1.0 / (1.0 + 2.0 * H);
+            [
+                (frame[0] + H * frame[2] + H * frame[4]) * n,
+                (frame[1] + H * frame[2] + H * frame[5]) * n,
+            ]
+        }
+        8 => {
+            let n = 1.0 / (1.0 + 3.0 * H);
+            [
+                (frame[0] + H * (frame[2] + frame[4] + frame[6])) * n,
+                (frame[1] + H * (frame[2] + frame[5] + frame[7])) * n,
+            ]
+        }
+        count => {
+            let (mut l, mut r) = (0.0, 0.0);
+            for (i, v) in frame.iter().enumerate() {
+                if i % 2 == 0 {
+                    l += v;
+                } else {
+                    r += v;
+                }
+            }
+            [l / count.div_ceil(2) as f32, r / (count / 2).max(1) as f32]
+        }
+    }
+}
+
 pub fn decode(data: Vec<u8>, extension: Option<&str>) -> Result<AudioBuffer> {
     if data.len() > MAX_AUDIO_BYTES {
         return Err("Audio file exceeds 512 MiB".into());
@@ -115,22 +164,15 @@ pub fn decode(data: Vec<u8>, extension: Option<&str>) -> Result<AudioBuffer> {
         }
         rate = decoded.spec().rate;
         let channels = decoded.spec().channels.count();
-        if channels == 0 || channels > 2 {
-            return Err(
-                "Import mono or stereo audio (multichannel downmix is not supported)".into(),
-            );
+        if channels == 0 || channels > 32 {
+            return Err("This file reports an unusable channel count".into());
         }
         let mut samples = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
         samples.copy_interleaved_ref(decoded);
         if frames.len() + samples.len() / channels > MAX_AUDIO_BYTES / 8 {
             return Err("Decoded audio exceeds 512 MiB".into());
         }
-        frames.extend(
-            samples
-                .samples()
-                .chunks_exact(channels)
-                .map(|f| [f[0], f[channels - 1]]),
-        );
+        frames.extend(samples.samples().chunks_exact(channels).map(to_stereo));
     }
     AudioBuffer::new(rate, frames)
 }
@@ -265,4 +307,21 @@ pub fn prepare_sources(session: &crate::model::Session, library: &mut Library) -
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod downmix_tests {
+    use super::to_stereo;
+
+    #[test]
+    fn downmix_keeps_sides_apart_and_never_clips() {
+        assert_eq!(to_stereo(&[0.5]), [0.5, 0.5]);
+        assert_eq!(to_stereo(&[0.25, -0.5]), [0.25, -0.5]);
+        let full = to_stereo(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert!(full[0] <= 1.0 && (full[0] - 1.0).abs() < 1e-6 && full[0] == full[1]);
+        assert_eq!(to_stereo(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]), [0.0, 0.0]);
+        let ls = to_stereo(&[0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        assert!(ls[0] > 0.2 && ls[1] == 0.0);
+        assert_eq!(to_stereo(&[0.6, 0.2, 0.2]), [0.4, 0.2]);
+    }
 }

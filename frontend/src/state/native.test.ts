@@ -29,6 +29,23 @@ const flush = () => store.run("barrier");
 const edits = () =>
   calls.filter((c) => !["barrier", "web.document"].includes(c.method));
 describe("Rust document ownership", () => {
+  it("sends only the newest value of a fader drag and one snapshot", async () => {
+    for (const volume of [0.1, 0.2, 0.3, 0.4])
+      store.dispatch({
+        name: "track.setVolume",
+        params: { trackId: "t", volume },
+      });
+    store.dispatch({
+      name: "track.setVolume",
+      params: { trackId: "u", volume: 0.9 },
+    });
+    await flush();
+    expect(edits().map((c) => c.params)).toEqual([
+      { trackId: "t", volume: 0.4 },
+      { trackId: "u", volume: 0.9 },
+    ]);
+    expect(calls.filter((c) => c.method === "web.document")).toHaveLength(1);
+  });
   it("ignores older command snapshots arriving after a newer event", () => {
     store.receive({ ...doc, snapshotSequence: 20, name: "New session" });
     store.receive({ ...doc, snapshotSequence: 19, name: "Old session" });
@@ -96,7 +113,7 @@ describe("Rust document ownership", () => {
     await flush();
     expect(edits()).toEqual([
       {
-        method: "web.trimClip",
+        method: "clip.trim",
         params: { clipId: "audio", startBar: 2, lengthBars: 3 },
       },
     ]);
@@ -171,7 +188,7 @@ describe("agent composer", () => {
     store.setAgentDraft("Write a warm bass line");
     mock.invoke.mockRejectedValueOnce("Bridge unavailable");
     expect(await store.sendAgent()).toBe(false);
-    expect(store.getComposer()).toEqual({
+    expect(store.getComposer()).toMatchObject({
       draft: "Write a warm bass line",
       sending: false,
       error: "Bridge unavailable",

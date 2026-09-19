@@ -319,19 +319,146 @@ export function displayFor(name: string, v: Values): ReactNode {
         </>
       );
     }
+    case "Auto Filter": {
+      const cutoff = v("Cutoff", 600);
+      const resonance = v("Resonance", 45);
+      // The sweep the LFO and the envelope can reach, as ghosts either side.
+      const reach =
+        (v("LFO Depth", 40) / 100) * 3 +
+        (Math.abs(v("Envelope", 40)) / 100) * 2;
+      const at = (octaves: number) => (hz: number) =>
+        filterDb(
+          0,
+          Math.min(18000, Math.max(30, cutoff * 2 ** octaves)),
+          resonance,
+          hz,
+        );
+      return (
+        <>
+          <FrequencyGrid top={24} bottom={-48} />
+          {reach > 0.05 && (
+            <>
+              <path
+                d={frequencyResponse(at(-reach), 24, -48)}
+                className={styles.ghost}
+              />
+              <path
+                d={frequencyResponse(at(reach), 24, -48)}
+                className={styles.ghost}
+              />
+            </>
+          )}
+          <Curve d={frequencyResponse(at(0), 24, -48)} fillTo={H} />
+          <Handle x={hzToX(cutoff) * W} y={((24 - at(0)(cutoff)) / 72) * H} />
+        </>
+      );
+    }
+    case "De-Esser": {
+      const frequency = v("Frequency", 6500);
+      const range = v("Range", 9);
+      // The most it will take away: a high shelf of `range` dB above the split.
+      const db = (hz: number) => {
+        const f = (hz / (frequency * 0.8)) ** 2;
+        return -range * (f / (1 + f));
+      };
+      return (
+        <>
+          <FrequencyGrid top={6} bottom={-24} />
+          <Curve d={frequencyResponse(db, 6, -24)} fillTo={(6 / 30) * H} />
+          <Handle x={hzToX(frequency) * W} y={((6 - db(frequency)) / 30) * H} />
+        </>
+      );
+    }
+    case "Lo-Fi": {
+      const tone = v("Tone", 5200);
+      const db = (hz: number) => 2 * toneDb(tone, hz);
+      return (
+        <>
+          <FrequencyGrid top={12} bottom={-36} />
+          <Curve d={frequencyResponse(db, 12, -36)} fillTo={H} />
+          <Handle x={hzToX(tone) * W} y={((12 - db(tone)) / 48) * H} />
+        </>
+      );
+    }
+    case "Pitch Shift": {
+      const shift = v("Semitones", 7) + v("Fine") / 100;
+      // A 220 Hz note and where it lands, on the same log axis as the filters.
+      const source = hzToX(220) * W;
+      const target = hzToX(220 * 2 ** (shift / 12)) * W;
+      return (
+        <>
+          <FrequencyGrid top={6} bottom={-6} />
+          <line
+            x1={source}
+            x2={source}
+            y1={H * 0.2}
+            y2={H}
+            className={styles.ghost}
+          />
+          <line
+            x1={target}
+            x2={target}
+            y1={H * 0.2}
+            y2={H}
+            className={styles.marker}
+          />
+          <text x={target + 6} y={H * 0.2 + 10} className={styles.markerText}>
+            {shift > 0 ? "+" : ""}
+            {shift.toFixed(shift % 1 ? 2 : 0)} st
+          </text>
+        </>
+      );
+    }
+    case "Pump": {
+      const depth = v("Depth", 70) / 100;
+      const recovery = Math.max(0.05, v("Recovery", 45) / 100);
+      const offset = v("Offset") / 100;
+      const gain = (x: number) => {
+        const p = (((x * 4 - offset) % 1) + 1) % 1;
+        const t = Math.min(1, p / recovery);
+        return 1 - depth * (1 - t * t * (3 - 2 * t));
+      };
+      return (
+        <>
+          {[1, 2, 3].map((beat) => (
+            <line
+              key={beat}
+              x1={(beat / 4) * W}
+              x2={(beat / 4) * W}
+              y1={0}
+              y2={H}
+              className={styles.gridLine}
+            />
+          ))}
+          <Curve d={plot((x) => 0.06 + 0.88 * gain(x), W, H, 400)} fillTo={H} />
+          <text
+            x={W - 6}
+            y={H - 6}
+            textAnchor="end"
+            className={styles.gridText}
+          >
+            4 pulses
+          </text>
+        </>
+      );
+    }
     case "Chorus":
     case "Phaser":
+    case "Flanger":
+    case "Auto Pan":
     case "Tremolo": {
       const depth = v("Depth", 50) / 100;
       // Two seconds of the modulator; the right channel is offset in stereo.
       const cycles = Math.max(0.25, Math.min(12, v("Rate", 1) * 2));
-      const shape = name === "Tremolo" ? v("Shape") : 0;
+      const shape = name === "Tremolo" || name === "Auto Pan" ? v("Shape") : 0;
       const offset =
         name === "Tremolo"
           ? v("Stereo") / 360
           : name === "Chorus"
             ? (v("Spread", 50) / 100) * 0.25
-            : 0;
+            : name === "Auto Pan"
+              ? 0.5
+              : 0;
       const wave = (phase: number) => (x: number) =>
         0.5 + 0.44 * depth * lfo(shape, x * cycles + phase);
       return (
@@ -443,10 +570,14 @@ export function displayFor(name: string, v: Values): ReactNode {
         </>
       );
     }
-    case "Width":
+    case "Stereo Width":
     case "Utility": {
       const width =
-        name === "Width" ? v("Width", 100) / 100 : v("Mono") >= 0.5 ? 0 : 1;
+        name === "Stereo Width"
+          ? v("Width", 100) / 100
+          : v("Mono") >= 0.5
+            ? 0
+            : 1;
       const pan = name === "Utility" ? v("Pan") / 100 : 0;
       const cx = W / 2 + pan * (W / 2 - 80);
       const gain =

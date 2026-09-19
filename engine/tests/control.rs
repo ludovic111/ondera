@@ -66,7 +66,7 @@ fn registry_is_unique_introspectable_and_mcp_safe() {
 fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
     let mut host = Headless::new();
     let catalog = call(&mut host, "session.catalog", json!({}));
-    assert_eq!(catalog["plugins"].as_array().unwrap().len(), 24);
+    assert_eq!(catalog["plugins"].as_array().unwrap().len(), 34);
     assert!(catalog["plugins"]
         .as_array()
         .unwrap()
@@ -81,13 +81,13 @@ fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
         "plugin.list",
         json!({"format":"stock","kind":"instrument","limit":3}),
     );
-    assert_eq!(first["total"], 8);
+    assert_eq!(first["total"], 11);
     assert_eq!(first["plugins"].as_array().unwrap().len(), 3);
     assert_eq!(first["nextOffset"], 3);
     let last = call(
         &mut host,
         "plugin.list",
-        json!({"format":"stock","kind":"instrument","limit":3,"offset":6}),
+        json!({"format":"stock","kind":"instrument","limit":3,"offset":9}),
     );
     assert_eq!(last["plugins"].as_array().unwrap().len(), 2);
     assert!(last["nextOffset"].is_null());
@@ -851,4 +851,32 @@ fn dropping_live_server_closes_authenticated_idle_sockets() {
         0,
         "shutdown wakes idle connection workers immediately"
     );
+}
+
+#[test]
+fn plugin_library_files_plugins_in_sound_folders() {
+    let mut host = Headless::new();
+    let drums = call(&mut host, "plugin.list", json!({"folder":"drums"}));
+    assert_eq!(drums["plugins"][0]["name"], "Drum Machine");
+    assert_eq!(drums["plugins"][0]["folder"], "Drums");
+    let folders = call(&mut host, "plugin.folders", json!({}));
+    let names: Vec<&str> = folders["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    for expected in [
+        "Synths",
+        "Keys",
+        "Bass",
+        "Dynamics",
+        "Space & Time",
+        "Pitch",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "{expected} missing from {names:?}"
+        );
+    }
 }

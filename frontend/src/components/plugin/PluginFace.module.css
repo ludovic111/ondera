@@ -34,6 +34,18 @@
 
 .category {
   margin-top: 2px;
+  color: var(--family, var(--color-ink500));
+}
+
+/* The family colour as a strip of anodised trim under the nameplate. */
+.nameplate {
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--family, transparent);
+}
+
+.led {
+  border-radius: 50%;
+  background: var(--family, var(--color-accent));
 }
 
 .toolbar {
@@ -94,7 +106,7 @@
 
 .curve {
   fill: none;
-  stroke: var(--color-eq-curve);
+  stroke: var(--family, var(--color-eq-curve));
   stroke-width: 1.75;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -105,7 +117,7 @@
    glow colour, so it disappears there. */
 .curveGlow {
   fill: none;
-  stroke: var(--color-eq-curve);
+  stroke: var(--family, var(--color-eq-curve));
   stroke-width: 6;
   stroke-linejoin: round;
   opacity: var(--display-glow, 0.18);
@@ -133,13 +145,13 @@
 
 .handle {
   fill: var(--color-well-deep);
-  stroke: var(--color-eq-handle);
+  stroke: var(--family, var(--color-eq-handle));
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 
 .marker {
-  stroke: var(--color-eq-handle);
+  stroke: var(--family, var(--color-eq-handle));
   stroke-width: 1;
   stroke-dasharray: 2 3;
   opacity: 0.8;
@@ -147,11 +159,11 @@
 }
 
 .display .markerText {
-  fill: var(--color-eq-handle);
+  fill: var(--family, var(--color-eq-handle));
 }
 
 .bar {
-  fill: var(--color-eq-curve);
+  fill: var(--family, var(--color-eq-curve));
   opacity: 0.85;
 }
 
@@ -162,7 +174,7 @@
 .field {
   fill: var(--color-eq-fill);
   fill-opacity: 0.22;
-  stroke: var(--color-eq-curve);
+  stroke: var(--family, var(--color-eq-curve));
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
@@ -247,7 +259,7 @@
 }
 
 .ringValue {
-  stroke: var(--color-accent);
+  stroke: var(--family, var(--color-accent));
   filter: drop-shadow(0 0 3px var(--ring-glow, transparent));
 }
 

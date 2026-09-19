@@ -108,7 +108,7 @@ pub struct Ondera {
     pub(crate) recording_tracks: Vec<String>,
     // Last-resort ownership when both placement and source-file writing fail.
     pub(crate) unplaced_recording: Option<Arc<audio::AudioBuffer>>,
-    recovered_recording_write: Option<mpsc::Receiver<Result<Option<PathBuf>>>>,
+    pub(crate) recovered_recording_write: Option<mpsc::Receiver<Result<Option<PathBuf>>>>,
     pub(crate) record_start: f64,
     pub(crate) intent: Option<Intent>,
     pub(crate) after_save: Option<Intent>,
@@ -146,6 +146,15 @@ pub struct Ondera {
     pub(crate) settings_ui: crate::settings::SettingsWindow,
     pub(crate) live_jobs: Vec<crate::control::LiveJob>,
     pub(crate) attach_live: Option<usize>,
+    /// A `session.batch` is running: its commands share one undo step.
+    pub(crate) batching: bool,
+    /// Input stream kept open for the level meter while an audio track is armed.
+    input_meter: Option<ondera_engine::device::InputMeter>,
+    input_meter_pending: Option<mpsc::Receiver<Result<ondera_engine::device::InputMeter>>>,
+    /// The device the meter was opened on; a change reopens it.
+    input_meter_device: Option<String>,
+    /// The meter failed for this device; do not retry until something changes.
+    input_meter_failed: bool,
     pub(crate) bridge_wanted: bool,
 }
 pub fn id(prefix: &str) -> String {
@@ -292,6 +301,11 @@ impl Ondera {
             settings_ui: Default::default(),
             live_jobs: vec![],
             attach_live: None,
+            batching: false,
+            input_meter: None,
+            input_meter_pending: None,
+            input_meter_device: None,
+            input_meter_failed: false,
             bridge_wanted: false,
         }
     }
@@ -872,7 +886,25 @@ impl Ondera {
             self.error = Some("No output device. Use Audio > Reconnect output.".into());
             return;
         };
-        if let Err(e) = d.send(Message::Start(self.position)) {
+        // Recording from a standstill gets a count-in: the song stays parked while the
+        // click runs, the microphone opens in the meantime, and the take starts on the beat.
+        let session = self.store.session();
+        let count_in = if self.record_enabled
+            && !session.transport.cycle
+            && session.tracks.iter().any(|t| t.armed)
+        {
+            f64::from(self.settings.audio.count_in_bars.min(4)) * session.beats_per_bar()
+        } else {
+            0.0
+        };
+        let message = if count_in > 0.0 {
+            d.telemetry.counting_in.store(true, Ordering::Relaxed);
+            Message::CountIn(self.position, count_in)
+        } else {
+            Message::Start(self.position)
+        };
+        if let Err(e) = d.send(message) {
+            d.telemetry.counting_in.store(false, Ordering::Relaxed);
             self.error = Some(e);
             return;
         }
@@ -880,6 +912,61 @@ impl Ondera {
         if self.record_enabled {
             self.start_recording();
         }
+    }
+    /// Keep the input open for the level meter exactly while it is useful: an audio track
+    /// is armed, the setting allows it, and no take owns the microphone.
+    pub(crate) fn poll_input_meter(&mut self) {
+        if let Some(result) = self
+            .input_meter_pending
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.input_meter_pending = None;
+            match result {
+                Ok(meter) => self.input_meter = Some(meter),
+                Err(_) => self.input_meter_failed = true,
+            }
+        }
+        let recording = self.recorder.is_some()
+            || self.record_pending.is_some()
+            || self.record_finishing.is_some();
+        let wanted = self.settings.audio.meter_input_when_armed
+            && !recording
+            && self.device.is_some()
+            && self
+                .store
+                .session()
+                .tracks
+                .iter()
+                .any(|t| t.kind == "audio" && t.armed);
+        if self.input_meter_device != self.input_device {
+            self.input_meter = None;
+            self.input_meter_failed = false;
+            self.input_meter_device = self.input_device.clone();
+        }
+        if !wanted {
+            // Dropping the handle closes the stream, so a take never competes for the device.
+            self.input_meter = None;
+            if !recording {
+                self.input_meter_failed = false;
+            }
+            return;
+        }
+        if self.input_meter.is_some()
+            || self.input_meter_pending.is_some()
+            || self.input_meter_failed
+        {
+            return;
+        }
+        let Some(telemetry) = self.device.as_ref().map(|d| d.telemetry.clone()) else {
+            return;
+        };
+        let input = self.input_device.clone();
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.input_meter_pending = Some(rx);
+        std::thread::spawn(move || {
+            let _ = tx.send(ondera_engine::device::InputMeter::start(telemetry, input));
+        });
     }
     pub(crate) fn start_recording(&mut self) {
         if self.recorder.is_some()
@@ -953,6 +1040,8 @@ impl Ondera {
         }
         let telemetry = d.telemetry.clone();
         let input = self.input_device.clone();
+        self.input_meter = None;
+        self.input_meter_pending = None;
         let (tx, rx) = mpsc::sync_channel(1);
         self.record_pending = Some(rx);
         self.status = "Opening microphone — check system permission…".into();
@@ -982,6 +1071,7 @@ impl Ondera {
         self.playing = false;
         self.record_pending.take();
         if let Some(d) = &mut self.device {
+            d.telemetry.counting_in.store(false, Ordering::Relaxed);
             if let Err(e) = d.send(Message::Stop) {
                 self.error = Some(e);
             }
@@ -1219,10 +1309,7 @@ impl Ondera {
         self.spawn("Importing audio…", move || {
             let paths = paths.or_else(|| {
                 rfd::FileDialog::new()
-                    .add_filter(
-                        "Audio",
-                        &["wav", "aif", "aiff", "flac", "mp3", "ogg", "m4a", "aac"],
-                    )
+                    .add_filter("Audio", audio::IMPORT_EXTENSIONS)
                     .pick_files()
             });
             let Some(paths) = paths else {

@@ -227,6 +227,7 @@ impl ExportDialog {
                     .map(|parent| parent.join(folder)),
                 Mode::Audio => rfd::FileDialog::new()
                     .add_filter("WAV audio", &["wav"])
+                    .add_filter("AIFF audio", &["aiff", "aif"])
                     .set_file_name(format!("{name}.wav"))
                     .save_file()
                     .map(|mut path| {

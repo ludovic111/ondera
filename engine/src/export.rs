@@ -155,18 +155,7 @@ pub fn mix(
         warnings: vec![],
     };
     document::atomic_write(path, |file| {
-        let spec = hound::WavSpec {
-            channels: 2,
-            sample_rate: options.sample_rate,
-            bits_per_sample: options.format.bits(),
-            sample_format: if options.format == SampleFormat::Float32 {
-                hound::SampleFormat::Float
-            } else {
-                hound::SampleFormat::Int
-            },
-        };
-        let mut writer = hound::WavWriter::new(std::io::BufWriter::new(file), spec)
-            .map_err(|e| e.to_string())?;
+        let mut writer = Sink::open(file, path, options, frames)?;
         let mut block = [[0.0f32; 2]; MAX_BLOCK];
         let mut skip = (start * seconds_per_beat * options.sample_rate as f64).round() as u64
             + renderer.latency_samples() as u64;
@@ -191,7 +180,7 @@ pub fn mix(
                 let value = *sample as f64;
                 report.peak = report.peak.max(value.abs());
                 match options.format {
-                    SampleFormat::Float32 => writer.write_sample(*sample),
+                    SampleFormat::Float32 => writer.float(*sample),
                     format => {
                         if value.abs() > 1.0 {
                             report.clipped_samples += 1;
@@ -209,17 +198,16 @@ pub fn mix(
                         let pcm = (value.clamp(-1.0, 1.0) * scale + noise)
                             .round()
                             .clamp(-scale, scale - 1.0) as i32;
-                        writer.write_sample(pcm)
+                        writer.int(pcm)
                     }
-                }
-                .map_err(|e| e.to_string())?;
+                }?;
             }
             written += n as u64;
         }
         if renderer.voice_overflows > 0 || renderer.note_overflows > 0 {
             return Err(format!("Export exceeded renderer capacity ({} voice and {} note events); no output was replaced",renderer.voice_overflows,renderer.note_overflows));
         }
-        writer.finalize().map_err(|e| e.to_string())
+        writer.finish()
     })?;
     if report.clipped_samples > 0 {
         report.warnings.push(format!("{} samples exceeded integer PCM headroom and were clipped; lower the master or export float32.",report.clipped_samples));
@@ -228,6 +216,104 @@ pub fn mix(
         report.warnings.push("Floating-point audio retains levels above 0 dBFS; downstream integer conversion needs attenuation.".into());
     }
     Ok(report)
+}
+/// Where rendered samples go. The container follows the file extension: `.aif`/`.aiff`
+/// write AIFF, anything else WAV. Both stream, so an export never holds the song in memory.
+enum Sink<'a> {
+    Wav(hound::WavWriter<std::io::BufWriter<&'a mut std::fs::File>>),
+    Aiff {
+        out: std::io::BufWriter<&'a mut std::fs::File>,
+        bytes: usize,
+    },
+}
+pub fn is_aiff(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["aif", "aiff"].contains(&e.to_ascii_lowercase().as_str()))
+}
+/// A sample rate as the 80-bit extended float an AIFF COMM chunk wants.
+fn extended(rate: u32) -> [u8; 10] {
+    let mut out = [0u8; 10];
+    if rate == 0 {
+        return out;
+    }
+    let shift = rate.leading_zeros();
+    let exponent = 16383 + 31 - shift as u16;
+    out[..2].copy_from_slice(&exponent.to_be_bytes());
+    out[2..6].copy_from_slice(&(rate << shift).to_be_bytes());
+    out
+}
+impl<'a> Sink<'a> {
+    fn open(
+        file: &'a mut std::fs::File,
+        path: &Path,
+        options: &ExportOptions,
+        frames: u64,
+    ) -> Result<Self> {
+        use std::io::Write;
+        if !is_aiff(path) {
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate: options.sample_rate,
+                bits_per_sample: options.format.bits(),
+                sample_format: if options.format == SampleFormat::Float32 {
+                    hound::SampleFormat::Float
+                } else {
+                    hound::SampleFormat::Int
+                },
+            };
+            return hound::WavWriter::new(std::io::BufWriter::new(file), spec)
+                .map(Sink::Wav)
+                .map_err(|e| e.to_string());
+        }
+        if options.format == SampleFormat::Float32 {
+            return Err("AIFF holds 16 or 24-bit audio here; choose pcm16 or pcm24, or export float32 as WAV".into());
+        }
+        let bytes = options.format.bits() as usize / 8;
+        let data = frames
+            .checked_mul(2 * bytes as u64)
+            .filter(|n| *n < u32::MAX as u64 - 64)
+            .ok_or("This export is too long for one AIFF file; export WAV or a shorter range")?;
+        let frames = u32::try_from(frames).map_err(|_| "This export is too long for AIFF")?;
+        let mut out = std::io::BufWriter::new(file);
+        let mut header = Vec::with_capacity(54);
+        header.extend_from_slice(b"FORM");
+        header.extend_from_slice(&(4 + 26 + 16 + data as u32).to_be_bytes());
+        header.extend_from_slice(b"AIFFCOMM");
+        header.extend_from_slice(&18u32.to_be_bytes());
+        header.extend_from_slice(&2u16.to_be_bytes());
+        header.extend_from_slice(&frames.to_be_bytes());
+        header.extend_from_slice(&options.format.bits().to_be_bytes());
+        header.extend_from_slice(&extended(options.sample_rate));
+        header.extend_from_slice(b"SSND");
+        header.extend_from_slice(&(8 + data as u32).to_be_bytes());
+        header.extend_from_slice(&[0; 8]);
+        out.write_all(&header).map_err(|e| e.to_string())?;
+        Ok(Sink::Aiff { out, bytes })
+    }
+    fn int(&mut self, pcm: i32) -> Result<()> {
+        use std::io::Write;
+        match self {
+            Sink::Wav(writer) => writer.write_sample(pcm).map_err(|e| e.to_string()),
+            Sink::Aiff { out, bytes } => {
+                let be = pcm.to_be_bytes();
+                out.write_all(&be[4 - *bytes..]).map_err(|e| e.to_string())
+            }
+        }
+    }
+    fn float(&mut self, sample: f32) -> Result<()> {
+        match self {
+            Sink::Wav(writer) => writer.write_sample(sample).map_err(|e| e.to_string()),
+            Sink::Aiff { .. } => Err("AIFF export is integer PCM".into()),
+        }
+    }
+    fn finish(self) -> Result<()> {
+        use std::io::Write;
+        match self {
+            Sink::Wav(writer) => writer.finalize().map_err(|e| e.to_string()),
+            Sink::Aiff { mut out, .. } => out.flush().map_err(|e| e.to_string()),
+        }
+    }
 }
 fn uniform(state: &mut u32) -> f64 {
     *state = state.wrapping_mul(1664525).wrapping_add(1013904223);

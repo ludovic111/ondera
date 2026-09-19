@@ -79,3 +79,16 @@
     gap: 10px;
   }
 }
+
+.countIn {
+  align-self: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  font-size: var(--fs-small);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--caps-tracking, 0.08em);
+  text-transform: uppercase;
+  white-space: nowrap;
+}

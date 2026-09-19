@@ -24,7 +24,11 @@ export const AgentMessage = memo(function AgentMessage({
         {text}
       </Markdown>
       {streaming && (
-        <span className={styles.streamCursor} aria-label="Writing response" />
+        <span
+          className={styles.streamCursor}
+          data-motion="caret"
+          aria-label="Writing response"
+        />
       )}
     </div>
   );

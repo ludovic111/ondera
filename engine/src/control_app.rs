@@ -105,6 +105,15 @@ pub const SPECS: &[Spec] = &[
         req("pitch", Kind::Integer, "MIDI pitch 0-127."),
         opt("velocity", Kind::Integer, "1-127, default 100."),
     ]),
+    edit("note.hold", "Hold or release a note on the selected instrument track, like a key on a MIDI keyboard. Held notes are recorded when the transport is recording. Always release what you hold.", &[
+        req("pitch", Kind::Integer, "MIDI pitch 0-127."),
+        req("on", Kind::Boolean, "true presses the key, false releases it."),
+        opt("velocity", Kind::Integer, "1-127, default 100."),
+    ]),
+    edit("note.releaseAll", "Release every note held with note.hold or musical typing.", &[]),
+    edit("transport.punch", "Turn record on or off. While the transport is rolling this punches in or out on the armed tracks without stopping playback; while stopped it only sets the record button.", &[
+        req("enabled", Kind::Boolean, "Record on or off."),
+    ]),
     edit("ui.screenshot", "Capture the window to a PNG so an agent can see the interface. Returns the file path and size.", &[
         opt("path", Kind::String, "Destination .png. Defaults to a timestamped file in the app data directory."),
     ]),
@@ -117,6 +126,10 @@ pub const SPECS: &[Spec] = &[
         TRACK_ID, SLOT,
         opt("native", Kind::Boolean, "Open the plugin's own editor window when it has one."),
     ]),
+    edit("ui.closePluginWindow", "Close one plugin panel.", &[
+        req("id", Kind::String, "Window id from ui.status pluginWindows."),
+    ]),
+    edit("ui.dismissError", "Dismiss the error shown in the window.", &[]),
     edit("ui.closePluginWindows", "Close every plugin panel and native editor.", &[]),
     edit("ui.musicalTyping", "Turn musical typing (the computer keyboard as a piano) on or off.", &[
         req("enabled", Kind::Boolean, "On or off."),
@@ -130,6 +143,13 @@ pub const SPECS: &[Spec] = &[
     edit("app.installUpdate", "Download, verify and install the available update. Relaunching is confirmed in the window.", &[]),
     edit("app.quit", "Ask the window to quit. Unsaved changes prompt in the window unless discard is true.", &[
         opt("discard", Kind::Boolean, "Quit without saving (default false)."),
+    ]),
+    edit("app.confirm", "Answer the unsaved-changes prompt the window shows before New, Open, Quit or Relaunch. ui.status reports it as `prompt`.", &[
+        req("choice", Kind::String, "save, discard or cancel."),
+    ]),
+    edit("app.relaunch", "Relaunch the app, for example after an update was installed. Unsaved changes prompt first.", &[]),
+    edit("session.saveRecoveredTake", "Write a recording that could not be placed on a track to a WAV file, which frees the window to open other sessions. ui.status reports it as `recoveredTake`.", &[
+        req("path", Kind::String, "Destination .wav."),
     ]),
     query("session.snapshots", "List recovery snapshots newest first, with paths, titles, times and sizes.", &[]),
     edit("session.restoreSnapshot", "Open a recovery snapshot in the window as an unsaved copy.", &[
@@ -149,6 +169,11 @@ pub const SPECS: &[Spec] = &[
     query("agent.transcript", "The agent conversation: user, assistant and tool entries.", &[
         opt("limit", Kind::Integer, "Newest entries to return, default 40."),
     ]),
+    query("agent.changes", "What the agent changed, one entry per command: sequence, title, the command as typed, its output, and whether it is currently applied.", &[]),
+    edit("agent.revert", "Undo back to just before one agent change, or redo up to it. Same as the buttons in the panel's Changes tab.", &[
+        req("sequence", Kind::Integer, "Change sequence from agent.changes."),
+        opt("redo", Kind::Boolean, "Redo up to the change instead of undoing it (default false)."),
+    ]),
     edit("agent.clear", "Clear the agent conversation.", &[]),
 ];
 
@@ -163,6 +188,12 @@ pub fn is_live_only(name: &str) -> bool {
                 | "audio.setMidiInput"
                 | "audio.reconnect"
                 | "note.preview"
+                | "note.hold"
+                | "note.releaseAll"
+                | "transport.punch"
+                | "app.confirm"
+                | "app.relaunch"
+                | "session.saveRecoveredTake"
                 | "app.checkUpdates"
                 | "app.installUpdate"
                 | "app.quit"
@@ -193,6 +224,9 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         | "plugin.scan"
         | "preset.save"
         | "preset.delete"
+        | "session.saveRecoveredTake"
+        | "plugin.scaffold"
+        | "plugin.install"
             if !permissions.file_operations =>
         {
             deny("file operations", "fileOperations")
@@ -203,6 +237,8 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         | "transport.locate"
         | "transport.returnToStart"
         | "note.preview"
+        | "note.hold"
+        | "transport.punch"
             if !permissions.transport =>
         {
             deny("transport control", "transport")
@@ -213,7 +249,9 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         {
             deny("changing settings", "settings")
         }
-        "app.quit" | "app.installUpdate" if !permissions.app_control => {
+        "app.quit" | "app.installUpdate" | "app.relaunch" | "app.confirm"
+            if !permissions.app_control =>
+        {
             deny("application control", "appControl")
         }
         _ => None,

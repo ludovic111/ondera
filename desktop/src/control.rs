@@ -65,10 +65,20 @@ pub(crate) struct LiveJob {
     started: Instant,
 }
 
+/// Set by the Tauri window so a waiting CLI or MCP request is answered at once instead of on
+/// the next 33 ms tick.
+pub(crate) static CONTROL_WAKE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
+    std::sync::OnceLock::new();
+
 impl Ondera {
     pub(crate) fn start_control(&mut self, ctx: &eframe::egui::Context) {
         let ctx = ctx.clone();
-        match wire::Server::start(move || ctx.request_repaint()) {
+        match wire::Server::start(move || {
+            ctx.request_repaint();
+            if let Some(wake) = CONTROL_WAKE.get() {
+                wake();
+            }
+        }) {
             Ok(server) => self.control = Some(server),
             Err(e) => self.status = format!("Live control unavailable: {e}"),
         }
@@ -132,6 +142,9 @@ impl Ondera {
         agent: bool,
         source: &str,
     ) -> Result<Value> {
+        if method == "session.batch" && !self.batching {
+            return self.run_batch(params, agent, source);
+        }
         let before = self.store.revision;
         let depth_before = self.store.undo_depth();
         self.attach_live = None;
@@ -254,7 +267,7 @@ impl Ondera {
                 self.status = format!("Running {method}…");
                 return Ok(json!({"status":"running", "command":method}));
             }
-            if source != "Interface" {
+            if source != "Interface" && !self.batching {
                 self.store.set_gesture(false);
             }
             let mut result = control::call(self, method, params, agent)?;
@@ -266,6 +279,42 @@ impl Ondera {
         })();
         self.record_agent_activity(method, params, source, before, depth_before, &result);
         result
+    }
+    /// `session.batch` in the window: every entry passes the same permission and busy checks
+    /// as a command sent on its own, and the whole list lands as one undo step.
+    fn run_batch(&mut self, params: &Value, agent: bool, source: &str) -> Result<Value> {
+        use ondera_engine::control_edit;
+        control::validate_request("session.batch", params)?;
+        let entries = control_edit::batch_entries(params)?;
+        let atomic = params["atomic"].as_bool().unwrap_or(true);
+        self.store.set_gesture(true);
+        self.batching = true;
+        let mut results = Vec::with_capacity(entries.len());
+        let mut failure = None;
+        for (index, (command, params)) in entries.iter().enumerate() {
+            match self.run_control_command(command, params, agent, source) {
+                Ok(value) => results.push(value),
+                Err(error) => {
+                    failure = Some((index, command.as_str(), error));
+                    break;
+                }
+            }
+        }
+        self.batching = false;
+        let outcome = match failure {
+            Some((index, command, error)) => {
+                let rolled_back = atomic && self.store.cancel_gesture();
+                Err(control_edit::batch_error(
+                    index,
+                    command,
+                    &error,
+                    rolled_back,
+                ))
+            }
+            None => Ok(control_edit::batch_reply(results)),
+        };
+        self.store.set_gesture(false);
+        outcome
     }
     pub(crate) fn poll_control_job(&mut self) {
         let outcome = self
@@ -514,6 +563,16 @@ impl Ondera {
             "selectedTrackId": session.view.selected_track_id,
             "selectedClipId": session.view.selected_clip_id,
             "busy": self.job.is_some() || self.control_job.is_some(),
+            "prompt": self.intent.map(|intent| match intent {
+                crate::app::Intent::New => "new",
+                crate::app::Intent::Open => "open",
+                crate::app::Intent::Recover => "recover",
+                crate::app::Intent::Demo => "demo",
+                crate::app::Intent::Quit => "quit",
+                crate::app::Intent::Relaunch => "relaunch",
+            }),
+            "recoveredTake": self.unplaced_recording.is_some(),
+            "heldNotes": self.typing_down,
         })
     }
     fn available(&self) -> Result<()> {
@@ -786,6 +845,141 @@ impl Host for Ondera {
                 let track = track.to_string();
                 self.preview(&track, pitch as u8, velocity as u8);
                 Ok(json!({ "trackId": track, "pitch": pitch, "velocity": velocity }))
+            }
+            "note.hold" => {
+                let pitch = params["pitch"]
+                    .as_i64()
+                    .filter(|p| (0..=127).contains(p))
+                    .ok_or("pitch must be 0-127")? as u8;
+                let velocity = params["velocity"].as_i64().unwrap_or(100);
+                if !(1..=127).contains(&velocity) {
+                    return Err("velocity must be 1-127".into());
+                }
+                let on = params["on"].as_bool().ok_or("note.hold needs `on`")?;
+                if on {
+                    if self.midi_route.load(std::sync::atomic::Ordering::Relaxed)
+                        == ondera_engine::midi::UNROUTED
+                    {
+                        return Err("Select an instrument track before holding a note".into());
+                    }
+                    if !self.typing_down.contains(&pitch) {
+                        self.typing_down.push(pitch);
+                        self.live_note(true, pitch, velocity as u8);
+                    }
+                } else {
+                    self.typing_down.retain(|p| *p != pitch);
+                    self.live_note(false, pitch, 0);
+                }
+                Ok(json!({ "pitch": pitch, "on": on, "held": self.typing_down }))
+            }
+            "note.releaseAll" => {
+                self.release_typing();
+                Ok(json!({ "held": [] }))
+            }
+            "transport.punch" => {
+                let enabled = params["enabled"]
+                    .as_bool()
+                    .ok_or("transport.punch needs `enabled`")?;
+                if self.record_enabled != enabled {
+                    self.record_enabled = enabled;
+                    if self.playing {
+                        if enabled {
+                            self.start_recording();
+                        } else {
+                            self.finish_recording();
+                        }
+                    }
+                }
+                if let Some(error) = self.error.clone().filter(|_| enabled && self.playing) {
+                    return Err(error);
+                }
+                Ok(
+                    json!({ "recordEnabled": self.record_enabled, "playing": self.playing,
+                    "recording": self.midi_recording || self.recorder.is_some() }),
+                )
+            }
+            "ui.closePluginWindow" => {
+                let id = params["id"]
+                    .as_str()
+                    .ok_or("ui.closePluginWindow needs `id`")?;
+                if !self.plugins.windows.contains_key(id) {
+                    return Err(format!(
+                        "No plugin window `{id}`; see ui.status pluginWindows"
+                    ));
+                }
+                self.close_plugin_window(id);
+                Ok(self.ui_status())
+            }
+            "ui.dismissError" => {
+                let dismissed = self.error.take();
+                Ok(json!({ "dismissed": dismissed }))
+            }
+            "app.confirm" => {
+                let Some(intent) = self.intent.take() else {
+                    return Err("The window is not asking anything right now".into());
+                };
+                match params["choice"].as_str().unwrap_or("") {
+                    "cancel" => {}
+                    "discard" => self.execute(intent),
+                    "save" => {
+                        self.after_save = Some(intent);
+                        self.save(false);
+                    }
+                    other => {
+                        self.intent = Some(intent);
+                        return Err(format!(
+                            "choice must be save, discard or cancel, not `{other}`"
+                        ));
+                    }
+                }
+                Ok(self.ui_status())
+            }
+            "app.relaunch" => {
+                self.request(crate::app::Intent::Relaunch);
+                Ok(json!({ "prompt": self.intent.is_some() }))
+            }
+            "session.saveRecoveredTake" => {
+                let path = PathBuf::from(params["path"].as_str().unwrap_or(""));
+                if path
+                    .extension()
+                    .is_none_or(|e| !e.eq_ignore_ascii_case("wav"))
+                {
+                    return Err("The recovered take is written as .wav".into());
+                }
+                if self.recovered_recording_write.is_some() {
+                    return Err("The recovered take is already being saved".into());
+                }
+                let buffer = self
+                    .unplaced_recording
+                    .clone()
+                    .ok_or("There is no recovered take to save")?;
+                ondera_engine::device::preserve_recording(&buffer, &path)?;
+                self.unplaced_recording = None;
+                self.status = format!("Recovered take saved to {}", path.display());
+                Ok(json!({ "path": path }))
+            }
+            "agent.changes" => Ok(self.agents.changes_json(self.store.undo_depth())),
+            "agent.revert" => {
+                let sequence = params["sequence"]
+                    .as_u64()
+                    .ok_or("agent.revert needs `sequence`")?;
+                if self.agents.runtime.running() {
+                    return Err("Stop the agent before stepping through its changes".into());
+                }
+                if !self
+                    .agents
+                    .changes_json(0)
+                    .as_array()
+                    .is_some_and(|list| list.iter().any(|c| c["sequence"] == sequence))
+                {
+                    return Err(format!("No agent change {sequence}; see agent.changes"));
+                }
+                if params["redo"].as_bool().unwrap_or(false) {
+                    self.redo_activity(sequence);
+                } else {
+                    self.revert_activity(sequence);
+                }
+                Ok(self.agents.changes_json(self.store.undo_depth()))
             }
             "ui.screenshot" => {
                 let path = match params["path"].as_str() {

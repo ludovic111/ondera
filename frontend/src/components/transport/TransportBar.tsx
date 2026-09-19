@@ -26,6 +26,7 @@ export function TransportBar() {
   const dispatch = useDispatch();
   const playing = useSession((s) => s.transport.playing);
   const recording = useSession((s) => s.transport.recording);
+  const countingIn = useSession((s) => s.transport.countingIn ?? false);
   const cycle = useSession((s) => s.transport.cycle);
   const metronome = useSession((s) => s.transport.metronome);
   const snap = useSession((s) => s.transport.snapDivision);
@@ -88,7 +89,11 @@ export function TransportBar() {
           <StopIcon />
         </Button>
         <Button
-          title="Record (R) · arm an audio track, then play"
+          title={
+            countingIn
+              ? "Counting in: recording starts on the next bar"
+              : "Record (R) · arm a track, then play. Count-in length is in Settings > Audio"
+          }
           lit={recording}
           onClick={() =>
             dispatch(commands.transport.setRecording({ recording: !recording }))
@@ -107,6 +112,11 @@ export function TransportBar() {
         </Button>
       </div>
 
+      {countingIn && (
+        <span className={styles.countIn} role="status" data-motion="pulse">
+          Count-in
+        </span>
+      )}
       <TimeDisplay />
 
       <div className={styles.group}>

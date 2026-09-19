@@ -70,7 +70,7 @@ it("renders Markdown without executing HTML or fetching generated images", () =>
   expect(view.container.querySelectorAll("img,script")).toHaveLength(0);
   expect(screen.getByLabelText("Writing response")).toBeTruthy();
 });
-it("keeps technical commands out of chat and makes them available in Activity", async () => {
+it("keeps technical commands out of chat and makes them available in Changes", async () => {
   store.agent.transcript.entries = [
     { role: "assistant", text: "**A warm beat.**" },
     {
@@ -102,7 +102,9 @@ it("keeps technical commands out of chat and makes them available in Activity", 
   await screen.findByText("A warm beat.");
   expect(screen.queryByText("session.inspect")).toBeNull();
   await screen.findByText("Checking your project…");
-  fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+  // Reading the project is one quiet line in the chat, never a command name.
+  expect(screen.getByText("Looked at your project")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Changes/ }));
   expect(screen.getAllByText("session.inspect").length).toBeGreaterThan(0);
 });
 it("supports slash keyboard selection without sending an inference request", async () => {
@@ -194,4 +196,39 @@ it("identifies compatible model makers without inventing logos for unknown provi
   expect(screen.getByAltText("Anthropic logo").getAttribute("src")).toBe(
     "/providers/claude-color.svg",
   );
+});
+
+it("shows what the agent changed in plain words and sends the selection along", async () => {
+  store.agent.transcript.entries = [
+    {
+      role: "user",
+      text: 'Add drums\n\n[Selected in the window: track "Keys" (trackId t1, instrument)]',
+    },
+    {
+      role: "tool",
+      text: "",
+      tool: {
+        name: "track_add",
+        args: { kind: "midi", name: "Drums" },
+        result: { id: "t2" },
+        ok: true,
+      },
+    },
+    {
+      role: "tool",
+      text: "",
+      tool: {
+        name: "clip.create",
+        args: { notes: [1, 2, 3] },
+        result: { error: "Track is full" },
+        ok: false,
+      },
+    },
+  ];
+  panel();
+  expect(await screen.findByText("Add drums")).toBeTruthy();
+  expect(screen.getByText('about track "Keys"')).toBeTruthy();
+  expect(screen.getByText("Added an instrument track “Drums”")).toBeTruthy();
+  expect(screen.getByText("Created a region 3 notes")).toBeTruthy();
+  expect(screen.getByText("Track is full")).toBeTruthy();
 });

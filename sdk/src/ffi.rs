@@ -177,13 +177,41 @@ unsafe extern "C" fn manifest<P: Plugin>(out: *mut *mut u8, len: *mut usize) -> 
         _ => 2,
     }
 }
+/// What an instance pointer really points at. A plugin that panics is poisoned: it is never
+/// called again, an effect passes audio through and an instrument falls silent, and the host
+/// keeps running. Unwinding out of an `extern "C"` function would abort the whole application.
+struct Guarded<P> {
+    plugin: P,
+    poisoned: bool,
+}
+impl<P> Guarded<P> {
+    /// Run `f` on the plugin unless it is poisoned; a panic poisons it.
+    fn run<T>(&mut self, fallback: T, f: impl FnOnce(&mut P) -> T) -> T {
+        if self.poisoned {
+            return fallback;
+        }
+        match std::panic::catch_unwind(AssertUnwindSafe(|| f(&mut self.plugin))) {
+            Ok(value) => value,
+            Err(_) => {
+                self.poisoned = true;
+                fallback
+            }
+        }
+    }
+}
+
 unsafe extern "C" fn create<P: Plugin>(sample_rate: f64) -> *mut c_void {
     let rate = if sample_rate.is_finite() && sample_rate > 0.0 {
         sample_rate
     } else {
         48000.0
     };
-    match std::panic::catch_unwind(|| Box::new(P::new(rate))) {
+    match std::panic::catch_unwind(|| {
+        Box::new(Guarded {
+            plugin: P::new(rate),
+            poisoned: false,
+        })
+    }) {
         Ok(plugin) => Box::into_raw(plugin) as *mut c_void,
         Err(_) => std::ptr::null_mut(),
     }
@@ -191,13 +219,13 @@ unsafe extern "C" fn create<P: Plugin>(sample_rate: f64) -> *mut c_void {
 unsafe extern "C" fn destroy<P: Plugin>(instance: *mut c_void) {
     if !instance.is_null() {
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            drop(Box::from_raw(instance as *mut P));
+            drop(Box::from_raw(instance as *mut Guarded<P>));
         }));
     }
 }
 unsafe extern "C" fn set_param<P: Plugin>(instance: *mut c_void, index: u32, value: f64) {
     if !instance.is_null() && value.is_finite() {
-        (*(instance as *mut P)).set_param(index as usize, value);
+        (*(instance as *mut Guarded<P>)).run((), |p| p.set_param(index as usize, value));
     }
 }
 unsafe extern "C" fn process<P: Plugin>(
@@ -218,18 +246,18 @@ unsafe extern "C" fn process<P: Plugin>(
         std::slice::from_raw_parts(notes, note_count as usize)
     };
     let ctx = ProcessContext::from(&*ctx);
-    (*(instance as *mut P)).process(audio, notes, &ctx);
+    (*(instance as *mut Guarded<P>)).run((), |p| p.process(audio, notes, &ctx));
 }
 unsafe extern "C" fn reset<P: Plugin>(instance: *mut c_void) {
     if !instance.is_null() {
-        (*(instance as *mut P)).reset();
+        (*(instance as *mut Guarded<P>)).run((), |p| p.reset());
     }
 }
 unsafe extern "C" fn latency<P: Plugin>(instance: *mut c_void) -> u32 {
     if instance.is_null() {
         0
     } else {
-        (*(instance as *mut P)).latency()
+        (*(instance as *mut Guarded<P>)).run(0, |p| p.latency())
     }
 }
 unsafe extern "C" fn free_bytes(ptr: *mut u8, len: usize) {

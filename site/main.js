@@ -585,6 +585,18 @@ const revealer = new IntersectionObserver((entries) => {
 }, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
 for (const el of $$('.reveal')) revealer.observe(el);
 
+// Sound folders light in order; cards carry the pointer position for their sheen.
+$$('.families__row li').forEach((li, i) => li.style.setProperty('--i', i));
+if (!reducedMotion) {
+  for (const card of $$('.feature, .switch__col')) {
+    card.addEventListener('pointermove', (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    }, { passive: true });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Downloads: name the visitor's platform on the buttons. The links already work
 // without this (the server redirects /download by User-Agent).

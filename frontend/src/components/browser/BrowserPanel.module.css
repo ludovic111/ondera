@@ -112,3 +112,109 @@
   color: var(--color-ink500);
   font-size: var(--fs-list);
 }
+
+/* Sound folders. */
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.folder {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px 5px 4px;
+  border-radius: var(--radius-md);
+  color: var(--color-ink300);
+  font-size: var(--fs-small);
+  font-weight: var(--fw-bold, 700);
+  letter-spacing: var(--caps-tracking, 0.08em);
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.folder:hover {
+  color: var(--color-ink100);
+}
+
+.folder:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.chevron {
+  display: flex;
+  color: var(--color-ink500);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.folderTab {
+  width: 3px;
+  height: 11px;
+  border-radius: var(--radius-xs);
+  flex: none;
+}
+
+.folderName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  color: var(--color-ink500);
+}
+
+.filed {
+  margin-left: 12px;
+}
+
+/* The name is what people look for; vendor and format give way to it first. */
+.itemName {
+  flex: 0 1 auto;
+  min-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.star {
+  all: unset;
+  display: flex;
+  flex: none;
+  padding: 2px;
+  border-radius: var(--radius-xs);
+  color: var(--color-ink500);
+  opacity: 0;
+}
+
+.item:hover .star,
+.star:focus-visible,
+.starred {
+  opacity: 1;
+}
+
+.starred {
+  color: var(--color-fam-keys);
+}
+
+.star:hover {
+  color: var(--color-ink100);
+}
+
+.meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

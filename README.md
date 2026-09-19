@@ -203,7 +203,7 @@ ondera-cli session.catalog
 ondera-cli plugin.list --kind instrument --format vst3 --query bass --limit 20 --offset 0
 ```
 
-`session.catalog` contains the 24 stock plugins, presets and bundled loops. Search installed plugins
+`session.catalog` contains the 34 stock plugins, presets and bundled loops. Search installed plugins
 with `plugin.list`: `query` matches name, vendor or ID; `kind` accepts `instrument`/`effect`, and
 `format` accepts `stock`/`native`/`clap`/`vst3`/`au`. Pages default to 50 entries, with a maximum
 of 200. Pass the returned `nextOffset` as `offset` to continue; `null` means the last page.

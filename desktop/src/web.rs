@@ -7,7 +7,7 @@ use crate::{
     control::{LiveWait, Reply},
 };
 use eframe::egui;
-use ondera_engine::{control, model::ClipData, store::Command, Result};
+use ondera_engine::{control, store::Command, Result};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
@@ -28,10 +28,13 @@ async fn daw_pick(kind: String, name: Option<String>) -> Result<Option<String>> 
         let dialog = rfd::FileDialog::new().set_file_name(name.unwrap_or_default());
         let path = match kind.as_str() {
             "audio" => dialog
-                .add_filter("Audio", &["wav", "aiff", "flac", "mp3", "m4a", "ogg"])
+                .add_filter("Audio", ondera_engine::audio::IMPORT_EXTENSIONS)
                 .pick_file(),
             "midi" => dialog.add_filter("MIDI", &["mid", "midi"]).pick_file(),
-            "wav" => dialog.add_filter("WAV", &["wav"]).save_file(),
+            "wav" => dialog
+                .add_filter("WAV", &["wav"])
+                .add_filter("AIFF", &["aiff", "aif"])
+                .save_file(),
             "saveMidi" => dialog.add_filter("MIDI", &["mid"]).save_file(),
             "folder" => dialog.pick_folder(),
             _ => return Err("Unknown file chooser".into()),
@@ -222,7 +225,8 @@ struct WebHost {
     last_document: Option<(u64, Value)>,
     snapshot_sequence: std::cell::Cell<u64>,
     last_ui: Value,
-    last_agent: Value,
+    last_agent: u64,
+    last_drop: Option<(Vec<std::path::PathBuf>, Instant)>,
     last_telemetry: Value,
     last_metadata: Instant,
     ready: bool,
@@ -294,14 +298,6 @@ impl WebHost {
         value["dirty"] = json!(self.app.store.dirty());
         value["path"] = json!(self.app.path);
         value["history"] = control::call(&mut self.app, "history.info", &json!({}), false)?;
-        value["prompt"] = json!(self.app.intent.map(|intent| match intent {
-            Intent::New => "new",
-            Intent::Open => "open",
-            Intent::Recover => "recover",
-            Intent::Demo => "demo",
-            Intent::Quit => "quit",
-            Intent::Relaunch => "relaunch",
-        }));
         value["export"] = json!(self.app.export.is_open());
         value["recovery"] = json!(self.app.recovery.is_open());
         value["recoveryStatus"] = json!(self.app.recovery.status());
@@ -325,10 +321,6 @@ impl WebHost {
                 Ok(Value::Null)
             }
             "web.document" => self.document(),
-            "web.dismissError" => {
-                self.app.error = None;
-                Ok(Value::Null)
-            }
             "web.file" => {
                 match params["action"].as_str().unwrap_or("") {
                     "new" => self.app.request(Intent::New),
@@ -336,24 +328,14 @@ impl WebHost {
                     "open" => self.app.request(Intent::Open),
                     "save" => self.app.save(params["saveAs"].as_bool().unwrap_or(false)),
                     "import" => self.app.import(None),
-                    // Files dropped on the window: only audio the decoder knows is imported.
                     "importPaths" => {
-                        let paths: Vec<std::path::PathBuf> = params["paths"]
+                        let paths = params["paths"]
                             .as_array()
                             .into_iter()
                             .flatten()
                             .filter_map(|p| p.as_str().map(std::path::PathBuf::from))
-                            .filter(|p| {
-                                p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                                    ["wav", "aif", "aiff", "flac", "mp3", "ogg", "m4a", "aac"]
-                                        .contains(&e.to_ascii_lowercase().as_str())
-                                })
-                            })
                             .collect();
-                        if paths.is_empty() {
-                            return Err("Drop WAV, AIFF, FLAC, MP3, Ogg or AAC files".into());
-                        }
-                        self.app.import(Some(paths));
+                        self.drop_files(paths)?;
                     }
                     "export" => self.app.open_export_dialog(),
                     "relaunch" => self.app.request(Intent::Relaunch),
@@ -416,20 +398,6 @@ impl WebHost {
                     .set_gesture(params["active"].as_bool().unwrap_or(false));
                 Ok(Value::Null)
             }
-            "web.recordArm" => {
-                let enabled = params["enabled"].as_bool().ok_or("Missing enabled")?;
-                if self.app.record_enabled != enabled {
-                    self.app.record_enabled = enabled;
-                    if self.app.playing {
-                        if enabled {
-                            self.app.start_recording();
-                        } else {
-                            self.app.finish_recording();
-                        }
-                    }
-                }
-                Ok(Value::Null)
-            }
             "web.quantize" => {
                 self.app.quantize_selected();
                 Ok(Value::Null)
@@ -454,33 +422,6 @@ impl WebHost {
                 crate::settings::reveal(std::path::Path::new(
                     "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md",
                 ));
-                Ok(Value::Null)
-            }
-            "web.clearSelection" => {
-                let track = self.app.store.session().view.selected_track_id.clone();
-                self.app.try_dispatch(Command::Select {
-                    track,
-                    clip: None,
-                    note: None,
-                })?;
-                Ok(Value::Null)
-            }
-            "web.trimClip" => self.trim_clip(params),
-            "web.agentChanges" => Ok(self.app.agents.changes_json(self.app.store.undo_depth())),
-            "web.agentRevert" => {
-                let sequence = params["sequence"]
-                    .as_u64()
-                    .ok_or("Missing change sequence")?;
-                if params["redo"].as_bool().unwrap_or(false) {
-                    self.app.redo_activity(sequence);
-                } else {
-                    self.app.revert_activity(sequence);
-                }
-                Ok(Value::Null)
-            }
-            "web.closePlugin" => {
-                self.app
-                    .close_plugin_window(params["id"].as_str().ok_or("Missing plugin id")?);
                 Ok(Value::Null)
             }
             "web.capture" => {
@@ -521,49 +462,52 @@ impl WebHost {
                 .run_control_command(method, params, false, "Interface"),
         }
     }
-    fn trim_clip(&mut self, params: &Value) -> Result<Value> {
-        let id = params["clipId"].as_str().ok_or("Missing clipId")?;
-        let mut clip = self
-            .app
-            .store
-            .session()
-            .clips
-            .iter()
-            .find(|c| c.id == id)
-            .cloned()
-            .ok_or("Unknown clip")?;
-        let start = params["startBar"]
-            .as_f64()
-            .filter(|n| n.is_finite() && *n >= 0.)
-            .ok_or("Invalid start")?;
-        let length = params["lengthBars"]
-            .as_f64()
-            .filter(|n| n.is_finite() && *n > 0.)
-            .ok_or("Invalid length")?;
-        let delta = start - clip.start_bar;
-        let bpb = self.app.store.session().beats_per_bar();
-        match &mut clip.data {
-            ClipData::Midi { notes } => {
-                for note in notes.iter_mut() {
-                    let end = note.start + note.length - delta * bpb;
-                    note.start = (note.start - delta * bpb).max(0.);
-                    note.length = (end.min(length * bpb) - note.start).max(0.);
-                }
-                notes.retain(|n| n.length > 0.);
-            }
-            ClipData::Audio { offset_seconds, .. } => {
-                let offset =
-                    *offset_seconds + delta * bpb * 60. / self.app.store.session().transport.tempo;
-                if offset < 0. {
-                    return Err("Cannot trim before the audio source".into());
-                }
-                *offset_seconds = offset;
-            }
+    /// Files dropped on the window: audio is imported, a MIDI file lands at the playhead.
+    /// The webview and the window both report a drop, so an identical one within a second
+    /// is the same gesture.
+    fn drop_files(&mut self, paths: Vec<std::path::PathBuf>) -> Result<()> {
+        if self
+            .last_drop
+            .as_ref()
+            .is_some_and(|(prior, at)| *prior == paths && at.elapsed() < Duration::from_secs(1))
+        {
+            return Ok(());
         }
-        clip.start_bar = start;
-        clip.length_bars = length;
-        self.app.try_dispatch(Command::PutClip(clip))?;
-        Ok(Value::Null)
+        self.last_drop = Some((paths.clone(), Instant::now()));
+        let is_midi = |p: &std::path::PathBuf| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| ["mid", "midi", "smf"].contains(&e.to_ascii_lowercase().as_str()))
+        };
+        let (midi, rest): (Vec<_>, Vec<_>) = paths.into_iter().partition(is_midi);
+        let audio: Vec<_> = rest
+            .into_iter()
+            .filter(|p| ondera_engine::audio::is_importable(p))
+            .collect();
+        if midi.is_empty() && audio.is_empty() {
+            return Err(
+                "Drop audio (WAV, AIFF, FLAC, MP3, Ogg, AAC/M4A, CAF, WebM) or a MIDI file".into(),
+            );
+        }
+        if !audio.is_empty() {
+            self.app.import(Some(audio));
+        } else if let Some(path) = midi.first() {
+            let bar = (self.app.position / self.app.store.session().beats_per_bar()).floor();
+            self.app.run_control_command(
+                "session.importMidi",
+                &json!({ "path": path, "startBar": bar }),
+                false,
+                "Interface",
+            )?;
+        }
+        Ok(())
+    }
+    /// Answer waiting control requests between ticks. Events still go out on the next tick.
+    fn serve(&mut self) {
+        let _ = self.context.run(egui::RawInput::default(), |_| {
+            self.app.poll_control_job();
+            self.app.serve_control(false);
+        });
     }
     fn tick(&mut self, handle: &tauri::AppHandle) {
         self.app.frames += 1;
@@ -611,7 +555,17 @@ impl WebHost {
                 .map(|p| (p * 1000.).round() / 1000.)
                 .collect()
         });
+        self.app.poll_input_meter();
+        let (input_peak, counting_in) = self.app.device.as_ref().map_or((0., false), |d| {
+            (
+                (d.telemetry.take_input_peak().min(1.) * 1000.).round() / 1000.,
+                d.telemetry
+                    .counting_in
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+        });
         let telemetry = json!({"position":self.app.position,"playing":self.app.playing,
+            "inputPeak":input_peak,"countingIn":counting_in,
             "recording":self.app.record_enabled,"peaks":peaks,"trackPeaks":track_peaks,
             "cpu":(self.app.device.as_ref().map_or(0.,|d|d.telemetry.load())*1000.).round()/1000.});
         if telemetry != self.last_telemetry {
@@ -645,10 +599,27 @@ impl WebHost {
                     self.last_ui = ui;
                 }
             }
-            let agent = json!({"status":self.app.agents.status_json(&self.app.settings),
-                "transcript":self.app.agents.transcript_json(100),"changes":self.app.agents.changes_json(self.app.store.undo_depth())});
+            let depth = self.app.store.undo_depth();
+            let agent = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                self.app.agents.fingerprint(depth).hash(&mut h);
+                let a = &self.app.settings.agent;
+                (
+                    a.provider.key(),
+                    self.app.settings.model(),
+                    &a.reasoning_effort,
+                )
+                    .hash(&mut h);
+                h.finish()
+            };
             if agent != self.last_agent {
-                let _ = handle.emit("daw:agent", &agent);
+                let _ = handle.emit(
+                    "daw:agent",
+                    json!({"status":self.app.agents.status_json(&self.app.settings),
+                        "transcript":self.app.agents.transcript_json(100),
+                        "changes":self.app.agents.changes_json(depth)}),
+                );
                 self.last_agent = agent;
             }
         }
@@ -702,7 +673,8 @@ pub fn run(
                     last_document: None,
                     snapshot_sequence: Default::default(),
                     last_ui: Value::Null,
-                    last_agent: Value::Null,
+                    last_agent: 0,
+                    last_drop: None,
                     last_telemetry: Value::Null,
                     last_metadata: Instant::now(),
                     ready: false,
@@ -712,9 +684,19 @@ pub fn run(
             });
             let handle = application.handle().clone();
             // At most one pending tick. A stalled web renderer cannot build an unbounded queue.
-            std::thread::spawn(move || {
+            // A control request unparks the thread so the CLI and MCP get their answer within
+            // a millisecond or two; the full tick keeps its 33 ms cadence.
+            let urgent = Arc::new(AtomicBool::new(false));
+            let urgent_wake = urgent.clone();
+            let ticker = std::thread::spawn(move || {
                 let pending = Arc::new(AtomicBool::new(false));
+                let period = Duration::from_millis(33);
+                let mut next = Instant::now();
                 while running_setup.load(Ordering::Relaxed) {
+                    let serve_only = urgent.swap(false, Ordering::AcqRel) && Instant::now() < next;
+                    if !serve_only {
+                        next = Instant::now() + period;
+                    }
                     if !pending.swap(true, Ordering::AcqRel) {
                         let pending = pending.clone();
                         let app_handle = handle.clone();
@@ -722,7 +704,11 @@ pub fn run(
                             .run_on_main_thread(move || {
                                 HOST.with_borrow_mut(|slot| {
                                     if let Some(host) = slot {
-                                        host.tick(&app_handle)
+                                        if serve_only {
+                                            host.serve()
+                                        } else {
+                                            host.tick(&app_handle)
+                                        }
                                     }
                                 });
                                 pending.store(false, Ordering::Release);
@@ -731,10 +717,20 @@ pub fn run(
                         {
                             break;
                         }
+                    } else if serve_only {
+                        // The main thread is busy; ask again as soon as it is free.
+                        urgent.store(true, Ordering::Release);
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
                     }
-                    std::thread::sleep(Duration::from_millis(33));
+                    std::thread::park_timeout(next.saturating_duration_since(Instant::now()));
                 }
             });
+            let ticker = ticker.thread().clone();
+            let _ = crate::control::CONTROL_WAKE.set(Box::new(move || {
+                urgent_wake.store(true, Ordering::Release);
+                ticker.unpark();
+            }));
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -754,7 +750,9 @@ pub fn run(
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                 HOST.with_borrow_mut(|slot| {
                     if let Some(host) = slot {
-                        host.app.import(Some(paths.clone()))
+                        if let Err(error) = host.drop_files(paths.clone()) {
+                            host.app.error = Some(error);
+                        }
                     }
                 });
             }
@@ -790,7 +788,7 @@ pub fn run(
 mod tests {
     use super::*;
     use ondera_engine::{
-        model::{Clip, Note},
+        model::{Clip, ClipData, Note},
         store,
     };
 
@@ -801,7 +799,8 @@ mod tests {
             last_document: None,
             snapshot_sequence: Default::default(),
             last_ui: Value::Null,
-            last_agent: Value::Null,
+            last_agent: 0,
+            last_drop: None,
             last_telemetry: Value::Null,
             last_metadata: Instant::now(),
             ready: false,
@@ -867,7 +866,7 @@ mod tests {
             .try_dispatch(Command::PutClip(clip.clone()))
             .unwrap();
         host.command(
-            "web.trimClip",
+            "clip.trim",
             &json!({"clipId":"region","startBar":1.,"lengthBars":1.}),
         )
         .unwrap();

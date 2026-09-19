@@ -4033,7 +4033,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "ondera"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -4063,7 +4063,7 @@ dependencies = [
 
 [[package]]
 name = "ondera-engine"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "clap-sys",
@@ -4090,7 +4090,7 @@ dependencies = [
 
 [[package]]
 name = "ondera-plugin"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4098,14 +4098,14 @@ dependencies = [
 
 [[package]]
 name = "ondera-plugin-gain"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ondera-plugin",
 ]
 
 [[package]]
 name = "ondera-tools"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ondera-engine",
  "serde_json",

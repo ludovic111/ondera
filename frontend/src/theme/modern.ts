@@ -11,6 +11,7 @@ import { eqGrid, NO_CANVAS_SHADOWS } from "./materials";
 import {
   alpha,
   black,
+  families,
   ok,
   white,
   type ColorKey,
@@ -115,6 +116,7 @@ function colors(mode: Mode): Record<ColorKey, string> {
       eqCurve: accent,
       eqHandle: n(0.97),
       eqFill: accent,
+      ...families(0.78, 0.12),
       neutralDot: n(0.45),
       menu: n(0.235),
       menuHover: n(0.31),
@@ -200,6 +202,7 @@ function colors(mode: Mode): Record<ColorKey, string> {
     eqCurve: accent,
     eqHandle: accent,
     eqFill: accent,
+    ...families(0.52, 0.14),
     neutralDot: l(0.72),
     menu: l(1, 0),
     menuHover: l(0.945),
@@ -394,6 +397,16 @@ export function modern(mode: Mode): ThemeSpec {
     line,
     blur: { glass: "16px", glassAgent: "16px", glassCard: "20px" },
     radius: RADIUS,
+    // Crisp and short: nothing overshoots, nothing lingers.
+    motion: {
+      fast: "70ms",
+      base: "130ms",
+      slow: "200ms",
+      ease: "cubic-bezier(0.2, 0, 0, 1)",
+      enter: "cubic-bezier(0.1, 0.8, 0.2, 1)",
+      exit: "cubic-bezier(0.4, 0, 1, 1)",
+      settle: "cubic-bezier(0.2, 0, 0, 1)",
+    },
     canvasShadow: NO_CANVAS_SHADOWS,
     clipMix: dark
       ? { faceTop: 58, faceBottom: 58 }

@@ -1,0 +1,158 @@
+/*
+ * Motion. Durations and curves come from the theme (--motion-*); this file only says what
+ * moves. Components opt in with a data-motion attribute so every surface of a kind arrives
+ * the same way. Two rules hold everywhere:
+ *   - anything under the pointer answers within --motion-fast, and a drag is never eased;
+ *   - nothing moves for someone who asked the system for less motion.
+ */
+
+/* Controls: press, hover and lit states ease instead of snapping. */
+button,
+select,
+input,
+summary,
+[role="option"],
+[role="menuitem"] {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+/* Surfaces that appear above the window: menus and pickers pop from their anchor. */
+@keyframes motion-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+[data-motion="pop"] {
+  transform-origin: top left;
+  animation: motion-pop var(--motion-base) var(--motion-enter) both;
+}
+
+/* Dialogs and the command palette land with a little weight. */
+@keyframes motion-sheet {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+[data-motion="sheet"] {
+  animation: motion-sheet var(--motion-slow) var(--motion-settle) both;
+}
+
+@keyframes motion-fade {
+  from {
+    opacity: 0;
+  }
+}
+[data-motion="fade"] {
+  animation: motion-fade var(--motion-base) var(--motion-ease) both;
+}
+
+/* Side panels slide in from their edge. */
+@keyframes motion-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+[data-motion="from-right"] {
+  animation: motion-from-right var(--motion-slow) var(--motion-enter) both;
+}
+@keyframes motion-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+[data-motion="from-bottom"] {
+  animation: motion-from-bottom var(--motion-slow) var(--motion-enter) both;
+}
+
+/* New content in a list: messages, agent steps, rows revealed by opening a folder. */
+@keyframes motion-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+[data-motion="rise"],
+.agent-message {
+  animation: motion-rise var(--motion-base) var(--motion-enter) both;
+}
+[data-motion="reveal"] > * {
+  animation: motion-rise var(--motion-base) var(--motion-enter) both;
+}
+[data-motion="reveal"] > :nth-child(2) {
+  animation-delay: 12ms;
+}
+[data-motion="reveal"] > :nth-child(3) {
+  animation-delay: 24ms;
+}
+[data-motion="reveal"] > :nth-child(4) {
+  animation-delay: 36ms;
+}
+[data-motion="reveal"] > :nth-child(n + 5) {
+  animation-delay: 48ms;
+}
+
+/* Disclosure chevrons turn rather than flip. */
+[data-motion="turn"] {
+  transition: transform var(--motion-base) var(--motion-settle);
+}
+
+/* Something is happening and will keep happening: recording, count-in, a streaming reply. */
+@keyframes motion-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+[data-motion="pulse"] {
+  animation: motion-pulse 1s var(--motion-ease) infinite;
+}
+@keyframes motion-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+[data-motion="caret"] {
+  animation: motion-blink 1.05s steps(1, end) infinite;
+}
+
+/* The playhead of attention: a one-shot ring when the agent is opened on a selection. */
+@keyframes motion-attention {
+  from {
+    box-shadow: 0 0 0 0 var(--color-accent);
+  }
+  to {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+[data-motion="attention"] {
+  animation: motion-attention 600ms var(--motion-ease) 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}

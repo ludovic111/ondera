@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { commands, TRACK_PALETTE, type Track } from "@ondera/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { Button } from "../primitives/Button";
@@ -6,6 +6,7 @@ import { HSlider } from "../primitives/HSlider";
 import { Knob } from "../primitives/Knob";
 import { InlineEdit } from "../primitives/InlineEdit";
 import { RecordSmallIcon } from "../primitives/Icons";
+import { LedStrip } from "../primitives/LedStrip";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { actionItem, separator, type MenuEntry } from "../../state/menus";
 import styles from "./TrackHeader.module.css";
@@ -73,6 +74,8 @@ export function TrackHeader({ track }: { track: Track }) {
         actionItem(store, "addAudioTrack"),
         actionItem(store, "addMidiTrack"),
         actionItem(store, "removeSelectedTrack"),
+        separator,
+        actionItem(store, "askAgent", "Ask Agent About This Track…"),
       ],
     });
   };
@@ -159,6 +162,7 @@ export function TrackHeader({ track }: { track: Track }) {
             <RecordSmallIcon />
           </Button>
         </div>
+        {track.armed && track.kind === "audio" && <InputLevel />}
         <HSlider
           value={track.volume}
           title={`Volume ${Math.round(track.volume * 100)}%`}
@@ -191,6 +195,33 @@ export function TrackHeader({ track }: { track: Track }) {
           onClose={() => setMenu(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Microphone level on an armed audio track: set the gain before the take, not after.
+ * A slow-falling peak keeps the 30 Hz telemetry readable.
+ */
+function InputLevel() {
+  const peak = useSession((s) => s.meters.input ?? 0);
+  const held = useRef(0);
+  held.current = Math.max(peak, held.current * 0.86);
+  // Meter in dB over a 48 dB window, so speech sits in the middle rather than the bottom.
+  const level =
+    held.current > 0.004
+      ? Math.min(1, Math.max(0, 1 + (20 * Math.log10(held.current)) / 48))
+      : 0;
+  return (
+    <div
+      className={styles.inputLevel}
+      title={
+        held.current >= 0.98
+          ? "Input is clipping: turn the microphone down"
+          : "Microphone level"
+      }
+    >
+      <LedStrip segments={10} level={level} hot={2} segmentHeight={4} />
     </div>
   );
 }

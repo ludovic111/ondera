@@ -75,7 +75,7 @@ ondera-cli strip.parameters --trackId master --slot 7
 `plugin.scan` returns a count and any scan errors. `plugin.list` accepts `query` (name, vendor or
 ID), `kind` (`instrument` or `effect`) and `format` (`stock`, `clap`, `vst3` or `au`). It returns
 50 entries by default; `limit` accepts 1–200, and the returned `nextOffset` can be passed as
-`offset` for the next page. `session.catalog` lists only the 24 stock plugins, presets and loops.
+`offset` for the next page. `session.catalog` lists only the 34 stock plugins, presets and loops.
 
 Use `strip.setParameter --trackId master --slot 7 --parameterId <id> --value <plain-value>`
 with an ID and the bounds returned by `strip.parameters`. Values are in plugin units, not a

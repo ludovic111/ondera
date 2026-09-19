@@ -28,6 +28,10 @@ pub struct Telemetry {
     pub playing: AtomicBool,
     pub device_failed: AtomicBool,
     pub input_overflow: AtomicBool,
+    /// True while the renderer is clicking a count-in before the transport starts.
+    pub counting_in: AtomicBool,
+    /// Peak of the microphone input since the last read, 0-1 as f32 bits.
+    pub input_peak: AtomicU32,
     pub cpu: AtomicU32,
     pub late_callbacks: AtomicU64,
     pub voice_overflows: AtomicU64,
@@ -40,6 +44,10 @@ impl Telemetry {
     }
     pub fn load(&self) -> f32 {
         f32::from_bits(self.cpu.load(Ordering::Relaxed))
+    }
+    /// The loudest input sample since the last call; reading resets it.
+    pub fn take_input_peak(&self) -> f32 {
+        f32::from_bits(self.input_peak.swap(0, Ordering::Relaxed))
     }
     pub fn peaks(&self) -> [f32; 4] {
         std::array::from_fn(|i| f32::from_bits(self.peaks[i].load(Ordering::Relaxed)))
@@ -73,6 +81,8 @@ pub enum Message {
     SetParam(u32, u32, f64),
     ResetSlot(u32),
     SetRecording(bool),
+    /// Park at the first position, click for the second number of beats, then play.
+    CountIn(f64, f64),
 }
 /// Objects the callback no longer needs; the main thread reclaims them.
 pub enum Retired {
@@ -174,6 +184,7 @@ impl DeviceEngine {
             garbage,
             telemetry: telemetry.clone(),
             scratch: vec![[0.0; 2]; MAX_BLOCK],
+            counting: false,
         };
         let stream = match supported.sample_format() {
             SampleFormat::F32 => output::<f32>(&device, &config, rt),
@@ -234,6 +245,8 @@ struct Callback {
     garbage: Producer<Retired>,
     telemetry: Arc<Telemetry>,
     scratch: Vec<[f32; 2]>,
+    /// The renderer was counting in during the previous callback.
+    counting: bool,
 }
 impl Callback {
     fn commands(&mut self) {
@@ -253,6 +266,7 @@ impl Callback {
                         | Message::RoutedNote { .. }
                         | Message::Preview(..)
                         | Message::Start(..)
+                        | Message::CountIn(..)
                 )
             {
                 continue;
@@ -308,6 +322,7 @@ impl Callback {
                 Message::SetParam(slot, id, value) => self.rack.set_param(slot, id, value),
                 Message::ResetSlot(slot) => self.rack.reset(slot),
                 Message::SetRecording(on) => self.renderer.recording = on,
+                Message::CountIn(beats, count) => self.renderer.count_in(beats, count),
             }
         }
         if panic {
@@ -378,6 +393,13 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
                 rt.telemetry
                     .playing
                     .store(rt.renderer.playing, Ordering::Relaxed);
+                // The window raises the flag when it asks for a count-in, so a recorder that
+                // opens before this callback sees it. Only the end of the count clears it.
+                let counting = rt.renderer.counting_in();
+                if rt.counting && !counting {
+                    rt.telemetry.counting_in.store(false, Ordering::Relaxed);
+                }
+                rt.counting = counting;
                 rt.telemetry
                     .voice_overflows
                     .store(rt.renderer.voice_overflows, Ordering::Relaxed);
@@ -498,17 +520,7 @@ impl LocalRecorder {
         input: Option<String>,
         byte_limit: usize,
     ) -> Result<Self> {
-        let host = cpal::default_host();
-        let device = match &input {
-            Some(wanted) => host
-                .input_devices()
-                .map_err(|e| e.to_string())?
-                .find(|d| d.name().is_ok_and(|n| &n == wanted))
-                .ok_or_else(|| format!("Input device not found: {wanted}"))?,
-            None => host
-                .default_input_device()
-                .ok_or("No input device available")?,
-        };
+        let device = find_input(&input)?;
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let config = supported.config();
         let rate = config.sample_rate.0;
@@ -523,20 +535,13 @@ impl LocalRecorder {
         let failed = Arc::new(AtomicBool::new(false));
         let first_beat = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
         let state = Capture {
-            producer,
+            producer: Some(producer),
             telemetry,
             failed: failed.clone(),
             first_beat: first_beat.clone(),
             first: true,
         };
-        let stream = match supported.sample_format() {
-            SampleFormat::F32 => input_stream::<f32>(&device, &config, state),
-            SampleFormat::I16 => input_stream::<i16>(&device, &config, state),
-            SampleFormat::U16 => input_stream::<u16>(&device, &config, state),
-            SampleFormat::I32 => input_stream::<i32>(&device, &config, state),
-            SampleFormat::F64 => input_stream::<f64>(&device, &config, state),
-            other => Err(format!("Unsupported input format: {other}")),
-        }?;
+        let stream = capture_stream(&device, &supported, state)?;
         stream.play().map_err(|e| e.to_string())?;
         let worker_stop = stop.clone();
         let worker_failed = failed.clone();
@@ -605,8 +610,92 @@ impl Drop for LocalRecorder {
         }
     }
 }
+/// Build the input stream for whatever sample format the device speaks.
+fn capture_stream(
+    device: &cpal::Device,
+    supported: &cpal::SupportedStreamConfig,
+    state: Capture,
+) -> Result<Stream> {
+    let config = supported.config();
+    match supported.sample_format() {
+        SampleFormat::F32 => input_stream::<f32>(device, &config, state),
+        SampleFormat::I16 => input_stream::<i16>(device, &config, state),
+        SampleFormat::U16 => input_stream::<u16>(device, &config, state),
+        SampleFormat::I32 => input_stream::<i32>(device, &config, state),
+        SampleFormat::F64 => input_stream::<f64>(device, &config, state),
+        other => Err(format!("Unsupported input format: {other}")),
+    }
+}
+fn find_input(input: &Option<String>) -> Result<cpal::Device> {
+    let host = cpal::default_host();
+    match input {
+        Some(wanted) => host
+            .input_devices()
+            .map_err(|e| e.to_string())?
+            .find(|d| d.name().is_ok_and(|n| &n == wanted))
+            .ok_or_else(|| format!("Input device not found: {wanted}")),
+        None => host
+            .default_input_device()
+            .ok_or_else(|| "No input device available".to_string()),
+    }
+}
+
+/// Keeps the input open only to feed [`Telemetry::input_peak`], so a singer can set their
+/// level while a track is armed. Nothing is stored. The stream lives on its own worker and
+/// closes when this handle is dropped.
+pub struct InputMeter {
+    stop: Option<std::sync::mpsc::Sender<()>>,
+}
+impl InputMeter {
+    pub fn start(telemetry: Arc<Telemetry>, input: Option<String>) -> Result<Self> {
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let opened = (|| {
+                let device = find_input(&input)?;
+                let supported = device.default_input_config().map_err(|e| e.to_string())?;
+                let stream = capture_stream(
+                    &device,
+                    &supported,
+                    Capture {
+                        producer: None,
+                        telemetry,
+                        failed: Arc::new(AtomicBool::new(false)),
+                        first_beat: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                        first: false,
+                    },
+                )?;
+                stream.play().map_err(|e| e.to_string())?;
+                Ok::<_, String>(stream)
+            })();
+            match opened {
+                Ok(stream) => {
+                    if ready_tx.send(Ok(())).is_ok() {
+                        let _ = stop_rx.recv();
+                    }
+                    drop(stream);
+                }
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                }
+            }
+        });
+        ready_rx
+            .recv()
+            .map_err(|_| "Input meter worker stopped".to_string())??;
+        Ok(Self {
+            stop: Some(stop_tx),
+        })
+    }
+}
+impl Drop for InputMeter {
+    fn drop(&mut self) {
+        self.stop.take();
+    }
+}
 struct Capture {
-    producer: Producer<[f32; 2]>,
+    /// `None` for a stream that only feeds the input meter.
+    producer: Option<Producer<[f32; 2]>>,
     telemetry: Arc<Telemetry>,
     failed: Arc<AtomicBool>,
     first_beat: Arc<AtomicU64>,
@@ -634,6 +723,27 @@ where
                 if capture.failed.load(Ordering::Relaxed) {
                     return;
                 }
+                let mut peak = 0f32;
+                for frame in data.chunks_exact(channels) {
+                    for sample in &frame[..channels.min(2)] {
+                        peak = peak.max(<f32 as cpal::FromSample<T>>::from_sample_(*sample).abs());
+                    }
+                }
+                let seen = f32::from_bits(capture.telemetry.input_peak.load(Ordering::Relaxed));
+                if peak > seen {
+                    capture
+                        .telemetry
+                        .input_peak
+                        .store(peak.min(4.0).to_bits(), Ordering::Relaxed);
+                }
+                // A meter-only stream, or a count-in still clicking: nothing is kept yet, so
+                // the take begins on the first beat of the song rather than on the click.
+                let Some(producer) = capture.producer.as_mut() else {
+                    return;
+                };
+                if capture.telemetry.counting_in.load(Ordering::Relaxed) {
+                    return;
+                }
                 if capture.first {
                     capture.first_beat.store(
                         capture.telemetry.position.load(Ordering::Relaxed),
@@ -646,7 +756,7 @@ where
                     let r = <f32 as cpal::FromSample<T>>::from_sample_(
                         frame[if channels > 1 { 1 } else { 0 }],
                     );
-                    if capture.producer.push([l, r]).is_err() {
+                    if producer.push([l, r]).is_err() {
                         capture.failed.store(true, Ordering::Relaxed);
                         break;
                     }
@@ -712,6 +822,7 @@ mod recording_tests {
             garbage,
             telemetry,
             scratch: vec![[0.0; 2]; MAX_BLOCK],
+            counting: false,
         };
         callback.commands();
         assert!(!callback.renderer.playing);

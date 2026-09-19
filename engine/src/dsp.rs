@@ -6,7 +6,7 @@ pub use ondera_plugin::dsp::{
 };
 use std::f64::consts::TAU;
 
-pub const INSTRUMENTS: [&str; 8] = [
+pub const INSTRUMENTS: [&str; 11] = [
     "Ondera Synth",
     "E-Piano Mk I",
     "Drum Machine",
@@ -15,8 +15,11 @@ pub const INSTRUMENTS: [&str; 8] = [
     "Glass Keys",
     "Choir Pad",
     "Riser",
+    "Tonewheel Organ",
+    "String Ensemble",
+    "Analog Bass",
 ];
-pub const EFFECTS: [&str; 16] = [
+pub const EFFECTS: [&str; 23] = [
     "Ondera Comp",
     "Channel EQ",
     "Tape Sat",
@@ -33,6 +36,13 @@ pub const EFFECTS: [&str; 16] = [
     "Utility",
     "Overdrive",
     "Transient",
+    "Flanger",
+    "Auto Pan",
+    "Auto Filter",
+    "De-Esser",
+    "Lo-Fi",
+    "Pitch Shift",
+    "Pump",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +55,9 @@ pub enum Preset {
     Bell,
     Pad,
     Riser,
+    Organ,
+    Strings,
+    Bass,
 }
 impl Preset {
     pub fn named(name: &str) -> Self {
@@ -56,12 +69,18 @@ impl Preset {
             "Glass Keys" => Self::Bell,
             "Choir Pad" => Self::Pad,
             "Riser" => Self::Riser,
+            "Tonewheel Organ" => Self::Organ,
+            "String Ensemble" => Self::Strings,
+            "Analog Bass" => Self::Bass,
             _ => Self::Synth,
         }
     }
     pub fn release(self) -> f64 {
         match self {
             Self::Pad => 0.9,
+            Self::Strings => 0.7,
+            Self::Organ => 0.06,
+            Self::Bass => 0.12,
             Self::Bell => 1.0,
             Self::Drums => 1.25,
             _ => 0.3,
@@ -70,6 +89,7 @@ impl Preset {
     pub fn attack(self) -> f64 {
         match self {
             Self::Pad => 0.35,
+            Self::Strings => 0.18,
             Self::Synth => 0.01,
             Self::Riser => 0.02,
             _ => 0.003,
@@ -78,6 +98,8 @@ impl Preset {
     pub fn cutoff(self) -> f64 {
         match self {
             Self::Pad => 1200.0,
+            Self::Strings => 3200.0,
+            Self::Bass => 700.0,
             Self::Synth => 2200.0,
             _ => 16000.0,
         }
@@ -199,7 +221,13 @@ impl Voice {
         let cents = 1.0 + p.detune / 100.0 / 12.0 * 0.06;
         let dt = hz / rate;
         self.phase = (self.phase + dt).fract();
-        self.phase2 = (self.phase2 + dt * cents).fract();
+        // The bass runs its second oscillator an octave down; everything else detunes it.
+        let second = if self.preset == Preset::Bass {
+            0.5
+        } else {
+            cents
+        };
+        self.phase2 = (self.phase2 + dt * second).fract();
         self.seed = self.seed.wrapping_mul(1664525).wrapping_add(1013904223);
         let noise = self.seed as f64 / 2147483648.0 - 1.0;
         let release = match (self.preset, self.released) {
@@ -251,6 +279,44 @@ impl Voice {
                     attack * (0.25 + 0.75 * (-age * if bell { 0.9 } else { 1.8 }).exp()),
                     0.5,
                 )
+            }
+            Preset::Organ => {
+                // Drawbars 16', 8', 5 1/3', 4' and 2 2/3' with a touch of key click.
+                let t = TAU * self.phase;
+                let tone = (t * 0.5).sin() * 0.55
+                    + t.sin()
+                    + (t * 1.5).sin() * 0.35
+                    + (t * 2.0).sin() * 0.5
+                    + (t * 3.0).sin() * 0.22;
+                let click = noise * 0.25 * (-age * 220.0).exp();
+                (tone * 0.4 + click, attack, 0.42)
+            }
+            Preset::Strings => {
+                let vibrato = 1.0 + 0.0025 * (TAU * 5.2 * age).sin() * (age * 2.0).min(1.0);
+                let osc = saw(self.phase, dt)
+                    + saw(self.phase2, dt * cents) * 0.8
+                    + saw((self.phase * vibrato + 0.37).fract(), dt) * 0.6;
+                let cutoff = p.cutoff.min(rate * 0.45);
+                let alpha = (1.0 - (-TAU * cutoff / rate).exp()) as f32;
+                self.low += alpha * (osc as f32 * 0.42 - self.low);
+                (
+                    self.low as f64,
+                    attack * (0.85 + 0.15 * (-age * 3.0).exp()),
+                    0.4,
+                )
+            }
+            Preset::Bass => {
+                let osc = saw(self.phase, dt) * 0.7 + square(self.phase2, dt * 0.5) * 0.6;
+                let adsr = if age < p.attack {
+                    attack
+                } else {
+                    let d = (age - p.attack) / p.decay.max(0.001);
+                    p.sustain + (1.0 - p.sustain) * (-d * 4.0).exp()
+                };
+                let cutoff = (p.cutoff * (1.0 + p.env_amount * 6.0 * adsr)).min(rate * 0.45);
+                let alpha = (1.0 - (-TAU * cutoff / rate).exp()) as f32;
+                self.low += alpha * (osc as f32 - self.low);
+                ((self.low as f64 * 1.4).tanh(), adsr, 0.55)
             }
             Preset::Pluck => (
                 (self.phase * 2.0 - 1.0).abs() * 2.0 - 1.0,
@@ -309,6 +375,9 @@ mod tests {
             Preset::Bell,
             Preset::Pad,
             Preset::Riser,
+            Preset::Organ,
+            Preset::Strings,
+            Preset::Bass,
         ] {
             for pitch in [0, 35, 38, 42, 60, 69, 84, 127] {
                 let mut cached = Voice::new(preset, pitch, 97, 11);

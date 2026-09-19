@@ -149,3 +149,17 @@ export const SendIcon = () => (
     <path d="M5.5 10 V1 M1.5 5 L5.5 1 L9.5 5" />
   </svg>
 );
+
+export const StarIcon = ({ filled = false }: { filled?: boolean }) => (
+  <svg
+    width="11"
+    height="11"
+    viewBox="0 0 12 12"
+    fill={filled ? "currentColor" : "none"}
+    stroke="currentColor"
+    strokeWidth="1.1"
+    strokeLinejoin="round"
+  >
+    <path d="M6 1.2 7.5 4.3 10.9 4.8 8.4 7.1 9 10.5 6 8.9 3 10.5 3.6 7.1 1.1 4.8 4.5 4.3Z" />
+  </svg>
+);

@@ -489,3 +489,41 @@ fn media_registry_is_available_to_cli_and_mcp_validation() {
     assert!(control::spec("session.importMidi").is_some());
     assert!(control::spec("session.exportStems").is_some());
 }
+
+#[test]
+fn aiff_export_holds_the_same_audio_as_wav() {
+    use ondera_engine::{audio, export, store};
+    let session = store::demo();
+    let dir = tempfile::tempdir().unwrap();
+    let options = export::ExportOptions {
+        end_bar: Some(1.0),
+        tail_seconds: 0.0,
+        dither: false,
+        ..Default::default()
+    };
+    let library = audio::Library::new();
+    let mut prepared = library.clone();
+    audio::prepare_sources(&session, &mut prepared).unwrap();
+    let wav = dir.path().join("mix.wav");
+    let aiff = dir.path().join("mix.aiff");
+    export::mix(&session, &prepared, &wav, &options).unwrap();
+    export::mix(&session, &prepared, &aiff, &options).unwrap();
+    let a = audio::decode(std::fs::read(&wav).unwrap(), Some("wav")).unwrap();
+    let b = audio::decode(std::fs::read(&aiff).unwrap(), Some("aiff")).unwrap();
+    assert_eq!(a.sample_rate, b.sample_rate);
+    assert_eq!(a.frames.len(), b.frames.len());
+    assert!(
+        a.frames.iter().flatten().any(|v| v.abs() > 0.01),
+        "the demo is audible"
+    );
+    assert_eq!(a.frames, b.frames);
+    let float = export::ExportOptions {
+        format: export::SampleFormat::Float32,
+        ..options
+    };
+    assert!(export::mix(&session, &prepared, &aiff, &float).is_err());
+    assert!(
+        aiff.exists(),
+        "a refused export leaves the previous file alone"
+    );
+}

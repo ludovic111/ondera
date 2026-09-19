@@ -293,12 +293,105 @@
   padding: 0 14px;
 }
 .context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
   font-size: var(--fs-small);
   color: var(--color-ink300);
   margin: 8px 0;
+}
+.contextToggle {
+  all: unset;
+  flex: none;
+  cursor: default;
+  color: var(--color-ink500);
+  border-bottom: 1px dotted var(--color-ink500);
+}
+.contextToggle:hover {
+  color: var(--color-ink100);
+}
+.contextToggle:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.subject {
+  flex: none;
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-accent);
+  color: var(--color-ink100);
+}
+.subjectOff {
+  border-color: var(--line-divider-dark);
+  color: var(--color-ink500);
+  text-decoration: line-through;
+}
+.sentContext {
+  margin-top: 4px;
+  font-size: var(--fs-small);
+  color: var(--color-ink500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-divider-dark);
+  font-size: var(--fs-small);
+}
+.stepQuiet {
+  color: var(--color-ink500);
+  padding: 2px 0;
+}
+.step summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  list-style: none;
+  cursor: default;
+  color: var(--color-ink300);
+}
+.step summary::-webkit-details-marker {
+  display: none;
+}
+.step summary:hover .stepLabel {
+  color: var(--color-ink100);
+}
+.stepMark {
+  flex: none;
+  width: 10px;
+  color: var(--color-accent);
+  font-weight: var(--fw-bold);
+}
+.stepFailed {
+  color: var(--color-danger);
+}
+.stepWhy {
+  color: var(--color-danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step pre {
+  margin: 2px 0 6px 16px;
+  max-height: 140px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--color-ink500);
+  white-space: pre-wrap;
+  user-select: text;
 }
 .error {
   margin: 8px 0;

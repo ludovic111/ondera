@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Knob } from "../primitives/Knob";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import {
@@ -164,6 +164,8 @@ function Choice({
 export interface PluginFaceProps {
   name: string;
   category: string;
+  /** CSS colour of the plugin's sound family; tints the trim, dials and display. */
+  tint?: string | undefined;
   parameters: Parameter[];
   onChange: (p: Parameter, value: number) => void;
   onAutomate: (p: Parameter) => void;
@@ -179,6 +181,7 @@ export interface PluginFaceProps {
 export function PluginFace({
   name,
   category,
+  tint,
   parameters,
   onChange,
   onAutomate,
@@ -192,10 +195,13 @@ export function PluginFace({
   const choices = parameters.filter((p) => p.labels.length > 0);
   const dials = parameters.filter((p) => p.labels.length === 0);
   return (
-    <div className={styles.face}>
+    <div
+      className={styles.face}
+      style={tint ? ({ "--family": tint } as CSSProperties) : undefined}
+    >
       <div className={styles.nameplate}>
         <div className={styles.identity}>
-          <span className={`${styles.led} m-accent-dot`} />
+          <span className={tint ? styles.led : `${styles.led} m-accent-dot`} />
           <div>
             <div className={styles.name}>{name}</div>
             <div className={`${styles.category} t-caps`}>{category}</div>

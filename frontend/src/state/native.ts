@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { familyVar } from "../theme/families";
 import type {
+  BrowserItem,
   Command,
   Session,
   View,
@@ -76,6 +78,9 @@ export interface Plugin {
   instrument: boolean;
   effect: boolean;
   format: string;
+  /** Sound folder: automatic, or where the user filed it. */
+  folder: string;
+  favorite: boolean;
 }
 export interface Catalog {
   instruments: string[];
@@ -107,6 +112,83 @@ export const native = <T = unknown>(
   method: string,
   params: Params = {},
 ): Promise<T> => invoke<T>("daw_command", { method, params });
+/** Marks where the person's words end and the window's description of the selection begins. */
+export const CONTEXT_MARK = "\n\n[Selected in the window: ";
+
+export interface ContextChip {
+  label: string;
+  /** What the agent reads: names for the person, ids for the tools. */
+  detail: string;
+}
+
+/** What is selected right now, as the agent should hear it. Empty when nothing is. */
+export function selectionContext(s: Session): ContextChip[] {
+  const chips: ContextChip[] = [];
+  const track = s.tracks.find((t) => t.id === s.view.selectedTrackId);
+  const clip = s.clips.find((c) => c.id === s.view.selectedClipId);
+  const bar = (n: number) => String(Math.round((n + 1) * 100) / 100);
+  if (clip)
+    chips.push({
+      label: `${clip.name} · bars ${bar(clip.startBar)}–${bar(clip.startBar + clip.lengthBars)}`,
+      detail: `region "${clip.name}" (clipId ${clip.id}, ${clip.data.kind === "midi" ? "MIDI" : "audio"}, bars ${bar(clip.startBar)} to ${bar(clip.startBar + clip.lengthBars)})`,
+    });
+  if (track)
+    chips.push({
+      label: track.name,
+      detail: `track "${track.name}" (trackId ${track.id}, ${track.kind === "midi" ? "instrument" : "audio"})`,
+    });
+  if (s.transport.cycle)
+    chips.push({
+      label: `Cycle ${bar(s.transport.cycleStartBar)}–${bar(s.transport.cycleEndBar)}`,
+      detail: `cycle range bars ${bar(s.transport.cycleStartBar)} to ${bar(s.transport.cycleEndBar)}`,
+    });
+  return chips;
+}
+const withSelection = (prompt: string, chips: ContextChip[]) =>
+  chips.length && !prompt.startsWith("/")
+    ? `${prompt}${CONTEXT_MARK}${chips.map((c) => c.detail).join("; ")}]`
+    : prompt;
+/** A sent message split back into the person's words and the selection that went with it. */
+export function splitContext(text: string): { text: string; context: string } {
+  const at = text.lastIndexOf(CONTEXT_MARK);
+  return at < 0 || !text.endsWith("]")
+    ? { text, context: "" }
+    : {
+        text: text.slice(0, at),
+        context: text.slice(at + CONTEXT_MARK.length, -1),
+      };
+}
+
+/** Commands that set an absolute value and are sent on every pointer move. */
+const CONTINUOUS = new Set([
+  "track.setVolume",
+  "track.setPan",
+  "master.setVolume",
+  "strip.setSendLevel",
+  "strip.setParameter",
+  "transport.setTempo",
+]);
+const continuousKey = (name: string, params: Params): string | null =>
+  CONTINUOUS.has(name)
+    ? [
+        name,
+        params.trackId,
+        params.slot,
+        params.sendIndex ?? params.send,
+        params.parameterId,
+      ].join("|")
+    : null;
+/** Loops have no sound family yet; they cycle through the families for variety. */
+const LOOP_SWATCHES = [
+  "Drums",
+  "Synths",
+  "Pads",
+  "Textures",
+  "Keys",
+  "Samplers",
+  "Bass",
+  "Distortion",
+].map(familyVar);
 const emptyGroups: Record<BrowserTab, BrowserGroup[]> = {
   instruments: [],
   plugins: [],
@@ -159,6 +241,9 @@ export class NativeStore {
   private listeners = new Set<() => void>();
   private metadataListeners = new Set<() => void>();
   private queue: Promise<unknown> = Promise.resolve();
+  /** Newest queued edit per continuous control; older ones are dropped unsent. */
+  private newest = new Map<string, unknown>();
+  private waiting = 0;
   private snapshotSequence = 0;
   private agentSequence = 0;
   private ids = new Map<string, string>();
@@ -192,12 +277,38 @@ export class NativeStore {
   };
   /** Post-fader peak per track, in track order; read by the mixer's meters. */
   trackPeaks: number[] = [];
-  private composer = { draft: "", sending: false, error: "" };
+  private composer = {
+    draft: "",
+    sending: false,
+    error: "",
+    /** Send the selection along with the message. */
+    withContext: true,
+    /** Bumped to ask the panel to focus its message box. */
+    focus: 0,
+  };
   getComposer = () => this.composer;
   setAgentDraft = (draft: string) => {
     this.composer = { ...this.composer, draft, error: "" };
     this.notifyMeta();
   };
+  setAgentContext(withContext: boolean) {
+    this.composer = { ...this.composer, withContext };
+    this.notifyMeta();
+  }
+  /**
+   * Open the agent with the current selection as its subject, from a context menu or a
+   * shortcut. `seed` fills the message only when the person has not started one.
+   */
+  askAgent(seed = "") {
+    this.fire("ui.showPanel", { panel: "agent", visible: true });
+    this.composer = {
+      ...this.composer,
+      draft: this.composer.draft.trim() ? this.composer.draft : seed,
+      withContext: true,
+      focus: this.composer.focus + 1,
+    };
+    this.notifyMeta();
+  }
   async sendAgent(): Promise<boolean> {
     const draft = this.composer.draft;
     if (!draft.trim() || this.composer.sending || this.agent.status.running)
@@ -206,7 +317,12 @@ export class NativeStore {
     this.notifyMeta();
     const sequence = this.agentSequence;
     const task = this.queue.then(() =>
-      native<AgentData["status"]>("agent.send", { prompt: draft.trim() }),
+      native<AgentData["status"]>("agent.send", {
+        prompt: withSelection(
+          draft.trim(),
+          this.composer.withContext ? selectionContext(this.state) : [],
+        ),
+      }),
     );
     this.queue = task.catch(() => {});
     try {
@@ -252,7 +368,7 @@ export class NativeStore {
   dismissError = () => {
     this.ui = { ...this.ui, error: null };
     this.notifyMeta();
-    this.fire("web.dismissError");
+    this.fire("ui.dismissError");
   };
   reportError = (error: unknown) => {
     this.ui = { ...this.ui, error: String(error) };
@@ -276,6 +392,8 @@ export class NativeStore {
         position: number;
         playing: boolean;
         recording: boolean;
+        countingIn?: boolean;
+        inputPeak?: number;
         peaks: number[];
         trackPeaks?: number[];
         cpu: number;
@@ -289,6 +407,7 @@ export class NativeStore {
             positionBeats: t.position,
             playing: t.playing,
             recording: t.recording,
+            countingIn: t.countingIn ?? false,
           },
           meters: {
             masterL: t.peaks[0],
@@ -296,6 +415,7 @@ export class NativeStore {
             channelL: t.peaks[2],
             channelR: t.peaks[3],
             cpu: t.cpu,
+            input: t.inputPeak ?? 0,
           },
         };
         this.notify();
@@ -377,7 +497,7 @@ export class NativeStore {
               id: s.id,
               name: s.name,
               meta: `${s.durationSeconds.toFixed(1)} s`,
-              color: "#e0af3b",
+              color: familyVar("Samplers"),
             })),
           },
         ],
@@ -413,40 +533,73 @@ export class NativeStore {
       offset = page.nextOffset;
     }
     this.plugins = plugins;
+    const library = await native<{
+      folders: { name: string }[];
+      recent: string[];
+    }>("plugin.folders").catch(() => ({ folders: [], recent: [] }));
+    const order = (library.folders ?? []).map((f) => f.name);
     const group = (
       items: { name: string; meta: string; color: string | null }[],
     ): BrowserGroup[] => [{ name: "Ondera", items }];
-    const palette = [
-      "#ed835e",
-      "#b191ea",
-      "#6ab3fd",
-      "#d991d2",
-      "#e0af3b",
-      "#95bd69",
-      "#eb8182",
-      "#ee9748",
-    ];
-    const groups = (kind: string) => {
-      const grouped = new Map<string, BrowserGroup>();
-      for (const p of plugins.filter((p) =>
-        kind === "instrument" ? p.instrument : p.effect,
-      )) {
-        const name =
-          p.format === "stock"
-            ? "Ondera"
-            : p.format === "au"
-              ? "Audio Units"
-              : p.format.toUpperCase();
-        if (!grouped.has(name)) grouped.set(name, { name, items: [] });
-        grouped.get(name)!.items.push({
-          id: p.id,
-          name: p.name,
-          meta: p.vendor,
-          color: palette[grouped.get(name)!.items.length % palette.length],
-        });
-      }
-      return [...grouped.values()];
+    const FORMAT: Record<string, string> = {
+      native: "Rust",
+      clap: "CLAP",
+      vst3: "VST3",
+      au: "AU",
     };
+    const item = (p: Plugin): BrowserItem => ({
+      id: p.id,
+      name: p.name,
+      meta:
+        p.format === "stock"
+          ? ""
+          : `${FORMAT[p.format] ?? p.format} · ${p.vendor}`,
+      color: familyVar(p.folder),
+      favorite: p.favorite,
+      folder: p.folder,
+    });
+    const groups = (kind: string): BrowserGroup[] => {
+      const mine = plugins.filter((p) =>
+        kind === "instrument" ? p.instrument : p.effect,
+      );
+      const byFolder = new Map<string, BrowserItem[]>();
+      for (const p of mine) {
+        if (!byFolder.has(p.folder)) byFolder.set(p.folder, []);
+        byFolder.get(p.folder)!.push(item(p));
+      }
+      const rank = (name: string) =>
+        order.includes(name) ? order.indexOf(name) : order.length;
+      const folders = [...byFolder.entries()]
+        .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
+        .map(([name, items]) => ({
+          name,
+          kind: "folder" as const,
+          color: familyVar(name),
+          items,
+        }));
+      const favorites = mine.filter((p) => p.favorite).map(item);
+      const recent = (library.recent ?? [])
+        .map((id) => mine.find((p) => p.id === id))
+        .filter((p): p is Plugin => p !== undefined)
+        .slice(0, 6)
+        .map(item);
+      return [
+        ...(favorites.length
+          ? [
+              {
+                name: "Favourites",
+                kind: "favorites" as const,
+                items: favorites,
+              },
+            ]
+          : []),
+        ...(recent.length
+          ? [{ name: "Recent", kind: "recent" as const, items: recent }]
+          : []),
+        ...folders,
+      ];
+    };
+    const palette = LOOP_SWATCHES;
     this.state = {
       ...this.state,
       browser: {
@@ -456,7 +609,7 @@ export class NativeStore {
           this.catalog.loops.map((l, i) => ({
             name: l.name,
             meta: `${l.bars} bars`,
-            color: palette[i % 8],
+            color: palette[i % palette.length] ?? null,
           })),
         ),
         files: this.state.browser.files,
@@ -469,11 +622,37 @@ export class NativeStore {
     this.queue = task.catch(this.reportError);
     return task;
   }
+  /**
+   * Fire and forget. Continuous absolute edits (a dial under the pointer) keep
+   * only the newest queued value: the host never sees a backlog of stale ones.
+   */
   fire(method: string, params: Params = {}) {
-    void this.run(method, params).catch(() => {});
+    const key = continuousKey(method, params);
+    if (!key) {
+      void this.run(method, params).catch(() => {});
+      return;
+    }
+    const token = {};
+    this.newest.set(key, token);
+    const task = this.queue.then(() => {
+      if (this.newest.get(key) !== token) return undefined;
+      this.newest.delete(key);
+      return native(method, params);
+    });
+    this.queue = task.catch(this.reportError);
   }
   dispatch = (command: Command): void => {
-    const task = this.queue.then(() => this.translate(command));
+    const key = continuousKey(command.name, command.params);
+    if (key) this.newest.set(key, command);
+    this.waiting++;
+    const task = this.queue.then(() => {
+      this.waiting--;
+      if (key) {
+        if (this.newest.get(key) !== command) return undefined;
+        this.newest.delete(key);
+      }
+      return this.translate(command, key !== null);
+    });
     this.queue = task.catch(this.reportError);
   };
   setEditorPitch(low: number) {
@@ -484,7 +663,7 @@ export class NativeStore {
     this.state = { ...this.state, view: { ...this.state.view, ...patch } };
     this.notify();
   }
-  private async translate({ name, params }: Command) {
+  private async translate({ name, params }: Command, continuous = false) {
     const p = { ...params };
     for (const field of ["trackId", "clipId", "noteId"])
       if (typeof p[field] === "string")
@@ -522,7 +701,7 @@ export class NativeStore {
         delete p.bars;
         break;
       case "transport.setRecording":
-        method = "web.recordArm";
+        method = "transport.punch";
         p.enabled = p.recording;
         delete p.recording;
         break;
@@ -565,10 +744,10 @@ export class NativeStore {
         }
         break;
       case "clip.resize":
-        if ("startBar" in p) method = "web.trimClip";
+        if ("startBar" in p) method = "clip.trim";
         break;
       case "clip.clearSelection":
-        method = "web.clearSelection";
+        method = "clip.deselect";
         break;
       case "note.add": {
         const clientId = p.noteId;
@@ -672,6 +851,8 @@ export class NativeStore {
         break;
     }
     await native(method, p);
+    // Mid-drag the next value is already queued; the snapshot after the last one is enough.
+    if (continuous && this.waiting > 0) return;
     if (!name.startsWith("agent."))
       this.receive(await native<DocumentData>("web.document"));
   }

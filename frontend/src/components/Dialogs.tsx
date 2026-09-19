@@ -48,6 +48,7 @@ export function Modal({
     <dialog
       ref={ref}
       className="native-dialog"
+      data-motion="sheet"
       aria-label={title}
       style={{ translate: `${offset.x}px ${offset.y}px` }}
       onKeyDown={(e) => {
@@ -136,7 +137,7 @@ export function Dialogs() {
                 id={id}
                 trackId={trackId}
                 slot={slot >= 0 ? slot : undefined}
-                onClose={() => store.fire("web.closePlugin", { id })}
+                onClose={() => store.fire("ui.closePluginWindow", { id })}
               />
             );
         }
@@ -290,7 +291,17 @@ function Settings({ onClose }: { onClose: () => void }) {
             )
               .filter(([key]) => {
                 // The theme picker edits the mode together with the theme.
-                if (["lastSession", "recentSessions", "mode"].includes(key))
+                // Favourites, folders and recents are edited in the browser itself.
+                if (
+                  [
+                    "lastSession",
+                    "recentSessions",
+                    "mode",
+                    "favorites",
+                    "folders",
+                    "recent",
+                  ].includes(key)
+                )
                   return false;
                 const update = [
                   "checkUpdatesOnStart",

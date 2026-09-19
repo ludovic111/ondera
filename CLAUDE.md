@@ -54,6 +54,20 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   the trait and served through the same vtables. `plugins/gain` is the example bundle used by tests.
 - Preferences live in `engine/src/settings.rs` (`settings.json`, 0600, secrets masked by
   `redacted()`); presets in `engine/src/preset.rs`; recovery snapshot naming in `engine/src/recovery.rs`.
+- 0.7 work (decided 2026-09-19, owner delegated the calls): the registry is the contract for GUI
+  parity, so a new window interaction lands as a command first (`control_edit.rs` for edits and
+  `session.batch`, `control_plugins.rs` for the plugin library, live-only ones in
+  `desktop/src/control.rs`) and the frontend calls that name; do not add private `web.*` handlers
+  for things a script could want. Plugins are browsed by sound folder: `control_plugins.rs` files
+  every descriptor (`automatic_folder`, ordered `EFFECT_RULES`), favourites/recents/overrides live in
+  `settings.plugins`, and the frontend maps a folder to a `fam*` colour token in `theme/families.ts`.
+  Motion is a theme token group (`motion` in `schema.ts`); `theme/motion.css` is the only place that
+  says what moves, components opt in with `data-motion`, and drags are never eased. The count-in
+  lives in the renderer (`Renderer::count_in`), the capture callback drops frames while
+  `Telemetry::counting_in` is set, and `InputMeter` holds the input open only while an audio track
+  is armed. Native plugin calls are panic-guarded in `sdk/src/ffi.rs` (`Guarded`); test plugins with
+  `ondera_plugin::testing::Bench`. Continuous controls are coalesced in `NativeStore`
+  (`CONTINUOUS`); add a command there when a new dial dispatches on pointer move.
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs

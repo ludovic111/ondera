@@ -50,6 +50,7 @@ export type ActionId =
   | "zoomToFit"
   | "followPlayhead"
   | "toggleAgentPanel"
+  | "askAgent"
   | "stopAgent"
   | "editorPianoRoll"
   | "editorScore"
@@ -380,6 +381,12 @@ export const actions = define([
           open: !store.getState().view.agentPanelOpen,
         }),
       ),
+  },
+  {
+    id: "askAgent",
+    label: "Ask Agent About Selection…",
+    shortcut: { key: "j", meta: true, shift: true },
+    run: (store) => store.askAgent(),
   },
   {
     id: "stopAgent",

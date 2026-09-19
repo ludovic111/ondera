@@ -131,7 +131,7 @@ describe("agent conversation", () => {
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     store.agent.status.running = true;
-    fireEvent.click(screen.getByRole("button", { name: /Activity · 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Changes · 1/ }));
     expect(
       (
         screen.getByRole("button", {

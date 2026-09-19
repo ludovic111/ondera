@@ -85,9 +85,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     entry.onSelect?.();
   };
   return (
-    <div className={styles.scrim} onPointerDown={onClose}>
+    <div className={styles.scrim} onPointerDown={onClose} data-motion="fade">
       <div
         className={styles.palette}
+        data-motion="sheet"
         role="dialog"
         aria-label="Command palette"
         onPointerDown={(e) => e.stopPropagation()}
