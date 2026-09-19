@@ -882,3 +882,200 @@ fn count_in_clicks_with_the_song_parked_then_starts_on_the_sample() {
     r.stop();
     assert!(!r.counting_in());
 }
+
+fn monitored_session(monitor: Monitor, armed: bool) -> (Session, Library) {
+    let (mut s, library) = audio_session();
+    s.tracks[0].monitor = monitor;
+    s.tracks[0].armed = armed;
+    s.tracks[0].volume = 0.75;
+    s.master_volume = 0.75;
+    let mut invert = Insert::new("flip".into(), "stock:Utility", "Utility");
+    invert.params.insert(2, 1.0);
+    invert.params.insert(3, 1.0);
+    s.strips.insert(
+        s.tracks[0].id.clone(),
+        Strip {
+            inserts: vec![invert],
+            ..Default::default()
+        },
+    );
+    (s, library)
+}
+
+#[test]
+fn a_block_pushed_into_the_monitor_ring_comes_out_of_render_through_the_inserts() {
+    use ondera_engine::device::{monitor_ring, Telemetry};
+    let (mut s, _) = monitored_session(Monitor::On, false);
+    s.clips.clear();
+    let (mut r, mut rack) = offline(s, &Library::new(), 48000);
+    let telemetry = Telemetry::default();
+    let (mut feed, mut tap) = monitor_ring(48000, 48000).unwrap();
+    let input: Vec<[f32; 2]> = (0..256)
+        .map(|i| [0.25 + i as f32 / 1024.0, -0.125])
+        .collect();
+    // Two device blocks: the tap waits for one block before it starts, so latency is bounded
+    // but a late input callback does not underrun at once.
+    for _ in 0..2 {
+        for frame in &input {
+            assert!(feed.push(*frame, &telemetry));
+        }
+    }
+    let mut live = vec![[0.0f32; 2]; 256];
+    let mut out = vec![[0.0f32; 2]; 256];
+    let mut heard = Vec::new();
+    for _ in 0..3 {
+        tap.fill(&mut live, &telemetry);
+        r.render_monitored(&mut rack, &mut out, &live);
+        heard.extend_from_slice(&out);
+    }
+    let gain = fader_gain(0.75) * fader_gain(0.75);
+    let start = heard
+        .iter()
+        .position(|f| f[0] != 0.0)
+        .expect("the input is audible");
+    for (got, sent) in heard[start..start + 256].iter().zip(&input) {
+        // The Utility insert inverts both channels: the input went through the strip.
+        assert!(
+            (got[0] + sent[0] * gain).abs() < 1e-5,
+            "{got:?} vs {sent:?}"
+        );
+        assert!((got[1] + sent[1] * gain).abs() < 1e-5);
+    }
+    assert_eq!(
+        telemetry
+            .monitor_drops
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+}
+
+#[test]
+fn monitoring_never_allocates_on_the_audio_thread() {
+    use ondera_engine::device::{monitor_ring, Telemetry};
+    let (s, library) = monitored_session(Monitor::On, true);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    let telemetry = Telemetry::default();
+    let (mut feed, mut tap) = monitor_ring(44100, 48000).unwrap();
+    let mut live = vec![[0.0f32; 2]; 256];
+    let mut out = vec![[0.0f32; 2]; 256];
+    r.playing = true;
+    ALLOCATIONS.with(|n| n.set(0));
+    DEALLOCATIONS.with(|n| n.set(0));
+    COUNTING.with(|v| v.set(true));
+    for i in 0..200 {
+        // Starve it now and then, and flood it once, so every branch of the tap runs.
+        let pushes = if i == 100 {
+            40_000
+        } else if i % 7 == 0 {
+            0
+        } else {
+            240
+        };
+        for _ in 0..pushes {
+            feed.push([0.25, -0.25], &telemetry);
+        }
+        tap.fill(&mut live, &telemetry);
+        r.render_monitored(&mut rack, &mut out, &live);
+        std::hint::black_box(&out);
+    }
+    COUNTING.with(|v| v.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(DEALLOCATIONS.with(Cell::get), 0);
+    use std::sync::atomic::Ordering;
+    assert!(telemetry.monitor_underruns.load(Ordering::Relaxed) > 0);
+    assert!(telemetry.monitor_drops.load(Ordering::Relaxed) > 0);
+}
+
+#[test]
+fn auto_monitoring_follows_arm_and_yields_to_the_tracks_own_clip() {
+    let live = vec![[0.5f32; 2]; 64];
+    let mut out = vec![[0.0f32; 2]; 64];
+    // Not armed: silent.
+    let (s, library) = monitored_session(Monitor::Auto, false);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.render_monitored(&mut rack, &mut out, &live);
+    assert!(out.iter().all(|f| *f == [0.0; 2]));
+    // Armed and stopped: the input is heard.
+    let (s, library) = monitored_session(Monitor::Auto, true);
+    let (mut r, mut rack) = offline(s.clone(), &library, 48000);
+    // The input eases in over 5 ms (240 frames here) rather than clicking on.
+    for _ in 0..5 {
+        r.render_monitored(&mut rack, &mut out, &live);
+    }
+    let gain = fader_gain(0.75) * fader_gain(0.75);
+    assert!((out[10][0] + 0.5 * gain).abs() < 1e-5);
+    // Playing over the track's own clip: only the clip is heard.
+    let mut clip_only = vec![[0.0f32; 2]; 64];
+    let (mut reference, mut reference_rack) = offline(s.clone(), &library, 48000);
+    reference.playing = true;
+    reference.render(&mut reference_rack, &mut clip_only);
+    r.locate(0.0);
+    r.playing = true;
+    for _ in 0..5 {
+        r.render_monitored(&mut rack, &mut out, &live);
+    }
+    for _ in 0..4 {
+        reference.render(&mut reference_rack, &mut clip_only);
+    }
+    assert_eq!(out, clip_only);
+    // Recording over it: the input returns.
+    r.recording = true;
+    r.render_monitored(&mut rack, &mut out, &live);
+    reference.render(&mut reference_rack, &mut clip_only);
+    assert_ne!(out, clip_only);
+    // Off never monitors, armed or not.
+    let (s, library) = monitored_session(Monitor::Off, true);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.render_monitored(&mut rack, &mut out, &live);
+    assert!(out.iter().all(|f| *f == [0.0; 2]));
+}
+
+#[test]
+fn the_monitor_tap_resamples_bounds_latency_and_counts_what_it_drops() {
+    use ondera_engine::device::{monitor_ring, Telemetry};
+    use std::sync::atomic::Ordering;
+    assert!(monitor_ring(1000, 48000).is_err());
+    // 44.1 kHz microphone into a 48 kHz output: a 441 Hz sine stays a 441 Hz sine.
+    let telemetry = Telemetry::default();
+    let (mut feed, mut tap) = monitor_ring(44100, 48000).unwrap();
+    let mut phase = 0usize;
+    let mut out = vec![[0.0f32; 2]; 480];
+    let mut heard = Vec::new();
+    for _ in 0..40 {
+        for _ in 0..441 {
+            let v = (phase as f32 * std::f32::consts::TAU * 441.0 / 44100.0).sin();
+            feed.push([v, v], &telemetry);
+            phase += 1;
+        }
+        tap.fill(&mut out, &telemetry);
+        heard.extend_from_slice(&out);
+    }
+    let body = &heard[4800..];
+    let crossings = body
+        .windows(2)
+        .filter(|w| w[0][0] <= 0.0 && w[1][0] > 0.0)
+        .count();
+    let expected = body.len() as f32 * 441.0 / 48000.0;
+    assert!(
+        (crossings as f32 - expected).abs() <= 2.0,
+        "{crossings} vs {expected}"
+    );
+    assert!(body.iter().any(|f| f[0].abs() > 0.9));
+    // A stalled output lets the ring fill: the feed drops instead of blocking, and counts.
+    let (mut feed, mut tap) = monitor_ring(48000, 48000).unwrap();
+    let telemetry = Telemetry::default();
+    let mut refused = 0u64;
+    for _ in 0..200_000 {
+        if !feed.push([0.1; 2], &telemetry) {
+            refused += 1;
+        }
+    }
+    assert!(refused > 0);
+    assert_eq!(telemetry.monitor_drops.load(Ordering::Relaxed), refused);
+    // When output resumes, the backlog is skipped so the singer is not a second behind.
+    telemetry.input_frames.store(256, Ordering::Relaxed);
+    let mut out = vec![[0.0f32; 2]; 256];
+    tap.fill(&mut out, &telemetry);
+    assert!(telemetry.monitor_drops.load(Ordering::Relaxed) > refused);
+    assert!(tap.buffered() <= 256 * 4);
+}

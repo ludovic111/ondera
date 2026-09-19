@@ -32,6 +32,8 @@ export interface UiState {
   error: string | null;
   busy: boolean;
   prompt: string | null;
+  /** Monitoring is muted: built-in microphone into built-in speakers would feed back. */
+  monitorBlocked?: boolean;
   scale: number;
   /** Theme id; "graphite" and unknown values fall back to skeuo. */
   appearance?: string;

@@ -73,6 +73,7 @@ export const commands = {
     setMute: command("track.setMute"),
     setSolo: command("track.setSolo"),
     setArmed: command("track.setArmed"),
+    setMonitor: command("track.setMonitor"),
     setVolume: command("track.setVolume"),
     setPan: command("track.setPan"),
     rename: command("track.rename"),

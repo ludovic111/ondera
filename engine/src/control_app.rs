@@ -89,7 +89,10 @@ pub const SPECS: &[Spec] = &[
         opt("path", Kind::String, "Dotted path or section name. Omit to reset everything."),
     ]),
     query("audio.devices", "List output devices, input devices and MIDI input ports, with the configured and, in live mode, the active selection.", &[]),
-    query("audio.status", "The audio engine: device, sample rate, CPU load, master and selected-track peaks, MIDI port and live notes.", &[]),
+    query("audio.status", "The audio engine: device, sample rate, CPU load, master and selected-track peaks, MIDI port and live notes. `monitoring` reports input monitoring: state (off, on, blocked, failed), the input device and rate, the measured input and output buffer sizes, frames waiting in the ring, latencyMs computed from them, and frames dropped or underrun.", &[]),
+    edit("audio.allowSpeakerMonitoring", "Answer the feedback warning: monitoring the built-in microphone through the built-in speakers howls, so it stays muted (audio.status monitoring.state = blocked) until this is called with allow=true. Lasts until the app closes.", &[
+        req("allow", Kind::Boolean, "true to monitor anyway, false to mute it again."),
+    ]),
     edit("audio.setOutput", "Switch the output device and reconnect. Omit name for the system default.", &[
         opt("name", Kind::String, "Output device name from audio.devices."),
     ]),
@@ -183,6 +186,7 @@ pub fn is_live_only(name: &str) -> bool {
         || matches!(
             name,
             "audio.status"
+                | "audio.allowSpeakerMonitoring"
                 | "audio.setOutput"
                 | "audio.setInput"
                 | "audio.setMidiInput"
@@ -243,8 +247,12 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         {
             deny("transport control", "transport")
         }
-        "settings.set" | "settings.reset" | "audio.setOutput" | "audio.setInput"
+        "settings.set"
+        | "settings.reset"
+        | "audio.setOutput"
+        | "audio.setInput"
         | "audio.setMidiInput"
+        | "audio.allowSpeakerMonitoring"
             if !permissions.settings =>
         {
             deny("changing settings", "settings")

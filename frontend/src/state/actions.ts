@@ -45,6 +45,7 @@ export type ActionId =
   | "muteSelectedTrack"
   | "soloSelectedTrack"
   | "armSelectedTrack"
+  | "cycleMonitorSelectedTrack"
   | "zoomIn"
   | "zoomOut"
   | "zoomToFit"
@@ -330,6 +331,25 @@ export const actions = define([
       if (track)
         store.dispatch(
           commands.track.setArmed({ trackId: track.id, armed: !track.armed }),
+        );
+    },
+  },
+  {
+    id: "cycleMonitorSelectedTrack",
+    label: "Input Monitoring: Off / Auto / On",
+    shortcut: { key: "i" },
+    enabled: (s) => selectedTrack(s)?.kind === "audio",
+    checked: (s) => (selectedTrack(s)?.monitor ?? "off") !== "off",
+    run: (store) => {
+      const track = selectedTrack(store.getState());
+      if (track?.kind === "audio")
+        store.dispatch(
+          commands.track.setMonitor({
+            trackId: track.id,
+            monitor: ({ off: "auto", auto: "on", on: "off" } as const)[
+              track.monitor ?? "off"
+            ],
+          }),
         );
     },
   },

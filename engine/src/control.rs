@@ -187,6 +187,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("track.setMute", "Mute or unmute a track.", &[TRACK_ID, req("muted", Kind::Boolean, "Muted or not.")]),
     edit("track.setSolo", "Solo or unsolo a track.", &[TRACK_ID, req("solo", Kind::Boolean, "Soloed or not.")]),
     edit("track.setArmed", "Arm or disarm an audio or MIDI track for recording.", &[TRACK_ID, req("armed", Kind::Boolean, "Armed or not.")]),
+    edit("track.setMonitor", "Hear the live input through an audio track's inserts, sends and fader. auto monitors while the track is armed and not playing back its own clip (and again while recording); on always; off never. audio.status reports whether the input is routed, the measured latency, and `blocked` when the built-in microphone would feed back through the built-in speakers.", &[TRACK_ID, req("monitor", Kind::String, "off, auto or on.")]),
     edit("track.setVolume", "Set the fader.", &[TRACK_ID, req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity.")]),
     edit("track.setPan", "Set stereo pan.", &[TRACK_ID, req("pan", Kind::Number, "-100 (left) to 100 (right).")]),
     edit("track.setColor", "Set the track colour.", &[TRACK_ID, req("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h).")]),
@@ -880,13 +881,19 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             Ok(json!({ "removed": id }))
         }
         "track.rename" | "track.setMute" | "track.setSolo" | "track.setArmed"
-        | "track.setVolume" | "track.setPan" | "track.setColor" => {
+        | "track.setMonitor" | "track.setVolume" | "track.setPan" | "track.setColor" => {
             let mut track = find_track(host.store().session(), a.str("trackId")?)?.clone();
             match name {
                 "track.rename" => track.name = a.str("name")?.into(),
                 "track.setMute" => track.mute = a.bool("muted")?,
                 "track.setSolo" => track.solo = a.bool("solo")?,
                 "track.setArmed" => track.armed = a.bool("armed")?,
+                "track.setMonitor" => {
+                    if track.kind != "audio" {
+                        return Err("Only audio tracks monitor the input; an instrument track already plays what you play".into());
+                    }
+                    track.monitor = crate::model::Monitor::parse(a.str("monitor")?)?
+                }
                 "track.setVolume" => {
                     let v = a.f64("volume")?;
                     if !(0.0..=1.0).contains(&v) {
@@ -1565,6 +1572,7 @@ pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: St
         }),
         color,
         armed: false,
+        monitor: Default::default(),
         extra: Default::default(),
         kind: kind.into(),
         volume: 0.75,
@@ -1848,6 +1856,7 @@ pub(crate) fn track_json(s: &Session, t: &Track) -> Value {
         "mute": t.mute,
         "solo": t.solo,
         "armed": t.armed,
+        "monitor": t.monitor.as_str(),
         "audibility": {
             "muted": t.mute,
             "excludedBySolo": !t.solo && s.tracks.iter().any(|track| track.solo),

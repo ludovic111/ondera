@@ -528,6 +528,7 @@ impl Ondera {
         json!({
             "device": self.device.as_ref().map(|d| d.device_name.clone()),
             "sampleRate": self.device.as_ref().map(|d| d.sample_rate),
+            "bufferFrames": self.device.as_ref().map(|d| d.telemetry.output_frames.load(std::sync::atomic::Ordering::Relaxed)),
             "cpuLoad": cpu,
             "masterPeak": [peaks[0], peaks[1]],
             "selectedTrackPeak": [peaks[2], peaks[3]],
@@ -538,7 +539,41 @@ impl Ondera {
             "recording": self.midi_recording || self.recorder.is_some(),
             "recordEnabled": self.record_enabled,
             "musicalTyping": self.musical_typing,
+            "monitoring": self.monitoring_status(),
         })
+    }
+    fn monitoring_status(&self) -> Value {
+        use ondera_engine::device::Monitoring;
+        use std::sync::atomic::Ordering::Relaxed;
+        let (state, input, rate, reason) = match &self.monitoring {
+            Monitoring::Off => ("off", None, None, None),
+            Monitoring::On { input_name, input_rate } => {
+                ("on", Some(input_name.clone()), Some(*input_rate), None)
+            }
+            Monitoring::FeedbackRisk { input_name } => (
+                "blocked",
+                Some(input_name.clone()),
+                None,
+                Some("The built-in microphone would feed back through the built-in speakers. Use headphones, or allow it with audio.allowSpeakerMonitoring.".to_string()),
+            ),
+            Monitoring::Failed(error) => ("failed", None, None, Some(error.clone())),
+        };
+        let mut value = json!({
+            "state": state, "inputDevice": input, "inputRate": rate, "reason": reason,
+            "speakersAllowed": self.monitor_speakers_ok,
+        });
+        if let Some(d) = self.device.as_ref().filter(|_| state == "on") {
+            let t = &d.telemetry;
+            value["inputFrames"] = json!(t.input_frames.load(Relaxed));
+            value["outputFrames"] = json!(t.output_frames.load(Relaxed));
+            value["ringFrames"] = json!(t.monitor_fill.load(Relaxed));
+            value["latencyMs"] = json!(t
+                .monitor_latency_ms(d.sample_rate)
+                .map(|ms| (ms * 10.0).round() / 10.0));
+            value["drops"] = json!(t.monitor_drops.load(Relaxed));
+            value["underruns"] = json!(t.monitor_underruns.load(Relaxed));
+        }
+        value
     }
     fn ui_status(&self) -> Value {
         let session = self.store.session();
@@ -572,6 +607,10 @@ impl Ondera {
                 crate::app::Intent::Relaunch => "relaunch",
             }),
             "recoveredTake": self.unplaced_recording.is_some(),
+            "monitorBlocked": matches!(
+                self.monitoring,
+                ondera_engine::device::Monitoring::FeedbackRisk { .. }
+            ),
             "heldNotes": self.typing_down,
         })
     }
@@ -784,6 +823,11 @@ impl Host for Ondera {
         let source = "live";
         match action {
             "audio.status" => Ok(self.audio_status()),
+            "audio.allowSpeakerMonitoring" => {
+                self.monitor_speakers_ok = params["allow"].as_bool().unwrap_or(false);
+                self.poll_input_meter();
+                Ok(self.audio_status())
+            }
             "audio.setOutput" | "audio.setInput" => {
                 let name = params["name"].as_str().map(str::to_string);
                 if let Some(name) = &name {

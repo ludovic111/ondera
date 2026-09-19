@@ -124,6 +124,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("muteSelectedTrack"),
         a("soloSelectedTrack"),
         a("armSelectedTrack"),
+        a("cycleMonitorSelectedTrack"),
         separator,
         ...[
           ["Show master strip", "master"],

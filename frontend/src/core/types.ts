@@ -9,6 +9,9 @@ export type ClipId = string;
 
 export type TrackKind = "audio" | "midi";
 
+/** auto: while armed and not playing back the track's own clip. */
+export type Monitor = "off" | "auto" | "on";
+
 export interface Track {
   id: TrackId;
   name: string;
@@ -22,6 +25,8 @@ export interface Track {
   mute: boolean;
   solo: boolean;
   armed: boolean;
+  /** Hear the live input through this audio track; absent means off. */
+  monitor?: Monitor;
   /** True while an agent is actively editing this track. */
   agentActive: boolean;
 }

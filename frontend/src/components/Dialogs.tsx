@@ -102,6 +102,11 @@ export function Modal({
 export function Dialogs() {
   const store = useStore();
   const ui = useSyncExternalStore(store.subscribeMeta, store.getUi);
+  // Dismissing keeps monitoring muted; the warning returns the next time it is blocked.
+  const [monitorDismissed, setMonitorDismissed] = useState(false);
+  useEffect(() => {
+    if (!ui.monitorBlocked) setMonitorDismissed(false);
+  }, [ui.monitorBlocked]);
   const name = useSession((s) => s.name);
   const close = (panel: string) =>
     store.fire("ui.showPanel", { panel, visible: false });
@@ -169,6 +174,31 @@ export function Dialogs() {
               onClick={() => store.fire("web.confirm", { choice: "save" })}
             >
               Save
+            </button>
+          </footer>
+        </Modal>
+      )}
+      {ui.monitorBlocked && !monitorDismissed && (
+        <Modal
+          blocking
+          title="Monitoring would feed back"
+          onClose={() => setMonitorDismissed(true)}
+        >
+          <p>
+            The built-in microphone is playing through the built-in speakers.
+            Monitoring it makes a loud howl, so it is muted. Plug in headphones
+            to hear yourself safely.
+          </p>
+          <footer>
+            <button onClick={() => setMonitorDismissed(true)}>
+              Keep Muted
+            </button>
+            <button
+              onClick={() =>
+                store.fire("audio.allowSpeakerMonitoring", { allow: true })
+              }
+            >
+              Monitor Anyway
             </button>
           </footer>
         </Modal>
@@ -330,7 +360,9 @@ function Settings({ onClose }: { onClose: () => void }) {
                         ? devices.inputs
                         : key === "midiInput"
                           ? devices.midiInputs
-                          : null;
+                          : key === "bufferFrames"
+                            ? ["64", "128", "256", "512", "1024", "2048"]
+                            : null;
                 if (value && typeof value === "object" && !Array.isArray(value))
                   return (
                     <fieldset key={key}>
@@ -356,7 +388,12 @@ function Settings({ onClose }: { onClose: () => void }) {
                       <select
                         value={String(value ?? "")}
                         onChange={(e) =>
-                          void save(path, e.target.value || null)
+                          void save(
+                            path,
+                            key === "bufferFrames" && e.target.value
+                              ? Number(e.target.value)
+                              : e.target.value || null,
+                          )
                         }
                       >
                         <option value="">System default</option>

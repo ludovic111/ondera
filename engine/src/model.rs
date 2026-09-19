@@ -40,6 +40,37 @@ fn default_master_volume() -> f32 {
     0.75
 }
 
+/// Whether the live input is heard through an audio track's strip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Monitor {
+    #[default]
+    Off,
+    /// While the track is armed and is not playing back one of its own clips.
+    Auto,
+    On,
+}
+impl Monitor {
+    pub fn parse(text: &str) -> Result<Self> {
+        match text {
+            "off" => Ok(Self::Off),
+            "auto" => Ok(Self::Auto),
+            "on" => Ok(Self::On),
+            other => Err(format!("Monitor must be off, auto or on, not {other}")),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Auto => "auto",
+            Self::On => "on",
+        }
+    }
+    fn is_off(&self) -> bool {
+        *self == Self::Off
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
@@ -47,6 +78,8 @@ pub struct Track {
     pub name: String,
     pub color: String,
     pub armed: bool,
+    #[serde(default, skip_serializing_if = "Monitor::is_off")]
+    pub monitor: Monitor,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
     pub kind: String,

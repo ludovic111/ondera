@@ -118,6 +118,7 @@ const session = {
     mute: i === 5,
     solo: false,
     armed: i === 4,
+    monitor: (i === 4 ? "auto" : "off") as "off" | "auto" | "on",
     agentActive: i === 2,
   })),
   clips,
@@ -593,6 +594,16 @@ function command(method: string, params: Params): unknown {
       return {};
     case "preset.list":
       return { presets: [{ name: "Vocal glue", factory: true }] };
+    case "track.setArmed":
+    case "track.setMonitor": {
+      const track = session.tracks.find((t) => t.id === params.trackId);
+      if (track) {
+        if (method === "track.setArmed") track.armed = Boolean(params.armed);
+        else track.monitor = params.monitor as typeof track.monitor;
+        void emit("daw:document", { ...session, tracks: [...session.tracks] });
+      }
+      return {};
+    }
     case "ui.showPanel": {
       const name = String(params.panel);
       if (name in ui)

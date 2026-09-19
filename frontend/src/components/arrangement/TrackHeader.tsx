@@ -6,6 +6,7 @@ import { HSlider } from "../primitives/HSlider";
 import { Knob } from "../primitives/Knob";
 import { InlineEdit } from "../primitives/InlineEdit";
 import { RecordSmallIcon } from "../primitives/Icons";
+import { MonitorButton } from "../primitives/MonitorButton";
 import { LedStrip } from "../primitives/LedStrip";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { actionItem, separator, type MenuEntry } from "../../state/menus";
@@ -50,6 +51,9 @@ export function TrackHeader({ track }: { track: Track }) {
         actionItem(store, "muteSelectedTrack"),
         actionItem(store, "soloSelectedTrack"),
         actionItem(store, "armSelectedTrack"),
+        ...(track.kind === "audio"
+          ? [actionItem(store, "cycleMonitorSelectedTrack")]
+          : []),
         actionItem(store, "duplicateTrack"),
         separator,
         {
@@ -161,6 +165,7 @@ export function TrackHeader({ track }: { track: Track }) {
           >
             <RecordSmallIcon />
           </Button>
+          {track.kind === "audio" && <MonitorButton track={track} />}
         </div>
         {track.armed && track.kind === "audio" && <InputLevel />}
         <HSlider

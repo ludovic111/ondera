@@ -48,6 +48,9 @@ pub struct Audio {
     pub count_in_bars: u8,
     /// Open the input while an audio track is armed so its level shows before the take.
     pub meter_input_when_armed: bool,
+    /// Frames per device buffer for output and input, clamped to what the device accepts;
+    /// `None` leaves the system default. Smaller is lower monitoring latency and more CPU.
+    pub buffer_frames: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -209,6 +212,7 @@ impl Default for Audio {
             connect_midi_on_start: true,
             count_in_bars: 1,
             meter_input_when_armed: true,
+            buffer_frames: None,
         }
     }
 }
@@ -402,6 +406,13 @@ impl Settings {
         }
         if self.audio.count_in_bars > 4 {
             return Err("Count-in is 0 to 4 bars".into());
+        }
+        if self
+            .audio
+            .buffer_frames
+            .is_some_and(|frames| !(32..=4096).contains(&frames) || !frames.is_power_of_two())
+        {
+            return Err("Buffer size is a power of two from 32 to 4096 frames, or empty for the system default".into());
         }
         if self.plugins.favorites.len() > 4096
             || self.plugins.folders.len() > 4096

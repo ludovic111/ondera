@@ -37,8 +37,33 @@ pub struct Telemetry {
     pub voice_overflows: AtomicU64,
     pub peaks: [AtomicU32; 4],
     pub track_peaks: [AtomicU32; crate::render::METER_TRACKS],
+    /// Frames in the most recent input and output device callbacks, and the input's rate.
+    pub input_frames: AtomicU32,
+    pub output_frames: AtomicU32,
+    pub input_rate: AtomicU32,
+    /// True while the output callback holds a live monitor tap.
+    pub monitoring: AtomicBool,
+    /// Input frames waiting in the monitor ring when the output last read it.
+    pub monitor_fill: AtomicU32,
+    /// Monitor frames thrown away: the ring was full, or a backlog was skipped to catch up.
+    pub monitor_drops: AtomicU64,
+    /// Times the output wanted monitor input and the ring was empty.
+    pub monitor_underruns: AtomicU64,
 }
 impl Telemetry {
+    /// Input buffer + frames waiting in the ring + output buffer, in milliseconds. Converter
+    /// and driver latency inside the interface comes on top and is not visible from here.
+    pub fn monitor_latency_ms(&self, output_rate: u32) -> Option<f64> {
+        let input_rate = self.input_rate.load(Ordering::Relaxed);
+        if !self.monitoring.load(Ordering::Relaxed) || input_rate == 0 || output_rate == 0 {
+            return None;
+        }
+        let input = (self.input_frames.load(Ordering::Relaxed)
+            + self.monitor_fill.load(Ordering::Relaxed)) as f64
+            / input_rate as f64;
+        let output = self.output_frames.load(Ordering::Relaxed) as f64 / output_rate as f64;
+        Some((input + output) * 1000.0)
+    }
     pub fn beats(&self) -> f64 {
         f64::from_bits(self.position.load(Ordering::Relaxed))
     }
@@ -83,11 +108,134 @@ pub enum Message {
     SetRecording(bool),
     /// Park at the first position, click for the second number of beats, then play.
     CountIn(f64, f64),
+    /// Live input for monitored tracks; replaces any earlier tap.
+    Monitor(Box<MonitorTap>),
 }
 /// Objects the callback no longer needs; the main thread reclaims them.
 pub enum Retired {
     Renderer(Box<Renderer>),
     Processor(u32, Box<dyn Processor>),
+    Monitor(Box<MonitorTap>),
+}
+
+/// Frames the monitor ring holds: a third of a second at 48 kHz, room for four 4096-frame
+/// device buffers. It is a latency bound as much as a capacity.
+const MONITOR_RING_FRAMES: usize = 16_384;
+
+/// Input-callback end of the monitor ring.
+pub struct MonitorFeed(Producer<[f32; 2]>);
+impl MonitorFeed {
+    /// Never blocks: a full ring drops the frame and counts it.
+    pub fn push(&mut self, frame: [f32; 2], telemetry: &Telemetry) -> bool {
+        if self.0.push(frame).is_ok() {
+            return true;
+        }
+        telemetry.monitor_drops.fetch_add(1, Ordering::Relaxed);
+        false
+    }
+    /// The output side closed or replaced its tap.
+    pub fn is_abandoned(&self) -> bool {
+        self.0.is_abandoned()
+    }
+}
+/// Output-callback end: resamples the input to the output rate and keeps the ring short.
+pub struct MonitorTap {
+    consumer: Consumer<[f32; 2]>,
+    /// Input frames per output frame.
+    step: f64,
+    phase: f64,
+    previous: [f32; 2],
+    current: [f32; 2],
+    running: bool,
+}
+/// A bounded ring from an input stream to the output callback. Different rates are bridged by
+/// linear interpolation in the tap; rates no device should report are refused.
+pub fn monitor_ring(input_rate: u32, output_rate: u32) -> Result<(MonitorFeed, MonitorTap)> {
+    for (name, rate) in [("Input", input_rate), ("Output", output_rate)] {
+        if !(8000..=192_000).contains(&rate) {
+            return Err(format!(
+                "{name} sample rate {rate} Hz cannot be monitored; choose a rate between 8 and 192 kHz"
+            ));
+        }
+    }
+    let (producer, consumer) = RingBuffer::new(MONITOR_RING_FRAMES);
+    Ok((
+        MonitorFeed(producer),
+        MonitorTap {
+            consumer,
+            step: input_rate as f64 / output_rate as f64,
+            phase: 1.0,
+            previous: [0.0; 2],
+            current: [0.0; 2],
+            running: false,
+        },
+    ))
+}
+impl MonitorTap {
+    pub fn buffered(&self) -> usize {
+        self.consumer.slots()
+    }
+    /// The input stream closed.
+    pub fn is_finished(&self) -> bool {
+        self.consumer.is_abandoned() && self.consumer.is_empty()
+    }
+    /// Fill one output block. Waits for one input buffer before starting (and again after an
+    /// underrun), and skips a backlog rather than let the delay grow. No allocation or locks.
+    pub fn fill(&mut self, out: &mut [[f32; 2]], telemetry: &Telemetry) {
+        let block = match telemetry.input_frames.load(Ordering::Relaxed) as usize {
+            0 => 512,
+            frames => frames.min(MONITOR_RING_FRAMES / 8),
+        };
+        let needed = (out.len() as f64 * self.step).ceil() as usize;
+        let mut buffered = self.consumer.slots();
+        if buffered > block * 4 + needed {
+            let skip = buffered - block;
+            if let Ok(chunk) = self.consumer.read_chunk(skip) {
+                chunk.commit_all();
+                telemetry
+                    .monitor_drops
+                    .fetch_add(skip as u64, Ordering::Relaxed);
+                buffered -= skip;
+            }
+        }
+        telemetry
+            .monitor_fill
+            .store(buffered as u32, Ordering::Relaxed);
+        if !self.running {
+            out.fill([0.0; 2]);
+            if buffered >= block {
+                // Start on the next callback: that spacing is the slack against a late input.
+                self.running = true;
+                self.phase = 1.0;
+                self.previous = [0.0; 2];
+                self.current = [0.0; 2];
+            }
+            return;
+        }
+        for (index, frame) in out.iter_mut().enumerate() {
+            while self.phase >= 1.0 {
+                match self.consumer.pop() {
+                    Ok(next) => {
+                        self.previous = self.current;
+                        self.current = next;
+                        self.phase -= 1.0;
+                    }
+                    Err(_) => {
+                        telemetry.monitor_underruns.fetch_add(1, Ordering::Relaxed);
+                        self.running = false;
+                        out[index..].fill([0.0; 2]);
+                        return;
+                    }
+                }
+            }
+            let t = self.phase as f32;
+            *frame = [
+                self.previous[0] + (self.current[0] - self.previous[0]) * t,
+                self.previous[1] + (self.current[1] - self.previous[1]) * t,
+            ];
+            self.phase += self.step;
+        }
+    }
 }
 /// A clonable handle for pushing messages from other threads (MIDI input).
 #[derive(Clone)]
@@ -104,6 +252,15 @@ impl Sender {
     pub fn send(&self, message: Message) -> Result<()> {
         self.try_send(message)
             .map_err(|_| "Audio command queue is full or unavailable; wait and retry".to_string())
+    }
+}
+/// The requested frames per buffer, held to what the device accepts.
+fn buffer_size(supported: &cpal::SupportedBufferSize, wanted: Option<u32>) -> cpal::BufferSize {
+    match (supported, wanted) {
+        (cpal::SupportedBufferSize::Range { min, max }, Some(frames)) if min <= max => {
+            cpal::BufferSize::Fixed(frames.clamp(*min, *max))
+        }
+        _ => cpal::BufferSize::Default,
     }
 }
 pub struct DeviceEngine {
@@ -132,20 +289,24 @@ impl DeviceEngine {
     /// Open the named output (or the system default) on a dedicated worker.
     pub fn open(
         device: Option<String>,
+        buffer_frames: Option<u32>,
         renderer: impl FnOnce(u32) -> Result<Renderer> + Send + 'static,
     ) -> Result<Self> {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let worker = std::thread::spawn(move || match Self::open_local(device, renderer) {
-            Ok((handle, stream, lifetime)) => {
-                if tx.send(Ok(handle)).is_ok() {
-                    let _ = lifetime.recv();
-                }
-                drop(stream);
-            }
-            Err(error) => {
-                let _ = tx.send(Err(error));
-            }
-        });
+        let worker =
+            std::thread::spawn(
+                move || match Self::open_local(device, buffer_frames, renderer) {
+                    Ok((handle, stream, lifetime)) => {
+                        if tx.send(Ok(handle)).is_ok() {
+                            let _ = lifetime.recv();
+                        }
+                        drop(stream);
+                    }
+                    Err(error) => {
+                        let _ = tx.send(Err(error));
+                    }
+                },
+            );
         let mut engine = rx
             .recv()
             .map_err(|_| "Audio device worker stopped".to_string())??;
@@ -154,6 +315,7 @@ impl DeviceEngine {
     }
     fn open_local(
         name: Option<String>,
+        buffer_frames: Option<u32>,
         renderer: impl FnOnce(u32) -> Result<Renderer>,
     ) -> Result<(Self, Stream, std::sync::mpsc::Receiver<()>)> {
         let host = cpal::default_host();
@@ -168,7 +330,8 @@ impl DeviceEngine {
                 .ok_or("No output device. Connect one and choose Audio > Reconnect.")?,
         };
         let supported = device.default_output_config().map_err(|e| e.to_string())?;
-        let config = supported.config();
+        let mut config = supported.config();
+        config.buffer_size = buffer_size(supported.buffer_size(), buffer_frames);
         let sample_rate = config.sample_rate.0;
         let name = device.name().unwrap_or_else(|_| "Default output".into());
         let renderer = Box::new(renderer(sample_rate)?);
@@ -185,6 +348,8 @@ impl DeviceEngine {
             telemetry: telemetry.clone(),
             scratch: vec![[0.0; 2]; MAX_BLOCK],
             counting: false,
+            monitor: None,
+            live: vec![[0.0; 2]; MAX_BLOCK],
         };
         let stream = match supported.sample_format() {
             SampleFormat::F32 => output::<f32>(&device, &config, rt),
@@ -247,8 +412,38 @@ struct Callback {
     scratch: Vec<[f32; 2]>,
     /// The renderer was counting in during the previous callback.
     counting: bool,
+    monitor: Option<Box<MonitorTap>>,
+    live: Vec<[f32; 2]>,
 }
 impl Callback {
+    /// Retire a tap whose input stream has closed; the main thread frees it.
+    fn reap_monitor(&mut self) {
+        if self.monitor.as_ref().is_some_and(|tap| tap.is_finished()) && !self.garbage.is_full() {
+            if let Some(tap) = self.monitor.take() {
+                let _ = self.garbage.push(Retired::Monitor(tap));
+            }
+            self.telemetry.monitoring.store(false, Ordering::Relaxed);
+            self.telemetry.monitor_fill.store(0, Ordering::Relaxed);
+        }
+    }
+    /// Render `n` frames into `scratch`, with the live input when a track monitors it.
+    fn render(&mut self, n: usize) {
+        match self.monitor.as_mut() {
+            Some(tap) => {
+                tap.fill(&mut self.live[..n], &self.telemetry);
+                if self.renderer.wants_input() {
+                    self.renderer.render_monitored(
+                        &mut self.rack,
+                        &mut self.scratch[..n],
+                        &self.live[..n],
+                    );
+                } else {
+                    self.renderer.render(&mut self.rack, &mut self.scratch[..n]);
+                }
+            }
+            None => self.renderer.render(&mut self.rack, &mut self.scratch[..n]),
+        }
+    }
     fn commands(&mut self) {
         let panic = self.telemetry.input_overflow.swap(false, Ordering::AcqRel);
         // Bound work per callback; never destroy an old graph or plugin on this thread.
@@ -323,6 +518,12 @@ impl Callback {
                 Message::ResetSlot(slot) => self.rack.reset(slot),
                 Message::SetRecording(on) => self.renderer.recording = on,
                 Message::CountIn(beats, count) => self.renderer.count_in(beats, count),
+                Message::Monitor(tap) => {
+                    if let Some(old) = self.monitor.replace(tap) {
+                        let _ = self.garbage.push(Retired::Monitor(old));
+                    }
+                    self.telemetry.monitoring.store(true, Ordering::Relaxed);
+                }
             }
         }
         if panic {
@@ -337,6 +538,9 @@ impl Drop for Callback {
     fn drop(&mut self) {
         for processor in self.rack.drain() {
             let _ = self.garbage.push(Retired::Processor(u32::MAX, processor));
+        }
+        if let Some(tap) = self.monitor.take() {
+            let _ = self.garbage.push(Retired::Monitor(tap));
         }
     }
 }
@@ -357,12 +561,16 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
             move |data: &mut [T], _| {
                 let started = std::time::Instant::now();
                 rt.commands();
+                rt.reap_monitor();
                 rt.renderer.begin_block();
                 let frames = data.len() / channels;
+                rt.telemetry
+                    .output_frames
+                    .store(frames as u32, Ordering::Relaxed);
                 let mut done = 0;
                 while done < frames {
                     let n = (frames - done).min(MAX_BLOCK);
-                    rt.renderer.render(&mut rt.rack, &mut rt.scratch[..n]);
+                    rt.render(n);
                     for (i, frame) in data[done * channels..(done + n) * channels]
                         .chunks_mut(channels)
                         .enumerate()
@@ -467,16 +675,19 @@ pub struct Recorder {
     result: std::sync::mpsc::Receiver<Result<RecordedAudio>>,
     pub failed: Arc<AtomicBool>,
     pub first_beat: Arc<AtomicU64>,
+    pub monitoring: Monitoring,
 }
 impl Recorder {
     pub fn start(
         telemetry: Arc<Telemetry>,
         input: Option<String>,
         byte_limit: usize,
+        monitor: Option<MonitorLink>,
+        buffer_frames: Option<u32>,
     ) -> Result<Self> {
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
-        std::thread::spawn(
-            move || match LocalRecorder::start(telemetry, input, byte_limit) {
+        std::thread::spawn(move || {
+            match LocalRecorder::start(telemetry, input, byte_limit, monitor, buffer_frames) {
                 Ok(local) => {
                     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
                     let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
@@ -485,6 +696,7 @@ impl Recorder {
                         result: result_rx,
                         failed: local.failed.clone(),
                         first_beat: local.first_beat.clone(),
+                        monitoring: local.monitoring.clone(),
                     };
                     if ready_tx.send(Ok(handle)).is_ok() {
                         let _ = stop_rx.recv();
@@ -494,8 +706,8 @@ impl Recorder {
                 Err(error) => {
                     let _ = ready_tx.send(Err(error));
                 }
-            },
-        );
+            }
+        });
         ready_rx
             .recv()
             .map_err(|_| "Microphone worker stopped".to_string())?
@@ -513,12 +725,15 @@ struct LocalRecorder {
     pub failed: Arc<AtomicBool>,
     join: Option<JoinHandle<Result<RecordedAudio>>>,
     pub first_beat: Arc<AtomicU64>,
+    monitoring: Monitoring,
 }
 impl LocalRecorder {
     pub fn start(
         telemetry: Arc<Telemetry>,
         input: Option<String>,
         byte_limit: usize,
+        monitor: Option<MonitorLink>,
+        buffer_frames: Option<u32>,
     ) -> Result<Self> {
         let device = find_input(&input)?;
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
@@ -534,14 +749,17 @@ impl LocalRecorder {
         let stop = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
         let first_beat = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        telemetry.input_rate.store(rate, Ordering::Relaxed);
+        let (feed, monitoring) = connect_monitor(monitor.as_ref(), &device, rate);
         let state = Capture {
             producer: Some(producer),
             telemetry,
             failed: failed.clone(),
             first_beat: first_beat.clone(),
             first: true,
+            monitor: feed,
         };
-        let stream = capture_stream(&device, &supported, state)?;
+        let stream = capture_stream(&device, &supported, buffer_frames, state)?;
         stream.play().map_err(|e| e.to_string())?;
         let worker_stop = stop.clone();
         let worker_failed = failed.clone();
@@ -554,6 +772,7 @@ impl LocalRecorder {
             failed,
             join: Some(join),
             first_beat,
+            monitoring,
         })
     }
     pub fn finish(mut self) -> Result<RecordedAudio> {
@@ -610,13 +829,94 @@ impl Drop for LocalRecorder {
         }
     }
 }
+/// What an input worker needs to feed monitored tracks: where the output callback listens and
+/// what it plays on. The ring is made on the worker, once the input's own rate is known.
+#[derive(Clone)]
+pub struct MonitorLink {
+    pub sender: Sender,
+    pub output_rate: u32,
+    pub output_name: String,
+    /// The user accepted monitoring from the built-in microphone to the built-in speakers.
+    pub allow_speakers: bool,
+}
+/// How an input stream answered a request to monitor.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Monitoring {
+    Off,
+    On {
+        input_name: String,
+        input_rate: u32,
+    },
+    /// Built-in microphone into built-in speakers: it would howl. Nothing is routed.
+    FeedbackRisk {
+        input_name: String,
+    },
+    Failed(String),
+}
+/// A laptop's own microphone playing out of its own speakers feeds back within a second.
+/// Headphones on the jack appear under another name ("External Headphones"), so names decide.
+pub fn feedback_risk(input_name: &str, output_name: &str) -> bool {
+    let input = input_name.to_lowercase();
+    let output = output_name.to_lowercase();
+    let internal = |name: &str| {
+        [
+            "macbook",
+            "built-in",
+            "builtin",
+            "internal",
+            "imac",
+            "realtek",
+            "microphone array",
+        ]
+        .iter()
+        .any(|word| name.contains(word))
+    };
+    let microphone = internal(&input) && (input.contains("mic") || input.contains("input"));
+    let speakers = internal(&output)
+        && (output.contains("speaker") || output.contains("output"))
+        && !output.contains("headphone");
+    microphone && speakers
+}
+impl MonitorLink {
+    /// Make the ring and hand its tap to the output callback, unless it would feed back.
+    fn connect(&self, device: &cpal::Device, input_rate: u32) -> (Option<MonitorFeed>, Monitoring) {
+        let input_name = device.name().unwrap_or_else(|_| "Default input".into());
+        if !self.allow_speakers && feedback_risk(&input_name, &self.output_name) {
+            return (None, Monitoring::FeedbackRisk { input_name });
+        }
+        match monitor_ring(input_rate, self.output_rate) {
+            Ok((feed, tap)) => match self.sender.send(Message::Monitor(Box::new(tap))) {
+                Ok(()) => (
+                    Some(feed),
+                    Monitoring::On {
+                        input_name,
+                        input_rate,
+                    },
+                ),
+                Err(error) => (None, Monitoring::Failed(error)),
+            },
+            Err(error) => (None, Monitoring::Failed(error)),
+        }
+    }
+}
+fn connect_monitor(
+    link: Option<&MonitorLink>,
+    device: &cpal::Device,
+    input_rate: u32,
+) -> (Option<MonitorFeed>, Monitoring) {
+    link.map_or((None, Monitoring::Off), |link| {
+        link.connect(device, input_rate)
+    })
+}
 /// Build the input stream for whatever sample format the device speaks.
 fn capture_stream(
     device: &cpal::Device,
     supported: &cpal::SupportedStreamConfig,
+    buffer_frames: Option<u32>,
     state: Capture,
 ) -> Result<Stream> {
-    let config = supported.config();
+    let mut config = supported.config();
+    config.buffer_size = buffer_size(supported.buffer_size(), buffer_frames);
     match supported.sample_format() {
         SampleFormat::F32 => input_stream::<f32>(device, &config, state),
         SampleFormat::I16 => input_stream::<i16>(device, &config, state),
@@ -645,32 +945,43 @@ fn find_input(input: &Option<String>) -> Result<cpal::Device> {
 /// closes when this handle is dropped.
 pub struct InputMeter {
     stop: Option<std::sync::mpsc::Sender<()>>,
+    pub monitoring: Monitoring,
 }
 impl InputMeter {
-    pub fn start(telemetry: Arc<Telemetry>, input: Option<String>) -> Result<Self> {
+    pub fn start(
+        telemetry: Arc<Telemetry>,
+        input: Option<String>,
+        monitor: Option<MonitorLink>,
+        buffer_frames: Option<u32>,
+    ) -> Result<Self> {
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
         let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
         std::thread::spawn(move || {
             let opened = (|| {
                 let device = find_input(&input)?;
                 let supported = device.default_input_config().map_err(|e| e.to_string())?;
+                let rate = supported.sample_rate().0;
+                telemetry.input_rate.store(rate, Ordering::Relaxed);
+                let (feed, monitoring) = connect_monitor(monitor.as_ref(), &device, rate);
                 let stream = capture_stream(
                     &device,
                     &supported,
+                    buffer_frames,
                     Capture {
                         producer: None,
                         telemetry,
                         failed: Arc::new(AtomicBool::new(false)),
                         first_beat: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
                         first: false,
+                        monitor: feed,
                     },
                 )?;
                 stream.play().map_err(|e| e.to_string())?;
-                Ok::<_, String>(stream)
+                Ok::<_, String>((stream, monitoring))
             })();
             match opened {
-                Ok(stream) => {
-                    if ready_tx.send(Ok(())).is_ok() {
+                Ok((stream, monitoring)) => {
+                    if ready_tx.send(Ok(monitoring)).is_ok() {
                         let _ = stop_rx.recv();
                     }
                     drop(stream);
@@ -680,11 +991,12 @@ impl InputMeter {
                 }
             }
         });
-        ready_rx
+        let monitoring = ready_rx
             .recv()
             .map_err(|_| "Input meter worker stopped".to_string())??;
         Ok(Self {
             stop: Some(stop_tx),
+            monitoring,
         })
     }
 }
@@ -700,6 +1012,8 @@ struct Capture {
     failed: Arc<AtomicBool>,
     first_beat: Arc<AtomicU64>,
     first: bool,
+    /// Live copy for monitored tracks, fed whether or not a take is being kept.
+    monitor: Option<MonitorFeed>,
 }
 fn input_stream<T: cpal::SizedSample>(
     device: &cpal::Device,
@@ -723,10 +1037,23 @@ where
                 if capture.failed.load(Ordering::Relaxed) {
                     return;
                 }
+                capture
+                    .telemetry
+                    .input_frames
+                    .store((data.len() / channels) as u32, Ordering::Relaxed);
                 let mut peak = 0f32;
                 for frame in data.chunks_exact(channels) {
                     for sample in &frame[..channels.min(2)] {
                         peak = peak.max(<f32 as cpal::FromSample<T>>::from_sample_(*sample).abs());
+                    }
+                }
+                if let Some(feed) = capture.monitor.as_mut() {
+                    for frame in data.chunks_exact(channels) {
+                        let l = <f32 as cpal::FromSample<T>>::from_sample_(frame[0]);
+                        let r = <f32 as cpal::FromSample<T>>::from_sample_(
+                            frame[if channels > 1 { 1 } else { 0 }],
+                        );
+                        feed.push([l, r], &capture.telemetry);
                     }
                 }
                 let seen = f32::from_bits(capture.telemetry.input_peak.load(Ordering::Relaxed));
@@ -792,6 +1119,72 @@ mod recording_tests {
     }
 
     #[test]
+    fn only_a_built_in_microphone_into_built_in_speakers_is_a_feedback_risk() {
+        assert!(feedback_risk(
+            "MacBook Pro Microphone",
+            "MacBook Pro Speakers"
+        ));
+        assert!(feedback_risk("Built-in Microphone", "Built-in Output"));
+        assert!(feedback_risk(
+            "Microphone Array (Realtek(R) Audio)",
+            "Speakers (Realtek(R) Audio)"
+        ));
+        assert!(!feedback_risk(
+            "MacBook Pro Microphone",
+            "External Headphones"
+        ));
+        assert!(!feedback_risk("MacBook Pro Microphone", "AirPods Pro"));
+        assert!(!feedback_risk("Scarlett 2i2 USB", "MacBook Pro Speakers"));
+        assert!(!feedback_risk("Scarlett 2i2 USB", "Scarlett 2i2 USB"));
+    }
+
+    #[test]
+    fn a_new_monitor_tap_retires_the_old_one_and_a_closed_input_retires_the_last() {
+        let (mut producer, input) = RingBuffer::new(4);
+        let (garbage, mut retired) = RingBuffer::new(8);
+        let telemetry = Arc::new(Telemetry::default());
+        let mut callback = Callback {
+            renderer: Box::new(
+                Renderer::new(
+                    crate::store::empty(),
+                    &crate::audio::Library::new(),
+                    48000,
+                    &std::collections::HashMap::new(),
+                )
+                .unwrap(),
+            ),
+            rack: Rack::new(1),
+            input,
+            garbage,
+            telemetry: telemetry.clone(),
+            scratch: vec![[0.0; 2]; MAX_BLOCK],
+            counting: false,
+            monitor: None,
+            live: vec![[0.0; 2]; MAX_BLOCK],
+        };
+        let (first_feed, first) = monitor_ring(48000, 48000).unwrap();
+        let (second_feed, second) = monitor_ring(44100, 48000).unwrap();
+        producer
+            .push(Message::Monitor(Box::new(first)))
+            .ok()
+            .unwrap();
+        producer
+            .push(Message::Monitor(Box::new(second)))
+            .ok()
+            .unwrap();
+        callback.commands();
+        assert!(matches!(retired.pop(), Ok(Retired::Monitor(_))));
+        assert!(first_feed.is_abandoned());
+        assert!(telemetry.monitoring.load(Ordering::Relaxed));
+        callback.render(64);
+        drop(second_feed);
+        callback.reap_monitor();
+        assert!(callback.monitor.is_none());
+        assert!(matches!(retired.pop(), Ok(Retired::Monitor(_))));
+        assert!(!telemetry.monitoring.load(Ordering::Relaxed));
+    }
+
+    #[test]
     fn input_queue_overflow_discards_pending_attacks_and_stops_transport() {
         let (mut producer, input) = RingBuffer::new(4);
         let (garbage, _retired) = RingBuffer::new(8);
@@ -823,6 +1216,8 @@ mod recording_tests {
             telemetry,
             scratch: vec![[0.0; 2]; MAX_BLOCK],
             counting: false,
+            monitor: None,
+            live: vec![[0.0; 2]; MAX_BLOCK],
         };
         callback.commands();
         assert!(!callback.renderer.playing);

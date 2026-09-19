@@ -880,3 +880,63 @@ fn plugin_library_files_plugins_in_sound_folders() {
         );
     }
 }
+
+#[test]
+fn monitoring_is_a_track_setting_that_saves_undoes_and_stays_out_of_old_files() {
+    fn monitor_of(host: &mut Headless, id: &Value) -> Value {
+        call(host, "track.list", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| &t["id"] == id)
+            .unwrap()["monitor"]
+            .clone()
+    }
+    let mut host = Headless::new();
+    let audio = call(&mut host, "track.add", json!({"kind":"audio"}))["id"].clone();
+    let midi = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    assert_eq!(monitor_of(&mut host, &audio), "off");
+    let saved_off = serde_json::to_value(host.store().session()).unwrap();
+    assert!(
+        saved_off["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t.get("monitor").is_none()),
+        "off is the absence of the field, so files without monitoring are unchanged"
+    );
+    for mode in ["auto", "on", "off"] {
+        let track = call(
+            &mut host,
+            "track.setMonitor",
+            json!({"trackId":audio,"monitor":mode}),
+        );
+        assert_eq!(track["monitor"], mode);
+    }
+    call(
+        &mut host,
+        "track.setMonitor",
+        json!({"trackId":audio,"monitor":"auto"}),
+    );
+    let text = serde_json::to_string(host.store().session()).unwrap();
+    let reloaded: ondera_engine::model::Session = serde_json::from_str(&text).unwrap();
+    let id = audio.as_str().unwrap();
+    assert_eq!(
+        reloaded.tracks.iter().find(|t| t.id == id).unwrap().monitor,
+        ondera_engine::model::Monitor::Auto
+    );
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(monitor_of(&mut host, &audio), "off");
+    assert!(fail(
+        &mut host,
+        "track.setMonitor",
+        json!({"trackId":audio,"monitor":"loud"})
+    )
+    .contains("off, auto or on"));
+    assert!(fail(
+        &mut host,
+        "track.setMonitor",
+        json!({"trackId":midi,"monitor":"on"})
+    )
+    .contains("Only audio tracks"));
+}

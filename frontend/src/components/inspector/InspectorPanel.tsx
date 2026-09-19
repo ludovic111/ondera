@@ -454,6 +454,24 @@ export function InspectorPanel() {
           >
             ●
           </button>
+          {track.kind === "audio" && (
+            <button
+              className="m-button"
+              aria-label="Input monitoring"
+              title={`Input monitoring: ${track.monitor ?? "off"}`}
+              aria-pressed={(track.monitor ?? "off") !== "off"}
+              onClick={() =>
+                store.fire("track.setMonitor", {
+                  trackId: track.id,
+                  monitor: { off: "auto", auto: "on", on: "off" }[
+                    track.monitor ?? "off"
+                  ],
+                })
+              }
+            >
+              {track.monitor === "auto" ? "A" : "I"}
+            </button>
+          )}
           <span>Stereo Out</span>
         </div>
       )}

@@ -5,7 +5,7 @@
 use crate::{
     audio::{AudioBuffer, Library},
     automation::AutomationTarget,
-    model::{fader_gain, is_bus, ClipData, Session, BUS_A, BUS_B, MASTER},
+    model::{fader_gain, is_bus, ClipData, Monitor, Session, BUS_A, BUS_B, MASTER},
     plugin::{NoteEvent, ProcessContext, Rack, MAX_BLOCK},
     Result,
 };
@@ -84,6 +84,12 @@ struct Channel {
     synth: Option<u32>,
     inserts: Vec<u32>,
     sends: [f32; 2],
+    monitor: Monitor,
+    armed: bool,
+    /// One of this track's audio clips sounded during the current block.
+    clip_sounding: bool,
+    /// 0-1, eased over 5 ms so the input never cuts in or out with a click.
+    monitor_gain: f32,
 }
 #[derive(Clone, Copy)]
 struct Preview {
@@ -198,6 +204,14 @@ impl Renderer {
                     None
                 },
                 inserts: chain(&strip.inserts),
+                monitor: if track.kind == "audio" {
+                    track.monitor
+                } else {
+                    Monitor::Off
+                },
+                armed: track.armed,
+                clip_sounding: false,
+                monitor_gain: 0.0,
                 sends: std::array::from_fn(|i| {
                     if muted {
                         0.0
@@ -497,6 +511,7 @@ impl Renderer {
                 .position(|t| t.id == self.session.tracks[index].id)
             {
                 self.channels[index].delay.adopt(&old.channels[prev].delay);
+                self.channels[index].monitor_gain = old.channels[prev].monitor_gain;
                 let same_instrument = self.channels[index].synth == old.channels[prev].synth;
                 if same_instrument {
                     self.held[index] = old.held[prev];
@@ -755,6 +770,14 @@ impl Renderer {
         self.channel_peak = [0.0; 2];
         self.track_peaks = [0.0; METER_TRACKS];
     }
+    /// Some track may route the live input, so the caller should supply it.
+    pub fn wants_input(&self) -> bool {
+        self.channels.iter().any(|c| match c.monitor {
+            Monitor::Off => false,
+            Monitor::Auto => c.armed,
+            Monitor::On => true,
+        })
+    }
     /// True while anything may still produce sound; lets the device idle.
     fn busy(&self) -> bool {
         self.playing
@@ -772,6 +795,12 @@ impl Renderer {
     }
     /// Render any number of frames. No locks, allocation, filesystem calls or logging.
     pub fn render(&mut self, rack: &mut Rack, out: &mut [[f32; 2]]) {
+        self.render_monitored(rack, out, &[]);
+    }
+    /// `render`, with the live input (one frame per output frame, or none) mixed into every
+    /// monitoring track ahead of its inserts, so the strip's effects and sends apply to it.
+    pub fn render_monitored(&mut self, rack: &mut Rack, out: &mut [[f32; 2]], input: &[[f32; 2]]) {
+        let input = if input.len() == out.len() { input } else { &[] };
         let mut done = 0;
         while done < out.len() {
             let mut n = (out.len() - done).min(MAX_BLOCK);
@@ -791,13 +820,19 @@ impl Renderer {
                 let frames_left = ((end - self.position) / dpb).ceil().max(1.0) as usize;
                 n = n.min(frames_left);
             }
-            self.block(rack, &mut out[done..done + n]);
+            let live = if input.is_empty() {
+                input
+            } else {
+                &input[done..done + n]
+            };
+            self.block(rack, &mut out[done..done + n], live);
             done += n;
         }
     }
-    fn block(&mut self, rack: &mut Rack, out: &mut [[f32; 2]]) {
+    fn block(&mut self, rack: &mut Rack, out: &mut [[f32; 2]], input: &[[f32; 2]]) {
         let n = out.len();
-        if !self.busy() {
+        let monitoring = !input.is_empty() && self.wants_input();
+        if !self.busy() && !monitoring {
             out.fill([0.0; 2]);
             return;
         }
@@ -815,6 +850,9 @@ impl Renderer {
         }
         for buffer in &mut self.buffers {
             buffer[..n].fill([0.0; 2]);
+        }
+        for channel in &mut self.channels {
+            channel.clip_sounding = false;
         }
         self.sends[0][..n].fill([0.0; 2]);
         self.sends[1][..n].fill([0.0; 2]);
@@ -923,6 +961,7 @@ impl Renderer {
                         let frame = &mut self.buffers[e.track][i];
                         frame[0] += v[0];
                         frame[1] += v[1];
+                        self.channels[e.track].clip_sounding = true;
                     }
                 }
                 self.position += dpb;
@@ -974,6 +1013,26 @@ impl Renderer {
         }
         for (index, channel) in self.channels.iter_mut().enumerate() {
             let buffer = &mut self.buffers[index][..n];
+            let listen = monitoring
+                && match channel.monitor {
+                    Monitor::Off => false,
+                    // Hear the input until the track has something of its own to play back;
+                    // while a take is being recorded over it, hear the input again.
+                    Monitor::Auto => channel.armed && (self.recording || !channel.clip_sounding),
+                    Monitor::On => true,
+                };
+            if monitoring && (listen || channel.monitor_gain > 0.0) {
+                let step = 1.0 / (0.005 * self.rate as f32);
+                for (frame, live) in buffer.iter_mut().zip(input) {
+                    channel.monitor_gain = if listen {
+                        (channel.monitor_gain + step).min(1.0)
+                    } else {
+                        (channel.monitor_gain - step).max(0.0)
+                    };
+                    frame[0] += live[0] * channel.monitor_gain;
+                    frame[1] += live[1] * channel.monitor_gain;
+                }
+            }
             if channel.midi {
                 if let Some(slot) = channel.synth {
                     rack.process(slot, buffer, &self.notes[index], &ctx);

@@ -74,7 +74,9 @@ impl Ondera {
         let previous = self.settings.clone();
         next.save()?;
         self.settings = next.clone();
-        if previous.audio.output_device != next.audio.output_device {
+        if previous.audio.output_device != next.audio.output_device
+            || previous.audio.buffer_frames != next.audio.buffer_frames
+        {
             self.output_device = next.audio.output_device.clone();
             self.connect();
         }

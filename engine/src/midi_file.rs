@@ -262,6 +262,7 @@ pub fn import_bytes(
             kind: "midi".into(),
             color: crate::control::TRACK_PALETTE[(session.tracks.len() + index) % 8].into(),
             armed: false,
+            monitor: Default::default(),
             volume: 0.75,
             pan: 0.0,
             mute: false,
