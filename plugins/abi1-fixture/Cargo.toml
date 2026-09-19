@@ -1,0 +1,14 @@
+[package]
+name = "ondera-abi1-fixture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "A plugin frozen at Ondera plugin ABI 1, kept so that old libraries provably still load"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies on purpose: above all not on ondera-plugin. See src/lib.rs.
+[dependencies]

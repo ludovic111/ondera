@@ -145,6 +145,117 @@ pub struct NoteEvent {
     pub channel: u8,
 }
 
+/// What an [`Event`] carries. Plain numbers rather than a Rust enum, because the value crosses
+/// the C ABI and a host may one day send a kind this SDK has not heard of.
+pub mod event {
+    pub const NOTE_OFF: u8 = 0;
+    pub const NOTE_ON: u8 = 1;
+    /// `key` is the controller number, `value` its 0-127 position.
+    pub const CONTROL: u8 = 2;
+    /// `bend` is -8192..=8191; `Event::bend_amount` gives -1..1.
+    pub const PITCH_BEND: u8 = 3;
+    /// `value` is the pressure on the whole channel.
+    pub const CHANNEL_PRESSURE: u8 = 4;
+    /// `key` is the pitch, `value` its pressure.
+    pub const POLY_PRESSURE: u8 = 5;
+}
+
+/// One MIDI-like event at `frame` within the current block (ABI 2). Events arrive sorted
+/// by frame. Ignore kinds you do not know.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Event {
+    pub frame: u32,
+    /// One of the [`event`] constants.
+    pub kind: u8,
+    pub channel: u8,
+    /// Pitch for notes and poly pressure, controller number for `CONTROL`.
+    pub key: u8,
+    /// Velocity, controller value or pressure, 0-127.
+    pub value: u8,
+    /// Pitch bend, -8192..=8191; zero for every other kind.
+    pub bend: i16,
+    pub reserved: u16,
+}
+impl Event {
+    pub const fn note_on(frame: u32, pitch: u8, velocity: u8) -> Self {
+        Self::new(frame, event::NOTE_ON, 0, pitch, velocity, 0)
+    }
+    pub const fn note_off(frame: u32, pitch: u8) -> Self {
+        Self::new(frame, event::NOTE_OFF, 0, pitch, 0, 0)
+    }
+    pub const fn control(frame: u32, controller: u8, value: u8) -> Self {
+        Self::new(frame, event::CONTROL, 0, controller, value, 0)
+    }
+    /// `amount` from -1 (full down) to 1 (full up).
+    pub fn pitch_bend(frame: u32, amount: f32) -> Self {
+        let bend = (amount.clamp(-1.0, 1.0) * 8192.0)
+            .round()
+            .clamp(-8192.0, 8191.0) as i16;
+        Self::new(frame, event::PITCH_BEND, 0, 0, 0, bend)
+    }
+    pub const fn channel_pressure(frame: u32, pressure: u8) -> Self {
+        Self::new(frame, event::CHANNEL_PRESSURE, 0, 0, pressure, 0)
+    }
+    pub const fn poly_pressure(frame: u32, pitch: u8, pressure: u8) -> Self {
+        Self::new(frame, event::POLY_PRESSURE, 0, pitch, pressure, 0)
+    }
+    pub const fn new(frame: u32, kind: u8, channel: u8, key: u8, value: u8, bend: i16) -> Self {
+        Self {
+            frame,
+            kind,
+            channel,
+            key,
+            value,
+            bend,
+            reserved: 0,
+        }
+    }
+    pub const fn on_channel(mut self, channel: u8) -> Self {
+        self.channel = channel;
+        self
+    }
+    /// Pitch bend as -1..1.
+    pub fn bend_amount(&self) -> f32 {
+        (self.bend as f32 / 8192.0).clamp(-1.0, 1.0)
+    }
+    /// The note this event is, if it is one.
+    pub fn as_note(&self) -> Option<NoteEvent> {
+        (self.kind == event::NOTE_ON || self.kind == event::NOTE_OFF).then_some(NoteEvent {
+            frame: self.frame,
+            on: self.kind == event::NOTE_ON,
+            pitch: self.key,
+            velocity: self.value,
+            channel: self.channel,
+        })
+    }
+}
+impl From<NoteEvent> for Event {
+    fn from(note: NoteEvent) -> Self {
+        Self::new(
+            note.frame,
+            if note.on {
+                event::NOTE_ON
+            } else {
+                event::NOTE_OFF
+            },
+            note.channel,
+            note.pitch,
+            note.velocity,
+            0,
+        )
+    }
+}
+
+/// A parameter value that takes effect at `frame` within the current block (ABI 2).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimedParam {
+    pub frame: u32,
+    pub index: u32,
+    pub value: f64,
+}
+
 /// A parameter value the host applies before a block.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -182,8 +293,96 @@ pub trait Plugin: Send + 'static {
     fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], ctx: &ProcessContext);
     /// Silence tails and release voices.
     fn reset(&mut self) {}
-    /// Latency in frames, for delay compensation.
+    /// Latency in frames, for delay compensation. Return a new value whenever it changes:
+    /// the host is told after the block in which it did, and rebuilds its compensation.
     fn latency(&self) -> u32 {
         0
+    }
+    /// The whole block as ABI 2 delivers it: every event kind, and parameter changes at their
+    /// frames. The default serves a plugin written against `process`: it splits the block at
+    /// each parameter change, so `set_param` lands on the right sample, and passes the notes
+    /// on. Override it to read controllers, pitch bend and pressure. Audio thread.
+    fn process_events(
+        &mut self,
+        audio: &mut [[f32; 2]],
+        events: &[Event],
+        params: &[TimedParam],
+        ctx: &ProcessContext,
+    ) {
+        split_at_params(self, audio, events, params, ctx);
+    }
+    /// Anything worth keeping that is not a parameter. Called on the main thread, on an
+    /// instance that never processes audio; parameters are saved by the host already.
+    fn save(&self) -> Vec<u8> {
+        Vec::new()
+    }
+    /// Restore what `save` wrote, possibly by an older version of the plugin. Main thread,
+    /// before the instance reaches the audio thread, so it may allocate.
+    fn load(&mut self, _state: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+    /// How long the output keeps sounding after the input stops; `f64::INFINITY` for a
+    /// plugin that never falls silent on its own.
+    fn tail_seconds(&self) -> f64 {
+        0.0
+    }
+}
+
+/// Notes one sub-block can hold on the stack; hosts send far fewer.
+const NOTE_BUFFER: usize = 512;
+
+/// `process` run over the stretches between parameter changes. No allocation.
+pub fn split_at_params<P: Plugin + ?Sized>(
+    plugin: &mut P,
+    audio: &mut [[f32; 2]],
+    events: &[Event],
+    params: &[TimedParam],
+    ctx: &ProcessContext,
+) {
+    let frames = audio.len();
+    let mut notes = [NoteEvent {
+        frame: 0,
+        on: false,
+        pitch: 0,
+        velocity: 0,
+        channel: 0,
+    }; NOTE_BUFFER];
+    let (mut start, mut next_param, mut next_event) = (0usize, 0usize, 0usize);
+    loop {
+        while let Some(change) = params.get(next_param) {
+            if change.frame as usize > start && start < frames {
+                break;
+            }
+            if change.value.is_finite() {
+                plugin.set_param(change.index as usize, change.value);
+            }
+            next_param += 1;
+        }
+        if start >= frames {
+            break;
+        }
+        let end = params
+            .get(next_param)
+            .map_or(frames, |change| (change.frame as usize).min(frames));
+        let mut count = 0;
+        while let Some(event) = events.get(next_event) {
+            if event.frame as usize >= end && end < frames {
+                break;
+            }
+            if let Some(mut note) = event.as_note() {
+                if count < NOTE_BUFFER {
+                    note.frame = (note.frame as usize).clamp(start, end - 1) as u32 - start as u32;
+                    notes[count] = note;
+                    count += 1;
+                }
+            }
+            next_event += 1;
+        }
+        let mut local = *ctx;
+        if start > 0 {
+            local.sample_time += start as i64;
+        }
+        plugin.process(&mut audio[start..end], &notes[..count], &local);
+        start = end;
     }
 }

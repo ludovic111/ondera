@@ -1175,6 +1175,14 @@ impl std::ops::DerefMut for OfflineRack {
     }
 }
 impl OfflineRack {
+    /// The longest tail any plugin in the session reports, and which one reports it.
+    pub fn longest_tail(&self) -> Option<(f64, &str)> {
+        self.editors
+            .iter()
+            .map(|editor| (editor.tail_seconds(), editor.descriptor().name.as_str()))
+            .filter(|(tail, _)| *tail > 0.0)
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+    }
     pub fn idle(&mut self) {
         for editor in &mut self.editors {
             editor.idle();

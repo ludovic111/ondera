@@ -7,10 +7,22 @@
 //! opaque contract: metadata as JSON, one instance pointer per instantiation, and
 //! `process` on the audio thread.
 //!
-//! Hosts other than Ondera can consume the same ABI; the layout below is frozen for
-//! `ABI_VERSION` 1.
+//! Hosts other than Ondera can consume the same ABI. Every `repr(C)` layout of ABI 1
+//! ([`Entry`], [`PluginVTable`], [`RawContext`], [`NoteEvent`](crate::NoteEvent)) is frozen.
+//!
+//! ABI 2 does not touch them. A library exports a second symbol, `ondera_plugin_entry_v2`,
+//! returning an [`Entry2`] whose [`PluginVTable2`] embeds the ABI 1 table and appends:
+//! `process_events` (notes, controllers, pitch bend and pressure, plus parameter changes, all
+//! with frame offsets), `save`/`load` of an opaque state blob, and `tail_seconds`.
+//! `process_events` returns flags; [`FLAG_LATENCY_CHANGED`] asks the host to read `latency`
+//! again. [`export_plugins!`](crate::export_plugins) exports both symbols, so a plugin built
+//! today loads in an ABI 1 host, and a host looks for the second symbol and falls back to
+//! the first. `PluginVTable2::size` lets later revisions append more without a new symbol.
 
-use crate::{Info, Kind, NoteEvent, ParamSpec, Plugin, ProcessContext, ABI_VERSION};
+use crate::{
+    Event, Info, Kind, NoteEvent, ParamSpec, Plugin, ProcessContext, TimedParam, ABI_VERSION,
+    BASE_ABI_VERSION,
+};
 use serde::{Deserialize, Serialize};
 use std::{ffi::c_void, panic::AssertUnwindSafe};
 
@@ -97,7 +109,8 @@ impl Manifest {
     }
     pub fn from_parts(info: &Info, params: &[ParamSpec]) -> Self {
         Self {
-            abi: ABI_VERSION,
+            // The manifest format has not changed, and ABI 1 hosts refuse any other number.
+            abi: BASE_ABI_VERSION,
             id: info.id.into(),
             name: info.name.into(),
             vendor: info.vendor.into(),
@@ -161,6 +174,72 @@ unsafe impl Send for Entry {}
 /// The exported entry function's type, for hosts loading a library.
 pub type EntryFn = unsafe extern "C" fn() -> *const Entry;
 
+/// `process_events` result bit: `latency` now returns something else.
+pub const FLAG_LATENCY_CHANGED: u32 = 1;
+
+/// ABI 2: the ABI 1 table, then what was added. Never reorder; append and let `size` tell.
+#[repr(C)]
+pub struct PluginVTable2 {
+    /// `size_of::<PluginVTable2>()` as the plugin was built. A host reads only what fits.
+    pub size: u32,
+    pub base: PluginVTable,
+    /// Audio thread. `events` and `params` are sorted by frame, all frames `< frames`.
+    /// Replaces `base.process` and block-start `set_param` for hosts that know ABI 2.
+    pub process_events: unsafe extern "C" fn(
+        instance: *mut c_void,
+        audio: *mut [f32; 2],
+        frames: u32,
+        events: *const Event,
+        event_count: u32,
+        params: *const TimedParam,
+        param_count: u32,
+        ctx: *const RawContext,
+    ) -> u32,
+    /// Main thread, never on an instance that is processing. The buffer is released with
+    /// `base.free_bytes`; an empty state leaves `*out` null. Returns 0 on success.
+    pub save:
+        unsafe extern "C" fn(instance: *mut c_void, out: *mut *mut u8, len: *mut usize) -> i32,
+    /// Main thread, before the instance is handed to the audio thread. Returns 0 on success.
+    pub load: unsafe extern "C" fn(instance: *mut c_void, bytes: *const u8, len: usize) -> i32,
+    pub tail_seconds: unsafe extern "C" fn(instance: *mut c_void) -> f64,
+}
+unsafe impl Sync for PluginVTable2 {}
+unsafe impl Send for PluginVTable2 {}
+
+/// The root of a plugin library for ABI 2, behind `ondera_plugin_entry_v2`.
+#[repr(C)]
+pub struct Entry2 {
+    pub abi_version: u32,
+    pub plugin_count: u32,
+    pub plugin: unsafe extern "C" fn(index: u32) -> *const PluginVTable2,
+}
+unsafe impl Sync for Entry2 {}
+unsafe impl Send for Entry2 {}
+pub type Entry2Fn = unsafe extern "C" fn() -> *const Entry2;
+
+// ABI 1 is frozen: a change that moves any of these fails to compile.
+const _: () = {
+    use std::mem::{offset_of, size_of};
+    let pointer = size_of::<usize>();
+    assert!(size_of::<PluginVTable>() == 8 * pointer);
+    assert!(offset_of!(PluginVTable, process) == 4 * pointer);
+    assert!(offset_of!(PluginVTable, free_bytes) == 7 * pointer);
+    assert!(offset_of!(Entry, plugin_count) == 4);
+    assert!(offset_of!(Entry, plugin) == 8);
+    assert!(size_of::<NoteEvent>() == 8);
+    assert!(offset_of!(NoteEvent, on) == 4 && offset_of!(NoteEvent, channel) == 7);
+    assert!(size_of::<RawContext>() == 72);
+    assert!(offset_of!(RawContext, tempo) == 8);
+    assert!(offset_of!(RawContext, numerator) == 40);
+    assert!(offset_of!(RawContext, bar_start_beats) == 64);
+    // ABI 2, frozen from here on as well.
+    assert!(size_of::<Event>() == 12 && offset_of!(Event, bend) == 8);
+    assert!(size_of::<TimedParam>() == 16 && offset_of!(TimedParam, value) == 8);
+    assert!(offset_of!(PluginVTable2, base) == pointer);
+    assert!(offset_of!(PluginVTable2, process_events) == 9 * pointer);
+    assert!(size_of::<PluginVTable2>() == 13 * pointer);
+};
+
 unsafe fn give(bytes: Vec<u8>, out: *mut *mut u8, len: *mut usize) -> i32 {
     if out.is_null() || len.is_null() {
         return 1;
@@ -183,6 +262,8 @@ unsafe extern "C" fn manifest<P: Plugin>(out: *mut *mut u8, len: *mut usize) -> 
 struct Guarded<P> {
     plugin: P,
     poisoned: bool,
+    /// What `latency` last answered, to notice when it changes.
+    latency: u32,
 }
 impl<P> Guarded<P> {
     /// Run `f` on the plugin unless it is poisoned; a panic poisons it.
@@ -207,9 +288,12 @@ unsafe extern "C" fn create<P: Plugin>(sample_rate: f64) -> *mut c_void {
         48000.0
     };
     match std::panic::catch_unwind(|| {
+        let plugin = P::new(rate);
+        let latency = plugin.latency();
         Box::new(Guarded {
-            plugin: P::new(rate),
+            plugin,
             poisoned: false,
+            latency,
         })
     }) {
         Ok(plugin) => Box::into_raw(plugin) as *mut c_void,
@@ -266,6 +350,106 @@ unsafe extern "C" fn free_bytes(ptr: *mut u8, len: usize) {
     }
 }
 
+unsafe fn slice<'a, T>(ptr: *const T, count: u32) -> &'a [T] {
+    if ptr.is_null() || count == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(ptr, count as usize)
+    }
+}
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn process_events<P: Plugin>(
+    instance: *mut c_void,
+    audio: *mut [f32; 2],
+    frames: u32,
+    events: *const Event,
+    event_count: u32,
+    params: *const TimedParam,
+    param_count: u32,
+    ctx: *const RawContext,
+) -> u32 {
+    if instance.is_null() || audio.is_null() || ctx.is_null() {
+        return 0;
+    }
+    let audio = std::slice::from_raw_parts_mut(audio, frames as usize);
+    let (events, params) = (slice(events, event_count), slice(params, param_count));
+    let ctx = ProcessContext::from(&*ctx);
+    let guarded = &mut *(instance as *mut Guarded<P>);
+    let latency = guarded.run(guarded.latency, |p| {
+        p.process_events(audio, events, params, &ctx);
+        p.latency()
+    });
+    if latency == guarded.latency {
+        0
+    } else {
+        guarded.latency = latency;
+        FLAG_LATENCY_CHANGED
+    }
+}
+unsafe extern "C" fn save<P: Plugin>(
+    instance: *mut c_void,
+    out: *mut *mut u8,
+    len: *mut usize,
+) -> i32 {
+    if instance.is_null() || out.is_null() || len.is_null() {
+        return 1;
+    }
+    *out = std::ptr::null_mut();
+    *len = 0;
+    match (*(instance as *mut Guarded<P>)).run(None, |p| Some(p.save())) {
+        Some(bytes) if bytes.is_empty() => 0,
+        Some(bytes) => give(bytes, out, len),
+        None => 2,
+    }
+}
+unsafe extern "C" fn load<P: Plugin>(instance: *mut c_void, bytes: *const u8, len: usize) -> i32 {
+    if instance.is_null() || (bytes.is_null() && len > 0) {
+        return 1;
+    }
+    let state = if len == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(bytes, len)
+    };
+    match (*(instance as *mut Guarded<P>)).run(None, |p| Some(p.load(state))) {
+        Some(Ok(())) => 0,
+        Some(Err(_)) => 3,
+        None => 2,
+    }
+}
+unsafe extern "C" fn tail_seconds<P: Plugin>(instance: *mut c_void) -> f64 {
+    if instance.is_null() {
+        return 0.0;
+    }
+    let tail = (*(instance as *mut Guarded<P>)).run(0.0, |p| p.tail_seconds());
+    if tail.is_nan() {
+        0.0
+    } else {
+        tail.max(0.0)
+    }
+}
+
+/// The ABI 2 vtable for one plugin type. Usable in `static` tables.
+pub const fn vtable2<P: Plugin>() -> PluginVTable2 {
+    PluginVTable2 {
+        size: std::mem::size_of::<PluginVTable2>() as u32,
+        base: vtable::<P>(),
+        process_events: process_events::<P>,
+        save: save::<P>,
+        load: load::<P>,
+        tail_seconds: tail_seconds::<P>,
+    }
+}
+/// What a host may call in a table a library handed it: the table must be at least as large
+/// as the ABI 2 this SDK knows.
+///
+/// # Safety
+/// `table` must point at a `PluginVTable2` (or a later, longer revision of it).
+pub unsafe fn checked_v2(table: *const PluginVTable2) -> Option<&'static PluginVTable2> {
+    (!table.is_null() && (*table).size as usize >= std::mem::size_of::<PluginVTable2>())
+        .then(|| &*table)
+}
+
 /// The vtable for one plugin type. Usable in `static` tables.
 pub const fn vtable<P: Plugin>() -> PluginVTable {
     PluginVTable {
@@ -295,9 +479,9 @@ pub unsafe fn read_manifest(table: &PluginVTable) -> Result<Manifest, String> {
     (table.free_bytes)(ptr, len);
     let manifest: Manifest =
         serde_json::from_slice(&bytes).map_err(|e| format!("Invalid plugin manifest: {e}"))?;
-    if manifest.abi != ABI_VERSION {
+    if !(BASE_ABI_VERSION..=ABI_VERSION).contains(&manifest.abi) {
         return Err(format!(
-            "Plugin ABI {} is not supported (host ABI {ABI_VERSION})",
+            "Plugin ABI {} is not supported (host ABI {BASE_ABI_VERSION} to {ABI_VERSION})",
             manifest.abi
         ));
     }

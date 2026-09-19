@@ -24,6 +24,7 @@ midly = { version = "0.5.3", default-features = false, features = ["std", "stric
 
 [dev-dependencies]
 ondera-plugin-gain = { path = "../plugins/gain" }
+ondera-abi1-fixture = { path = "../plugins/abi1-fixture" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

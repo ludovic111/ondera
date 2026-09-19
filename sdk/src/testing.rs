@@ -18,9 +18,14 @@
 //! let out = bench.sine(440.0, 0.5, 0.1);
 //! assert!((Bench::<Gain>::peak(&out) - 0.5 * 0.501).abs() < 0.01);
 //! ```
+//!
+//! `process`, `sine`, `silence` and `note` go through the ABI 1 table, as a host from before
+//! ABI 2 would; `process_events` goes through ABI 2 and carries controllers, pitch bend,
+//! pressure and parameter changes at their frames. `save`, `load`, `tail_seconds` and
+//! `latency_changed` cover the rest of ABI 2.
 use crate::{
-    ffi::{self, PluginVTable, RawContext},
-    plugin::{NoteEvent, ParamSpec, Plugin, ProcessContext},
+    ffi::{self, PluginVTable, PluginVTable2, RawContext},
+    plugin::{Event, NoteEvent, ParamSpec, Plugin, ProcessContext, TimedParam},
     MAX_BLOCK,
 };
 use std::{ffi::c_void, marker::PhantomData};
@@ -28,6 +33,8 @@ use std::{ffi::c_void, marker::PhantomData};
 /// One instance of `P` behind its vtable.
 pub struct Bench<P: Plugin> {
     table: PluginVTable,
+    table2: PluginVTable2,
+    latency_changed: bool,
     instance: *mut c_void,
     specs: Vec<ParamSpec>,
     rate: f64,
@@ -46,6 +53,8 @@ impl<P: Plugin> Bench<P> {
         }
         Self {
             table,
+            table2: ffi::vtable2::<P>(),
+            latency_changed: false,
             instance,
             specs,
             rate,
@@ -113,6 +122,100 @@ impl<P: Plugin> Bench<P> {
             self.context.position_seconds += seconds;
             self.context.position_beats += seconds * self.context.tempo / 60.0;
             start = end;
+        }
+    }
+    fn index_of(&self, name: &str) -> u32 {
+        self.specs
+            .iter()
+            .position(|s| s.name == name)
+            .unwrap_or_else(|| panic!("{} has no parameter `{name}`", P::INFO.name)) as u32
+    }
+    /// A parameter change at `frame` from the start of the audio given to `process_events`.
+    pub fn at(&self, frame: u32, name: &str, value: f64) -> TimedParam {
+        TimedParam {
+            frame,
+            index: self.index_of(name),
+            value,
+        }
+    }
+    /// Process `audio` in place through ABI 2, in host-sized blocks. Events and parameter
+    /// changes carry frame offsets from the start of `audio` and must be sorted by frame.
+    pub fn process_events(
+        &mut self,
+        audio: &mut [[f32; 2]],
+        events: &[Event],
+        params: &[TimedParam],
+    ) {
+        let mut start = 0usize;
+        for block in audio.chunks_mut(MAX_BLOCK) {
+            let range = start..start + block.len();
+            let events: Vec<Event> = events
+                .iter()
+                .filter(|e| range.contains(&(e.frame as usize)))
+                .map(|e| Event {
+                    frame: e.frame - start as u32,
+                    ..*e
+                })
+                .collect();
+            let params: Vec<TimedParam> = params
+                .iter()
+                .filter(|p| range.contains(&(p.frame as usize)))
+                .map(|p| TimedParam {
+                    frame: p.frame - start as u32,
+                    ..*p
+                })
+                .collect();
+            let raw = RawContext::from(&self.context);
+            let flags = unsafe {
+                (self.table2.process_events)(
+                    self.instance,
+                    block.as_mut_ptr(),
+                    block.len() as u32,
+                    events.as_ptr(),
+                    events.len() as u32,
+                    params.as_ptr(),
+                    params.len() as u32,
+                    &raw,
+                )
+            };
+            self.latency_changed |= flags & ffi::FLAG_LATENCY_CHANGED != 0;
+            let seconds = block.len() as f64 / self.rate;
+            self.context.sample_time += block.len() as i64;
+            self.context.position_seconds += seconds;
+            self.context.position_beats += seconds * self.context.tempo / 60.0;
+            start = range.end;
+        }
+    }
+    /// Silence for `seconds` with these events: what an instrument plays.
+    pub fn play(&mut self, seconds: f64, events: &[Event], params: &[TimedParam]) -> Vec<[f32; 2]> {
+        let mut audio = vec![[0.0; 2]; (seconds * self.rate) as usize];
+        self.process_events(&mut audio, events, params);
+        audio
+    }
+    /// Whether the plugin told the host its latency changed since the last call.
+    pub fn latency_changed(&mut self) -> bool {
+        std::mem::take(&mut self.latency_changed)
+    }
+    pub fn tail_seconds(&self) -> f64 {
+        unsafe { (self.table2.tail_seconds)(self.instance) }
+    }
+    /// The plugin's own state, as the host would store it. Empty when it has none.
+    pub fn save(&self) -> Vec<u8> {
+        let mut ptr: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        let code = unsafe { (self.table2.save)(self.instance, &mut ptr, &mut len) };
+        assert_eq!(code, 0, "{} failed to save", P::INFO.name);
+        if ptr.is_null() {
+            return Vec::new();
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() };
+        unsafe { (self.table.free_bytes)(ptr, len) };
+        bytes
+    }
+    pub fn load(&mut self, state: &[u8]) -> Result<(), String> {
+        match unsafe { (self.table2.load)(self.instance, state.as_ptr(), state.len()) } {
+            0 => Ok(()),
+            code => Err(format!("{} refused the state (code {code})", P::INFO.name)),
         }
     }
     /// Feed a sine of `amplitude` for `seconds` and return the result.
@@ -229,6 +332,100 @@ mod tests {
         bench.set("Explode", 0.0);
         assert!((Bench::<Fragile>::peak(&bench.sine(440.0, 1.0, 0.01)) - 1.0).abs() < 0.01);
         assert_eq!(bench.latency(), 0);
+    }
+
+    /// Written against ABI 1's `process` only; everything else is the trait's defaults.
+    struct Stepper {
+        gain: f32,
+        notes: u32,
+    }
+    impl Plugin for Stepper {
+        const INFO: Info = Info::effect("test.stepper", "Stepper", "Test", "Utility");
+        fn params() -> Vec<ParamSpec> {
+            vec![param("Gain", 0.0, 4.0, 1.0, "")]
+        }
+        fn new(_: f64) -> Self {
+            Self {
+                gain: 1.0,
+                notes: 0,
+            }
+        }
+        fn set_param(&mut self, _: usize, value: f64) {
+            self.gain = value as f32;
+        }
+        fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], _: &ProcessContext) {
+            for note in notes {
+                assert!((note.frame as usize) < audio.len());
+                self.notes += u32::from(note.on);
+            }
+            for frame in audio {
+                frame[0] *= self.gain;
+                frame[1] = self.notes as f32;
+            }
+        }
+    }
+
+    #[test]
+    fn an_abi_1_style_plugin_gets_sample_accurate_parameters_for_free() {
+        let mut bench = Bench::<Stepper>::new(48_000.0);
+        let mut audio = vec![[1.0f32, 0.0]; 600];
+        let params = [
+            bench.at(100, "Gain", 2.0),
+            bench.at(300, "Gain", 3.0),
+            bench.at(301, "Gain", 0.5),
+        ];
+        let events = [
+            Event::control(10, 1, 64),
+            Event::note_on(299, 60, 100),
+            Event::pitch_bend(299, 0.5),
+            Event::note_on(300, 64, 100),
+        ];
+        bench.process_events(&mut audio, &events, &params);
+        let gains: Vec<f32> = audio.iter().map(|f| f[0]).collect();
+        assert!(gains[..100].iter().all(|g| *g == 1.0));
+        assert!(
+            gains[100..300].iter().all(|g| *g == 2.0),
+            "the change lands on its frame"
+        );
+        assert_eq!(gains[300], 3.0);
+        assert!(gains[301..].iter().all(|g| *g == 0.5));
+        // Notes reach `process` in the stretch they fall in; other kinds are not its business.
+        // (Stepper counts a stretch's notes before it writes, so look one host block back.)
+        assert_eq!(audio[255][1], 0.0);
+        assert_eq!(audio[299][1], 1.0);
+        assert_eq!(audio[300][1], 2.0);
+        assert!(bench.save().is_empty());
+        assert!(bench.load(b"anything").is_ok());
+        assert_eq!(bench.tail_seconds(), 0.0);
+        assert!(!bench.latency_changed());
+    }
+
+    #[test]
+    fn a_panic_in_any_abi_2_call_is_contained() {
+        struct Bomb;
+        impl Plugin for Bomb {
+            const INFO: Info = Info::effect("test.bomb", "Bomb", "Test", "Utility");
+            fn params() -> Vec<ParamSpec> {
+                vec![]
+            }
+            fn new(_: f64) -> Self {
+                Self
+            }
+            fn set_param(&mut self, _: usize, _: f64) {}
+            fn process(&mut self, _: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {}
+            fn save(&self) -> Vec<u8> {
+                panic!("plugin bug")
+            }
+        }
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let bench = Bench::<Bomb>::new(48_000.0);
+        let mut ptr: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        let code = unsafe { (bench.table2.save)(bench.instance, &mut ptr, &mut len) };
+        std::panic::set_hook(hook);
+        assert_eq!(code, 2);
+        assert!(ptr.is_null());
     }
 
     #[test]

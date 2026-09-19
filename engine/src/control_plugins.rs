@@ -161,7 +161,8 @@ impl Plugin for __TYPE__ {
             _ => {}
         }
     }
-    // Audio thread: no allocation, locks, files or logging in here.
+    // Audio thread: no allocation, locks, files or logging in here. The host splits the block
+    // wherever a parameter changes, so `set_param` has already landed on the right sample.
     fn process(&mut self, audio: &mut [[f32; 2]], _notes: &[NoteEvent], _ctx: &ProcessContext) {
         for frame in audio {
             let drive = self.drive.step();
@@ -171,6 +172,11 @@ impl Plugin for __TYPE__ {
             }
         }
     }
+    // Also yours to override (plugin ABI 2), each with a sensible default:
+    //   process_events  controllers, pitch bend, pressure, and parameter changes by frame
+    //   save / load     state that is not a parameter (parameters are saved for you)
+    //   tail_seconds    how long the output rings after the input stops
+    //   latency         return a new value when it changes; the host is told
 }
 
 export_plugins!(__TYPE__);
@@ -190,6 +196,17 @@ mod tests {
         let dry = bench.sine(220.0, 0.5, 0.25);
         assert!((Bench::<__TYPE__>::peak(&dry) - 0.5).abs() < 0.01);
     }
+
+    #[test]
+    fn a_parameter_change_lands_on_its_frame() {
+        let mut bench = Bench::<__TYPE__>::new(48_000.0);
+        bench.set("Mix", 0.0);
+        let mut audio = vec![[0.5f32; 2]; 400];
+        let wet_from_200 = [bench.at(200, "Mix", 100.0)];
+        bench.process_events(&mut audio, &[], &wet_from_200);
+        assert_eq!(audio[199], [0.5; 2], "still dry one frame before");
+        assert_ne!(audio[200], [0.5; 2], "wet from the frame that was asked for");
+    }
 }
 "#;
 
@@ -207,12 +224,16 @@ struct Voice {
     active: bool,
 }
 
-/// A sixteen-voice sine synth with a release. Replace the oscillator with your own sound.
+/// A sixteen-voice sine synth with a release that follows the pitch wheel. Replace the
+/// oscillator with your own sound.
 pub struct __TYPE__ {
     rate: f64,
     voices: [Voice; VOICES],
     release: f32,
+    release_ms: f64,
     gain: f32,
+    /// Pitch wheel, -1..1, worth two semitones either way.
+    bend: f32,
 }
 
 impl Plugin for __TYPE__ {
@@ -223,13 +244,23 @@ impl Plugin for __TYPE__ {
         vec![param("Release", 10.0, 4000.0, 300.0, "ms"), param("Level", -24.0, 6.0, -6.0, "dB")]
     }
     fn new(rate: f64) -> Self {
-        let mut plugin = Self { rate, voices: [Voice::default(); VOICES], release: 0.0, gain: 0.5 };
+        let mut plugin = Self {
+            rate,
+            voices: [Voice::default(); VOICES],
+            release: 0.0,
+            release_ms: 300.0,
+            gain: 0.5,
+            bend: 0.0,
+        };
         plugin.set_param(0, 300.0);
         plugin
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.release = (-1.0 / (self.rate * value / 1000.0)).exp() as f32,
+            0 => {
+                self.release_ms = value;
+                self.release = (-1.0 / (self.rate * value / 1000.0)).exp() as f32;
+            }
             1 => self.gain = db_to_gain(value),
             _ => {}
         }
@@ -237,31 +268,62 @@ impl Plugin for __TYPE__ {
     fn reset(&mut self) {
         self.voices = [Voice::default(); VOICES];
     }
-    // Audio thread: no allocation, locks, files or logging in here.
-    fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], _ctx: &ProcessContext) {
-        let mut next = 0;
+    /// The release takes about seven time constants to fall below hearing.
+    fn tail_seconds(&self) -> f64 {
+        self.release_ms / 1000.0 * 7.0
+    }
+    /// Hosts from before plugin ABI 2 call this one: notes only.
+    fn process(&mut self, audio: &mut [[f32; 2]], notes: &[NoteEvent], ctx: &ProcessContext) {
+        let mut events = [Event::default(); 64];
+        let count = notes.len().min(events.len());
+        for (event, note) in events.iter_mut().zip(notes) {
+            *event = (*note).into();
+        }
+        self.process_events(audio, &events[..count], &[], ctx);
+    }
+    // Audio thread: no allocation, locks, files or logging in here. Events and parameter
+    // changes are sorted by frame; handle each when the loop reaches its frame.
+    fn process_events(
+        &mut self,
+        audio: &mut [[f32; 2]],
+        events: &[Event],
+        params: &[TimedParam],
+        _ctx: &ProcessContext,
+    ) {
+        let (mut next, mut next_param) = (0, 0);
         for (i, frame) in audio.iter_mut().enumerate() {
-            while next < notes.len() && notes[next].frame as usize <= i {
-                let n = notes[next];
+            while next_param < params.len() && params[next_param].frame as usize <= i {
+                self.set_param(params[next_param].index as usize, params[next_param].value);
+                next_param += 1;
+            }
+            while next < events.len() && events[next].frame as usize <= i {
+                let e = events[next];
                 next += 1;
-                if n.on {
-                    let slot = self.voices.iter().position(|v| !v.active).unwrap_or(0);
-                    self.voices[slot] = Voice {
-                        pitch: n.pitch,
-                        phase: 0.0,
-                        level: n.velocity as f32 / 127.0,
-                        held: true,
-                        active: true,
-                    };
-                } else {
-                    for v in self.voices.iter_mut().filter(|v| v.held && v.pitch == n.pitch) {
-                        v.held = false;
+                match e.kind {
+                    event::NOTE_ON => {
+                        let slot = self.voices.iter().position(|v| !v.active).unwrap_or(0);
+                        self.voices[slot] = Voice {
+                            pitch: e.key,
+                            phase: 0.0,
+                            level: e.value as f32 / 127.0,
+                            held: true,
+                            active: true,
+                        };
                     }
+                    event::NOTE_OFF => {
+                        for v in self.voices.iter_mut().filter(|v| v.held && v.pitch == e.key) {
+                            v.held = false;
+                        }
+                    }
+                    event::PITCH_BEND => self.bend = e.bend_amount(),
+                    // event::CONTROL (e.key is the controller), CHANNEL_PRESSURE, POLY_PRESSURE
+                    _ => {}
                 }
             }
             let mut sum = 0.0;
             for v in self.voices.iter_mut().filter(|v| v.active) {
-                let hz = 440.0 * 2f64.powf((v.pitch as f64 - 69.0) / 12.0);
+                let semitones = v.pitch as f64 - 69.0 + self.bend as f64 * 2.0;
+                let hz = 440.0 * 2f64.powf(semitones / 12.0);
                 v.phase = (v.phase + hz / self.rate).fract();
                 sum += (TAU * v.phase).sin() as f32 * v.level;
                 if !v.held {
@@ -291,6 +353,19 @@ mod tests {
         Bench::<__TYPE__>::assert_sane(&out);
         assert!(Bench::<__TYPE__>::peak(&out[..9_600]) > 0.05, "the note is audible");
         assert!(Bench::<__TYPE__>::peak(&out[86_400..]) < 1e-3, "and it ends");
+    }
+
+    #[test]
+    fn the_pitch_wheel_raises_the_note() {
+        let cycles = |audio: &[[f32; 2]]| {
+            audio.windows(2).filter(|w| w[0][0] <= 0.0 && w[1][0] > 0.0).count()
+        };
+        let mut bench = Bench::<__TYPE__>::new(48_000.0);
+        let plain = bench.play(1.0, &[Event::note_on(0, 69, 100)], &[]);
+        let mut bench = Bench::<__TYPE__>::new(48_000.0);
+        let bent = bench.play(1.0, &[Event::pitch_bend(0, 1.0), Event::note_on(0, 69, 100)], &[]);
+        assert!((cycles(&plain) as f64 - 440.0).abs() <= 2.0);
+        assert!((cycles(&bent) as f64 - 493.9).abs() <= 2.0, "two semitones up");
     }
 }
 "#;

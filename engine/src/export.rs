@@ -178,6 +178,9 @@ pub fn mix(
     let (mut renderer, mut rack) = render::offline(&song, &library, options.sample_rate)?;
     renderer.playing = true;
     renderer.locate(0.0);
+    let plugin_tail = rack
+        .longest_tail()
+        .map(|(tail, name)| (tail, name.to_string()));
     let seconds_per_beat = 60.0 / song.transport.tempo;
     let frames = (((end - start) * seconds_per_beat + options.tail_seconds)
         * options.sample_rate as f64)
@@ -250,6 +253,13 @@ pub fn mix(
         }
         writer.finish()
     })?;
+    if let Some((tail, name)) = plugin_tail.filter(|(tail, _)| *tail > options.tail_seconds) {
+        report.warnings.push(if tail.is_finite() {
+            format!("{name} rings for {tail:.2} s but the export's tail is {:.1} s; raise tailSeconds to keep its release.", options.tail_seconds)
+        } else {
+            format!("{name} never falls silent on its own; the export stops it after {:.1} s.", options.tail_seconds)
+        });
+    }
     if report.clipped_samples > 0 {
         report.warnings.push(format!("{} samples exceeded integer PCM headroom and were clipped; lower the master or export float32.",report.clipped_samples));
     }

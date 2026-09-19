@@ -209,6 +209,10 @@ pub trait Editor {
     fn latency(&self) -> u32 {
         0
     }
+    /// How long the plugin says it sounds after its input stops; 0 when it does not say.
+    fn tail_seconds(&self) -> f64 {
+        0.0
+    }
     /// True after the plugin reported parameter or state changes from its own GUI.
     fn take_dirty(&mut self) -> bool {
         false
