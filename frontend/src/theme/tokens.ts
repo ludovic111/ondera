@@ -1,120 +1,57 @@
 /**
  * THE tokens file. Every colour, font size, radius, dimension, gradient and
- * shadow in the app comes from here, either directly (canvas code, Electron
- * main) or through the CSS custom properties emitted by applyTokens().
+ * shadow in the app comes from here, either directly (canvas code) or through
+ * the CSS custom properties emitted by applyAppearance().
  *
- * Source: design/Ondera Arrangement.dc.html, spec sheet 02 (skeuomorphic
- * material system, light from 90° above). Do not add visual constants
- * anywhere else.
+ * Scales that never change (type, spacing, dimensions) are constants below.
+ * Everything visual is themed: `color`, `gradient`, `shadow`, `fill`, `line`,
+ * `blur`, `radius`, `canvasShadow` and `clipMix` are live objects that
+ * setTheme() refills from one of the three themes (modern.ts, skeuo.ts,
+ * aero.ts), each in a dark and a light mode. Canvas code reads them at paint
+ * time, so it follows the theme without subscribing to anything.
+ *
+ * Do not add visual constants anywhere else.
  */
+import { aero } from "./aero";
+import { modern } from "./modern";
+import { skeuo } from "./skeuo";
+import type { Mode, ThemeId, ThemeSpec } from "./schema";
 
-// ---------------------------------------------------------------------------
-// Colour
-// ---------------------------------------------------------------------------
+export { white, black } from "./schema";
+export type { CanvasShadowLayer, Mode, ThemeId } from "./schema";
 
-export const color = {
-  // Graphite scale: oklch hue 90, chroma 0.003. Warm-neutral, never blue.
-  desk: "#141413", // graphite-950
-  wellDeep: "#161615", // time display, meters, EQ well
-  groove: "#1a1a19", // graphite-900: grooves, wells, slider rails
-  grooveAlt: "#1c1c1b", // segmented-control and search grooves
-  timelineEmpty: "#1f1f1e", // below the last track, piano roll grid
-  timeline: "#222221", // graphite-800: lanes
-  timelineAgent: "#222524", // lane of a track an agent is editing
-  timelineSelected: "#262626", // lane of the selected track
-  editor: "#262625", // piano roll pane, header column below tracks
-  ruler: "#272726", // bar ruler background
-  materialCard: "#282827",
-  agentPanel: "#29292a",
-  panel: "#2c2c2b", // graphite-700: side panels, title bar
-  logEntry: "#2f2f2e",
-  raised: "#353534", // graphite-600
-  controlFace: "#42423f", // graphite-500
+const BUILDERS: Record<ThemeId, (mode: Mode) => ThemeSpec> = {
+  modern,
+  skeuo,
+  aero,
+};
 
-  // Gradient stops for the material recipes.
-  controlTop: "#42423f",
-  controlBottom: "#313130",
-  pressedTop: "#262625",
-  pressedBottom: "#2c2c2b",
-  transportTop: "#333332",
-  transportBottom: "#2c2c2b",
-  segmentTop: "#45453f",
-  segmentBottom: "#363634",
-  thumbTop: "#5a5a57",
-  thumbBottom: "#3a3a38",
-  knobHi: "#4c4c49",
-  knobLo: "#2a2a29",
-  knobBigHi: "#555552",
-  knobBigLo: "#2c2c2b",
-  knobInnerHi: "#3a3a38",
-  knobInnerLo: "#252524",
-  capTop: "#605f5c",
-  capMid: "#3c3c3a",
-  capBottom: "#33332f",
-  headerTop: "#2e2e2d",
-  headerBottom: "#2a2a29",
-  headerSelectedTop: "#3a3a39",
-  headerSelectedBottom: "#333332",
-  headerAgentTop: "#2f3232",
-  headerAgentBottom: "#2b2e2e",
-  insertTop: "#3a3a39",
-  insertBottom: "#313130",
-  chipTop: "#3a3a39",
-  chipBottom: "#2c2c2b",
-  trafficLight: "#4a4a47",
+export function buildTheme(theme: ThemeId, mode: Mode): ThemeSpec {
+  return BUILDERS[theme](mode);
+}
 
-  // Ink
-  inkBright: "#f2f1ee", // transport digits, glass text
-  ink100: "#e8e7e4", // primary text
-  inkControl: "#d6d5d1", // raised button labels
-  inkDim: "#c8c7c3", // SMPTE
-  ink300: "#a9a8a4", // secondary
-  ink500: "#7f7e7a", // labels, dim
-  inkSeparator: "#5a5957", // dots between position fields
-  inkKeyWhite: "#4a4a47",
-
-  // Piano keys
-  keyWhite: "#d9d7d1",
-  keyBlack: "#232322",
-
-  // LEDs and accent
-  led: "#f0e8d8",
-  ledOff: "#252523",
-  ledGlow: "rgba(255,236,205,.75)",
-  ledGlowSoft: "rgba(255,236,205,.3)",
-  accent: "oklch(0.80 0.12 190)",
-  accentHi: "oklch(0.88 0.11 190)",
-  accentLo: "oklch(0.66 0.12 190)",
-  accentInk: "#0f2a29",
-  /** Piano-roll note colour is the bass track hue at two lightnesses. */
-  noteTop: "oklch(0.80 0.12 300)",
-  noteBottom: "oklch(0.66 0.13 300)",
-  eqCurve: "oklch(0.78 0.12 300)",
-  eqHandle: "oklch(0.85 0.1 300)",
-  eqFill: "oklch(0.72 0.13 300)",
-
-  /** Neutral dot for non-Ondera browser items and neutral log entries. */
-  neutralDot: "#5a5a57",
-
-  // Popup menus (title-bar menus and context menus): a raised graphite card.
-  menu: "#333332",
-  menuHover: "#3f3f3d",
-  menuSeparator: "#262625",
-} as const;
-
-/** Translucent whites and blacks used by the material recipes. */
-export const white = (a: number) => `rgba(255,255,255,${a})`;
-export const black = (a: number) => `rgba(0,0,0,${a})`;
-export const accentAlpha = (a: number) => `oklch(0.80 0.12 190 / ${a})`;
+// Live groups. Skeuomorphic dark is the design source, so it is the default.
+const initial = buildTheme("skeuo", "dark");
+export const color = { ...initial.color };
+export const gradient = { ...initial.gradient };
+export const shadow = { ...initial.shadow };
+export const fill = { ...initial.fill };
+export const line = { ...initial.line };
+export const blur = { ...initial.blur };
+export const radius = { ...initial.radius };
+export const canvasShadow = { ...initial.canvasShadow };
+export const clipMix = { ...initial.clipMix };
+let themeVars: Record<string, string> = { ...initial.vars };
+let scheme: Mode = initial.scheme;
 
 // ---------------------------------------------------------------------------
 // Type
 // ---------------------------------------------------------------------------
 
-export const font = {
+export const font: { ui: string; mono: string } = {
   ui: "'Manrope', system-ui, -apple-system, sans-serif",
   mono: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
-} as const;
+};
 
 /** Sizes in px. Names follow the spec sheet's type scale. */
 export const fontSize = {
@@ -139,11 +76,11 @@ export const fontWeight = {
   bold: 700,
 } as const;
 
-export const tracking = {
+export const tracking: { caps: string; capsWide: string; kind: string } = {
   caps: "0.09em",
   capsWide: "0.1em",
   kind: "0.05em",
-} as const;
+};
 
 export const lineHeight = {
   digits: 1.05,
@@ -165,18 +102,6 @@ export const space = {
   xl: 12,
   xxl: 14,
   xxxl: 16,
-} as const;
-
-export const radius = {
-  xs: 2,
-  sm: 3,
-  clip: 4,
-  button: 4,
-  md: 5,
-  control: 6,
-  lg: 7,
-  glass: 8,
-  window: 10,
 } as const;
 
 export const size = {
@@ -210,6 +135,7 @@ export const size = {
   knobSm: 20,
   knobMd: 26,
   knobLg: 36,
+  knobXl: 46,
   sliderThumb: 13,
   sliderRailH: 4,
   sliderTravel: 60,
@@ -254,205 +180,26 @@ export const timeline = {
   playheadFlagH: 8,
 } as const;
 
-// ---------------------------------------------------------------------------
-// Material recipes. Light from directly above: specular highlight on the top
-// edge, gradient face darkening downward, contact line on the bottom edge,
-// then a soft drop shadow at 2–3× the contact distance. Pressed states swap
-// the drop shadow for an inner shadow and darken the face.
-// ---------------------------------------------------------------------------
-
-export const gradient = {
-  raised: `linear-gradient(180deg, ${color.controlTop}, ${color.controlBottom})`,
-  pressed: `linear-gradient(180deg, ${color.pressedTop}, ${color.pressedBottom})`,
-  lit: `radial-gradient(circle at 50% 30%, ${color.accentHi}, ${color.accentLo})`,
-  transport: `linear-gradient(180deg, ${color.transportTop}, ${color.transportBottom})`,
-  segment: `linear-gradient(180deg, ${color.segmentTop}, ${color.segmentBottom})`,
-  thumb: `linear-gradient(180deg, ${color.thumbTop}, ${color.thumbBottom})`,
-  knob: `radial-gradient(circle at 50% 28%, ${color.knobHi}, ${color.knobLo} 72%)`,
-  knobBig: `radial-gradient(circle at 50% 25%, ${color.knobBigHi}, ${color.knobBigLo} 70%)`,
-  knobInner: `radial-gradient(circle at 50% 35%, ${color.knobInnerHi}, ${color.knobInnerLo})`,
-  faderCap: `linear-gradient(180deg, ${color.capTop}, ${color.capMid} 55%, ${color.capBottom})`,
-  header: `linear-gradient(180deg, ${color.headerTop}, ${color.headerBottom})`,
-  headerSelected: `linear-gradient(180deg, ${color.headerSelectedTop}, ${color.headerSelectedBottom})`,
-  headerAgent: `linear-gradient(180deg, ${color.headerAgentTop}, ${color.headerAgentBottom})`,
-  insert: `linear-gradient(180deg, ${color.insertTop}, ${color.insertBottom})`,
-  chip: `linear-gradient(180deg, ${color.chipTop}, ${color.chipBottom})`,
-  sendKey: `radial-gradient(circle at 50% 30%, oklch(0.86 0.11 190), oklch(0.68 0.12 190))`,
-  note: `linear-gradient(180deg, ${color.noteTop}, ${color.noteBottom})`,
-  eqGrid: `repeating-linear-gradient(90deg, ${white(0.05)} 0 1px, transparent 1px 42px), linear-gradient(180deg, transparent 36px, ${white(0.08)} 36px, ${white(0.08)} 37px, transparent 37px)`,
-} as const;
-
-export const shadow = {
-  raised: `inset 0 1px 0 ${white(0.09)}, inset 0 -1px 0 ${black(0.35)}, 0 1px 2px ${black(0.55)}, 0 3px 5px ${black(0.25)}`,
-  raisedSm: `inset 0 1px 0 ${white(0.09)}, 0 1px 2px ${black(0.55)}`,
-  pressed: `inset 0 2px 4px ${black(0.65)}, inset 0 1px 1px ${black(0.5)}, 0 1px 0 ${white(0.05)}`,
-  lit: `inset 0 1px 0 ${white(0.45)}, inset 0 -1px 0 ${black(0.3)}, 0 1px 2px ${black(0.6)}, 0 0 12px ${accentAlpha(0.55)}, 0 0 22px ${accentAlpha(0.25)}`,
-  knob: `inset 0 1px 0 ${white(0.16)}, inset 0 -1px 1px ${black(0.6)}, 0 2px 3px ${black(0.6)}, 0 4px 7px ${black(0.3)}`,
-  knobBig: `inset 0 1px 0 ${white(0.18)}, inset 0 -2px 2px ${black(0.6)}, 0 3px 4px ${black(0.65)}, 0 8px 12px ${black(0.35)}`,
-  knobInner: `inset 0 1px 1px ${black(0.7)}, 0 1px 0 ${white(0.08)}`,
-  knobIndicator: `inset 0 0 1px ${black(0.9)}, 0 0 0 1px ${black(0.35)}`,
-  faderCap: `inset 0 1px 0 ${white(0.25)}, inset 0 -1px 0 ${black(0.5)}, 0 2px 3px ${black(0.7)}, 0 5px 8px ${black(0.35)}`,
-  thumb: `inset 0 1px 0 ${white(0.22)}, inset 0 -1px 0 ${black(0.4)}, 0 1px 2px ${black(0.6)}, 0 3px 4px ${black(0.3)}`,
-  groove: `inset 0 1px 3px ${black(0.9)}, inset 0 0 0 1px ${black(0.5)}, 0 1px 0 ${white(0.05)}`,
-  grooveSoft: `inset 0 1px 2px ${black(0.85)}, 0 1px 0 ${white(0.05)}`,
-  grooveShallow: `inset 0 1px 3px ${black(0.8)}, 0 1px 0 ${white(0.05)}`,
-  grooveSend: `inset 0 1px 2px ${black(0.6)}, 0 1px 0 ${white(0.04)}`,
-  wellDeep: `inset 0 2px 5px ${black(0.85)}, inset 0 0 0 1px ${black(0.6)}, 0 1px 0 ${white(0.06)}`,
-  wellInput: `inset 0 2px 4px ${black(0.8)}, inset 0 0 0 1px ${black(0.6)}, 0 1px 0 ${white(0.05)}`,
-  wellValue: `inset 0 1px 3px ${black(0.85)}`,
-  segment: `inset 0 1px 0 ${white(0.1)}, 0 1px 2px ${black(0.5)}`,
-  clip: `inset 0 1px 0 ${white(0.22)}, inset 0 -1px 0 ${black(0.4)}, 0 2px 3px ${black(0.55)}, 0 5px 10px ${black(0.3)}`,
-  clipAgent: `0 0 0 1px ${color.accent}, 0 0 14px ${accentAlpha(0.45)}`,
-  clipSelected: `0 0 0 1.5px ${white(0.85)}`,
-  ledLit: `0 0 4px ${color.ledGlow}, 0 0 9px ${color.ledGlowSoft}`,
-  ledAccent: `0 0 5px ${accentAlpha(0.9)}, 0 0 10px ${accentAlpha(0.4)}`,
-  ledOff: `inset 0 1px 0 ${black(0.6)}`,
-  ledEmpty: `inset 0 0 0 1px ${white(0.12)}`,
-  glass: `inset 0 1px 0 ${white(0.15)}, 0 0 0 1px ${black(0.4)}, 0 3px 8px ${black(0.4)}`,
-  glassAgent: `inset 0 1px 0 ${white(0.18)}, 0 0 0 1px ${accentAlpha(0.45)}, 0 4px 12px ${black(0.5)}, 0 0 18px ${accentAlpha(0.18)}`,
-  glassCard: `inset 0 1px 0 ${white(0.14)}, 0 0 0 1px ${accentAlpha(0.35)}, 0 6px 18px ${black(0.45)}, 0 0 24px ${accentAlpha(0.12)}`,
-  accentDot: `0 0 6px ${accentAlpha(0.9)}, 0 0 12px ${accentAlpha(0.4)}`,
-  accentDotLg: `0 0 6px ${accentAlpha(0.9)}, 0 0 14px ${accentAlpha(0.45)}`,
-  accentBar: `0 0 6px ${accentAlpha(0.7)}`,
-  playhead: `0 0 5px ${accentAlpha(0.7)}, 0 0 14px ${accentAlpha(0.25)}`,
-  playheadRuler: `0 0 6px ${accentAlpha(0.8)}`,
-  headerCell: `inset -1px 0 0 ${black(0.6)}, inset 0 -1px 0 ${black(0.55)}, inset 0 1px 0 ${white(0.04)}`,
-  headerCellAgent: `inset 0 0 0 1px ${accentAlpha(0.55)}, inset 0 0 18px ${accentAlpha(0.12)}, inset -1px 0 0 ${black(0.6)}, inset 0 -1px 0 ${black(0.55)}, inset 0 1px 0 ${white(0.04)}`,
-  headerColumn: `inset -1px 0 0 ${black(0.6)}`,
-  colorStrip: `inset -1px 0 0 ${black(0.4)}, inset 1px 0 0 ${white(0.15)}`,
-  swatch: `inset 0 1px 0 ${white(0.25)}, 0 1px 1px ${black(0.5)}`,
-  swatchSm: `inset 0 1px 0 ${white(0.2)}, 0 1px 1px ${black(0.5)}`,
-  trafficLight: `inset 0 1px 0 ${white(0.12)}, 0 1px 1px ${black(0.5)}`,
-  titleBar: `inset 0 -1px 0 ${black(0.5)}, inset 0 1px 0 ${white(0.05)}`,
-  transport: `inset 0 1px 0 ${white(0.06)}, 0 2px 6px ${black(0.45)}`,
-  toolbar: `inset 0 -1px 0 ${black(0.6)}, 0 1px 0 ${white(0.03)}`,
-  toolbarEditor: `inset 0 -1px 0 ${black(0.6)}`,
-  rulerCorner: `inset -1px 0 0 ${black(0.6)}, inset 0 -1px 0 ${black(0.6)}`,
-  panelLeft: `inset -1px 0 0 ${black(0.6)}, inset -2px 0 4px ${black(0.25)}`,
-  panelRight: `inset 1px 0 0 ${black(0.6)}, inset 2px 0 4px ${black(0.25)}`,
-  panelAgent: `inset 1px 0 0 ${black(0.65)}, inset 3px 0 6px ${black(0.3)}`,
-  panelAgentRail: `inset 1px 0 0 ${black(0.65)}`,
-  editorPane: `0 -3px 10px ${black(0.5)}, inset 0 1px 0 ${white(0.06)}`,
-  keyColumn: `inset -1px 0 0 ${black(0.7)}`,
-  keyRow: `inset 0 -1px 0 ${black(0.35)}`,
-  divider: `inset 0 -1px 0 ${black(0.5)}`,
-  dividerTop: `inset 0 1px 0 ${white(0.04)}`,
-  logEntry: `inset 0 1px 0 ${white(0.04)}, 0 1px 2px ${black(0.35)}`,
-  logChip: `inset 0 1px 0 ${white(0.12)}, 0 1px 2px ${black(0.5)}`,
-  insert: `inset 0 1px 0 ${white(0.08)}, 0 1px 2px ${black(0.5)}`,
-  insertEmpty: `inset 0 1px 2px ${black(0.6)}, 0 1px 0 ${white(0.04)}`,
-  ledInsertOff: `inset 0 1px 1px ${black(0.8)}`,
-  window: `0 30px 80px ${black(0.6)}, 0 0 0 1px ${white(0.06)}`,
-  sendKey: `inset 0 1px 0 ${white(0.4)}, inset 0 -1px 0 ${black(0.25)}, 0 1px 2px ${black(0.6)}, 0 0 12px ${accentAlpha(0.4)}`,
-  menu: `inset 0 1px 0 ${white(0.08)}, 0 0 0 1px ${black(0.6)}, 0 8px 24px ${black(0.55)}, 0 2px 6px ${black(0.4)}`,
-  inlineInput: `inset 0 1px 2px ${black(0.7)}, 0 0 0 1px ${accentAlpha(0.6)}`,
-  note: `inset 0 1px 0 ${white(0.35)}, inset 0 -1px 0 ${black(0.3)}, 0 1px 2px ${black(0.6)}, 0 2px 4px ${black(0.3)}`,
-  /** Milled slot on a fader cap: dark line with a 1 px light edge below. */
-  faderLineHi: `0 1px 0 ${white(0.14)}`,
-  /** Milled slot on a slider thumb: dark line with a 1 px light edge to the right. */
-  milledHi: `1px 0 0 ${white(0.12)}`,
-} as const;
-
-/**
- * Shadow recipes for canvas code, which cannot parse CSS box-shadow strings.
- * Each entry is a list of layers painted back to front.
- */
-export interface CanvasShadowLayer {
-  blur: number;
-  offsetY: number;
-  color: string;
+/** Refill the live groups. Returns the spec so the caller can emit CSS. */
+export function setTheme(theme: ThemeId, mode: Mode): ThemeSpec {
+  const spec = buildTheme(theme, mode);
+  Object.assign(color, spec.color);
+  Object.assign(gradient, spec.gradient);
+  Object.assign(shadow, spec.shadow);
+  Object.assign(fill, spec.fill);
+  Object.assign(line, spec.line);
+  Object.assign(blur, spec.blur);
+  Object.assign(radius, spec.radius);
+  Object.assign(canvasShadow, spec.canvasShadow);
+  Object.assign(clipMix, spec.clipMix);
+  font.ui = spec.fontUi;
+  tracking.caps = spec.capsTracking;
+  themeVars = { ...spec.vars };
+  scheme = spec.scheme;
+  return spec;
 }
 
-export const canvasShadow = {
-  clipDrop: [
-    { blur: 10, offsetY: 5, color: black(0.3) },
-    { blur: 3, offsetY: 2, color: black(0.55) },
-  ],
-  playhead: [
-    { blur: 14, offsetY: 0, color: accentAlpha(0.25) },
-    { blur: 5, offsetY: 0, color: accentAlpha(0.7) },
-  ],
-  playheadRuler: [{ blur: 6, offsetY: 0, color: accentAlpha(0.8) }],
-  playheadFlag: [{ blur: 4, offsetY: 0, color: accentAlpha(0.7) }],
-  bubble: [{ blur: 8, offsetY: 3, color: black(0.4) }],
-  agentRing: [{ blur: 14, offsetY: 0, color: accentAlpha(0.45) }],
-  agentNote: [
-    { blur: 10, offsetY: 0, color: accentAlpha(0.4) },
-    { blur: 5, offsetY: 0, color: accentAlpha(0.9) },
-  ],
-  noteSelected: [{ blur: 6, offsetY: 0, color: white(0.5) }],
-  note: [
-    { blur: 4, offsetY: 2, color: black(0.3) },
-    { blur: 2, offsetY: 1, color: black(0.6) },
-  ],
-} as const satisfies Record<string, readonly CanvasShadowLayer[]>;
-
-/** Mix ratios (percent of track colour against the panel colour) for clip faces. */
-export const clipMix = {
-  faceTop: 66,
-  faceBottom: 50,
-} as const;
-
-/** Translucent fills used by chrome that is not a full material. */
-export const fill = {
-  glass: "rgba(60,60,58,.55)",
-  glassAgent: "rgba(58,64,64,.55)",
-  glassCard: "rgba(66,70,70,.4)",
-  logLive: "rgba(66,70,70,.35)",
-  logChipLive: black(0.25),
-  browserHighlight: white(0.07),
-  cycleRuler: white(0.09),
-  cycleLane: white(0.025),
-  clipTitle: black(0.22),
-  rowShade: white(0.035),
-  blackKeyRow: black(0.14),
-  eqGridLine: white(0.05),
-  eqZeroLine: white(0.08),
-  velocity: white(0.18),
-  /** Ghost of a clip or note while it is being dragged. */
-  dragGhost: white(0.12),
-  /** Marquee / pencil preview while drawing a new clip or note. */
-  pencilPreview: accentAlpha(0.25),
-  cycleHandle: white(0.35),
-  dropTarget: accentAlpha(0.12),
-  stepCell: white(0.06),
-} as const;
-
-/** Line colours for grids and rules. */
-export const line = {
-  barLine: white(0.075),
-  beatLine: white(0.025),
-  rulerBar: white(0.16),
-  rulerTick: white(0.07),
-  cycleEdge: white(0.2),
-  editorBar: white(0.09),
-  editorBeat: white(0.03),
-  waveform: white(0.72),
-  waveformMid: white(0.35),
-  midiNote: white(0.78),
-  clipName: white(0.88),
-  clipTitleBottom: black(0.2),
-  cellDivider: white(0.06),
-  dividerDark: black(0.5),
-  laneTop: white(0.02),
-  laneBottom: black(0.45),
-  rulerBottom: black(0.6),
-  faderLine: black(0.7),
-  faderLineHi: white(0.14),
-  milled: black(0.6),
-  milledHi: white(0.12),
-  dragGhostEdge: white(0.5),
-  noteSelected: white(0.9),
-  splitGuide: accentAlpha(0.9),
-  staff: white(0.35),
-  noteHead: white(0.9),
-} as const;
-
-export const blur = {
-  glass: "8px",
-  glassAgent: "10px",
-  glassCard: "12px",
-} as const;
+export const colorScheme = (): Mode => scheme;
 
 // ---------------------------------------------------------------------------
 // CSS custom properties
@@ -472,7 +219,7 @@ function emit(
   }
 }
 
-/** Every token as a CSS custom property. Applied once at startup by applyTokens(). */
+/** Every token of the current theme as a CSS custom property. */
 export function cssVariables(): Record<string, string> {
   const vars: Record<string, string> = {};
   emit(vars, "color", color);
@@ -490,141 +237,5 @@ export function cssVariables(): Record<string, string> {
   emit(vars, "fill", fill);
   emit(vars, "line", line);
   emit(vars, "blur", blur);
-  return vars;
+  return { ...vars, ...themeVars };
 }
-
-export const tokens = {
-  color,
-  font,
-  fontSize,
-  fontWeight,
-  tracking,
-  lineHeight,
-  space,
-  radius,
-  size,
-  timeline,
-  gradient,
-  shadow,
-  fill,
-  line,
-  blur,
-  canvasShadow,
-  clipMix,
-  white,
-  black,
-  accentAlpha,
-} as const;
-
-export type Tokens = typeof tokens;
-
-/** Frutiger Aero experiment: deep-water canvas, blue glass chrome, lime transport. */
-/** Pearl work surfaces, sky glass and aqua controls; light falls from above-left. */
-export const aeroColor: Partial<Record<keyof typeof color, string>> = {
-  desk: "#7bbbd6",
-  wellDeep: "#d6e9e9",
-  groove: "#deebef",
-  grooveAlt: "#f6fbfc",
-  timelineEmpty: "#e3edf1",
-  timeline: "#f4f8fa",
-  timelineAgent: "#e0f2ed",
-  timelineSelected: "#d8eaf4",
-  editor: "#edf4f7",
-  ruler: "#e3eef3",
-  materialCard: "#f8fcfd",
-  agentPanel: "#f4f9fc",
-  panel: "#e5f0f5",
-  logEntry: "#eaf3f7",
-  raised: "#d5e7ef",
-  controlFace: "#99b7c7",
-  controlTop: "#ffffff",
-  controlBottom: "#c6dce8",
-  pressedTop: "#aecedd",
-  pressedBottom: "#e0f0f6",
-  transportTop: "#f6fdff",
-  transportBottom: "#bad8e8",
-  segmentTop: "#d9f4ff",
-  segmentBottom: "#9acbe2",
-  thumbTop: "#ffffff",
-  thumbBottom: "#a8c2d1",
-  knobHi: "#ffffff",
-  knobLo: "#9eb9c8",
-  knobBigHi: "#ffffff",
-  knobBigLo: "#9fbcc9",
-  knobInnerHi: "#e6f1f6",
-  knobInnerLo: "#b1cbd7",
-  capTop: "#ffffff",
-  capMid: "#d7e7ee",
-  capBottom: "#97b5c7",
-  headerTop: "#f6fbfd",
-  headerBottom: "#dceaf1",
-  headerSelectedTop: "#e4f7ff",
-  headerSelectedBottom: "#b8d9ea",
-  headerAgentTop: "#edfdf5",
-  headerAgentBottom: "#c5e5da",
-  insertTop: "#f7fcfe",
-  insertBottom: "#c7dce8",
-  chipTop: "#ffffff",
-  chipBottom: "#c9dfeb",
-  inkBright: "#123d52",
-  ink100: "#203b49",
-  inkControl: "#284c5f",
-  inkDim: "#355765",
-  ink300: "#426171",
-  ink500: "#536d7a",
-  inkSeparator: "#88a8b8",
-  inkKeyWhite: "#436273",
-  keyWhite: "#fcfefe",
-  keyBlack: "#304854",
-  neutralDot: "#88a6b4",
-  accent: "#006da1",
-  accentHi: "#b7efff",
-  accentLo: "#25a2cc",
-  accentInk: "#083b53",
-  led: "#63bb2f",
-  ledOff: "#adc1c6",
-  ledGlow: "rgba(103,185,59,.5)",
-  ledGlowSoft: "rgba(103,185,59,.2)",
-  menu: "#f7fcfe",
-  menuHover: "#d8edf8",
-  menuSeparator: "#bfd4df",
-  trafficLight: "#b4cbd7",
-};
-
-export const aeroFill: Partial<Record<keyof typeof fill, string>> = {
-  glass: "rgba(240,251,255,.84)",
-  glassAgent: "rgba(228,246,255,.9)",
-  glassCard: "rgba(239,250,255,.94)",
-  logLive: "#e0f2fa",
-  logChipLive: "#c5e7f4",
-  browserHighlight: "rgba(33,123,168,.12)",
-  cycleRuler: "rgba(64,155,71,.16)",
-  cycleLane: "rgba(64,155,71,.035)",
-  rowShade: "rgba(30,77,104,.035)",
-  blackKeyRow: "rgba(33,67,86,.06)",
-  velocity: "rgba(23,95,135,.45)",
-  eqGridLine: "rgba(33,67,86,.08)",
-  eqZeroLine: "rgba(33,67,86,.18)",
-  stepCell: "rgba(33,67,86,.08)",
-};
-export const aeroLine: Partial<Record<keyof typeof line, string>> = {
-  barLine: "rgba(28,70,94,.22)",
-  beatLine: "rgba(28,70,94,.08)",
-  rulerBar: "rgba(28,70,94,.35)",
-  rulerTick: "rgba(28,70,94,.22)",
-  cycleEdge: "#6baa56",
-  editorBar: "rgba(28,70,94,.2)",
-  editorBeat: "rgba(28,70,94,.08)",
-  cellDivider: "rgba(28,70,94,.12)",
-  dividerDark: "#b1cbd8",
-  laneTop: "rgba(255,255,255,.8)",
-  laneBottom: "rgba(28,70,94,.13)",
-  rulerBottom: "#a7c4d3",
-  waveform: "rgba(27,55,74,.8)",
-  waveformMid: "rgba(27,55,74,.35)",
-  midiNote: "rgba(27,55,74,.8)",
-  clipName: "#173b52",
-  noteSelected: "#075480",
-  staff: "#7d9aa9",
-  noteHead: "#294d60",
-};

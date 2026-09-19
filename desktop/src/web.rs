@@ -307,6 +307,7 @@ impl WebHost {
         value["recoveryStatus"] = json!(self.app.recovery.status());
         value["scale"] = json!(self.app.settings.interface.scale);
         value["appearance"] = json!(self.app.settings.interface.appearance);
+        value["mode"] = json!(self.app.settings.interface.mode);
         value["update"] = json!({"available":self.app.updates.available.as_ref().map(|r| &r.version),
             "installed":self.app.updates.installed.is_some(),"busy":self.app.updates.busy()});
         Ok(value)

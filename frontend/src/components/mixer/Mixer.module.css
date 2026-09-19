@@ -49,8 +49,8 @@
   gap: 5px;
   padding: 7px 6px;
   border-radius: var(--radius-button);
-  border: 1px solid var(--color-well-deep);
-  background: var(--color-panel);
+  border: 1px solid var(--line-border);
+  background: var(--gradient-plate);
   overflow: hidden;
 }
 

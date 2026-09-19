@@ -14,7 +14,11 @@ import { Dialogs } from "./components/Dialogs";
 import { Mixer } from "./components/mixer/Mixer";
 import { CommandPalette } from "./components/palette/CommandPalette";
 import { useFileDrop } from "./state/fileDrop";
-import { applyAppearance } from "./theme/applyTokens";
+import {
+  applyAppearance,
+  normalizeTheme,
+  resolveMode,
+} from "./theme/applyTokens";
 import styles from "./App.module.css";
 
 export function App() {
@@ -23,13 +27,22 @@ export function App() {
   useEffect(() => {
     store.fire("web.rendered");
   }, [store]);
-  const appearance = useSyncExternalStore(
+  const appearance = useSyncExternalStore(store.subscribeMeta, () =>
+    normalizeTheme(store.ui.appearance),
+  );
+  const modeSetting = useSyncExternalStore(
     store.subscribeMeta,
-    () => store.ui.appearance ?? "aero",
+    () => store.ui.mode ?? "dark",
   );
   useEffect(() => {
-    applyAppearance(appearance);
-  }, [appearance]);
+    applyAppearance(appearance, resolveMode(modeSetting));
+    if (modeSetting !== "auto") return;
+    // "Auto" follows the system while the window is open.
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const follow = () => applyAppearance(appearance, resolveMode("auto"));
+    media.addEventListener("change", follow);
+    return () => media.removeEventListener("change", follow);
+  }, [appearance, modeSetting]);
   const scale = useSyncExternalStore(
     store.subscribeMeta,
     () => store.ui.scale ?? 1,

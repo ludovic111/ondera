@@ -6,7 +6,7 @@
   justify-content: center;
   align-items: flex-start;
   padding-top: calc(14vh / var(--ui-scale, 1));
-  background: #0004;
+  background: var(--color-scrim);
 }
 
 .palette {
@@ -14,12 +14,10 @@
   max-height: calc(60vh / var(--ui-scale, 1));
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-well-deep);
-  border-radius: 7px;
-  background: linear-gradient(var(--color-transport-top), var(--color-panel));
-  box-shadow:
-    0 18px 55px #0009,
-    inset 0 1px #ffffff20;
+  border: 0;
+  border-radius: var(--radius-window);
+  background: var(--gradient-dialog);
+  box-shadow: var(--shadow-dialog);
   color: var(--color-ink100);
   overflow: hidden;
 }
@@ -28,9 +26,10 @@
   flex: none;
   margin: 10px;
   padding: 9px 11px;
-  border: 1px solid var(--color-well-deep);
-  border-radius: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: var(--color-groove-alt);
+  box-shadow: var(--shadow-well-input);
   color: inherit;
   font: inherit;
   font-size: var(--fs-body, 13px);

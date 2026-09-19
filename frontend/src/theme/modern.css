@@ -1,0 +1,12 @@
+/* Modern structure: type is set a touch looser and nothing is embossed. */
+:root[data-theme="modern"] :is(.caps, .t-caps) {
+  font-weight: var(--fw-semibold);
+}
+:root[data-theme="modern"] .native-dialog > header {
+  height: 44px;
+  font-size: 13px;
+}
+:root[data-theme="modern"] .aero-play[aria-pressed="true"],
+:root[data-theme="modern"] .m-lit {
+  color: var(--color-accent-ink);
+}

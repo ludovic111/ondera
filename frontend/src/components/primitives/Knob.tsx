@@ -4,8 +4,10 @@ import styles from "./Knob.module.css";
 export interface KnobProps {
   /** Rotation in degrees, 0 = straight up. */
   angle: number;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   title?: string | undefined;
+  /** Accessible name when it differs from the tooltip. */
+  label?: string | undefined;
   /** Current value; with min/max and onChange the knob becomes draggable. */
   value?: number;
   min?: number;
@@ -26,6 +28,7 @@ export function Knob({
   angle,
   size = "sm",
   title,
+  label,
   value,
   min,
   max,
@@ -76,7 +79,7 @@ export function Knob({
       title={title}
       role={interactive ? "slider" : undefined}
       tabIndex={interactive ? 0 : undefined}
-      aria-label={title ?? "Pan"}
+      aria-label={label ?? title ?? "Pan"}
       aria-valuemin={min}
       aria-valuemax={max}
       aria-valuenow={value}
@@ -111,7 +114,7 @@ export function Knob({
       onPointerUp={onPointerUp}
       onDoubleClick={onDoubleClick}
     >
-      {size === "lg" && <div className={styles.inner} />}
+      {(size === "lg" || size === "xl") && <div className={styles.inner} />}
       <div className={styles.indicator} />
     </div>
   );

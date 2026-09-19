@@ -7,6 +7,8 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "./theme/global.css";
 import "./theme/materials.css";
 import "./theme/native.css";
+import "./theme/modern.css";
+import "./theme/skeuo.css";
 import "./theme/aero.css";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,6 +22,9 @@ const root = createRoot(document.getElementById("root")!);
 const store = new NativeStore();
 root.render(<div className="startup">Opening Ondera…</div>);
 async function start() {
+  // A plain browser (npm run dev) has no host; serve the fixture song instead.
+  if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window))
+    (await import("./dev/mockHost")).install();
   await listen("daw:capture", async () => {
     try {
       await document.fonts.ready;

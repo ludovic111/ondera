@@ -1,0 +1,13 @@
+/* Skeuomorphic structure: the chassis carries a brushed grain; nothing else
+   differs from the base material classes, which are this theme's recipes. */
+:root[data-theme="skeuo"]
+  :is([data-surface="titlebar"], [data-surface="transport"])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--skeuo-grain);
+}
+:root[data-theme="skeuo"] [data-surface="transport"] {
+  position: relative;
+}

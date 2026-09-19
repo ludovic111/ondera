@@ -13,7 +13,6 @@ import {
   radius,
   size,
   timeline,
-  white,
 } from "../theme/tokens";
 import { withLightness } from "../theme/color";
 import {
@@ -240,7 +239,7 @@ export function drawPianoRoll(
       ctx.save();
       roundRectPath(ctx, x, y, nw, nh, radius.xs);
       ctx.clip();
-      hline(ctx, x, y, nw, white(0.35));
+      hline(ctx, x, y, nw, line.noteHighlight);
       hline(ctx, x, y + nh - 1, nw, color.desk);
       ctx.fillStyle = cc(fill.velocity);
       ctx.fillRect(x, y, Math.round((n.velocity / 127) * nw), nh);

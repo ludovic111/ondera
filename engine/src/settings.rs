@@ -48,7 +48,10 @@ pub struct Audio {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Interface {
+    /// Theme: `modern`, `skeuo` or `aero`.
     pub appearance: String,
+    /// `dark`, `light`, or `auto` to follow the system.
+    pub mode: String,
     /// Interface zoom, 0.75-1.75.
     pub scale: f32,
     pub agent_panel_open_on_start: bool,
@@ -202,9 +205,27 @@ impl Default for Interface {
         Self {
             scale: 1.0,
             appearance: "aero".into(),
+            mode: "light".into(),
             agent_panel_open_on_start: false,
             show_tooltips: true,
             follow_playhead: true,
+        }
+    }
+}
+/// The three interface themes; each has a dark and a light mode.
+pub const THEMES: [&str; 3] = ["modern", "skeuo", "aero"];
+impl Interface {
+    /// Files written before 0.6 had two appearances and no mode: `graphite` was
+    /// the dark skeuomorphic look, `aero` the light glass one.
+    fn migrate(&mut self, stored: &str) {
+        let had_mode = serde_json::from_str::<serde_json::Value>(stored)
+            .ok()
+            .is_some_and(|v| v["interface"]["mode"].is_string());
+        if self.appearance == "graphite" {
+            self.appearance = "skeuo".into();
+            self.mode = "dark".into();
+        } else if !had_mode {
+            self.mode = if self.appearance == "aero" { "light" } else { "dark" }.into();
         }
     }
 }
@@ -272,8 +293,9 @@ impl Settings {
                 if text.len() > 4 * 1024 * 1024 {
                     return Err("Settings file exceeds 4 MiB".into());
                 }
-                let settings: Settings = serde_json::from_str(&text)
+                let mut settings: Settings = serde_json::from_str(&text)
                     .map_err(|e| format!("Invalid settings file {}: {e}", path.display()))?;
+                settings.interface.migrate(&text);
                 settings.validate()?;
                 Ok(settings)
             }
@@ -321,8 +343,11 @@ impl Settings {
         if self.agent.model.len() > 200 || self.agent.model.chars().any(char::is_control) {
             return Err("Model names must be printable and at most 200 characters".into());
         }
-        if !["graphite", "aero"].contains(&self.interface.appearance.as_str()) {
-            return Err("Appearance must be graphite or aero".into());
+        if !THEMES.contains(&self.interface.appearance.as_str()) {
+            return Err("Appearance must be modern, skeuo or aero".into());
+        }
+        if !["dark", "light", "auto"].contains(&self.interface.mode.as_str()) {
+            return Err("Mode must be dark, light or auto".into());
         }
         if self.agent.reasoning_effort.len() > 40
             || self
@@ -523,6 +548,36 @@ fn coerce(current: &Value, value: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn appearances_written_before_themes_had_modes_are_migrated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        for (stored, theme, mode) in [
+            (r#"{"interface":{"appearance":"graphite"}}"#, "skeuo", "dark"),
+            (r#"{"interface":{"appearance":"aero"}}"#, "aero", "light"),
+            (
+                r#"{"interface":{"appearance":"aero","mode":"dark"}}"#,
+                "aero",
+                "dark",
+            ),
+            (
+                r#"{"interface":{"appearance":"modern","mode":"auto"}}"#,
+                "modern",
+                "auto",
+            ),
+        ] {
+            std::fs::write(&path, stored).unwrap();
+            let settings = Settings::read(&path).unwrap();
+            assert_eq!(settings.interface.appearance, theme);
+            assert_eq!(settings.interface.mode, mode);
+        }
+        let mut settings = Settings::default();
+        assert!(settings.set("interface.appearance", json!("graphite")).is_err());
+        assert!(settings.set("interface.mode", json!("dim")).is_err());
+        for theme in THEMES {
+            settings.set("interface.appearance", json!(theme)).unwrap();
+        }
+    }
     #[test]
     fn switching_provider_resets_an_incompatible_model_but_keeps_credentials() {
         let mut settings = Settings::default();

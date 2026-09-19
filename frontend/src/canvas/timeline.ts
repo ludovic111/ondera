@@ -14,7 +14,6 @@ import {
   line,
   radius,
   size,
-  white,
 } from "../theme/tokens";
 import { mix, withAlpha } from "../theme/color";
 import {
@@ -283,8 +282,8 @@ function drawClip(
   hline(ctx, x, y + titleH - 1, w, line.clipTitleBottom);
 
   // Specular highlight and contact line.
-  hline(ctx, x, y, w, white(0.22));
-  hline(ctx, x, y + h - 1, w, withAlpha(color.desk, 0.4));
+  hline(ctx, x, y, w, line.clipHighlight);
+  hline(ctx, x, y + h - 1, w, line.clipContact);
 
   // Name.
   ctx.font = uiFont("small", "semibold");
@@ -319,7 +318,7 @@ function drawClip(
       ctx.stroke();
     });
   } else if (selected) {
-    ctx.strokeStyle = white(0.85);
+    ctx.strokeStyle = cc(line.clipSelected);
     ctx.lineWidth = 1.5;
     roundRectPath(ctx, x - 0.25, y - 0.25, w + 0.5, h + 0.5, r);
     ctx.stroke();

@@ -6,7 +6,7 @@
   align-items: center;
   gap: 22px;
   padding: 0 14px;
-  background: var(--color-panel);
+  background: var(--gradient-title-bar), var(--color-panel);
   box-shadow: var(--shadow-title-bar);
   color: var(--color-ink300);
   font-size: var(--fs-list);

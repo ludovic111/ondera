@@ -73,7 +73,7 @@
   min-height: 80px;
   resize: vertical;
   background: var(--color-groove-alt);
-  border: 1px solid var(--color-groove);
+  border: 1px solid var(--line-border);
   padding: 8px;
   border-radius: var(--radius-control);
 }

@@ -28,7 +28,7 @@
 }
 
 .hot {
-  background: var(--color-accent);
+  background: var(--color-led-hot);
   box-shadow: var(--shadow-led-accent);
 }
 

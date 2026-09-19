@@ -1,0 +1,132 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 6px 8px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-groove-alt);
+  box-shadow: var(--shadow-well-input);
+  text-align: left;
+  color: var(--color-ink100);
+}
+
+.card:hover {
+  background: var(--color-raised);
+}
+
+.card[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    var(--shadow-well-input);
+}
+
+.name {
+  margin: 6px 4px 0;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+
+.blurb {
+  margin: 0 4px;
+  font-size: var(--fs-small);
+  color: var(--color-ink500);
+}
+
+/* Miniature window. Sizes are fixed: it is a picture, not a layout. */
+.preview {
+  height: 86px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.bar {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.key {
+  width: 15px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.lcd {
+  margin-left: 3px;
+  padding: 0 5px;
+  height: 13px;
+  border-radius: 3px;
+  font: 7px/13px var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.knob {
+  margin-left: auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  display: grid;
+  justify-items: center;
+  transform: rotate(35deg);
+}
+
+.knob i {
+  width: 1.5px;
+  height: 4px;
+  margin-top: 1px;
+  border-radius: 1px;
+}
+
+.lanes {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.lane {
+  position: relative;
+  flex: 1;
+}
+
+.clip {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 44%;
+  width: 1px;
+}

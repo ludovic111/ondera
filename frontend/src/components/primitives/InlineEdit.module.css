@@ -7,7 +7,7 @@
   border-radius: var(--radius-sm);
   background: var(--color-well-deep);
   box-shadow: var(--shadow-inline-input);
-  color: var(--color-ink100);
+  color: var(--color-well-ink);
   font-size: var(--fs-body);
   font-weight: var(--fw-semibold);
   user-select: text;

@@ -2,18 +2,27 @@ import { useEffect, useState } from "react";
 import { Modal } from "./Dialogs";
 import { useStore } from "../state/session";
 import { native } from "../state/native";
-interface Parameter {
-  id: number;
-  name: string;
-  min: number;
-  max: number;
-  value: number;
-  default: number;
-  unit: string;
-  steps: number;
-  labels: string[];
-  logarithmic: boolean;
-}
+import { PluginFace, type Parameter } from "./plugin/PluginFace";
+
+/** Mirrors `category` in engine/src/stock.rs; anything else is an instrument. */
+const CATEGORY: Record<string, string> = {
+  "Ondera Comp": "Dynamics",
+  Gate: "Dynamics",
+  Limiter: "Dynamics",
+  Transient: "Dynamics",
+  "Channel EQ": "EQ & Filter",
+  Filter: "EQ & Filter",
+  "Tape Sat": "Distortion",
+  Overdrive: "Distortion",
+  Bitcrusher: "Distortion",
+  Chorus: "Modulation",
+  Phaser: "Modulation",
+  Tremolo: "Modulation",
+  Space: "Space & Time",
+  Echo: "Space & Time",
+  Width: "Utility",
+  Utility: "Utility",
+};
 export function PluginPanel({
   id,
   trackId,
@@ -62,12 +71,21 @@ export function PluginPanel({
     );
     store.fire("strip.setParameter", { ...target, parameterId: p.id, value });
   };
-  return (
-    <Modal
-      title={pluginId.replace(/^stock:/, "") || "Plugin parameters"}
-      onClose={onClose}
-    >
-      <div className="plugin-toolbar">
+  const automate = (p: Parameter) => {
+    void store
+      .run("automation.create", {
+        target: "pluginParameter",
+        ...target,
+        parameterId: p.id,
+      })
+      .then(() => store.fire("ui.showPanel", { panel: "automation" }))
+      .catch(store.reportError);
+  };
+  const stock = pluginId.startsWith("stock:");
+  const name = pluginId.replace(/^stock:/, "");
+  const toolbar = (
+    <>
+      {!stock && (
         <button
           onClick={() =>
             store.fire("ui.openPluginWindow", { ...target, native: true })
@@ -75,90 +93,97 @@ export function PluginPanel({
         >
           Open plugin window
         </button>
-        <select
-          aria-label="Preset"
-          defaultValue=""
-          onChange={(e) => {
-            void store
-              .run("preset.load", { ...target, name: e.target.value })
-              .then(refresh)
-              .catch(store.reportError);
-          }}
-        >
-          <option value="" disabled>
-            Preset…
-          </option>
-          {presets.map((p) => (
-            <option key={p.name}>{p.name}</option>
-          ))}
-        </select>
-        <input
-          aria-label="Preset name"
-          placeholder="Preset name"
-          value={presetName}
-          onChange={(e) => setPresetName(e.target.value)}
-        />
-        <button
-          disabled={!presetName.trim()}
-          onClick={() => {
-            void store
-              .run("preset.save", { ...target, name: presetName })
-              .then(refresh)
-              .catch(store.reportError);
-          }}
-        >
-          Save preset
-        </button>
-      </div>
-      {error && <p role="status">{error}</p>}
-      <div className="parameter-list">
-        {parameters.map((p) => (
-          <label key={p.id}>
-            <span>{p.name}</span>
-            <input
-              aria-label={p.name}
-              type="range"
-              min={p.min}
-              max={p.max}
-              step={
-                p.steps > 1
-                  ? (p.max - p.min) / (p.steps - 1)
-                  : (p.max - p.min) / 1000
-              }
-              value={p.value}
-              onChange={(e) => change(p, Number(e.target.value))}
-              onDoubleClick={() => change(p, p.default)}
-            />
-            <input
-              aria-label={`${p.name} value`}
-              type="number"
-              min={p.min}
-              max={p.max}
-              step="any"
-              value={Number(p.value.toFixed(4))}
-              onChange={(e) => change(p, Number(e.target.value))}
-            />
-            <small>{p.unit}</small>
-            <button
-              title={`Automate ${p.name}`}
-              onClick={() => {
-                void store
-                  .run("automation.create", {
-                    target: "pluginParameter",
-                    ...target,
-                    parameterId: p.id,
-                  })
-                  .then(() =>
-                    store.fire("ui.showPanel", { panel: "automation" }),
-                  )
-                  .catch(store.reportError);
-              }}
-            >
-              A
-            </button>
-          </label>
+      )}
+      <select
+        aria-label="Preset"
+        value=""
+        onChange={(e) => {
+          void store
+            .run("preset.load", { ...target, name: e.target.value })
+            .then(refresh)
+            .catch(store.reportError);
+        }}
+      >
+        <option value="" disabled>
+          Preset…
+        </option>
+        {presets.map((p) => (
+          <option key={p.name}>{p.name}</option>
         ))}
-      </div>
+      </select>
+      <input
+        aria-label="Preset name"
+        placeholder="Preset name"
+        value={presetName}
+        onChange={(e) => setPresetName(e.target.value)}
+      />
+      <button
+        disabled={!presetName.trim()}
+        onClick={() => {
+          void store
+            .run("preset.save", { ...target, name: presetName })
+            .then(refresh)
+            .catch(store.reportError);
+        }}
+      >
+        Save preset
+      </button>
+    </>
+  );
+  return (
+    <Modal title={name || "Plugin parameters"} onClose={onClose}>
+      {error && <p role="status">{error}</p>}
+      {stock ? (
+        <PluginFace
+          name={name}
+          category={CATEGORY[name] ?? "Instrument"}
+          parameters={parameters}
+          onChange={change}
+          onAutomate={automate}
+          toolbar={toolbar}
+        />
+      ) : (
+        <>
+          <div className="plugin-toolbar">{toolbar}</div>
+          <div className="parameter-list">
+            {parameters.map((p) => (
+              <label key={p.id}>
+                <span>{p.name}</span>
+                <input
+                  aria-label={p.name}
+                  type="range"
+                  min={p.min}
+                  max={p.max}
+                  step={
+                    p.steps > 1
+                      ? (p.max - p.min) / (p.steps - 1)
+                      : (p.max - p.min) / 1000
+                  }
+                  value={p.value}
+                  onChange={(e) => change(p, Number(e.target.value))}
+                  onDoubleClick={() => change(p, p.default)}
+                />
+                <input
+                  aria-label={`${p.name} value`}
+                  type="number"
+                  min={p.min}
+                  max={p.max}
+                  step="any"
+                  value={Number(p.value.toFixed(4))}
+                  onChange={(e) => change(p, Number(e.target.value))}
+                />
+                <small>{p.unit}</small>
+                <button
+                  title={`Automate ${p.name}`}
+                  onClick={() => automate(p)}
+                >
+                  A
+                </button>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
     </Modal>
   );
 }

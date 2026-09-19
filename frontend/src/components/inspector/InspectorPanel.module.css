@@ -240,7 +240,7 @@
 .volValue {
   font-family: var(--font-mono);
   font-size: var(--fs-secondary);
-  color: var(--color-ink100);
+  color: var(--color-well-ink);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: var(--color-well-deep);
@@ -332,6 +332,6 @@
   font-size: 10px;
 }
 .channelButtons button[aria-pressed="true"] {
-  color: #1e2928;
-  background: #48d0c9;
+  color: var(--color-accent-ink);
+  background: var(--gradient-lit);
 }
