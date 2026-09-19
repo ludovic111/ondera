@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -54,14 +55,22 @@ const NOT_FOUND = `<!doctype html><meta charset="utf-8"><title>Ondera — not fo
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#141413;color:#a9a8a4;font:14px/1.5 Manrope,system-ui,sans-serif}a{color:#e8e7e4}</style>
 <p>Nothing at this address. <a href="/">Back to Ondera</a></p>`;
 
-function send(res, status, body, type, cache) {
+function send(res, status, body, type, cache, req) {
+  // Text compresses six-fold (the token sheet most of all); images already are.
+  const gzip =
+    /^text\/|json|svg/.test(type) &&
+    Buffer.byteLength(body) > 1024 &&
+    /\bgzip\b/.test(String(req?.headers['accept-encoding'] ?? ''));
+  const payload = gzip ? gzipSync(body) : body;
   res.writeHead(status, {
     'Content-Type': type,
-    'Content-Length': Buffer.byteLength(body),
+    'Content-Length': Buffer.byteLength(payload),
     'Cache-Control': cache,
+    ...(gzip ? { 'Content-Encoding': 'gzip' } : {}),
+    Vary: 'Accept-Encoding',
     ...SECURITY,
   });
-  res.end(body);
+  res.end(req?.method === 'HEAD' ? undefined : payload);
 }
 
 createServer(async (req, res) => {
@@ -112,7 +121,7 @@ createServer(async (req, res) => {
       const host = String(req.headers.host ?? 'localhost').replace(/[^\w.:-]/g, '');
       body = Buffer.from(body.toString('utf8').replaceAll('%ORIGIN%', `${proto}://${host}`));
     }
-    send(res, 200, body, type, cache);
+    send(res, 200, body, type, cache, req);
   } catch {
     send(res, 404, NOT_FOUND, TYPES['.html'], 'no-store');
   }

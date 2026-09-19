@@ -18,8 +18,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="tokens.css">
-  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js?v=0.6"></script>
+  <link rel="stylesheet" href="tokens.css?v=0.6">
+  <link rel="stylesheet" href="styles.css?v=0.6">
 </head>
 <body>
 <a class="skip" href="#top">Skip to content</a>
@@ -29,11 +30,22 @@
     <a class="wordmark" href="#top" aria-label="Ondera home"><span class="led led--accent"></span>Ondera</a>
     <nav class="nav__links" aria-label="Sections">
       <a href="#features">Features</a>
+      <a href="#themes">Themes</a>
       <a href="#switch">Switching</a>
       <a href="#agent">Agent</a>
       <a href="#faq">FAQ</a>
       <a href="https://github.com/ludovic111/ondera" rel="noopener">GitHub</a>
     </nav>
+    <div class="themebar" role="group" aria-label="Site theme">
+      <div class="segmented themebar__themes">
+        <button type="button" data-set-theme="modern" aria-pressed="false" title="Modern">Modern</button>
+        <button type="button" data-set-theme="skeuo" aria-pressed="false" title="Skeuomorphic">Skeuo</button>
+        <button type="button" data-set-theme="aero" aria-pressed="false" title="Frutiger Aero">Aero</button>
+      </div>
+      <button class="tbtn themebar__mode" type="button" data-toggle-mode aria-label="Switch between dark and light" title="Dark / light">
+        <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5a5.5 5.5 0 1 0 0 11z"/><circle cx="7" cy="7" r="5.5" fill="none"/></svg>
+      </button>
+    </div>
     <a class="btn btn--lit btn--sm" href="/download" data-download>Download</a>
   </div>
 </header>
@@ -48,7 +60,7 @@
       <a class="btn btn--lit" href="/download" data-download data-download-label>Download Ondera</a>
       <a class="btn btn--raised" href="#downloads">All platforms</a>
     </div>
-    <p class="hero__fine reveal">Version 0.5 · MIT licensed · no account, no subscription, no telemetry</p>
+    <p class="hero__fine reveal">Version 0.6 · MIT licensed · no account, no subscription, no telemetry</p>
   </section>
 
   <section class="demo" aria-label="Interactive preview of the Ondera arrangement window">
@@ -169,7 +181,7 @@
       <article class="feature reveal"><h3>Record and arrange</h3><p>Audio and MIDI recording, cycle ranges, split, trim, duplicate, copy and paste, snap from whole bars to 1/64. Drop WAV, AIFF, FLAC, MP3, Ogg or AAC straight onto the window.</p></article>
       <article class="feature reveal"><h3>Three MIDI editors</h3><p>Piano roll, score and step views on the same notes. Quantise, humanise, legato, velocity ramps, fit to scale and transpose, from the menu or <kbd>⌥↑</kbd> <kbd>⌥↓</kbd>.</p></article>
       <article class="feature reveal"><h3>A real mixer</h3><p>Fader, pan, mute, solo, arm and a live meter per channel, eight inserts a strip, reverb and delay buses, a master chain and drawn automation for any parameter.</p></article>
-      <article class="feature reveal"><h3>24 stock plugins</h3><p>Eight instruments, from a polysynth and an electric piano to an 808 and a sampler. Sixteen effects: compressor, EQ, tape, reverb, echo, limiter, transient shaper and more, all with presets.</p></article>
+      <article class="feature reveal"><h3>24 stock plugins</h3><p>Eight instruments, from a polysynth and an electric piano to an 808 and a sampler. Sixteen effects: compressor, EQ, tape, reverb, echo, limiter, transient shaper and more. Each has a front panel whose display draws what it is doing, from the same maths as the audio.</p></article>
       <article class="feature reveal"><h3>Your plugins too</h3><p>Hosts VST3, CLAP and macOS Audio Units, scanned in a separate process so one bad plugin cannot take the app down. State is saved inside the project.</p></article>
       <article class="feature reveal"><h3>Rhythm Lab and takes</h3><p>Generate Euclidean grooves you can audition before committing. Keep up to eight protected variations of a session and flip between them A/B.</p></article>
       <article class="feature reveal"><h3>Export that fits the job</h3><p>Stereo WAV up to 96 kHz and 32-bit float, aligned track stems, selected ranges and 960-PPQ MIDI. Import MIDI files the same way.</p></article>
@@ -272,10 +284,43 @@
     <p class="clients__foot reveal">These examples reflect the <em>browser preview’s store</em>. Mute BGV above and watch the displayed values follow.</p>
   </section>
 
+  <section id="themes" class="section">
+    <p class="eyebrow reveal">Themes</p>
+    <h2 class="reveal">Three looks. Dark and light. Same instrument.</h2>
+    <p class="lede reveal">Pick the one you want to stare at for six hours. Every theme is computed, not painted: one neutral ramp in OKLCH, one accent, and text contrast that is tested on every surface in both modes. This page is wearing the same tokens as the app, so choose one and watch everything follow, the preview above included.</p>
+
+    <div class="themes reveal" role="radiogroup" aria-label="Theme">
+      <button class="themecard" type="button" role="radio" aria-checked="false" data-set-theme="modern" data-theme="modern">
+        <span class="mini" aria-hidden="true">
+          <span class="mini__bar"><i class="mini__key mini__key--lit"></i><i class="mini__key"></i><i class="mini__lcd">004·2·1</i><i class="mini__knob"></i></span>
+          <span class="mini__lanes"><i style="--x:6%;--w:44%;--track:oklch(0.72 0.14 40)"></i><i style="--x:6%;--w:70%;--track:oklch(0.72 0.13 300)"></i><i style="--x:30%;--w:52%;--track:oklch(0.75 0.13 250)"></i></span>
+        </span>
+        <b>Modern</b>
+        <span>Flat and quiet. Depth from a five-step lightness ladder and one-pixel lines; a single accent; nothing glows.</span>
+      </button>
+      <button class="themecard" type="button" role="radio" aria-checked="false" data-set-theme="skeuo" data-theme="skeuo">
+        <span class="mini" aria-hidden="true">
+          <span class="mini__bar"><i class="mini__key mini__key--lit"></i><i class="mini__key"></i><i class="mini__lcd">004·2·1</i><i class="mini__knob"></i></span>
+          <span class="mini__lanes"><i style="--x:6%;--w:44%;--track:oklch(0.72 0.14 40)"></i><i style="--x:6%;--w:70%;--track:oklch(0.72 0.13 300)"></i><i style="--x:30%;--w:52%;--track:oklch(0.75 0.13 250)"></i></span>
+        </span>
+        <b>Skeuomorphic</b>
+        <span>Milled hardware under one light from above. Graphite in the dark, champagne aluminium in the light, smoked-glass displays in both.</span>
+      </button>
+      <button class="themecard" type="button" role="radio" aria-checked="false" data-set-theme="aero" data-theme="aero">
+        <span class="mini" aria-hidden="true">
+          <span class="mini__bar"><i class="mini__key mini__key--lit"></i><i class="mini__key"></i><i class="mini__lcd">004·2·1</i><i class="mini__knob"></i></span>
+          <span class="mini__lanes"><i style="--x:6%;--w:44%;--track:oklch(0.72 0.14 40)"></i><i style="--x:6%;--w:70%;--track:oklch(0.72 0.13 300)"></i><i style="--x:30%;--w:52%;--track:oklch(0.75 0.13 250)"></i></span>
+        </span>
+        <b>Frutiger Aero</b>
+        <span>Glass, water and sky. Lens buttons with a bright upper reflection, a daylight frame by day and an aurora by night.</span>
+      </button>
+    </div>
+  </section>
+
   <section id="materials" class="section">
     <p class="eyebrow reveal">Material system</p>
-    <h2 class="reveal">Feels like hardware, because it is drawn like hardware.</h2>
-    <p class="lede reveal">One light source, directly above. Every raised object gets the same four layers in the same order: a specular highlight on its top edge, a face that darkens downward, a contact line along the bottom, and a soft drop shadow. Pressed states swap the drop shadow for an inner one and darken the face. Nothing else moves. Try the rack.</p>
+    <h2 class="reveal">The same controls, re-lit by the theme.</h2>
+    <p class="lede reveal">Every control is built from a handful of material recipes: raised, pressed, lit, groove, well, knob, fader cap. A theme does not redraw them, it re-lights them. Skeuomorphic gives each one a specular edge, a darkening face, a contact line and a soft drop. Modern keeps only the line. Aero turns the face into a lens. Try the rack, then change the theme.</p>
 
     <div class="rack reveal">
       <div class="rack__module">
@@ -322,10 +367,10 @@
       <div class="rack__module rack__module--wide">
         <span class="rack__label">Recipe</span>
         <ol class="recipe">
-          <li><span class="recipe__n">1</span><b>Specular</b><span>1 px white on the top edge</span></li>
-          <li><span class="recipe__n">2</span><b>Face</b><span>gradient, darker toward the bottom</span></li>
-          <li><span class="recipe__n">3</span><b>Contact</b><span>1 px black on the bottom edge</span></li>
-          <li><span class="recipe__n">4</span><b>Shadow</b><span>soft drop at 2–3× the contact distance</span></li>
+          <li><span class="recipe__n">1</span><b>Ramp</b><span>one neutral hue, surfaces placed by OKLCH lightness</span></li>
+          <li><span class="recipe__n">2</span><b>Light</b><span>highlight and shade strengths per mode, not per control</span></li>
+          <li><span class="recipe__n">3</span><b>Accent</b><span>one colour for focus, playhead and the agent</span></li>
+          <li><span class="recipe__n">4</span><b>Proof</b><span>text contrast tested on every surface, six times</span></li>
         </ol>
       </div>
     </div>
@@ -397,7 +442,7 @@
         <span class="led led--accent"></span>
         <span class="phase__n">05</span>
         <div><b>Mixer, palette, faster editing</b><span>A mixer with a live meter on every channel, a command palette, copy and paste, track duplication, transpose keys, audio files dropped from the file manager, and a streaming agent with slash commands, Rhythm Lab, takes and two themes.</span></div>
-        <span class="phase__tag">0.5 · now</span>
+        <span class="phase__tag">0.6 · now</span>
       </li>
       <li class="phase">
         <span class="led"></span>
@@ -423,7 +468,7 @@
   </section>
 
   <section id="downloads" class="section cta">
-    <h2 class="reveal">Download Ondera 0.5</h2>
+    <h2 class="reveal">Download Ondera 0.6</h2>
     <p class="lede reveal">Free and MIT licensed. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
     <div class="downloads reveal">
       <a class="dl" href="/download/macos-arm64" data-os="macos-arm64"><b>macOS</b><span>Apple silicon · macOS 11+</span></a>
@@ -444,10 +489,10 @@
   <div class="footer__inner">
     <span class="wordmark wordmark--sm"><span class="led led--accent"></span>Ondera</span>
     <span>MIT license · © 2026 Ludovic Marie</span>
-    <span class="footer__type">Manrope · IBM Plex Mono · light from 90° above</span>
+    <span class="footer__type">Three themes · dark and light · one tokens file</span>
   </div>
 </footer>
 
-<script type="module" src="main.js"></script>
+<script type="module" src="main.js?v=0.6"></script>
 </body>
 </html>

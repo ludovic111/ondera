@@ -1,7 +1,9 @@
 // Ondera site runtime. Three parts: a tiny command store that mirrors the app's
 // dispatch(command) pattern, canvas drawing for the arrangement mock, and the
 // hardware rack demo. Every visual constant comes from tokens.js.
-import { tokens as T, white, black, accentAlpha } from './tokens.js';
+import { tokens as T, setTheme } from './tokens.js?v=0.6';
+
+setTheme(document.documentElement.dataset.theme, document.documentElement.dataset.mode);
 
 document.documentElement.classList.add('js');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -294,6 +296,11 @@ function peak(clip, t) {
   return clamp(slow * (0.75 + n * 0.5), 0.04, 1);
 }
 
+// Flat themes have no shadow layers; a missing layer paints without a glow.
+const NO_GLOW = { blur: 0, offsetY: 0, color: 'transparent' };
+const layerOf = (list, i) => list[i] ?? NO_GLOW;
+const layersOf = (list) => (list.length ? list : [NO_GLOW]);
+
 function roundRect(c, x, y, w, h, r) {
   c.beginPath();
   c.roundRect(x, y, w, h, r);
@@ -347,7 +354,7 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentHighlight) {
       const ny = top + (1 - (n.pitch - 36) / 36) * (ch - noteH);
       if (n.agent && agentHighlight) {
         c.save();
-        c.shadowBlur = T.canvasShadow.agentNote[1].blur; c.shadowColor = T.canvasShadow.agentNote[1].color;
+        c.shadowBlur = layerOf(T.canvasShadow.agentNote, 1).blur; c.shadowColor = layerOf(T.canvasShadow.agentNote, 1).color;
         c.fillStyle = T.color.accent;
         c.fillRect(nx, ny, nw, noteH);
         c.restore();
@@ -358,12 +365,12 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentHighlight) {
     }
   }
   // 1 + 3. specular top edge and contact line
-  c.fillStyle = white(0.22); c.fillRect(x, y, w, 1);
-  c.fillStyle = black(0.4); c.fillRect(x, y + h - 1, w, 1);
+  c.fillStyle = T.line.clipHighlight; c.fillRect(x, y, w, 1);
+  c.fillStyle = T.line.clipContact; c.fillRect(x, y + h - 1, w, 1);
   c.restore();
   if (agentHighlight) {
     c.save();
-    c.shadowBlur = T.canvasShadow.agentRing[0].blur; c.shadowColor = T.canvasShadow.agentRing[0].color;
+    c.shadowBlur = layerOf(T.canvasShadow.agentRing, 0).blur; c.shadowColor = layerOf(T.canvasShadow.agentRing, 0).color;
     c.strokeStyle = T.color.accent; c.lineWidth = 1;
     roundRect(c, x + 0.5, y + 0.5, w - 1, h - 1, r); c.stroke();
     c.restore();
@@ -420,13 +427,13 @@ function draw() {
   // playhead
   const px = Math.round(state.position * ppb) + 0.5;
   c.save();
-  for (const layer of T.canvasShadow.playhead) {
+  for (const layer of layersOf(T.canvasShadow.playhead)) {
     c.shadowBlur = layer.blur; c.shadowColor = layer.color;
     c.fillStyle = T.color.accent; c.fillRect(px - 0.5, 0, 1, H);
   }
   c.restore();
   c.save();
-  c.shadowBlur = T.canvasShadow.playheadFlag[0].blur; c.shadowColor = T.canvasShadow.playheadFlag[0].color;
+  c.shadowBlur = layerOf(T.canvasShadow.playheadFlag, 0).blur; c.shadowColor = layerOf(T.canvasShadow.playheadFlag, 0).color;
   c.fillStyle = T.color.accent;
   c.beginPath();
   c.moveTo(px - T.timeline.playheadFlagW / 2, rulerH - T.timeline.playheadFlagH - 1);
@@ -605,3 +612,37 @@ detectPlatform().then((platform) => {
   $$('[data-download-label]').forEach((a) => { a.textContent = `Download for ${names[platform]}`; });
   $(`.dl[data-os="${platform}"]`)?.classList.add('is-yours');
 });
+
+// ---------------------------------------------------------------------------
+// Themes: the page wears the app's tokens, so switching re-skins everything.
+// CSS follows the data attributes; the canvas re-reads the live token object.
+// ---------------------------------------------------------------------------
+
+function applyTheme(theme, mode, remember = true) {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.dataset.mode = mode;
+  setTheme(theme, mode);
+  if (remember) {
+    try {
+      localStorage.setItem('ondera-theme', theme);
+      localStorage.setItem('ondera-mode', mode);
+    } catch { /* private mode: the choice lasts for this page */ }
+  }
+  for (const el of $$('[data-set-theme]')) {
+    const on = el.dataset.setTheme === theme;
+    el.setAttribute(el.getAttribute('role') === 'radio' ? 'aria-checked' : 'aria-pressed', String(on));
+  }
+  // Theme cards preview their own theme in the page's current mode.
+  for (const card of $$('.themecard')) card.dataset.mode = mode;
+  $('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--color-desk').trim());
+  draw();
+}
+document.addEventListener('click', (e) => {
+  const root = document.documentElement;
+  const pick = e.target.closest('[data-set-theme]');
+  if (pick) return applyTheme(pick.dataset.setTheme, root.dataset.mode);
+  if (e.target.closest('[data-toggle-mode]'))
+    applyTheme(root.dataset.theme, root.dataset.mode === 'dark' ? 'light' : 'dark');
+});
+applyTheme(document.documentElement.dataset.theme, document.documentElement.dataset.mode, false);

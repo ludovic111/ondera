@@ -12,6 +12,7 @@
   --color-ink100: var(--aero-bar-ink);
   --color-ink300: var(--aero-bar-ink);
   --color-ink500: var(--aero-bar-ink-dim);
+  --color-menu-hover: rgba(255, 255, 255, 0.24);
   color: var(--aero-bar-ink);
   background: var(--aero-title);
   height: 34px;

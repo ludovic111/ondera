@@ -62,3 +62,7 @@
 .active {
   background: var(--color-menu-hover);
 }
+
+.menu:focus {
+  outline: none;
+}
