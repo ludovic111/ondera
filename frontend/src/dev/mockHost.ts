@@ -452,7 +452,7 @@ function command(method: string, params: Params): unknown {
         Number(params.value),
       );
       return {};
-    case "web.closePlugin":
+    case "ui.closePluginWindow":
       ui.pluginWindows = ui.pluginWindows.filter((id) => id !== params.id);
       void emit("daw:ui", { ...ui });
       return {};

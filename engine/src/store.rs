@@ -123,6 +123,21 @@ impl Store {
         }
         self.gesture = active;
     }
+    /// Drop every edit made since the gesture began, as if it never happened.
+    /// Returns whether there was anything to drop.
+    pub fn cancel_gesture(&mut self) -> bool {
+        let recorded = self.gesture && self.gesture_recorded;
+        if recorded {
+            if let Some((session, id)) = self.past.pop() {
+                self.session = session;
+                self.document_id = id;
+                self.revision += 1;
+            }
+        }
+        self.gesture = false;
+        self.gesture_recorded = false;
+        recorded
+    }
     pub fn dispatch(&mut self, command: Command) -> Result<bool> {
         let transient = matches!(command, Command::Select { .. } | Command::SetView(_));
         if let Command::Undo = command {

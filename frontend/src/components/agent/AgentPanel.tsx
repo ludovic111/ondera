@@ -288,7 +288,7 @@ export function AgentPanel() {
                         : "Redo through this change"
                     }
                     onClick={() =>
-                      store.fire("web.agentRevert", {
+                      store.fire("agent.revert", {
                         sequence: change.sequence,
                         redo: !change.applied,
                       })

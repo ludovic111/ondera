@@ -113,7 +113,7 @@ describe("Rust document ownership", () => {
     await flush();
     expect(edits()).toEqual([
       {
-        method: "web.trimClip",
+        method: "clip.trim",
         params: { clipId: "audio", startBar: 2, lengthBars: 3 },
       },
     ]);

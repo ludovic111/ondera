@@ -298,6 +298,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
     BASE_COMMANDS
         .iter()
         .chain(crate::control_media::SPECS)
+        .chain(crate::control_edit::SPECS)
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_app::SPECS)
         .copied()
@@ -703,6 +704,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     }
     if name.starts_with("automation.") {
         return crate::control_automation::call(host, name, params, agent);
+    }
+    if crate::control_edit::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_edit::call(host, name, params, agent);
     }
     if crate::control_media::SPECS.iter().any(|s| s.name == name) {
         return crate::control_media::call(host, name, params, agent);

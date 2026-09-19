@@ -274,7 +274,7 @@ export class NativeStore {
   dismissError = () => {
     this.ui = { ...this.ui, error: null };
     this.notifyMeta();
-    this.fire("web.dismissError");
+    this.fire("ui.dismissError");
   };
   reportError = (error: unknown) => {
     this.ui = { ...this.ui, error: String(error) };
@@ -570,7 +570,7 @@ export class NativeStore {
         delete p.bars;
         break;
       case "transport.setRecording":
-        method = "web.recordArm";
+        method = "transport.punch";
         p.enabled = p.recording;
         delete p.recording;
         break;
@@ -613,10 +613,10 @@ export class NativeStore {
         }
         break;
       case "clip.resize":
-        if ("startBar" in p) method = "web.trimClip";
+        if ("startBar" in p) method = "clip.trim";
         break;
       case "clip.clearSelection":
-        method = "web.clearSelection";
+        method = "clip.deselect";
         break;
       case "note.add": {
         const clientId = p.noteId;

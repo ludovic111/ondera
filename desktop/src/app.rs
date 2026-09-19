@@ -108,7 +108,7 @@ pub struct Ondera {
     pub(crate) recording_tracks: Vec<String>,
     // Last-resort ownership when both placement and source-file writing fail.
     pub(crate) unplaced_recording: Option<Arc<audio::AudioBuffer>>,
-    recovered_recording_write: Option<mpsc::Receiver<Result<Option<PathBuf>>>>,
+    pub(crate) recovered_recording_write: Option<mpsc::Receiver<Result<Option<PathBuf>>>>,
     pub(crate) record_start: f64,
     pub(crate) intent: Option<Intent>,
     pub(crate) after_save: Option<Intent>,
@@ -146,6 +146,8 @@ pub struct Ondera {
     pub(crate) settings_ui: crate::settings::SettingsWindow,
     pub(crate) live_jobs: Vec<crate::control::LiveJob>,
     pub(crate) attach_live: Option<usize>,
+    /// A `session.batch` is running: its commands share one undo step.
+    pub(crate) batching: bool,
     pub(crate) bridge_wanted: bool,
 }
 pub fn id(prefix: &str) -> String {
@@ -292,6 +294,7 @@ impl Ondera {
             settings_ui: Default::default(),
             live_jobs: vec![],
             attach_live: None,
+            batching: false,
             bridge_wanted: false,
         }
     }

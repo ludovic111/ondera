@@ -136,7 +136,7 @@ export function Dialogs() {
                 id={id}
                 trackId={trackId}
                 slot={slot >= 0 ? slot : undefined}
-                onClose={() => store.fire("web.closePlugin", { id })}
+                onClose={() => store.fire("ui.closePluginWindow", { id })}
               />
             );
         }

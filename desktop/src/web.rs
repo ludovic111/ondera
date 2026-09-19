@@ -7,7 +7,7 @@ use crate::{
     control::{LiveWait, Reply},
 };
 use eframe::egui;
-use ondera_engine::{control, model::ClipData, store::Command, Result};
+use ondera_engine::{control, store::Command, Result};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
@@ -294,14 +294,6 @@ impl WebHost {
         value["dirty"] = json!(self.app.store.dirty());
         value["path"] = json!(self.app.path);
         value["history"] = control::call(&mut self.app, "history.info", &json!({}), false)?;
-        value["prompt"] = json!(self.app.intent.map(|intent| match intent {
-            Intent::New => "new",
-            Intent::Open => "open",
-            Intent::Recover => "recover",
-            Intent::Demo => "demo",
-            Intent::Quit => "quit",
-            Intent::Relaunch => "relaunch",
-        }));
         value["export"] = json!(self.app.export.is_open());
         value["recovery"] = json!(self.app.recovery.is_open());
         value["recoveryStatus"] = json!(self.app.recovery.status());
@@ -325,10 +317,6 @@ impl WebHost {
                 Ok(Value::Null)
             }
             "web.document" => self.document(),
-            "web.dismissError" => {
-                self.app.error = None;
-                Ok(Value::Null)
-            }
             "web.file" => {
                 match params["action"].as_str().unwrap_or("") {
                     "new" => self.app.request(Intent::New),
@@ -416,20 +404,6 @@ impl WebHost {
                     .set_gesture(params["active"].as_bool().unwrap_or(false));
                 Ok(Value::Null)
             }
-            "web.recordArm" => {
-                let enabled = params["enabled"].as_bool().ok_or("Missing enabled")?;
-                if self.app.record_enabled != enabled {
-                    self.app.record_enabled = enabled;
-                    if self.app.playing {
-                        if enabled {
-                            self.app.start_recording();
-                        } else {
-                            self.app.finish_recording();
-                        }
-                    }
-                }
-                Ok(Value::Null)
-            }
             "web.quantize" => {
                 self.app.quantize_selected();
                 Ok(Value::Null)
@@ -454,33 +428,6 @@ impl WebHost {
                 crate::settings::reveal(std::path::Path::new(
                     "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md",
                 ));
-                Ok(Value::Null)
-            }
-            "web.clearSelection" => {
-                let track = self.app.store.session().view.selected_track_id.clone();
-                self.app.try_dispatch(Command::Select {
-                    track,
-                    clip: None,
-                    note: None,
-                })?;
-                Ok(Value::Null)
-            }
-            "web.trimClip" => self.trim_clip(params),
-            "web.agentChanges" => Ok(self.app.agents.changes_json(self.app.store.undo_depth())),
-            "web.agentRevert" => {
-                let sequence = params["sequence"]
-                    .as_u64()
-                    .ok_or("Missing change sequence")?;
-                if params["redo"].as_bool().unwrap_or(false) {
-                    self.app.redo_activity(sequence);
-                } else {
-                    self.app.revert_activity(sequence);
-                }
-                Ok(Value::Null)
-            }
-            "web.closePlugin" => {
-                self.app
-                    .close_plugin_window(params["id"].as_str().ok_or("Missing plugin id")?);
                 Ok(Value::Null)
             }
             "web.capture" => {
@@ -521,49 +468,12 @@ impl WebHost {
                 .run_control_command(method, params, false, "Interface"),
         }
     }
-    fn trim_clip(&mut self, params: &Value) -> Result<Value> {
-        let id = params["clipId"].as_str().ok_or("Missing clipId")?;
-        let mut clip = self
-            .app
-            .store
-            .session()
-            .clips
-            .iter()
-            .find(|c| c.id == id)
-            .cloned()
-            .ok_or("Unknown clip")?;
-        let start = params["startBar"]
-            .as_f64()
-            .filter(|n| n.is_finite() && *n >= 0.)
-            .ok_or("Invalid start")?;
-        let length = params["lengthBars"]
-            .as_f64()
-            .filter(|n| n.is_finite() && *n > 0.)
-            .ok_or("Invalid length")?;
-        let delta = start - clip.start_bar;
-        let bpb = self.app.store.session().beats_per_bar();
-        match &mut clip.data {
-            ClipData::Midi { notes } => {
-                for note in notes.iter_mut() {
-                    let end = note.start + note.length - delta * bpb;
-                    note.start = (note.start - delta * bpb).max(0.);
-                    note.length = (end.min(length * bpb) - note.start).max(0.);
-                }
-                notes.retain(|n| n.length > 0.);
-            }
-            ClipData::Audio { offset_seconds, .. } => {
-                let offset =
-                    *offset_seconds + delta * bpb * 60. / self.app.store.session().transport.tempo;
-                if offset < 0. {
-                    return Err("Cannot trim before the audio source".into());
-                }
-                *offset_seconds = offset;
-            }
-        }
-        clip.start_bar = start;
-        clip.length_bars = length;
-        self.app.try_dispatch(Command::PutClip(clip))?;
-        Ok(Value::Null)
+    /// Answer waiting control requests between ticks. Events still go out on the next tick.
+    fn serve(&mut self) {
+        let _ = self.context.run(egui::RawInput::default(), |_| {
+            self.app.poll_control_job();
+            self.app.serve_control(false);
+        });
     }
     fn tick(&mut self, handle: &tauri::AppHandle) {
         self.app.frames += 1;
@@ -729,9 +639,19 @@ pub fn run(
             });
             let handle = application.handle().clone();
             // At most one pending tick. A stalled web renderer cannot build an unbounded queue.
-            std::thread::spawn(move || {
+            // A control request unparks the thread so the CLI and MCP get their answer within
+            // a millisecond or two; the full tick keeps its 33 ms cadence.
+            let urgent = Arc::new(AtomicBool::new(false));
+            let urgent_wake = urgent.clone();
+            let ticker = std::thread::spawn(move || {
                 let pending = Arc::new(AtomicBool::new(false));
+                let period = Duration::from_millis(33);
+                let mut next = Instant::now();
                 while running_setup.load(Ordering::Relaxed) {
+                    let serve_only = urgent.swap(false, Ordering::AcqRel) && Instant::now() < next;
+                    if !serve_only {
+                        next = Instant::now() + period;
+                    }
                     if !pending.swap(true, Ordering::AcqRel) {
                         let pending = pending.clone();
                         let app_handle = handle.clone();
@@ -739,7 +659,11 @@ pub fn run(
                             .run_on_main_thread(move || {
                                 HOST.with_borrow_mut(|slot| {
                                     if let Some(host) = slot {
-                                        host.tick(&app_handle)
+                                        if serve_only {
+                                            host.serve()
+                                        } else {
+                                            host.tick(&app_handle)
+                                        }
                                     }
                                 });
                                 pending.store(false, Ordering::Release);
@@ -748,10 +672,20 @@ pub fn run(
                         {
                             break;
                         }
+                    } else if serve_only {
+                        // The main thread is busy; ask again as soon as it is free.
+                        urgent.store(true, Ordering::Release);
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
                     }
-                    std::thread::sleep(Duration::from_millis(33));
+                    std::thread::park_timeout(next.saturating_duration_since(Instant::now()));
                 }
             });
+            let ticker = ticker.thread().clone();
+            let _ = crate::control::CONTROL_WAKE.set(Box::new(move || {
+                urgent_wake.store(true, Ordering::Release);
+                ticker.unpark();
+            }));
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -807,7 +741,7 @@ pub fn run(
 mod tests {
     use super::*;
     use ondera_engine::{
-        model::{Clip, Note},
+        model::{Clip, ClipData, Note},
         store,
     };
 
@@ -884,7 +818,7 @@ mod tests {
             .try_dispatch(Command::PutClip(clip.clone()))
             .unwrap();
         host.command(
-            "web.trimClip",
+            "clip.trim",
             &json!({"clipId":"region","startBar":1.,"lengthBars":1.}),
         )
         .unwrap();
