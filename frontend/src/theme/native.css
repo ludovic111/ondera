@@ -79,6 +79,12 @@ textarea:focus-visible {
   font-size: 20px;
   color: var(--color-ink300);
 }
+/* Opening a dialog focuses its close button; keep that ring inside the bar. */
+.native-dialog > header button:focus-visible {
+  outline-width: 1.5px;
+  outline-offset: -6px;
+  border-radius: var(--radius-control);
+}
 .dialog-content {
   min-height: 0;
   overscroll-behavior: contain;

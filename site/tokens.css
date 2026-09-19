@@ -1237,10 +1237,10 @@
   --color-well-ink-faint: #8a8375;
   --color-key-white: rgba(253,250,244,1);
   --color-key-black: rgba(38,36,32,1);
-  --color-led: #f6e7c4;
+  --color-led: rgba(242,176,54,1);
   --color-led-off: rgba(47,46,41,1);
-  --color-led-glow: rgba(255,228,170,.8);
-  --color-led-glow-soft: rgba(255,228,170,.3);
+  --color-led-glow: rgba(255,186,72,.75);
+  --color-led-glow-soft: rgba(255,186,72,.28);
   --color-led-hot: rgba(71,214,207,1);
   --color-accent: rgba(0,122,124,1);
   --color-accent-hi: rgba(64,193,189,1);
@@ -1313,7 +1313,7 @@
   --shadow-clip: inset 0 1px 0 rgba(255,255,255,0.8580000000000001), inset 0 -1px 0 rgba(58,47,30,0.16), 0 2px 3px rgba(58,47,30,0.22), 0 5px 10px rgba(58,47,30,0.12);
   --shadow-clip-agent: 0 0 0 1px rgba(0,122,124,1), 0 0 14px rgba(0,122,124,0.315);
   --shadow-clip-selected: 0 0 0 1.5px rgba(31,29,25,1);
-  --shadow-led-lit: 0 0 4px rgba(255,228,170,.8), 0 0 9px rgba(255,228,170,.3);
+  --shadow-led-lit: 0 0 4px rgba(255,186,72,.75), 0 0 9px rgba(255,186,72,.28);
   --shadow-led-accent: 0 0 5px rgba(71,214,207,0.63), 0 0 10px rgba(71,214,207,0.27999999999999997);
   --shadow-led-off: inset 0 1px 0 rgba(0,0,0,0.5);
   --shadow-led-empty: inset 0 0 0 1px rgba(255,255,255,0.718);
@@ -1823,7 +1823,7 @@
   --gradient-header: linear-gradient(180deg, rgba(246,251,253,1), rgba(218,233,239,1));
   --gradient-header-selected: linear-gradient(180deg, rgba(222,249,255,1), rgba(172,217,238,1));
   --gradient-header-agent: linear-gradient(180deg, rgba(230,253,240,1), rgba(194,230,213,1));
-  --gradient-panel-header: linear-gradient(115deg, transparent 18%, rgba(255,255,255,0.5) 19%, rgba(255,255,255,0.06) 26%, transparent 27%, transparent 66%, rgba(255,255,255,0.35) 67%, transparent 77%), linear-gradient(180deg, #e9f3f4, #b1c9d0 48%, #89abb7 50%, #c2dce2);
+  --gradient-panel-header: linear-gradient(115deg, transparent 18%, rgba(255,255,255,0.5) 19%, rgba(255,255,255,0.06) 26%, transparent 27%, transparent 66%, rgba(255,255,255,0.35) 67%, transparent 77%), linear-gradient(180deg, #f3fafc, #d3e4ea 48%, #bcd3dc 50%, #dbebf0);
   --gradient-insert: linear-gradient(180deg, rgba(246,251,253,1), rgba(195,220,231,1));
   --gradient-chip: linear-gradient(180deg, #ffffff, rgba(200,223,233,1));
   --gradient-send-key: radial-gradient(ellipse at 50% 112%, #c4ff70 0%, transparent 62%), linear-gradient(180deg, #e1f8bb 0%, #8ac253 46%, #3a7f1d 50%, #75b533 100%);

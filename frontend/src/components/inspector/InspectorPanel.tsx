@@ -506,7 +506,9 @@ function EqDisplay({ active }: { active: boolean }) {
         <path
           d={path}
           fill="none"
-          stroke={active ? "var(--color-eq-curve)" : "var(--color-well-ink-faint)"}
+          stroke={
+            active ? "var(--color-eq-curve)" : "var(--color-well-ink-faint)"
+          }
           strokeWidth="1.5"
         />
       </svg>

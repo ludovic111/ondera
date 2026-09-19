@@ -225,7 +225,12 @@ impl Interface {
             self.appearance = "skeuo".into();
             self.mode = "dark".into();
         } else if !had_mode {
-            self.mode = if self.appearance == "aero" { "light" } else { "dark" }.into();
+            self.mode = if self.appearance == "aero" {
+                "light"
+            } else {
+                "dark"
+            }
+            .into();
         }
     }
 }
@@ -553,7 +558,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         for (stored, theme, mode) in [
-            (r#"{"interface":{"appearance":"graphite"}}"#, "skeuo", "dark"),
+            (
+                r#"{"interface":{"appearance":"graphite"}}"#,
+                "skeuo",
+                "dark",
+            ),
             (r#"{"interface":{"appearance":"aero"}}"#, "aero", "light"),
             (
                 r#"{"interface":{"appearance":"aero","mode":"dark"}}"#,
@@ -572,7 +581,9 @@ mod tests {
             assert_eq!(settings.interface.mode, mode);
         }
         let mut settings = Settings::default();
-        assert!(settings.set("interface.appearance", json!("graphite")).is_err());
+        assert!(settings
+            .set("interface.appearance", json!("graphite"))
+            .is_err());
         assert!(settings.set("interface.mode", json!("dim")).is_err());
         for theme in THEMES {
             settings.set("interface.appearance", json!(theme)).unwrap();

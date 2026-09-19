@@ -413,7 +413,7 @@ export function aero(mode: Mode): ThemeSpec {
   gradient.titleBar = "none";
   gradient.panelHeader = dark
     ? `${sheen(0.1)}, linear-gradient(180deg, ${sea(0.4, 0.055)}, ${sea(0.29, 0.05)} 48%, ${sea(0.2, 0.045)} 50%, ${sea(0.27, 0.05)})`
-    : `${sheen(0.5)}, linear-gradient(180deg, #e9f3f4, #b1c9d0 48%, #89abb7 50%, #c2dce2)`;
+    : `${sheen(0.5)}, linear-gradient(180deg, #f3fafc, #d3e4ea 48%, #bcd3dc 50%, #dbebf0)`;
   gradient.dialog = dark
     ? `linear-gradient(135deg, ${sea(0.29, 0.045)}, ${sea(0.22, 0.04)})`
     : "linear-gradient(135deg, #f4fcff, #e2f0f7)";
