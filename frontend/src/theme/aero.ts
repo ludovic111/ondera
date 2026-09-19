@@ -17,6 +17,7 @@ import {
 import {
   alpha,
   black,
+  families,
   ok,
   white,
   type ColorKey,
@@ -119,6 +120,7 @@ const lightColor: Record<ColorKey, string> = {
   eqCurve: ok(0.86, 0.17, 140),
   eqHandle: "#efffd8",
   eqFill: ok(0.78, 0.2, 135),
+  ...families(0.52, 0.14),
   neutralDot: sky(0.7, 0.035),
   menu: sky(0.985, 0.006),
   menuHover: ok(0.92, 0.04, 222),
@@ -202,6 +204,7 @@ const darkColor: Record<ColorKey, string> = {
   eqCurve: ok(0.86, 0.2, 138),
   eqHandle: "#efffd8",
   eqFill: ok(0.8, 0.2, 135),
+  ...families(0.8, 0.12),
   neutralDot: sea(0.5, 0.04),
   menu: sea(0.29, 0.04),
   menuHover: ok(0.4, 0.085, 236),

@@ -11,6 +11,7 @@ import { eqGrid, NO_CANVAS_SHADOWS } from "./materials";
 import {
   alpha,
   black,
+  families,
   ok,
   white,
   type ColorKey,
@@ -115,6 +116,7 @@ function colors(mode: Mode): Record<ColorKey, string> {
       eqCurve: accent,
       eqHandle: n(0.97),
       eqFill: accent,
+      ...families(0.78, 0.12),
       neutralDot: n(0.45),
       menu: n(0.235),
       menuHover: n(0.31),
@@ -200,6 +202,7 @@ function colors(mode: Mode): Record<ColorKey, string> {
     eqCurve: accent,
     eqHandle: accent,
     eqFill: accent,
+    ...families(0.52, 0.14),
     neutralDot: l(0.72),
     menu: l(1, 0),
     menuHover: l(0.945),

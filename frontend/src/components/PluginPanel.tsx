@@ -3,26 +3,8 @@ import { Modal } from "./Dialogs";
 import { useStore } from "../state/session";
 import { native } from "../state/native";
 import { PluginFace, type Parameter } from "./plugin/PluginFace";
+import { familyVar } from "../theme/families";
 
-/** Mirrors `category` in engine/src/stock.rs; anything else is an instrument. */
-const CATEGORY: Record<string, string> = {
-  "Ondera Comp": "Dynamics",
-  Gate: "Dynamics",
-  Limiter: "Dynamics",
-  Transient: "Dynamics",
-  "Channel EQ": "EQ & Filter",
-  Filter: "EQ & Filter",
-  "Tape Sat": "Distortion",
-  Overdrive: "Distortion",
-  Bitcrusher: "Distortion",
-  Chorus: "Modulation",
-  Phaser: "Modulation",
-  Tremolo: "Modulation",
-  Space: "Space & Time",
-  Echo: "Space & Time",
-  Width: "Utility",
-  Utility: "Utility",
-};
 export function PluginPanel({
   id,
   trackId,
@@ -142,13 +124,16 @@ export function PluginPanel({
       </button>
     </>
   );
+  // The engine files every plugin in a sound folder; the panel wears that family's colour.
+  const folder = store.plugins.find((p) => p.id === pluginId)?.folder;
   return (
     <Modal title={name || "Plugin parameters"} onClose={onClose}>
       {error && <p role="status">{error}</p>}
       {stock ? (
         <PluginFace
           name={name}
-          category={CATEGORY[name] ?? "Instrument"}
+          category={folder ?? "Plugin"}
+          tint={folder ? familyVar(folder) : undefined}
           parameters={parameters}
           onChange={change}
           onAutomate={automate}

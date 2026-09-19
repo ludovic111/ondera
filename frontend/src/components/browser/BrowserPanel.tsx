@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import {
   commands,
   secondsToBars,
@@ -11,7 +11,14 @@ import { playheadBar } from "../../state/actions";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import { Button } from "../primitives/Button";
 import { CapsLabel } from "../primitives/CapsLabel";
-import { PlaySmallIcon, SearchIcon } from "../primitives/Icons";
+import {
+  ChevronRightIcon,
+  PlaySmallIcon,
+  SearchIcon,
+  StarIcon,
+} from "../primitives/Icons";
+import { PopupMenu, type MenuState } from "../menu/PopupMenu";
+import type { MenuEntry } from "../../state/menus";
 import styles from "./BrowserPanel.module.css";
 
 const TABS: { id: BrowserTab; label: string }[] = [
@@ -36,6 +43,16 @@ const HINT: Record<BrowserTab, string> = {
     "Double-click: place at the playhead · drop files on the window to import",
 };
 
+/** Folders the user has closed, remembered between launches. */
+const CLOSED_KEY = "ondera.browser.closedFolders";
+function readClosed(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
 export function BrowserPanel() {
   const store = useStore();
   const dispatch = useDispatch();
@@ -43,6 +60,77 @@ export function BrowserPanel() {
   const groups = useSession((s) => s.browser[s.view.browserTab]);
   const selection = useSession((s) => s.view.browserSelection);
   const [query, setQuery] = useState("");
+  const [closed, setClosed] = useState(readClosed);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const pluginTab = tab === "plugins" || tab === "instruments";
+  const toggleFolder = (key: string) =>
+    setClosed((prior) => {
+      const next = new Set(prior);
+      if (!next.delete(key)) next.add(key);
+      try {
+        localStorage.setItem(CLOSED_KEY, JSON.stringify([...next]));
+      } catch {
+        // Private mode: the folders simply reopen next launch.
+      }
+      return next;
+    });
+  const folderNames = useMemo(
+    () => [
+      ...new Set(
+        [
+          ...store.getState().browser.instruments,
+          ...store.getState().browser.plugins,
+        ]
+          .filter((g) => g.kind === "folder")
+          .map((g) => g.name),
+      ),
+    ],
+    [groups],
+  );
+  const setFavorite = (item: BrowserItem, favorite: boolean) =>
+    void store
+      .run("plugin.setFavorite", { pluginId: item.id, favorite })
+      .then(() => store.refreshPlugins())
+      .catch(store.reportError);
+  const setFolder = (item: BrowserItem, folder?: string) =>
+    void store
+      .run("plugin.setFolder", {
+        pluginId: item.id,
+        ...(folder ? { folder } : {}),
+      })
+      .then(() => store.refreshPlugins())
+      .catch(store.reportError);
+  const openItemMenu = (e: MouseEvent, item: BrowserItem) => {
+    if (!pluginTab || !item.id) return;
+    e.preventDefault();
+    const items: MenuEntry[] = [
+      {
+        label: tab === "instruments" ? "Load on track" : "Insert on track",
+        onSelect: () => void activate(item),
+      },
+      { separator: true },
+      {
+        label: item.favorite ? "Remove from Favourites" : "Add to Favourites",
+        onSelect: () => setFavorite(item, !item.favorite),
+      },
+      { separator: true },
+      ...folderNames
+        .filter((name) => name !== item.folder)
+        .map((name) => ({
+          label: `Move to ${name}`,
+          onSelect: () => setFolder(item, name),
+        })),
+      {
+        label: "Move to new folder…",
+        onSelect: () => {
+          const name = window.prompt("Folder name")?.trim();
+          if (name) setFolder(item, name);
+        },
+      },
+      { label: "Return to automatic folder", onSelect: () => setFolder(item) },
+    ];
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
 
   const q = query.trim().toLowerCase();
   const visible = groups
@@ -52,7 +140,8 @@ export function BrowserPanel() {
         ? g.items.filter(
             (it) =>
               it.name.toLowerCase().includes(q) ||
-              it.meta.toLowerCase().includes(q),
+              it.meta.toLowerCase().includes(q) ||
+              (it.folder ?? "").toLowerCase().includes(q),
           )
         : g.items,
     }))
@@ -169,32 +258,82 @@ export function BrowserPanel() {
       </div>
       <div className={styles.list} title={HINT[tab]}>
         {visible.length === 0 && <div className={styles.empty}>No matches</div>}
-        {visible.map((g) => (
-          <div key={g.name}>
-            <CapsLabel style={{ padding: "8px 8px 4px" }}>{g.name}</CapsLabel>
-            {g.items.map((it) => (
-              <div
-                key={it.id ?? it.name}
-                className={`${styles.item} ${(it.id ?? it.name) === selection ? styles.highlighted : ""}`}
-                onClick={() =>
-                  dispatch(
-                    commands.view.setBrowserSelection({
-                      name: it.id ?? it.name,
-                    }),
-                  )
-                }
-                onDoubleClick={() => void activate(it)}
-              >
-                <span
-                  className={`${styles.dot} m-swatch`}
-                  style={{ background: it.color ?? "var(--color-neutral-dot)" }}
-                />
-                {it.name}
-                <span className={styles.meta}>{it.meta}</span>
-              </div>
-            ))}
-          </div>
-        ))}
+        {visible.map((g) => {
+          const key = `${tab}/${g.name}`;
+          const open = q !== "" || !closed.has(key);
+          return (
+            <div key={g.name} className={styles.group}>
+              {pluginTab ? (
+                <button
+                  className={styles.folder}
+                  aria-expanded={open}
+                  onClick={() => toggleFolder(key)}
+                >
+                  <span
+                    className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
+                  >
+                    <ChevronRightIcon />
+                  </span>
+                  {g.color && (
+                    <span
+                      className={styles.folderTab}
+                      style={{ background: g.color }}
+                    />
+                  )}
+                  <span className={styles.folderName}>{g.name}</span>
+                  <span className={styles.count}>{g.items.length}</span>
+                </button>
+              ) : (
+                <CapsLabel style={{ padding: "8px 8px 4px" }}>
+                  {g.name}
+                </CapsLabel>
+              )}
+              {open &&
+                g.items.map((it) => (
+                  <div
+                    key={it.id ?? it.name}
+                    className={`${styles.item} ${pluginTab ? styles.filed : ""} ${(it.id ?? it.name) === selection ? styles.highlighted : ""}`}
+                    onClick={() =>
+                      dispatch(
+                        commands.view.setBrowserSelection({
+                          name: it.id ?? it.name,
+                        }),
+                      )
+                    }
+                    onDoubleClick={() => void activate(it)}
+                    onContextMenu={(e) => openItemMenu(e, it)}
+                  >
+                    <span
+                      className={`${styles.dot} m-swatch`}
+                      style={{
+                        background: it.color ?? "var(--color-neutral-dot)",
+                      }}
+                    />
+                    <span className={styles.itemName}>{it.name}</span>
+                    <span className={styles.meta}>{it.meta}</span>
+                    {pluginTab && it.id && (
+                      <button
+                        className={`${styles.star} ${it.favorite ? styles.starred : ""}`}
+                        title={
+                          it.favorite
+                            ? "Remove from Favourites"
+                            : "Add to Favourites"
+                        }
+                        aria-pressed={it.favorite ?? false}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFavorite(it, !it.favorite);
+                        }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      >
+                        <StarIcon filled={it.favorite ?? false} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+            </div>
+          );
+        })}
         {tab === "files" ? (
           <button
             className="m-button"
@@ -220,6 +359,7 @@ export function BrowserPanel() {
           )
         )}
       </div>
+      {menu && <PopupMenu {...menu} onClose={() => setMenu(null)} />}
       <div className={styles.footer}>
         <Button
           size="icon"

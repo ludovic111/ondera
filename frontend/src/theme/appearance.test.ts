@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { applyAppearance, normalizeTheme } from "./applyTokens";
 import { buildTheme, color, cssVariables, font, line } from "./tokens";
-import { contrast, THEMES, type Mode } from "./schema";
+import { contrast, FAMILY_HUES, THEMES, type Mode } from "./schema";
 import { mix, parseColor } from "./color";
 
 const MODES: Mode[] = ["dark", "light"];
@@ -74,6 +74,15 @@ describe.each(variants)("%s %s", (theme, mode) => {
   it("keeps the accent visible and its label readable", () => {
     expect(contrast(c.accent, c.panel)).toBeGreaterThanOrEqual(3);
     expect(contrast(c.accentInk, c.accentLo)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps every sound-family colour visible on panels and in display wells", () => {
+    for (const key of Object.keys(
+      FAMILY_HUES,
+    ) as (keyof typeof FAMILY_HUES)[]) {
+      expect(contrast(c[key], c.panel), key).toBeGreaterThanOrEqual(3);
+      expect(contrast(c[key], c.menu), key).toBeGreaterThanOrEqual(3);
+    }
   });
 
   it("keeps clip names readable on the darkest and lightest track colours", () => {

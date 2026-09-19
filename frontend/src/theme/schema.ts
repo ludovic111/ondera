@@ -88,12 +88,52 @@ export type ColorKey =
   | "eqHandle"
   | "eqFill"
   | "neutralDot"
+  | FamilyKey
   | "menu"
   | "menuHover"
   | "menuSeparator"
   | "indicator"
   | "danger"
   | "scrim";
+
+/**
+ * One colour per sound family. The browser's folders, a plugin's front panel and its
+ * insert slot all wear the family colour, so a compressor reads as "dynamics" at a glance
+ * wherever it appears.
+ */
+export type FamilyKey =
+  | "famSynth"
+  | "famKeys"
+  | "famBass"
+  | "famDrums"
+  | "famPad"
+  | "famSampler"
+  | "famTexture"
+  | "famDynamics"
+  | "famEq"
+  | "famDrive"
+  | "famMod"
+  | "famSpace"
+  | "famPitch"
+  | "famUtility";
+
+/** Hue of each family, shared by every theme; themes choose lightness and chroma. */
+export const FAMILY_HUES: Record<FamilyKey, number> = {
+  famSynth: 285,
+  famKeys: 85,
+  famBass: 15,
+  famDrums: 50,
+  famPad: 235,
+  famSampler: 160,
+  famTexture: 335,
+  famDynamics: 60,
+  famEq: 305,
+  famDrive: 28,
+  famMod: 195,
+  famSpace: 255,
+  famPitch: 350,
+  famUtility: 130,
+};
 
 export type GradientKey =
   | "raised"
@@ -321,3 +361,9 @@ export function contrast(a: string, b: string): number {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/** The family colours at one lightness and chroma, for a theme to spread into its palette. */
+export const families = (L: number, C: number): Record<FamilyKey, string> =>
+  Object.fromEntries(
+    Object.entries(FAMILY_HUES).map(([key, hue]) => [key, ok(L, C, hue)]),
+  ) as Record<FamilyKey, string>;

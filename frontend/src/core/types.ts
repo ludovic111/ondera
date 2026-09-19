@@ -168,11 +168,17 @@ export interface BrowserItem {
   name: string;
   meta: string;
   color: string | null;
+  /** Plugins only: starred, and the sound folder it is filed under. */
+  favorite?: boolean;
+  folder?: string;
 }
 
 export interface BrowserGroup {
   name: string;
   items: BrowserItem[];
+  /** Plugin tabs: a sound folder, or one of the two shortcuts above them. */
+  kind?: "folder" | "favorites" | "recent";
+  color?: string;
 }
 
 export interface InsertSlot {

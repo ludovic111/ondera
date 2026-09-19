@@ -324,7 +324,7 @@ export const STOCK_PARAMETERS: Record<string, ReturnType<typeof P>[]> = {
     P(1, "Downsample", 1, 64, 8, "x"),
     P(2, "Mix", 0, 100, 100, "%"),
   ],
-  Width: [
+  "Stereo Width": [
     P(0, "Width", 0, 200, 120, "%"),
     P(1, "Bass Mono", 0, 500, 120, "Hz"),
   ],
@@ -339,6 +339,49 @@ export const STOCK_PARAMETERS: Record<string, ReturnType<typeof P>[]> = {
     P(0, "Attack", -100, 100, 30, "%"),
     P(1, "Sustain", -100, 100, -20, "%"),
     P(2, "Output", -24, 6, 0, "dB"),
+  ],
+  Flanger: [
+    P(0, "Rate", 0.02, 8, 0.35, "Hz"),
+    P(1, "Depth", 0, 100, 70, "%"),
+    P(2, "Manual", 0.2, 10, 2.5, "ms"),
+    P(3, "Feedback", -95, 95, 55, "%"),
+    P(4, "Mix", 0, 100, 50, "%"),
+  ],
+  "Auto Pan": [
+    P(0, "Rate", 0.05, 12, 1, "Hz"),
+    P(1, "Depth", 0, 100, 80, "%"),
+    P(2, "Shape", 0, 2, 0, "", ["Sine", "Triangle", "Square"]),
+  ],
+  "Auto Filter": [
+    hz(0, "Cutoff", 40, 16000, 600),
+    P(1, "Resonance", 0, 100, 45, "%"),
+    P(2, "LFO Rate", 0.02, 12, 0.5, "Hz"),
+    P(3, "LFO Depth", 0, 100, 40, "%"),
+    P(4, "Envelope", -100, 100, 40, "%"),
+  ],
+  "De-Esser": [
+    hz(0, "Frequency", 2000, 12000, 6500),
+    P(1, "Threshold", -60, 0, -28, "dB"),
+    P(2, "Range", 0, 24, 9, "dB"),
+    P(3, "Listen", 0, 1, 0, "", ON_OFF),
+  ],
+  "Lo-Fi": [
+    P(0, "Wobble", 0, 100, 35, "%"),
+    P(1, "Noise", 0, 100, 20, "%"),
+    hz(2, "Tone", 800, 16000, 5200),
+    P(3, "Crunch", 0, 24, 6, "dB"),
+    P(4, "Mix", 0, 100, 100, "%"),
+  ],
+  "Pitch Shift": [
+    P(0, "Semitones", -12, 12, 7, "st"),
+    P(1, "Fine", -100, 100, 0, "ct"),
+    P(2, "Mix", 0, 100, 50, "%"),
+  ],
+  Pump: [
+    P(0, "Every", 0, 3, 1, "", ["1/2", "1/4", "1/8", "1/16"]),
+    P(1, "Depth", 0, 100, 70, "%"),
+    P(2, "Recovery", 5, 100, 45, "%"),
+    P(3, "Offset", 0, 100, 0, "%"),
   ],
   "Ondera Synth": [
     P(0, "Wave", 0, 2, 0, "", ["Saw", "Square", "Triangle"]),
@@ -363,7 +406,69 @@ export const STOCK_PARAMETERS: Record<string, ReturnType<typeof P>[]> = {
     P(2, "Level", -24, 6, 0, "dB"),
   ],
   "Drum Kit": [P(0, "Level", -24, 6, 0, "dB")],
+  "Analog Bass": [
+    hz(0, "Cutoff", 60, 8000, 700),
+    P(1, "Env Amount", 0, 100, 40, "%"),
+    P(2, "Decay", 5, 3000, 250, "ms"),
+    P(3, "Sustain", 0, 100, 60, "%"),
+    P(4, "Release", 10, 5000, 120, "ms"),
+    P(5, "Level", -24, 6, 0, "dB"),
+  ],
+  "String Ensemble": [
+    hz(0, "Cutoff", 100, 16000, 3200),
+    P(1, "Detune", 0, 50, 8, "ct"),
+    P(2, "Attack", 1, 3000, 180, "ms"),
+    P(3, "Release", 10, 5000, 700, "ms"),
+    P(4, "Level", -24, 6, 0, "dB"),
+  ],
+  "Tonewheel Organ": [
+    P(0, "Attack", 1, 3000, 3, "ms"),
+    P(1, "Release", 10, 5000, 60, "ms"),
+    P(2, "Level", -24, 6, 0, "dB"),
+  ],
 };
+
+/** Sound folder per mock plugin, as engine/src/control_plugins.rs files them. */
+const MOCK_FOLDERS: Record<string, string> = {
+  "Ondera Comp": "Dynamics",
+  Gate: "Dynamics",
+  Limiter: "Dynamics",
+  Transient: "Dynamics",
+  "De-Esser": "Dynamics",
+  Pump: "Dynamics",
+  "Channel EQ": "EQ & Filter",
+  Filter: "EQ & Filter",
+  "Auto Filter": "EQ & Filter",
+  "Tape Sat": "Distortion",
+  Overdrive: "Distortion",
+  Bitcrusher: "Distortion",
+  "Lo-Fi": "Distortion",
+  Chorus: "Modulation",
+  Phaser: "Modulation",
+  Tremolo: "Modulation",
+  Flanger: "Modulation",
+  "Auto Pan": "Modulation",
+  Space: "Space & Time",
+  Echo: "Space & Time",
+  "Pitch Shift": "Pitch",
+  "Stereo Width": "Utility",
+  Utility: "Utility",
+  "Ondera Synth": "Synths",
+  "Choir Pad": "Pads",
+  "String Ensemble": "Pads",
+  "Grand Piano": "Keys",
+  "Tonewheel Organ": "Keys",
+  "Drum Kit": "Drums",
+  "Analog Bass": "Bass",
+};
+const INSTRUMENT_FOLDERS = ["Synths", "Keys", "Bass", "Drums", "Pads"];
+const mockLibrary = {
+  favorites: new Set<string>(["stock:Ondera Comp"]),
+  folders: new Map<string, string>(),
+  recent: ["stock:Space", "stock:Channel EQ"],
+};
+const mockFolder = (name: string) =>
+  mockLibrary.folders.get(`stock:${name}`) ?? MOCK_FOLDERS[name] ?? "Utility";
 
 if (panel.startsWith("plugin:")) {
   const name = panel.slice(7);
@@ -410,15 +515,45 @@ function command(method: string, params: Params): unknown {
     case "plugin.list":
       return {
         nextOffset: null,
-        plugins: Object.keys(STOCK_PARAMETERS).map((name, i) => ({
-          id: `stock:${name}`,
-          name,
-          vendor: "Ondera",
-          instrument: i > 15,
-          effect: i <= 15,
-          format: "stock",
-        })),
+        plugins: Object.keys(STOCK_PARAMETERS).map((name) => {
+          const instrument = INSTRUMENT_FOLDERS.includes(
+            MOCK_FOLDERS[name] ?? "",
+          );
+          return {
+            id: `stock:${name}`,
+            name,
+            vendor: "Ondera",
+            instrument,
+            effect: !instrument,
+            format: "stock",
+            folder: mockFolder(name),
+            favorite: mockLibrary.favorites.has(`stock:${name}`),
+          };
+        }),
       };
+    case "plugin.folders":
+      return {
+        folders: [
+          ...INSTRUMENT_FOLDERS,
+          "Dynamics",
+          "EQ & Filter",
+          "Distortion",
+          "Modulation",
+          "Space & Time",
+          "Pitch",
+          "Utility",
+        ].map((name) => ({ name })),
+        recent: mockLibrary.recent,
+      };
+    case "plugin.setFavorite":
+      if (params.favorite) mockLibrary.favorites.add(String(params.pluginId));
+      else mockLibrary.favorites.delete(String(params.pluginId));
+      return {};
+    case "plugin.setFolder":
+      if (params.folder)
+        mockLibrary.folders.set(String(params.pluginId), String(params.folder));
+      else mockLibrary.folders.delete(String(params.pluginId));
+      return {};
     case "web.peaks":
       return { peaks: peaks(), rate: 400 };
     case "settings.get":

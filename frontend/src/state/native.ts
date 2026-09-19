@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { familyVar } from "../theme/families";
 import type {
+  BrowserItem,
   Command,
   Session,
   View,
@@ -76,6 +78,9 @@ export interface Plugin {
   instrument: boolean;
   effect: boolean;
   format: string;
+  /** Sound folder: automatic, or where the user filed it. */
+  folder: string;
+  favorite: boolean;
 }
 export interface Catalog {
   instruments: string[];
@@ -126,6 +131,17 @@ const continuousKey = (name: string, params: Params): string | null =>
         params.parameterId,
       ].join("|")
     : null;
+/** Loops have no sound family yet; they cycle through the families for variety. */
+const LOOP_SWATCHES = [
+  "Drums",
+  "Synths",
+  "Pads",
+  "Textures",
+  "Keys",
+  "Samplers",
+  "Bass",
+  "Distortion",
+].map(familyVar);
 const emptyGroups: Record<BrowserTab, BrowserGroup[]> = {
   instruments: [],
   plugins: [],
@@ -399,7 +415,7 @@ export class NativeStore {
               id: s.id,
               name: s.name,
               meta: `${s.durationSeconds.toFixed(1)} s`,
-              color: "#e0af3b",
+              color: familyVar("Samplers"),
             })),
           },
         ],
@@ -435,40 +451,73 @@ export class NativeStore {
       offset = page.nextOffset;
     }
     this.plugins = plugins;
+    const library = await native<{
+      folders: { name: string }[];
+      recent: string[];
+    }>("plugin.folders").catch(() => ({ folders: [], recent: [] }));
+    const order = (library.folders ?? []).map((f) => f.name);
     const group = (
       items: { name: string; meta: string; color: string | null }[],
     ): BrowserGroup[] => [{ name: "Ondera", items }];
-    const palette = [
-      "#ed835e",
-      "#b191ea",
-      "#6ab3fd",
-      "#d991d2",
-      "#e0af3b",
-      "#95bd69",
-      "#eb8182",
-      "#ee9748",
-    ];
-    const groups = (kind: string) => {
-      const grouped = new Map<string, BrowserGroup>();
-      for (const p of plugins.filter((p) =>
-        kind === "instrument" ? p.instrument : p.effect,
-      )) {
-        const name =
-          p.format === "stock"
-            ? "Ondera"
-            : p.format === "au"
-              ? "Audio Units"
-              : p.format.toUpperCase();
-        if (!grouped.has(name)) grouped.set(name, { name, items: [] });
-        grouped.get(name)!.items.push({
-          id: p.id,
-          name: p.name,
-          meta: p.vendor,
-          color: palette[grouped.get(name)!.items.length % palette.length],
-        });
-      }
-      return [...grouped.values()];
+    const FORMAT: Record<string, string> = {
+      native: "Rust",
+      clap: "CLAP",
+      vst3: "VST3",
+      au: "AU",
     };
+    const item = (p: Plugin): BrowserItem => ({
+      id: p.id,
+      name: p.name,
+      meta:
+        p.format === "stock"
+          ? ""
+          : `${p.vendor} · ${FORMAT[p.format] ?? p.format}`,
+      color: familyVar(p.folder),
+      favorite: p.favorite,
+      folder: p.folder,
+    });
+    const groups = (kind: string): BrowserGroup[] => {
+      const mine = plugins.filter((p) =>
+        kind === "instrument" ? p.instrument : p.effect,
+      );
+      const byFolder = new Map<string, BrowserItem[]>();
+      for (const p of mine) {
+        if (!byFolder.has(p.folder)) byFolder.set(p.folder, []);
+        byFolder.get(p.folder)!.push(item(p));
+      }
+      const rank = (name: string) =>
+        order.includes(name) ? order.indexOf(name) : order.length;
+      const folders = [...byFolder.entries()]
+        .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
+        .map(([name, items]) => ({
+          name,
+          kind: "folder" as const,
+          color: familyVar(name),
+          items,
+        }));
+      const favorites = mine.filter((p) => p.favorite).map(item);
+      const recent = (library.recent ?? [])
+        .map((id) => mine.find((p) => p.id === id))
+        .filter((p): p is Plugin => p !== undefined)
+        .slice(0, 6)
+        .map(item);
+      return [
+        ...(favorites.length
+          ? [
+              {
+                name: "Favourites",
+                kind: "favorites" as const,
+                items: favorites,
+              },
+            ]
+          : []),
+        ...(recent.length
+          ? [{ name: "Recent", kind: "recent" as const, items: recent }]
+          : []),
+        ...folders,
+      ];
+    };
+    const palette = LOOP_SWATCHES;
     this.state = {
       ...this.state,
       browser: {
@@ -478,7 +527,7 @@ export class NativeStore {
           this.catalog.loops.map((l, i) => ({
             name: l.name,
             meta: `${l.bars} bars`,
-            color: palette[i % 8],
+            color: palette[i % palette.length] ?? null,
           })),
         ),
         files: this.state.browser.files,
