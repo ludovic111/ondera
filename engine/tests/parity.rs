@@ -125,3 +125,79 @@ fn a_batch_refuses_history_files_and_itself() {
         );
     }
 }
+
+#[test]
+fn loading_a_plugin_headless_never_writes_settings() {
+    // Deliberately no ONDERA_SETTINGS override here: the point is that nothing is written at
+    // all, so the check is on the host, not on a file other tests may share.
+    struct Guarded(Headless, bool);
+    impl Host for Guarded {
+        fn store(&self) -> &ondera_engine::store::Store {
+            self.0.store()
+        }
+        fn store_mut(&mut self) -> &mut ondera_engine::store::Store {
+            self.0.store_mut()
+        }
+        fn library(&self) -> &ondera_engine::audio::Library {
+            self.0.library()
+        }
+        fn library_mut(&mut self) -> &mut ondera_engine::audio::Library {
+            self.0.library_mut()
+        }
+        fn path(&self) -> Option<&std::path::Path> {
+            self.0.path()
+        }
+        fn mode(&self) -> &'static str {
+            self.0.mode()
+        }
+        fn playing(&self) -> bool {
+            self.0.playing()
+        }
+        fn position(&self) -> f64 {
+            self.0.position()
+        }
+        fn play(&mut self) -> ondera_engine::Result<()> {
+            self.0.play()
+        }
+        fn stop(&mut self) -> ondera_engine::Result<()> {
+            self.0.stop()
+        }
+        fn locate(&mut self, beats: f64) -> ondera_engine::Result<()> {
+            self.0.locate(beats)
+        }
+        fn new_session(&mut self, demo: bool) -> ondera_engine::Result<()> {
+            self.0.new_session(demo)
+        }
+        fn open(&mut self, path: &std::path::Path) -> ondera_engine::Result<()> {
+            self.0.open(path)
+        }
+        fn save(
+            &mut self,
+            path: Option<&std::path::Path>,
+        ) -> ondera_engine::Result<std::path::PathBuf> {
+            self.0.save(path)
+        }
+        fn bounce(&mut self, path: &std::path::Path) -> ondera_engine::Result<()> {
+            self.0.bounce(path)
+        }
+        fn update_settings(
+            &mut self,
+            _: ondera_engine::settings::Settings,
+        ) -> ondera_engine::Result<()> {
+            self.1 = true;
+            Ok(())
+        }
+    }
+    let mut host = Guarded(Headless::new(), false);
+    let track = control::call(&mut host, "track.add", &json!({"kind":"midi"}), false).unwrap()
+        ["id"]
+        .clone();
+    control::call(
+        &mut host,
+        "strip.setPlugin",
+        &json!({"trackId":track,"pluginId":"stock:Analog Bass"}),
+        false,
+    )
+    .unwrap();
+    assert!(!host.1, "a headless edit rewrote the settings file");
+}

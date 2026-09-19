@@ -591,9 +591,15 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
     )
 }
 
-/// Remember that a plugin was just loaded. Best effort: a read-only settings file must not
-/// fail the edit that loaded the plugin.
+/// Remember that a plugin was just loaded, for the browser's Recent folder. Only the window
+/// keeps this list: a headless host (the CLI on a file, a bounce, a test) must never rewrite
+/// the person's settings as a side effect of an edit, and concurrent headless hosts doing a
+/// read-modify-write of one file would overwrite each other. Best effort even when live: a
+/// read-only settings file must not fail the edit that loaded the plugin.
 pub(crate) fn note_recent(host: &mut dyn Host, plugin_id: &str) {
+    if host.mode() != "live" {
+        return;
+    }
     let mut settings = host.settings();
     if settings
         .plugins
