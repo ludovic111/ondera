@@ -93,6 +93,8 @@ export interface TimeSignature {
 export interface Transport {
   playing: boolean;
   recording: boolean;
+  /** The count-in click is running; the song starts when it ends. */
+  countingIn?: boolean;
   /** Playhead position in beats. */
   positionBeats: number;
   tempo: number;
@@ -215,6 +217,8 @@ export interface Meters {
   cpu: number;
   channelL: number;
   channelR: number;
+  /** Microphone level while an audio track is armed or recording, 0-1. */
+  input?: number;
 }
 
 export interface Session {

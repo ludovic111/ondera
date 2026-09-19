@@ -521,7 +521,17 @@ impl WebHost {
                 .map(|p| (p * 1000.).round() / 1000.)
                 .collect()
         });
+        self.app.poll_input_meter();
+        let (input_peak, counting_in) = self.app.device.as_ref().map_or((0., false), |d| {
+            (
+                (d.telemetry.take_input_peak().min(1.) * 1000.).round() / 1000.,
+                d.telemetry
+                    .counting_in
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+        });
         let telemetry = json!({"position":self.app.position,"playing":self.app.playing,
+            "inputPeak":input_peak,"countingIn":counting_in,
             "recording":self.app.record_enabled,"peaks":peaks,"trackPeaks":track_peaks,
             "cpu":(self.app.device.as_ref().map_or(0.,|d|d.telemetry.load())*1000.).round()/1000.});
         if telemetry != self.last_telemetry {

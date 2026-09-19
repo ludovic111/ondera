@@ -134,6 +134,9 @@ pub struct Renderer {
     sample_time: i64,
     pub playing: bool,
     pub recording: bool,
+    /// Frames of count-in click still to play before the transport starts on its own.
+    count_in_left: u64,
+    count_in_done: u64,
     pub peak: [f32; 2],
     pub channel_peak: [f32; 2],
     /// Post-fader peak of the first `METER_TRACKS` channels, for the mixer's meters.
@@ -337,6 +340,8 @@ impl Renderer {
             sample_time: 0,
             playing: false,
             recording: false,
+            count_in_left: 0,
+            count_in_done: 0,
             peak: [0.0; 2],
             channel_peak: [0.0; 2],
             track_peaks: [0.0; METER_TRACKS],
@@ -476,6 +481,8 @@ impl Renderer {
             && self.session.transport.cycle_end_bar == old.session.transport.cycle_end_bar;
         self.playing = old.playing;
         self.recording = old.recording;
+        self.count_in_left = old.count_in_left;
+        self.count_in_done = old.count_in_done;
         self.sample_time = old.sample_time;
         self.idle_frames = old.idle_frames;
         self.dry_delay.adopt(&old.dry_delay);
@@ -722,11 +729,26 @@ impl Renderer {
         self.idle_frames = 0;
         self.playing = false;
         self.recording = false;
+        self.count_in_left = 0;
         self.active.fill(None);
         self.all_notes_off();
     }
     pub fn set_selected(&mut self, index: Option<usize>) {
         self.selected = index;
+    }
+    /// Park at `beats`, click for `count_beats`, then start playing exactly on the next beat.
+    pub fn count_in(&mut self, beats: f64, count_beats: f64) {
+        self.locate(beats);
+        self.playing = false;
+        let frames = count_beats.max(0.0) * 60.0 / self.session.transport.tempo * self.rate as f64;
+        self.count_in_left = frames.round() as u64;
+        self.count_in_done = 0;
+        if self.count_in_left == 0 {
+            self.playing = true;
+        }
+    }
+    pub fn counting_in(&self) -> bool {
+        self.count_in_left > 0
     }
     pub fn begin_block(&mut self) {
         self.peak = [0.0; 2];
@@ -736,6 +758,7 @@ impl Renderer {
     /// True while anything may still produce sound; lets the device idle.
     fn busy(&self) -> bool {
         self.playing
+            || self.count_in_left > 0
             || self.idle_frames < self.rate * 3
             || self.live_total > 0
             || !self.queued.is_empty()
@@ -752,6 +775,10 @@ impl Renderer {
         let mut done = 0;
         while done < out.len() {
             let mut n = (out.len() - done).min(MAX_BLOCK);
+            if self.count_in_left > 0 {
+                // End the block on the last count-in frame so playback starts on the beat.
+                n = n.min(self.count_in_left.min(MAX_BLOCK as u64) as usize);
+            }
             if self.playing && self.session.transport.cycle {
                 let bpb = self.session.beats_per_bar();
                 let end = self.session.transport.cycle_end_bar * bpb;
@@ -1015,6 +1042,7 @@ impl Renderer {
             rack.process(slot, mix, &[], &ctx);
         }
         let metronome = self.playing && self.session.transport.metronome;
+        let counting = !self.playing && self.count_in_left > 0;
         let tick_unit = 4.0 / self.session.transport.time_signature.denominator as f64;
         let master_beat = block_start - self.latency_samples as f64 * dpb;
         let mut master_volume = self.master_volume_lane.map(|lane| {
@@ -1032,8 +1060,13 @@ impl Renderer {
                 .map_or(self.master_gain, |value| fader_gain(value as f32));
             frame[0] *= gain;
             frame[1] *= gain;
-            if metronome {
-                let position = block_start + i as f64 * dpb;
+            if metronome || counting {
+                // The count-in runs on its own clock from zero; the song position stays parked.
+                let position = if counting {
+                    (self.count_in_done + i as u64) as f64 * dpb
+                } else {
+                    block_start + i as f64 * dpb
+                };
                 let time = position.rem_euclid(tick_unit) * spb;
                 if time < 0.045 {
                     let accent = (position / tick_unit).floor() as u64
@@ -1053,6 +1086,13 @@ impl Renderer {
                 self.peak[c] = self.peak[c].max(sample.abs());
             }
             out[i] = *frame;
+        }
+        if counting {
+            self.count_in_done += n as u64;
+            self.count_in_left = self.count_in_left.saturating_sub(n as u64);
+            if self.count_in_left == 0 {
+                self.playing = true;
+            }
         }
         self.sample_time += n as i64;
     }

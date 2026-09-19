@@ -290,7 +290,17 @@ function Settings({ onClose }: { onClose: () => void }) {
             )
               .filter(([key]) => {
                 // The theme picker edits the mode together with the theme.
-                if (["lastSession", "recentSessions", "mode"].includes(key))
+                // Favourites, folders and recents are edited in the browser itself.
+                if (
+                  [
+                    "lastSession",
+                    "recentSessions",
+                    "mode",
+                    "favorites",
+                    "folders",
+                    "recent",
+                  ].includes(key)
+                )
                   return false;
                 const update = [
                   "checkUpdatesOnStart",

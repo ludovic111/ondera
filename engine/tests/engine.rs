@@ -851,3 +851,34 @@ fn plugin_cache_round_trips_and_lists_stock_first() {
     assert!(ondera_engine::host::instantiate("clap:org.example.fake", "Fake", 48000).is_err());
     std::env::remove_var("ONDERA_DATA_DIR");
 }
+#[test]
+fn count_in_clicks_with_the_song_parked_then_starts_on_the_sample() {
+    let mut s = midi_session();
+    s.transport.metronome = false;
+    s.transport.tempo = 120.0;
+    let (mut r, mut rack) = offline(s, &Library::new(), 48000);
+    // One bar of four at 120 bpm is two seconds: 96,000 frames.
+    r.count_in(8.0, 4.0);
+    assert!(r.counting_in() && !r.playing);
+    let mut block = [[0.0f32; 2]; 256];
+    let mut frames = 0u64;
+    let mut click_energy = 0.0;
+    while r.counting_in() {
+        r.render(&mut rack, &mut block);
+        frames += 256;
+        click_energy += block.iter().map(|f| (f[0] * f[0]) as f64).sum::<f64>();
+        assert!(frames <= 96_256, "count-in never ended");
+    }
+    assert!(click_energy > 0.1, "the count-in was silent");
+    assert!(r.playing, "the transport starts by itself");
+    // The block that finished the count-in may already hold the first frames of the song.
+    let played = frames - 96_000;
+    let expected = 8.0 + played as f64 * 120.0 / 60.0 / 48000.0;
+    assert!(
+        (r.position() - expected).abs() < 1e-9,
+        "{} vs {expected}",
+        r.position()
+    );
+    r.stop();
+    assert!(!r.counting_in());
+}

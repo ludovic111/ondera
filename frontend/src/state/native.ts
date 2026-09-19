@@ -314,6 +314,8 @@ export class NativeStore {
         position: number;
         playing: boolean;
         recording: boolean;
+        countingIn?: boolean;
+        inputPeak?: number;
         peaks: number[];
         trackPeaks?: number[];
         cpu: number;
@@ -327,6 +329,7 @@ export class NativeStore {
             positionBeats: t.position,
             playing: t.playing,
             recording: t.recording,
+            countingIn: t.countingIn ?? false,
           },
           meters: {
             masterL: t.peaks[0],
@@ -334,6 +337,7 @@ export class NativeStore {
             channelL: t.peaks[2],
             channelR: t.peaks[3],
             cpu: t.cpu,
+            input: t.inputPeak ?? 0,
           },
         };
         this.notify();

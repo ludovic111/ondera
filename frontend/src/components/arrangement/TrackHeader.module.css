@@ -72,3 +72,11 @@
   flex: 1;
   width: 0;
 }
+
+/* Input meter of an armed audio track, between the buttons and the volume slider. */
+.inputLevel {
+  width: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
