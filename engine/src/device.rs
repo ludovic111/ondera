@@ -32,6 +32,7 @@ pub struct Telemetry {
     pub late_callbacks: AtomicU64,
     pub voice_overflows: AtomicU64,
     pub peaks: [AtomicU32; 4],
+    pub track_peaks: [AtomicU32; crate::render::METER_TRACKS],
 }
 impl Telemetry {
     pub fn beats(&self) -> f64 {
@@ -42,6 +43,9 @@ impl Telemetry {
     }
     pub fn peaks(&self) -> [f32; 4] {
         std::array::from_fn(|i| f32::from_bits(self.peaks[i].load(Ordering::Relaxed)))
+    }
+    pub fn track_peaks(&self) -> [f32; crate::render::METER_TRACKS] {
+        std::array::from_fn(|i| f32::from_bits(self.track_peaks[i].load(Ordering::Relaxed)))
     }
 }
 pub enum Message {
@@ -384,6 +388,10 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
                     rt.renderer.channel_peak[1],
                 ];
                 for (target, value) in rt.telemetry.peaks.iter().zip(peaks) {
+                    target.store(value.to_bits(), Ordering::Relaxed);
+                }
+                for (target, value) in rt.telemetry.track_peaks.iter().zip(rt.renderer.track_peaks)
+                {
                     target.store(value.to_bits(), Ordering::Relaxed);
                 }
             },

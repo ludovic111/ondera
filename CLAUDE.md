@@ -1,5 +1,12 @@
 # Ondera native Rust branch
 
+Since 0.4 the window is Tauri 2 with the React renderer in `frontend/` (`docs/TAURI_MIGRATION.md`);
+`desktop/src/web.rs` hosts it and the egui painting code below is kept as reference only. UI work
+happens in `frontend/src`: `state/actions.ts` is the one table behind menus, shortcuts, the command
+palette and the shortcut sheet; window panels (mixer, help, settings…) are toggled through
+`ui.showPanel` so the CLI, MCP and agent can drive them. Check with `npm --prefix frontend test`,
+`npm --prefix frontend run build`, then the Rust checks. The marketing site is `site/`.
+
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
 

@@ -3,12 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ondera — the DAW you and your agent play together</title>
-  <meta name="description" content="Ondera is an open-source DAW for macOS, Linux and Windows with a Rust audio engine and a Tauri desktop window. Record, arrange, mix and export with stock, native or external plugins, a shared CLI and MCP, and a built-in agent.">
+  <title>Ondera — a free DAW you can finish songs in</title>
+  <meta name="description" content="Ondera is a free, open-source DAW for macOS, Windows and Linux. Record, arrange, mix and export with 24 stock plugins and your own VST3, CLAP and Audio Units, and hand the busywork to a built-in agent. Every agent edit is one undo away.">
   <meta name="theme-color" content="#141413">
-  <meta property="og:title" content="Ondera — the DAW you and your agent play together">
-  <meta property="og:description" content="Rust audio engine, Tauri desktop window, macOS, Linux and Windows. Recording, plugins, automation, audio export and a built-in agent through one shared command registry.">
+  <link rel="canonical" href="%ORIGIN%/">
+  <meta property="og:url" content="%ORIGIN%/">
+  <meta property="og:title" content="Ondera — a free DAW you can finish songs in">
+  <meta property="og:description" content="Record, arrange, mix and export on macOS, Windows and Linux. Your VST3, CLAP and AU plugins, 24 stock ones, and an agent that edits the same session with the same undo.">
   <meta property="og:type" content="website">
+  <meta property="og:image" content="%ORIGIN%/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ondera","applicationCategory":"MultimediaApplication","operatingSystem":"macOS, Windows, Linux","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT"}</script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c2c2b'/%3E%3Crect x='0.5' y='0.5' width='31' height='31' rx='6.5' fill='none' stroke='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2382d6d1'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2382d6d1' stroke-opacity='.35' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,33 +22,33 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<a class="skip" href="#top">Skip to content</a>
 
 <header class="nav">
   <div class="nav__inner">
     <a class="wordmark" href="#top" aria-label="Ondera home"><span class="led led--accent"></span>Ondera</a>
     <nav class="nav__links" aria-label="Sections">
-      <a href="#commands">Commands</a>
-      <a href="#materials">Materials</a>
-      <a href="#architecture">Architecture</a>
-      <a href="#roadmap">Roadmap</a>
+      <a href="#features">Features</a>
+      <a href="#switch">Switching</a>
+      <a href="#agent">Agent</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/ludovic111/ondera" rel="noopener">GitHub</a>
     </nav>
-    <a class="btn btn--raised btn--sm" href="https://github.com/ludovic111/ondera" rel="noopener">
-      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.5 15.6c.4 0 .5-.2.5-.4v-1.5c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.3 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.1 0 3.1-1.9 3.8-3.6 4 .3.3.6.8.6 1.5v2.2c0 .2.1.5.6.4A8 8 0 0 0 8 .2Z"/></svg>
-      GitHub
-    </a>
+    <a class="btn btn--lit btn--sm" href="/download" data-download>Download</a>
   </div>
 </header>
 
 <main id="top">
 
   <section class="hero">
-    <p class="eyebrow reveal">Open-source DAW &nbsp;·&nbsp; macOS &nbsp;·&nbsp; Linux &nbsp;·&nbsp; Windows</p>
-    <h1 class="display reveal">The DAW you and your <em>agent</em> play together.</h1>
-    <p class="lede reveal">Ondera 0.4 is a digital audio workstation with a Rust engine for recording, arranging, mixing and exporting songs. Use stock, native or external plugins, then let the built-in agent, the CLI or an MCP client edit the same session with the same undo history.</p>
+    <p class="eyebrow reveal">Free &nbsp;·&nbsp; Open source &nbsp;·&nbsp; macOS &nbsp;·&nbsp; Windows &nbsp;·&nbsp; Linux</p>
+    <h1 class="display reveal">Finish the song. Hand the busywork to an <em>agent</em>.</h1>
+    <p class="lede reveal">Ondera is a complete DAW: record, arrange, edit MIDI, mix on a real mixer and export stems, with 24 stock plugins and your own VST3, CLAP and Audio Units. When you would rather not quantise forty notes by hand, ask the built-in agent. It works on the same session, and every edit it makes is one undo away.</p>
     <div class="hero__cta reveal">
-      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Download Ondera</a>
-      <a class="btn btn--raised" href="#architecture">How it works</a>
+      <a class="btn btn--lit" href="/download" data-download data-download-label>Download Ondera</a>
+      <a class="btn btn--raised" href="#downloads">All platforms</a>
     </div>
+    <p class="hero__fine reveal">Version 0.5 · MIT licensed · no account, no subscription, no telemetry</p>
   </section>
 
   <section class="demo" aria-label="Interactive preview of the Ondera arrangement window">
@@ -94,11 +99,11 @@
           <aside class="daw__agent" aria-label="Agent panel">
             <div class="agent__head">
               <span class="led led--accent"></span><span>Agent</span>
-              <span class="agent__status">codex</span>
+              <span class="agent__status">your model</span>
             </div>
             <div class="segmented agent__tabs" role="tablist" aria-label="Agent panel tab">
               <button role="tab" id="tab-conversation" aria-selected="true" aria-controls="agent-conversation" data-tab="conversation">Conversation</button>
-              <button role="tab" id="tab-changes" aria-selected="false" aria-controls="agent-changes" data-tab="changes">Changes · <span id="changes-count">1</span></button>
+              <button role="tab" id="tab-changes" aria-selected="false" aria-controls="agent-changes" data-tab="changes">Activity · <span id="changes-count">1</span></button>
             </div>
             <div class="agent__body">
               <div class="agent__msgs" id="agent-conversation" role="tabpanel" aria-labelledby="tab-conversation">
@@ -124,7 +129,7 @@
                   <strong>Quantise Keys B</strong>
                   <p>clip.quantize · 20 notes, 14 moved</p>
                   <div class="agent__actions">
-                    <button class="btn btn--xs btn--raised" data-cmd="history.undo" id="agent-revert">Revert</button>
+                    <button class="btn btn--xs btn--raised" data-cmd="history.undo" id="agent-revert">Undo from here</button>
                   </div>
                 </article>
                 <div class="agent__logtitle"><span>Command log</span><span class="agent__logsub">what the preview dispatched</span></div>
@@ -139,13 +144,93 @@
         </div>
       </div>
     </div>
-    <p class="demo__hint reveal">This browser preview illustrates the controls: <kbd>Space</kbd> moves the playhead and <b>M</b> toggles a track’s mute state. Download the desktop app for audio playback, recording, plugins and the agent.</p>
+    <p class="demo__hint reveal">A browser sketch of the window: <kbd>Space</kbd> moves the playhead and <b>M</b> mutes a track. The real thing is below.</p>
+  </section>
+
+  <section class="section shots" aria-label="Screenshots of the desktop app">
+    <p class="eyebrow reveal">The actual window</p>
+    <h2 class="reveal">Not a mock-up. This is what you download.</h2>
+    <div class="shots__grid">
+      <figure class="shot reveal">
+        <img src="img/arrangement.webp" width="2000" height="1250" loading="lazy" alt="Ondera arrangement window: eight audio and MIDI tracks with waveforms, the piano roll below, browser on the left and channel inspector on the right">
+        <figcaption><b>Arrange and edit.</b> Real decoded waveforms, a piano roll with score and step views, and the channel strip always in reach.</figcaption>
+      </figure>
+      <figure class="shot reveal">
+        <img src="img/mixer.webp" width="2000" height="1250" loading="lazy" alt="Ondera mixer: one channel strip per track with pan, fader, live meter, mute, solo and record arm, plus the master">
+        <figcaption><b>Mix.</b> Press <kbd>X</kbd> for every channel side by side with live meters. The Aero theme is shown; a graphite one ships too.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <p class="eyebrow reveal">Features</p>
+    <h2 class="reveal">Everything between an idea and a bounced master.</h2>
+    <div class="features">
+      <article class="feature reveal"><h3>Record and arrange</h3><p>Audio and MIDI recording, cycle ranges, split, trim, duplicate, copy and paste, snap from whole bars to 1/64. Drop WAV, AIFF, FLAC, MP3, Ogg or AAC straight onto the window.</p></article>
+      <article class="feature reveal"><h3>Three MIDI editors</h3><p>Piano roll, score and step views on the same notes. Quantise, humanise, legato, velocity ramps, fit to scale and transpose, from the menu or <kbd>⌥↑</kbd> <kbd>⌥↓</kbd>.</p></article>
+      <article class="feature reveal"><h3>A real mixer</h3><p>Fader, pan, mute, solo, arm and a live meter per channel, eight inserts a strip, reverb and delay buses, a master chain and drawn automation for any parameter.</p></article>
+      <article class="feature reveal"><h3>24 stock plugins</h3><p>Eight instruments, from a polysynth and an electric piano to an 808 and a sampler. Sixteen effects: compressor, EQ, tape, reverb, echo, limiter, transient shaper and more, all with presets.</p></article>
+      <article class="feature reveal"><h3>Your plugins too</h3><p>Hosts VST3, CLAP and macOS Audio Units, scanned in a separate process so one bad plugin cannot take the app down. State is saved inside the project.</p></article>
+      <article class="feature reveal"><h3>Rhythm Lab and takes</h3><p>Generate Euclidean grooves you can audition before committing. Keep up to eight protected variations of a session and flip between them A/B.</p></article>
+      <article class="feature reveal"><h3>Export that fits the job</h3><p>Stereo WAV up to 96 kHz and 32-bit float, aligned track stems, selected ranges and 960-PPQ MIDI. Import MIDI files the same way.</p></article>
+      <article class="feature reveal"><h3>Fast hands</h3><p><kbd>⌘P</kbd> opens a command palette with every command by name. Single-key transport, tools and track toggles, and a shortcut sheet generated from the real bindings.</p></article>
+      <article class="feature reveal"><h3>Hard to lose work</h3><p>Rolling recovery snapshots, a recovered-take rescue for interrupted recordings, saves that never replace a good file with a bad one, and Ed25519-signed updates.</p></article>
+    </div>
+  </section>
+
+  <section id="switch" class="section">
+    <p class="eyebrow reveal">Switching</p>
+    <h2 class="reveal">What moving over actually looks like.</h2>
+    <p class="lede reveal">No DAW reads another DAW’s project files, and Ondera does not pretend to. Here is what comes with you, what is better on this side, and what is not here yet, so you can decide with the facts.</p>
+    <div class="switch">
+      <article class="switch__col reveal">
+        <h3><span class="led led--on"></span>Comes with you</h3>
+        <ul>
+          <li><b>Your plugins.</b> VST3 and CLAP on every platform, Audio Units on macOS.</li>
+          <li><b>Your audio.</b> Bounce stems from the old project and drop them in. They land as clips on audio tracks.</li>
+          <li><b>Your MIDI.</b> Standard MIDI files import as regions and export back out.</li>
+          <li><b>Your habits.</b> <kbd>Space</kbd> plays, <kbd>R</kbd> records, <kbd>C</kbd> cycles, <kbd>⌘T</kbd> splits, <kbd>⌘D</kbd> duplicates, <kbd>M</kbd> <kbd>S</kbd> mute and solo.</li>
+        </ul>
+      </article>
+      <article class="switch__col reveal">
+        <h3><span class="led led--accent"></span>Better on this side</h3>
+        <ul>
+          <li><b>Free, for good.</b> MIT licensed. No tiers, no dongle, no account, no track limit.</li>
+          <li><b>Linux included.</b> Every release ships Linux builds from the same pipeline and tests as macOS and Windows.</li>
+          <li><b>An agent that can actually edit.</b> Not a chatbot beside the DAW: it runs the DAW’s own commands, in your undo history.</li>
+          <li><b>Scriptable end to end.</b> 131 commands from a CLI or any MCP client. Render a project headless with one line.</li>
+          <li><b>A file you can read.</b> Projects are plain JSON with the audio embedded, not an opaque binary.</li>
+        </ul>
+      </article>
+      <article class="switch__col reveal">
+        <h3><span class="led"></span>Not here yet</h3>
+        <ul>
+          <li>Time stretching and warping.</li>
+          <li>Take comping and clip fades.</li>
+          <li>Tempo changes inside a song.</li>
+          <li>User-defined buses and groups beyond the two sends.</li>
+          <li>MP3 or FLAC export, VST2 and AAX.</li>
+        </ul>
+        <p>If your work depends on one of these, keep your current DAW for that job and try Ondera for writing and arranging.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="agent" class="section">
+    <p class="eyebrow reveal">Agent</p>
+    <h2 class="reveal">Ask for the edit. Keep the undo.</h2>
+    <p class="lede reveal">The agent panel streams its reply while it works and shows one card per command it runs. It uses the model you already pay for: Codex or Claude Code from their CLIs, an Anthropic or OpenAI key, or any OpenAI-compatible endpoint, including a local one. Nothing leaves your machine unless you connect a provider.</p>
+    <ul class="rules reveal">
+      <li><b>Slash commands for the common asks.</b> <code>/beat</code>, <code>/chords</code>, <code>/humanize</code>, <code>/mix</code>, <code>/arrange</code>, <code>/diagnose</code> and more, or plain language.</li>
+      <li><b>Undo from here.</b> The Activity tab lists every change the agent made. Roll back to any point, or redo forward again.</li>
+      <li><b>On a leash you hold.</b> Permissions gate file access, transport, replacing the session, settings and quitting. Off means off, for the panel and for MCP clients alike.</li>
+    </ul>
   </section>
 
   <section id="commands" class="section">
     <p class="eyebrow reveal">Command layer</p>
     <h2 class="reveal">One command layer. Four clients. None of them privileged.</h2>
-    <p class="lede reveal">The desktop window, command-line tool, MCP server and built-in agent share 118 validated commands for sessions, transport, tracks, notes, plugins, presets, automation, settings, exports and the interface itself. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
+    <p class="lede reveal">The desktop window, command-line tool, MCP server and built-in agent share 131 validated commands for sessions, transport, tracks, notes, plugins, presets, automation, settings, exports and the interface itself. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
 
     <div class="clients">
       <article class="card reveal">
@@ -275,7 +360,7 @@
     <ul class="rules reveal">
       <li><b>Edits go through the store.</b> The interface keeps hover and drag previews local. Persistent changes dispatch commands and participate in undo.</li>
       <li><b>One shared registry.</b> CLI help, MCP tool schemas and the agent’s tool list come from the same command definitions. Compact queries inspect the arrangement without returning opaque plugin state.</li>
-      <li><b>Agents on a leash.</b> Permissions gate file operations, transport, replacing the session, settings and application control for the panel, MCP clients and <code>--agent</code>. Every agent edit gets a Revert button.</li>
+      <li><b>Agents on a leash.</b> Permissions gate file operations, transport, replacing the session, settings and application control for the panel, MCP clients and <code>--agent</code>. Every agent edit can be undone from the Activity tab.</li>
       <li><b>Consistent materials.</b> The desktop interface keeps its tokens and material recipes in one theme module. This site preserves the same palette and recipes.</li>
     </ul>
   </section>
@@ -299,34 +384,57 @@
       <li class="phase">
         <span class="led led--on"></span>
         <span class="phase__n">03</span>
-        <div><b>Built-in agent, Settings, signed updates</b><span>A conversation with one card per tool call and a Revert on every edit. Codex CLI, Claude Code CLI, Anthropic or OpenAI keys or any compatible endpoint. Full CLI and MCP parity across 118 commands. Ed25519-signed releases verified by the updater.</span></div>
+        <div><b>Built-in agent, Settings, signed updates</b><span>A conversation with one card per tool call and an undo point on every edit. Codex CLI, Claude Code CLI, Anthropic or OpenAI keys or any compatible endpoint. Full CLI and MCP parity across the command registry. Ed25519-signed releases verified by the updater.</span></div>
         <span class="phase__tag">0.3</span>
+      </li>
+      <li class="phase">
+        <span class="led led--on"></span>
+        <span class="phase__n">04</span>
+        <div><b>Tauri interface</b><span>The window moves to Tauri 2 with a React renderer, keeping the same layout and materials. Real decoded waveforms, native dialogs, no Node at runtime. The engine, undo history and audio callback are unchanged Rust.</span></div>
+        <span class="phase__tag">0.4</span>
       </li>
       <li class="phase phase--now">
         <span class="led led--accent"></span>
-        <span class="phase__n">04</span>
-        <div><b>Tauri interface</b><span>The window moves to Tauri 2 with a React renderer, keeping the same layout and materials. Real decoded waveforms, native dialogs, no Node at runtime. The engine, undo history and audio callback are unchanged Rust.</span></div>
-        <span class="phase__tag">0.4 · now</span>
+        <span class="phase__n">05</span>
+        <div><b>Mixer, palette, faster editing</b><span>A mixer with a live meter on every channel, a command palette, copy and paste, track duplication, transpose keys, audio files dropped from the file manager, and a streaming agent with slash commands, Rhythm Lab, takes and two themes.</span></div>
+        <span class="phase__tag">0.5 · now</span>
       </li>
       <li class="phase">
         <span class="led"></span>
-        <span class="phase__n">05</span>
-        <div><b>Current limits</b><span>No time stretching, comping, automation write modes, VST2 or AAX. External plugin editors are macOS-only. Windows and Linux windows are built in CI but not yet checked by hand. Packages are ad-hoc signed, not notarized.</span></div>
-        <span class="phase__tag">limits</span>
+        <span class="phase__n">06</span>
+        <div><b>Next, and current limits</b><span>Clip fades and gain, time stretching, comping, tempo changes and user buses are not built yet. No VST2 or AAX. External plugin editors are macOS-only. Windows and Linux windows are built and tested in CI but not yet checked by hand. Packages are ad-hoc signed, not notarized; Windows binaries are unsigned.</span></div>
+        <span class="phase__tag">next</span>
       </li>
     </ol>
   </section>
 
-  <section class="section cta">
-    <h2 class="reveal">Built in the open.</h2>
-    <p class="lede reveal">MIT licensed. Download the desktop app for your platform, or build from source with Rust 1.88, Node 24 and the platform prerequisites in the README. Release archives include the CLI and MCP companions. macOS uses the system WebKit; Windows needs the Edge WebView2 runtime; Linux needs WebKitGTK 4.1.</p>
+  <section id="faq" class="section">
+    <p class="eyebrow reveal">FAQ</p>
+    <h2 class="reveal">Fair questions.</h2>
+    <div class="faq reveal">
+      <details><summary>Is it really free? What is the catch?</summary><p>Yes. Ondera is MIT licensed, with no paid tier, account or track limit. The agent uses whichever model provider you connect, and that provider may charge you; the DAW works fully without one.</p></details>
+      <details><summary>Do I have to use the AI?</summary><p>No. The agent stays idle and nothing is sent anywhere until you connect a provider and send a prompt. Every feature on this page except the agent works offline.</p></details>
+      <details><summary>Will my plugins work?</summary><p>VST3 and CLAP plugins load on macOS, Windows and Linux, and Audio Units on macOS, as long as they match your processor architecture. VST2 and AAX are not supported. Native plugin editor windows currently open on macOS only; elsewhere you get Ondera’s generic parameter panel.</p></details>
+      <details><summary>Can I open my Ableton, Logic or FL Studio projects?</summary><p>No, and no other DAW can either. Export stems and MIDI from the old project and import them. It takes a few minutes per song.</p></details>
+      <details><summary>macOS says the app cannot be opened.</summary><p>Builds are ad-hoc signed, not notarized by Apple yet. Right-click the app, choose Open, then Open again. You only need to do it once.</p></details>
+      <details><summary>Is it stable enough for real work?</summary><p>It is a young 0.x project. Each release must pass the engine tests and a scripted full-song session (record, edit, save, reopen, export) on all four platforms before it ships, and recovery snapshots run in the background. Keep backups, as with any DAW.</p></details>
+      <details><summary>What can the agent touch?</summary><p>Only what the permission switches in Settings allow. By default it can edit the session, import and export files and run the transport; replacing the session, changing settings and controlling the app are off until you turn them on. Each is its own switch. Whatever it changes is in your undo history.</p></details>
+    </div>
+  </section>
+
+  <section id="downloads" class="section cta">
+    <h2 class="reveal">Download Ondera 0.5</h2>
+    <p class="lede reveal">Free and MIT licensed. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
+    <div class="downloads reveal">
+      <a class="dl" href="/download/macos-arm64" data-os="macos-arm64"><b>macOS</b><span>Apple silicon · macOS 11+</span></a>
+      <a class="dl" href="/download/macos-x86_64" data-os="macos-x86_64"><b>macOS</b><span>Intel · macOS 11+</span></a>
+      <a class="dl" href="/download/windows-x86_64" data-os="windows-x86_64"><b>Windows</b><span>64-bit · needs WebView2 (built into Windows 11)</span></a>
+      <a class="dl" href="/download/linux-x86_64" data-os="linux-x86_64"><b>Linux</b><span>x86-64 · needs WebKitGTK 4.1</span></a>
+    </div>
+    <p class="downloads__foot reveal"><a href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Release notes and checksums</a> &nbsp;·&nbsp; <a href="https://github.com/ludovic111/ondera#build-and-run" rel="noopener">Build from source</a> &nbsp;·&nbsp; <a href="https://github.com/ludovic111/ondera/issues" rel="noopener">Report a problem</a></p>
     <div class="codewell reveal">
       <code id="clone-cmd">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; npm --prefix frontend ci &amp;&amp; npm --prefix frontend run build &amp;&amp; cargo run --release</code>
       <button class="btn btn--raised btn--xs" id="copy" type="button">Copy</button>
-    </div>
-    <div class="hero__cta reveal">
-      <a class="btn btn--lit" href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Download Ondera</a>
-      <a class="btn btn--raised" href="https://github.com/ludovic111/ondera#build-and-run" rel="noopener">Build instructions</a>
     </div>
   </section>
 

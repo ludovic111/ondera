@@ -81,6 +81,7 @@ export const commands = {
     add: command("track.add"),
     remove: command("track.remove"),
     move: command("track.move"),
+    duplicate: command("track.duplicate"),
   },
   transport: {
     play: command("transport.play"),

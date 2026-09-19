@@ -11,6 +11,9 @@ import { InspectorPanel } from "./components/inspector/InspectorPanel";
 import { AgentPanel } from "./components/agent/AgentPanel";
 import { AgentRail } from "./components/agent/AgentRail";
 import { Dialogs } from "./components/Dialogs";
+import { Mixer } from "./components/mixer/Mixer";
+import { CommandPalette } from "./components/palette/CommandPalette";
+import { useFileDrop } from "./state/fileDrop";
 import { applyAppearance } from "./theme/applyTokens";
 import styles from "./App.module.css";
 
@@ -39,6 +42,12 @@ export function App() {
     root.style.height = `${100 / scale}vh`;
   }, [scale]);
   const agentOpen = useSession((s) => s.view.agentPanelOpen);
+  const overlays = useSyncExternalStore(store.subscribeMeta, store.getOverlays);
+  const mixer = useSyncExternalStore(
+    store.subscribeMeta,
+    () => store.ui.mixer ?? false,
+  );
+  const dropping = useFileDrop();
   return (
     <div className={styles.window} data-surface="window">
       <TitleBar />
@@ -48,12 +57,16 @@ export function App() {
         <div className={styles.center}>
           <ArrangementToolbar />
           <Arrangement />
-          <EditorPane />
+          {mixer ? <Mixer /> : <EditorPane />}
         </div>
         <InspectorPanel />
         {agentOpen ? <AgentPanel /> : <AgentRail />}
       </div>
       <Dialogs />
+      {overlays.palette && (
+        <CommandPalette onClose={() => store.setOverlay("palette", false)} />
+      )}
+      {dropping && <div className={styles.drop}>Drop audio to import</div>}
     </div>
   );
 }

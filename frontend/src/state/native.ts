@@ -20,6 +20,7 @@ export interface UiState {
   settings: boolean;
   settingsSection: string;
   help: boolean;
+  mixer?: boolean;
   export: boolean;
   recovery: boolean;
   tool: View["arrangeTool"];
@@ -33,6 +34,9 @@ export interface UiState {
   appearance?: "aero" | "graphite";
   recoveryStatus: string;
   update: { available: string | null; installed: boolean; busy: boolean };
+}
+export interface Overlays {
+  palette: boolean;
 }
 export interface AgentEntry {
   role: string;
@@ -176,6 +180,16 @@ export class NativeStore {
     transcript: { entries: [] },
     changes: [],
   };
+  /** Window-only overlays that the session and the host never need to know about. */
+  overlays: Overlays = { palette: false };
+  getOverlays = () => this.overlays;
+  setOverlay = (name: keyof Overlays, open: boolean) => {
+    if (this.overlays[name] === open) return;
+    this.overlays = { ...this.overlays, [name]: open };
+    this.notifyMeta();
+  };
+  /** Post-fader peak per track, in track order; read by the mixer's meters. */
+  trackPeaks: number[] = [];
   private composer = { draft: "", sending: false, error: "" };
   getComposer = () => this.composer;
   setAgentDraft = (draft: string) => {
@@ -261,9 +275,11 @@ export class NativeStore {
         playing: boolean;
         recording: boolean;
         peaks: number[];
+        trackPeaks?: number[];
         cpu: number;
       }>("daw:telemetry", (e) => {
         const t = e.payload;
+        this.trackPeaks = t.trackPeaks ?? [];
         this.state = {
           ...this.state,
           transport: {
@@ -529,6 +545,12 @@ export class NativeStore {
         delete p.clipId;
         const clip = await native<{ id: string }>("clip.create", p);
         if (typeof clientId === "string") this.ids.set(clientId, clip.id);
+        this.receive(await native<DocumentData>("web.document"));
+        return;
+      }
+      case "track.duplicate": {
+        const track = await native<{ id: string }>("track.duplicate", p);
+        await native("track.select", { trackId: track.id });
         this.receive(await native<DocumentData>("web.document"));
         return;
       }

@@ -22,6 +22,34 @@ const TYPES = {
   '.woff2': 'font/woff2',
 };
 
+// Keep in step with `update::asset_name` in desktop/src/update.rs and the release workflow.
+const RELEASES = 'https://github.com/ludovic111/ondera/releases/latest';
+const ASSETS = {
+  'macos-arm64': 'Ondera-macos-arm64.zip',
+  'macos-x86_64': 'Ondera-macos-x86_64.zip',
+  'windows-x86_64': 'Ondera-windows-x86_64.zip',
+  'linux-x86_64': 'Ondera-linux-x86_64.zip',
+};
+
+/** Best guess from the User-Agent. Macs report Intel even on Apple silicon, so default to arm64. */
+export function platformFor(userAgent = '') {
+  if (/Windows/i.test(userAgent)) return 'windows-x86_64';
+  if (/Android|iPhone|iPad/i.test(userAgent)) return null;
+  if (/Mac OS X|Macintosh/i.test(userAgent)) return 'macos-arm64';
+  if (/Linux|X11/i.test(userAgent)) return 'linux-x86_64';
+  return null;
+}
+
+const SECURITY = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'X-Frame-Options': 'DENY',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Strict-Transport-Security': 'max-age=31536000',
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'",
+};
+
 const NOT_FOUND = `<!doctype html><meta charset="utf-8"><title>Ondera — not found</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#141413;color:#a9a8a4;font:14px/1.5 Manrope,system-ui,sans-serif}a{color:#e8e7e4}</style>
 <p>Nothing at this address. <a href="/">Back to Ondera</a></p>`;
@@ -31,7 +59,7 @@ function send(res, status, body, type, cache) {
     'Content-Type': type,
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': cache,
-    'X-Content-Type-Options': 'nosniff',
+    ...SECURITY,
   });
   res.end(body);
 }
@@ -42,6 +70,20 @@ createServer(async (req, res) => {
   }
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (url.pathname === '/health') return send(res, 200, 'ok', 'text/plain; charset=utf-8', 'no-store');
+
+  if (url.pathname === '/download' || url.pathname.startsWith('/download/')) {
+    const wanted = url.pathname.slice('/download/'.length) || platformFor(req.headers['user-agent']);
+    const asset = ASSETS[wanted];
+    res.writeHead(302, {
+      Location: asset ? `${RELEASES}/download/${asset}` : RELEASES,
+      'Cache-Control': 'no-store',
+      ...SECURITY,
+    });
+    return res.end();
+  }
+  if (url.pathname === '/robots.txt') {
+    return send(res, 200, 'User-agent: *\nAllow: /\n', TYPES['.txt'], 'public, max-age=3600');
+  }
 
   let pathname;
   try {
@@ -63,7 +105,13 @@ createServer(async (req, res) => {
     const ext = extname(file).toLowerCase();
     const type = TYPES[ext] ?? 'application/octet-stream';
     const cache = ext === '.html' ? 'no-cache' : 'public, max-age=3600';
-    const body = await readFile(file);
+    let body = await readFile(file);
+    if (ext === '.html') {
+      // Absolute URLs for link previews, whatever domain the site is served from.
+      const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
+      const host = String(req.headers.host ?? 'localhost').replace(/[^\w.:-]/g, '');
+      body = Buffer.from(body.toString('utf8').replaceAll('%ORIGIN%', `${proto}://${host}`));
+    }
     send(res, 200, body, type, cache);
   } catch {
     send(res, 404, NOT_FOUND, TYPES['.html'], 'no-store');

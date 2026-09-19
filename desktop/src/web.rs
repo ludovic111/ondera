@@ -335,6 +335,25 @@ impl WebHost {
                     "open" => self.app.request(Intent::Open),
                     "save" => self.app.save(params["saveAs"].as_bool().unwrap_or(false)),
                     "import" => self.app.import(None),
+                    // Files dropped on the window: only audio the decoder knows is imported.
+                    "importPaths" => {
+                        let paths: Vec<std::path::PathBuf> = params["paths"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| p.as_str().map(std::path::PathBuf::from))
+                            .filter(|p| {
+                                p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                                    ["wav", "aif", "aiff", "flac", "mp3", "ogg", "m4a", "aac"]
+                                        .contains(&e.to_ascii_lowercase().as_str())
+                                })
+                            })
+                            .collect();
+                        if paths.is_empty() {
+                            return Err("Drop WAV, AIFF, FLAC, MP3, Ogg or AAC files".into());
+                        }
+                        self.app.import(Some(paths));
+                    }
                     "export" => self.app.open_export_dialog(),
                     "relaunch" => self.app.request(Intent::Relaunch),
                     "recoverTake" => self.app.save_recovered_take(),
@@ -582,8 +601,17 @@ impl WebHost {
             .device
             .as_ref()
             .map_or([0.; 4], |d| d.telemetry.peaks());
+        let tracks = self.app.store.session().tracks.len();
+        let track_peaks: Vec<f32> = self.app.device.as_ref().map_or(Vec::new(), |d| {
+            d.telemetry
+                .track_peaks()
+                .iter()
+                .take(tracks)
+                .map(|p| (p * 1000.).round() / 1000.)
+                .collect()
+        });
         let telemetry = json!({"position":self.app.position,"playing":self.app.playing,
-            "recording":self.app.record_enabled,"peaks":peaks,
+            "recording":self.app.record_enabled,"peaks":peaks,"trackPeaks":track_peaks,
             "cpu":(self.app.device.as_ref().map_or(0.,|d|d.telemetry.load())*1000.).round()/1000.});
         if telemetry != self.last_telemetry {
             let _ = handle.emit("daw:telemetry", &telemetry);

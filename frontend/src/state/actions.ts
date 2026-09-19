@@ -3,6 +3,7 @@ import {
   beatsToBars,
   commands,
   snapBars,
+  type Clip,
   type Session,
   type SessionStore,
 } from "@ondera/core";
@@ -19,7 +20,7 @@ export interface ActionDef {
   label: string;
   shortcut?: Shortcut;
   enabled?: (state: Session, store: SessionStore) => boolean;
-  checked?: (state: Session) => boolean;
+  checked?: (state: Session, store: SessionStore) => boolean;
   run: (store: SessionStore) => void;
 }
 
@@ -56,9 +57,19 @@ export type ActionId =
   | "toolPointer"
   | "toolPencil"
   | "toolScissors"
-  | "toolGrid";
+  | "copy"
+  | "cut"
+  | "paste"
+  | "duplicateTrack"
+  | "transposeUp"
+  | "transposeDown"
+  | "transposeOctaveUp"
+  | "transposeOctaveDown"
+  | "toggleMixer"
+  | "commandPalette"
+  | "showShortcuts";
 
-export const SNAP_DIVISIONS = [1, 2, 4, 8, 16, 32] as const;
+export const SNAP_DIVISIONS = [1, 2, 4, 8, 16, 32, 64] as const;
 
 const selectedClip = (s: Session) =>
   s.view.selectedClipId
@@ -421,15 +432,158 @@ export const actions = define([
     run: (store) =>
       store.dispatch(commands.view.setArrangeTool({ tool: "scissors" })),
   },
-  {
-    id: "toolGrid",
-    label: "Grid Tool",
-    shortcut: { key: "4" },
-    checked: (s) => s.view.arrangeTool === "grid",
-    run: (store) =>
-      store.dispatch(commands.view.setArrangeTool({ tool: "grid" })),
-  },
+  ...editingActions(),
 ]);
+
+/** The copied region. It stays in the window: a clip only makes sense inside its own session. */
+let clipboard: Clip | null = null;
+
+/** Semitone shift of the selected note, or of every note in the selected region. */
+function transpose(store: SessionStore, semitones: number): void {
+  const s = store.getState();
+  const note = selectedNote(s);
+  if (note && s.view.editorClipId) {
+    store.dispatch(
+      commands.note.update({
+        clipId: s.view.editorClipId,
+        noteId: note.id,
+        pitch: Math.max(0, Math.min(127, note.pitch + semitones)),
+      }),
+    );
+    return;
+  }
+  store.fire("web.transpose", { semitones });
+}
+function canTranspose(s: Session): boolean {
+  return selectedNote(s) !== null || selectedClip(s)?.data.kind === "midi";
+}
+
+function editingActions(): ActionDef[] {
+  const copy = (store: SessionStore) => {
+    const clip = selectedClip(store.getState());
+    if (clip) clipboard = structuredClone(clip);
+    return clip;
+  };
+  const step = (
+    id: ActionId,
+    label: string,
+    key: string,
+    shift: boolean,
+    semitones: number,
+  ): ActionDef => ({
+    id,
+    label,
+    shortcut: { key, alt: true, shift },
+    enabled: canTranspose,
+    run: (store) => transpose(store, semitones),
+  });
+  return [
+    {
+      id: "copy",
+      label: "Copy",
+      shortcut: { key: "c", meta: true },
+      enabled: (s) => selectedClip(s) !== null,
+      run: (store) => void copy(store),
+    },
+    {
+      id: "cut",
+      label: "Cut",
+      shortcut: { key: "x", meta: true },
+      enabled: (s) => selectedClip(s) !== null,
+      run: (store) => {
+        const clip = copy(store);
+        if (clip) store.dispatch(commands.clip.remove({ clipId: clip.id }));
+      },
+    },
+    {
+      id: "paste",
+      label: "Paste at Playhead",
+      shortcut: { key: "v", meta: true },
+      enabled: (s) => pasteTarget(s) !== null,
+      run: (store) => {
+        const s = store.getState();
+        const track = pasteTarget(s);
+        if (!clipboard || !track) return;
+        const data = clipboard.data;
+        store.dispatch(
+          commands.clip.create({
+            clipId: newId("clip"),
+            trackId: track.id,
+            startBar: playheadBar(s),
+            lengthBars: clipboard.lengthBars,
+            name: clipboard.name,
+            ...(data.kind === "midi"
+              ? {
+                  notes: data.notes.map(
+                    ({ start, length, pitch, velocity }) => ({
+                      start,
+                      length,
+                      pitch,
+                      velocity,
+                    }),
+                  ),
+                }
+              : { sourceId: data.sourceId, offsetSeconds: data.offsetSeconds }),
+          }),
+        );
+      },
+    },
+    {
+      id: "duplicateTrack",
+      label: "Duplicate Track",
+      shortcut: { key: "d", meta: true, shift: true },
+      enabled: (s) => selectedTrack(s) !== null,
+      run: (store) => {
+        const track = selectedTrack(store.getState());
+        if (track)
+          store.dispatch(commands.track.duplicate({ trackId: track.id }));
+      },
+    },
+    step("transposeUp", "Transpose Up a Semitone", "ArrowUp", false, 1),
+    step("transposeDown", "Transpose Down a Semitone", "ArrowDown", false, -1),
+    step("transposeOctaveUp", "Transpose Up an Octave", "ArrowUp", true, 12),
+    step(
+      "transposeOctaveDown",
+      "Transpose Down an Octave",
+      "ArrowDown",
+      true,
+      -12,
+    ),
+    {
+      id: "toggleMixer",
+      label: "Mixer",
+      shortcut: { key: "x" },
+      checked: (_s, store) => store.ui.mixer ?? false,
+      run: (store) =>
+        store.fire("ui.showPanel", {
+          panel: "mixer",
+          visible: !store.ui.mixer,
+        }),
+    },
+    {
+      id: "commandPalette",
+      label: "Command Palette…",
+      shortcut: { key: "p", meta: true },
+      run: (store) => store.setOverlay("palette", true),
+    },
+    {
+      id: "showShortcuts",
+      label: "Shortcuts and Help",
+      shortcut: { key: "/", meta: true },
+      run: (store) =>
+        store.fire("ui.showPanel", { panel: "help", visible: true }),
+    },
+  ];
+}
+
+/** Where a paste lands: the selected track when its kind matches, else the clip's own track. */
+function pasteTarget(s: Session) {
+  if (!clipboard) return null;
+  const kind = clipboard.data.kind;
+  const selected = selectedTrack(s);
+  if (selected?.kind === kind) return selected;
+  return s.tracks.find((t) => t.id === clipboard!.trackId) ?? null;
+}
 
 /** New tracks go right below the selected one. */
 function insertIndex(store: SessionStore): { index?: number } {

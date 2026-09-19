@@ -188,6 +188,8 @@ function TrackList() {
         actionItem(store, "openInEditor"),
         { label: "Rename…", onSelect: () => setRenaming(clip.id) },
         separator,
+        actionItem(store, "cut"),
+        actionItem(store, "copy"),
         actionItem(store, "duplicateClip"),
         actionItem(store, "splitAtPlayhead"),
         separator,
@@ -202,6 +204,8 @@ function TrackList() {
       x: e.clientX,
       y: e.clientY,
       items: [
+        actionItem(store, "paste"),
+        separator,
         actionItem(store, "addAudioTrack"),
         actionItem(store, "addMidiTrack"),
         separator,
