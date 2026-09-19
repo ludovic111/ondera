@@ -68,6 +68,28 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   is armed. Native plugin calls are panic-guarded in `sdk/src/ffi.rs` (`Guarded`); test plugins with
   `ondera_plugin::testing::Bench`. Continuous controls are coalesced in `NativeStore`
   (`CONTINUOUS`); add a command there when a new dial dispatches on pointer move.
+- 0.8 work (2026-09-19, on `feat/0.8-monitoring`, not released): input monitoring is a second
+  bounded ring (`device::monitor_ring`) from whichever input stream is open (meter or recorder)
+  to the output callback's `MonitorTap`, which resamples, waits for one input buffer before it
+  starts, skips a backlog and counts drops and underruns in `Telemetry`; `Renderer::render_monitored`
+  mixes it into monitoring tracks ahead of their inserts with a 5 ms ramp. `Track.monitor` is
+  absent from the file when off. Built-in microphone into built-in speakers is decided by device
+  names (`device::feedback_risk`) and stays muted until `audio.allowSpeakerMonitoring`.
+  `settings.audio.bufferFrames` sets both device buffers. FLAC is `engine/src/flac.rs`, written by
+  hand (fixed predictors, Rice, mid/side, MD5) so no dependency was added; a mix takes its
+  container from the path, stems from `ExportOptions::container`. MP3 was not added: no clean
+  pure-Rust encoder exists (see `docs/releases/0.8.0.md`). Plugin ABI 2 never touches an ABI 1
+  layout: `ondera_plugin_entry_v2` returns `PluginVTable2 { size, base, .. }`, the macro exports
+  both symbols, the host tries v2 then v1, `sdk/src/ffi.rs` asserts every frozen offset at compile
+  time, and `plugins/abi1-fixture` (no SDK dependency, never "update" it) is loaded by
+  `engine/tests/abi1_plugin.rs`. Native state is saved from a main-thread model instance and
+  restored by swapping a freshly loaded instance in on the audio thread. The window's private
+  handlers are the allow-lists in `desktop/src/web.rs` tests (`PRIVATE_HANDLERS`, `PRIVATE_TAURI`);
+  anything else is a registry command, and work that waits on the network or renders offline is
+  a live job through `Ondera::start_worker`. The clipboard and the lane width belong to the host
+  (`Host::clipboard`, `Host::lane_width`). Browser rows fold channel layouts
+  (`control_plugins::layout_of`); when extending `EFFECT_RULES`, diff every plugin's folder before
+  and after on a real library, because a new word in an early group steals from later ones.
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs
