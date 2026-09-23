@@ -175,6 +175,11 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("zoomToFit", "Fit session"),
         a("zoomIn"),
         a("zoomOut"),
+        separator,
+        a("addMarker"),
+        a("previousMarker"),
+        a("nextMarker"),
+        a("cycleSection"),
       ];
     case "Help":
       return [

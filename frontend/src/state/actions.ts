@@ -70,7 +70,11 @@ export type ActionId =
   | "transposeOctaveDown"
   | "toggleMixer"
   | "commandPalette"
-  | "showShortcuts";
+  | "showShortcuts"
+  | "addMarker"
+  | "nextMarker"
+  | "previousMarker"
+  | "cycleSection";
 
 export const SNAP_DIVISIONS = [1, 2, 4, 8, 16, 32, 64] as const;
 
@@ -464,7 +468,49 @@ export const actions = define([
       store.dispatch(commands.view.setArrangeTool({ tool: "scissors" })),
   },
   ...editingActions(),
+  ...markerActions(),
 ]);
+
+/** Markers are the song's sections; the host names a new one and moves the playhead. */
+function markerActions(): ActionDef[] {
+  const bar = (s: Session) =>
+    beatsToBars(s.transport.positionBeats, s.transport.timeSignature);
+  const markerAtPlayhead = (s: Session) =>
+    s.markers.some((m) => Math.abs(m.bar - playheadBar(s)) < 1e-6);
+  return [
+    {
+      id: "addMarker",
+      label: "Add Marker at Playhead",
+      shortcut: { key: "m", shift: true },
+      enabled: (s) => !markerAtPlayhead(s),
+      run: (store) =>
+        store.dispatch(
+          commands.marker.add({ bar: playheadBar(store.getState()) }),
+        ),
+    },
+    {
+      id: "previousMarker",
+      label: "Go to Previous Marker",
+      shortcut: { key: "b", shift: true },
+      enabled: (s) => s.markers.some((m) => m.bar < bar(s) - 1e-6),
+      run: (store) => store.dispatch(commands.marker.previous({})),
+    },
+    {
+      id: "nextMarker",
+      label: "Go to Next Marker",
+      shortcut: { key: "n", shift: true },
+      enabled: (s) => s.markers.some((m) => m.bar > bar(s) + 1e-6),
+      run: (store) => store.dispatch(commands.marker.next({})),
+    },
+    {
+      id: "cycleSection",
+      label: "Cycle Section at Playhead",
+      shortcut: { key: "c", shift: true },
+      enabled: (s) => s.markers.some((m) => m.bar <= bar(s) + 1e-6),
+      run: (store) => store.dispatch(commands.marker.cycleSection({})),
+    },
+  ];
+}
 
 /** Semitone shift of the selected note, or of every note in the selected region. */
 function transpose(store: SessionStore, semitones: number): void {

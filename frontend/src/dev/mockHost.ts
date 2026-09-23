@@ -2,7 +2,7 @@
  * Development-only stand-in for the Rust host. `npm run dev` in a plain browser
  * has no Tauri bridge, so this answers the handful of commands the renderer
  * needs with a fixed song. It exists to check themes and layouts quickly:
- * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|plugin:<name>`.
+ * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|plugin:<name>&clip=<id>`.
  * Never imported by a production build.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -67,8 +67,21 @@ clips.push({
   startBar: 4,
   lengthBars: 6,
   agent: false,
-  data: { kind: "audio", sourceId: "src1", offsetSeconds: 0 } as never,
+  data: {
+    kind: "audio",
+    sourceId: "src1",
+    offsetSeconds: 0,
+    fadeInSeconds: 0.8,
+    fadeOutSeconds: 2.5,
+    gainDb: -3,
+  } as never,
 });
+
+const markers: { id: string; bar: number; name: string; color?: string }[] = [
+  { id: "m1", bar: 0, name: "Intro" },
+  { id: "m2", bar: 4, name: "Verse 1" },
+  { id: "m3", bar: 8, name: "Chorus", color: "oklch(0.72 0.14 40)" },
+];
 
 const strips = Object.fromEntries(
   TRACKS.map(([id, , kind, , instrument], i) => [
@@ -122,6 +135,7 @@ const session = {
     agentActive: i === 2,
   })),
   clips,
+  markers,
   sources: {
     src1: {
       id: "src1",
@@ -150,8 +164,9 @@ const session = {
     pixelsPerBar: 64,
     scrollBars: 0,
     agentPanelOpen: true,
-    selectedTrackId: "keys",
-    selectedClipId: "c3",
+    // `?clip=cv` selects the vocal region to show the audio inspector.
+    selectedTrackId: query.get("clip") === "cv" ? "vox" : "keys",
+    selectedClipId: query.get("clip") ?? "c3",
     editorClipId: "c3",
     selectedNoteId: null,
     editorMode: "pianoRoll",
@@ -487,6 +502,126 @@ const pluginAt = (params: Params) => {
   );
 };
 const values = new Map<string, number>();
+/** Playhead in beats; telemetry reports it, locate and the marker commands move it. */
+let position = 13;
+const beatsPerBar = () =>
+  (session.transport.timeSignature.numerator * 4) /
+  session.transport.timeSignature.denominator;
+const secondsPerBar = () => (beatsPerBar() * 60) / session.transport.tempo;
+const publish = () => {
+  session.snapshotSequence++;
+  void emit("daw:document", { ...session, markers: [...markers] });
+};
+const sortMarkers = () => markers.sort((a, b) => a.bar - b.bar);
+const endBar = () =>
+  Math.max(1, ...clips.map((c) => Number(c.startBar) + Number(c.lengthBars)));
+const sectionEnd = (bar: number) =>
+  markers.find((m) => m.bar > bar + 1e-6)?.bar ??
+  Math.max(Math.ceil(endBar()), Math.floor(bar) + 1);
+/** Mirrors engine/src/control_arrange.rs for the commands the arrangement sends. */
+function arrange(method: string, params: Params): unknown {
+  const clip = clips.find((c) => c.id === params.clipId);
+  const data = clip?.data as Params | undefined;
+  switch (method) {
+    case "clip.setFades": {
+      if (!clip || data?.kind !== "audio") throw "Only audio clips have fades";
+      const length = Number(clip.lengthBars) * secondsPerBar();
+      let fin = Number(params.fadeInSeconds ?? data.fadeInSeconds ?? 0);
+      let fout = Number(params.fadeOutSeconds ?? data.fadeOutSeconds ?? 0);
+      fin = Math.min(length, Math.max(0, fin));
+      fout = Math.min(length, Math.max(0, fout));
+      if (fin + fout > length) {
+        const k = length / (fin + fout);
+        fin *= k;
+        fout *= k;
+      }
+      Object.assign(data, { fadeInSeconds: fin, fadeOutSeconds: fout });
+      if (params.curve) data.fadeCurve = params.curve;
+      break;
+    }
+    case "clip.setGain":
+      if (!clip || data?.kind !== "audio") throw "Only audio clips have gain";
+      data.gainDb = Number(params.gainDb);
+      break;
+    case "marker.add": {
+      const bar = Number(
+        params.bar ?? Math.round((position / beatsPerBar()) * 4) / 4,
+      );
+      if (markers.some((m) => Math.abs(m.bar - bar) < 1e-6))
+        throw "A marker is already there";
+      let n = markers.length + 1;
+      while (markers.some((m) => m.name === `Marker ${n}`)) n++;
+      markers.push({
+        id: `m${Date.now()}`,
+        bar,
+        name: String(params.name ?? `Marker ${n}`),
+      });
+      sortMarkers();
+      break;
+    }
+    case "marker.rename":
+    case "marker.move":
+    case "marker.remove": {
+      const i = markers.findIndex((m) => m.id === params.markerId);
+      if (i < 0) throw "Unknown marker";
+      if (method === "marker.remove") markers.splice(i, 1);
+      else if (method === "marker.rename")
+        markers[i]!.name = String(params.name);
+      else markers[i]!.bar = Number(params.bar);
+      sortMarkers();
+      break;
+    }
+    case "marker.goto":
+    case "marker.next":
+    case "marker.previous": {
+      const bar = position / beatsPerBar();
+      const target =
+        method === "marker.goto"
+          ? markers.find((m) => m.id === params.markerId)
+          : method === "marker.next"
+            ? markers.find((m) => m.bar > bar + 1e-6)
+            : [...markers].reverse().find((m) => m.bar < bar - 1e-6);
+      if (target) position = target.bar * beatsPerBar();
+      return { marker: target ?? null };
+    }
+    case "marker.cycleSection": {
+      const bar = position / beatsPerBar();
+      const start =
+        markers.find((m) => m.id === params.markerId)?.bar ??
+        [...markers].reverse().find((m) => m.bar <= bar + 1e-6)?.bar;
+      if (start === undefined) throw "The playhead is before the first marker";
+      Object.assign(session.transport, {
+        cycle: true,
+        cycleStartBar: start,
+        cycleEndBar: sectionEnd(start),
+      });
+      break;
+    }
+    case "transport.locate":
+      position = Math.max(
+        0,
+        params.beats !== undefined
+          ? Number(params.beats)
+          : Number(params.bar ?? 0) * beatsPerBar(),
+      );
+      return {};
+    case "transport.setCycle":
+      Object.assign(session.transport, {
+        cycle: Boolean(params.enabled),
+        ...(params.startBar !== undefined
+          ? { cycleStartBar: Number(params.startBar) }
+          : {}),
+        ...(params.endBar !== undefined
+          ? { cycleEndBar: Number(params.endBar) }
+          : {}),
+      });
+      break;
+    default:
+      return undefined;
+  }
+  publish();
+  return {};
+}
 
 function peaks() {
   const out: number[] = [];
@@ -634,7 +769,12 @@ const agentFixture = {
 };
 
 function command(method: string, params: Params): unknown {
+  const arranged = arrange(method, params);
+  if (arranged !== undefined) return arranged;
   switch (method) {
+    case "web.document":
+      session.snapshotSequence++;
+      return { ...session, markers: [...markers] };
     case "web.ready":
       return {
         session,
@@ -778,7 +918,7 @@ export function install(): void {
     phase += 0.13;
     const level = (o: number) => 0.35 + 0.3 * Math.abs(Math.sin(phase + o));
     void emit("daw:telemetry", {
-      position: 13,
+      position,
       playing: false,
       recording: false,
       peaks: [level(0), level(0.4), level(1), level(1.3)],

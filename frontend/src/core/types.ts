@@ -65,11 +65,21 @@ export interface AudioSource {
   fileName?: string;
 }
 
+/** equalPower keeps loudness through a crossfade; exponential starts slow. */
+export type FadeCurve = "equalPower" | "linear" | "exponential";
+
 export interface AudioClipData {
   kind: "audio";
   sourceId: string;
   /** Where in the source this clip starts, in seconds. */
   offsetSeconds: number;
+  /** Fade lengths in seconds of audio; absent means none. */
+  fadeInSeconds?: number;
+  fadeOutSeconds?: number;
+  /** Absent means equalPower. */
+  fadeCurve?: FadeCurve;
+  /** Clip gain in dB, -60 to +24; absent means 0. */
+  gainDb?: number;
 }
 
 export interface MidiClipData {
@@ -88,6 +98,16 @@ export interface Clip {
   data: AudioClipData | MidiClipData;
   /** True when the clip is currently being edited by an agent. */
   agent: boolean;
+}
+
+/** A named position on the ruler: where a song section starts. */
+export interface Marker {
+  id: string;
+  /** Zero-based bar. */
+  bar: number;
+  name: string;
+  /** CSS colour; absent uses the theme's marker colour. */
+  color?: string | null;
 }
 
 export interface TimeSignature {
@@ -231,6 +251,8 @@ export interface Session {
   audio: AudioSettings;
   tracks: Track[];
   clips: Clip[];
+  /** Song sections in bar order. */
+  markers: Marker[];
   /** Audio sources referenced by audio clips, keyed by id. */
   sources: Record<string, AudioSource>;
   transport: Transport;

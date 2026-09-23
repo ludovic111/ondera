@@ -14,11 +14,13 @@ import {
   timeline,
 } from "../theme/tokens";
 import { cc, hline, monoFont, roundRectPath, withShadows } from "./paint";
-import { barToX, laneGeometry } from "./timeline";
+import { barToX, laneGeometry, type MarkerDrag } from "./timeline";
+import { drawMarkerFlags } from "./markers";
 
-/** Cycle range being dragged; drawn instead of the committed one. */
+/** Cycle range or marker being dragged; drawn instead of the committed one. */
 export interface RulerOverlay {
   cycle?: { startBar: number; endBar: number };
+  marker?: MarkerDrag;
 }
 
 export function drawRuler(
@@ -82,6 +84,8 @@ export function drawRuler(
   }
 
   hline(ctx, 0, h - 1, w, line.rulerBottom);
+
+  drawMarkerFlags(ctx, w, state, overlay.marker);
 
   // Playhead: line, flag, and position bubble.
   const posBars = beatsToBars(transport.positionBeats, transport.timeSignature);
