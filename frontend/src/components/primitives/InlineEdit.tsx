@@ -15,6 +15,7 @@ export interface InlineEditProps {
   className?: string | undefined;
   style?: CSSProperties | undefined;
   mono?: boolean;
+  placeholder?: string;
 }
 
 /** A text field that appears in place of a label. Enter commits, Escape cancels, blur commits. */
@@ -25,6 +26,7 @@ export function InlineEdit({
   className,
   style,
   mono,
+  placeholder,
 }: InlineEditProps) {
   const [text, setText] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
@@ -59,6 +61,8 @@ export function InlineEdit({
         .join(" ")}
       style={style}
       value={text}
+      placeholder={placeholder}
+      aria-label={placeholder}
       onChange={(e) => setText(e.target.value)}
       onKeyDown={onKeyDown}
       onBlur={commit}
