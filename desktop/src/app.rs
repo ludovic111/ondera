@@ -1617,11 +1617,12 @@ impl Ondera {
                 self.closing = true;
             }
             Intent::Relaunch => {
-                if let Some(target) = self.updates.installed.take() {
-                    if let Err(e) = crate::update::relaunch(&target) {
-                        self.error = Some(e);
-                        return;
-                    }
+                // Without an installed update, Relaunch starts this copy again: quitting
+                // without a new window would look like a crash.
+                let target = crate::update::relaunch_target(self.updates.installed.take());
+                if let Err(e) = target.and_then(|target| crate::update::relaunch(&target)) {
+                    self.error = Some(e);
+                    return;
                 }
                 self.shutdown_audio();
                 self.closing = true;
