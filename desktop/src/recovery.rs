@@ -187,6 +187,12 @@ impl Ondera {
         });
     }
 
+    /// Capturing plugin state is an undo step: from a timer it would wipe Redo after the
+    /// person undid something, or split a drag (or a batch) in progress into two steps.
+    pub(crate) fn background_capture_allowed(&self) -> bool {
+        !self.store.can_redo() && !self.store.gesture_active()
+    }
+
     pub(crate) fn poll_recovery(&mut self, ctx: &egui::Context) {
         if let Some((generation, result)) = self.recovery.poll() {
             if generation == self.recovery.generation {
@@ -261,7 +267,9 @@ impl Ondera {
         {
             self.recovery.last_attempt = now;
             let previous_error = self.error.take();
-            self.capture_plugin_states();
+            if self.background_capture_allowed() {
+                self.capture_plugin_states();
+            }
             if let Some(error) = self.error.take() {
                 self.recovery.error = Some(error);
             } else {
@@ -518,6 +526,20 @@ mod tests {
         assert!(!app.closing);
         app.store.mark_saved(app.store.revision);
         assert!(!app.store.dirty());
+    }
+
+    #[test]
+    fn the_recovery_timer_leaves_redo_and_gestures_alone() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        assert!(app.background_capture_allowed());
+        app.dispatch(ondera_engine::store::Command::Rename("Edit".into()));
+        app.dispatch(ondera_engine::store::Command::Undo);
+        assert!(!app.background_capture_allowed(), "Redo would be lost");
+        app.dispatch(ondera_engine::store::Command::Redo);
+        app.store.set_gesture(true);
+        assert!(!app.background_capture_allowed(), "a drag would be split");
+        app.store.set_gesture(false);
+        assert!(app.background_capture_allowed());
     }
 
     #[test]

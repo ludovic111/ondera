@@ -116,6 +116,10 @@ impl Store {
         self.revision += 1;
         Ok(())
     }
+    /// Whether edits are being coalesced into one undo step (a drag, a batch).
+    pub fn gesture_active(&self) -> bool {
+        self.gesture
+    }
     /// Coalesce a slider drag or one focused text edit into one undo step.
     pub fn set_gesture(&mut self, active: bool) {
         if !active || !self.gesture {

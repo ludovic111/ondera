@@ -95,3 +95,17 @@ fn rhythm_preview_respects_the_session_file_and_agent_permissions() {
     )
     .is_none());
 }
+
+/// `strip.getState` inside `session.batch` captured plugin state as an undo step of its own
+/// in the window, which ended the batch's step and broke its rollback.
+#[test]
+fn strip_get_state_is_not_batchable() {
+    let mut host = Headless::new();
+    let track = midi_track(&mut host);
+    let error = fail(
+        &mut host,
+        "session.batch",
+        json!({"commands":[{"command":"strip.getState","params":{"trackId":track}}]}),
+    );
+    assert!(error.contains("strip.getState"), "{error}");
+}
