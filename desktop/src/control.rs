@@ -171,23 +171,26 @@ impl Ondera {
                 {
                     return Err("Agent connections and permissions must be changed by the person in Settings".into());
                 }
-                if let Some(denied) =
-                    control_app::denied_for_agent(method, &self.settings.agent.permissions)
-                {
+                if let Some(denied) = control_app::denied_for_agent_request(
+                    method,
+                    params,
+                    &self.settings.agent.permissions,
+                ) {
                     return Err(denied);
                 }
             }
             if matches!(method, "session.new" | "session.open") {
                 self.can_replace_document()?;
             }
-            if self.control_job.is_some()
-                && control::COMMANDS
+            if let Some(job) = self.control_job.as_ref().filter(|_| {
+                control::COMMANDS
                     .iter()
                     .any(|s| s.name == method && s.mutates)
-            {
-                return Err(
-                    "An agent file operation is in progress; retry when it finishes.".into(),
-                );
+            }) {
+                return Err(format!(
+                    "{} is still running; retry {method} when it finishes.",
+                    job.method
+                ));
             }
             if matches!(
                 method,
@@ -275,6 +278,10 @@ impl Ondera {
                 return Ok(json!({"status":"running", "command":method}));
             }
             if method == "rhythm.preview" {
+                // The render runs on a scratch document that has no file: check the window's.
+                if let Some(path) = params.get("path").and_then(Value::as_str) {
+                    control::protect_session_file(self.path.as_deref(), Path::new(path))?;
+                }
                 // An offline render: seconds of work that must not hold the interface, and that
                 // needs nothing from the open document but its tempo and meter.
                 let mut scratch = Headless::new();

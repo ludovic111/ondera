@@ -742,6 +742,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     ) {
         protect_session_file(host.path(), Path::new(a.str("path")?))?;
     }
+    if name == "rhythm.preview" {
+        if let Some(path) = a.opt_str("path") {
+            protect_session_file(host.path(), Path::new(path))?;
+        }
+    }
     if name.starts_with("automation.") {
         return crate::control_automation::call(host, name, params, agent);
     }
@@ -1541,7 +1546,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
 
 /// Exports must not replace the document that the host is currently editing,
 /// including through a relative path or a symlink alias.
-fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
+pub fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
     fn identity(path: &Path) -> Result<PathBuf> {
         if path.exists() {
             return std::fs::canonicalize(path).map_err(|e| e.to_string());
