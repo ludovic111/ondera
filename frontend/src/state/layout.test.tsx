@@ -62,3 +62,21 @@ it("Option shortcuts match the key under the composed character", () => {
     }),
   ).toBe(false);
 });
+
+it("pressing the title bar does not open an undo gesture it can never close", () => {
+  const store = new NativeStore();
+  const fire = vi.spyOn(store, "fire");
+  const view = render(
+    <SessionProvider store={store}>
+      <Keyboard />
+      <div data-tauri-drag-region>
+        <span>Night Drive</span>
+      </div>
+      <button>Mute</button>
+    </SessionProvider>,
+  );
+  fireEvent.pointerDown(view.getByText("Night Drive"));
+  expect(fire).not.toHaveBeenCalledWith("web.gesture", { active: true });
+  fireEvent.pointerDown(view.getByText("Mute"));
+  expect(fire).toHaveBeenCalledWith("web.gesture", { active: true });
+});

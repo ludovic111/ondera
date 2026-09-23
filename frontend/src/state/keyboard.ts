@@ -94,7 +94,14 @@ export function useKeyboardShortcuts(): void {
         store.fire("web.liveNote", { pitch, on: false });
       }
     };
-    const begin = () => store.fire("web.gesture", { active: true });
+    // A press on the title bar starts a native window drag, and the webview never sees its
+    // release: a gesture begun there would merge every later keyboard edit into one undo
+    // step until the next click.
+    const begin = (e: PointerEvent) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest("[data-tauri-drag-region]")) return;
+      store.fire("web.gesture", { active: true });
+    };
     const end = () => store.fire("web.gesture", { active: false });
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
