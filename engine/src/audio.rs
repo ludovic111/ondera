@@ -82,13 +82,34 @@ pub fn is_importable(path: &std::path::Path) -> bool {
 }
 
 /// Fold one interleaved frame of any channel count to stereo. Mono goes to both sides;
-/// 5.1 and 7.1 follow the ITU-R BS.775 downmix (centre and surrounds at -3 dB, LFE dropped);
-/// any other layout alternates channels left and right.
+/// 3.0, 5.0, 5.1, 7.0 and 7.1 follow the ITU-R BS.775 downmix (centre and surrounds at -3 dB,
+/// LFE dropped); any other layout alternates channels left and right.
 fn to_stereo(frame: &[f32]) -> [f32; 2] {
     const H: f32 = std::f32::consts::FRAC_1_SQRT_2;
     match frame.len() {
         1 => [frame[0], frame[0]],
         2 => [frame[0], frame[1]],
+        // L R C: the centre belongs to both sides, not to the left.
+        3 => {
+            let n = 1.0 / (1.0 + H);
+            [(frame[0] + H * frame[2]) * n, (frame[1] + H * frame[2]) * n]
+        }
+        // L R C Ls Rs
+        5 => {
+            let n = 1.0 / (1.0 + 2.0 * H);
+            [
+                (frame[0] + H * frame[2] + H * frame[3]) * n,
+                (frame[1] + H * frame[2] + H * frame[4]) * n,
+            ]
+        }
+        // L R C Lb Rb Ls Rs
+        7 => {
+            let n = 1.0 / (1.0 + 3.0 * H);
+            [
+                (frame[0] + H * (frame[2] + frame[3] + frame[5])) * n,
+                (frame[1] + H * (frame[2] + frame[4] + frame[6])) * n,
+            ]
+        }
         // L R C LFE Ls Rs (and Lb Rb for 7.1), scaled so full-scale input cannot clip.
         6 => {
             let n = 1.0 / (1.0 + 2.0 * H);
@@ -394,6 +415,21 @@ mod downmix_tests {
         assert_eq!(to_stereo(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]), [0.0, 0.0]);
         let ls = to_stereo(&[0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
         assert!(ls[0] > 0.2 && ls[1] == 0.0);
-        assert_eq!(to_stereo(&[0.6, 0.2, 0.2]), [0.4, 0.2]);
+        // 3.0 and 5.0 put the centre in the middle and each surround on its own side; they
+        // used to deal channels alternately, sending the centre and Rs to the left only.
+        let centre = to_stereo(&[0.0, 0.0, 1.0]);
+        assert!(centre[0] > 0.3 && centre[0] == centre[1]);
+        let rs = to_stereo(&[0.0, 0.0, 0.0, 0.0, 1.0]);
+        assert!(rs[0] == 0.0 && rs[1] > 0.2);
+        for frame in [&[1.0f32; 3][..], &[1.0; 5], &[1.0; 7]] {
+            let [l, r] = to_stereo(frame);
+            assert!(
+                l <= 1.0 + 1e-6 && r <= 1.0 + 1e-6,
+                "{} channels clip",
+                frame.len()
+            );
+        }
+        // Quad still alternates, which is its layout: L R Ls Rs.
+        assert_eq!(to_stereo(&[0.6, 0.2, 0.2, 0.0]), [0.4, 0.1]);
     }
 }
