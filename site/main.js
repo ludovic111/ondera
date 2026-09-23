@@ -1,7 +1,7 @@
 // Ondera site runtime. Three parts: a tiny command store that mirrors the app's
 // dispatch(command) pattern, canvas drawing for the arrangement mock, and the
 // hardware rack demo. Every visual constant comes from tokens.js.
-import { tokens as T, setTheme } from './tokens.js?v=0.6';
+import { tokens as T, setTheme } from './tokens.js?v=0.8';
 
 setTheme(document.documentElement.dataset.theme, document.documentElement.dataset.mode);
 
@@ -12,7 +12,7 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // ---------------------------------------------------------------------------
-// Mock session (mirrors packages/core/src/mock/session.ts and model/palette.ts)
+// Mock session: eight tracks, song markers, and audio clips with fades and clip gain.
 // ---------------------------------------------------------------------------
 
 const PALETTE = {
@@ -66,31 +66,42 @@ function bassVerseNotes(lengthBars) {
   return notes;
 }
 
+// monitor: off | auto | on, like track.setMonitor (audio tracks only).
 const tracks = [
-  { id: 'drums', name: 'Drums', kind: 'audio', volume: 0.78, mute: false, solo: false, armed: false, agent: false },
+  { id: 'drums', name: 'Drums', kind: 'audio', volume: 0.78, mute: false, solo: false, armed: false, monitor: 'off', agent: false },
   { id: 'bass', name: 'Bass', kind: 'midi', volume: 0.7, mute: false, solo: false, armed: false, agent: false },
   { id: 'keys', name: 'Keys', kind: 'midi', volume: 0.62, mute: false, solo: false, armed: false, agent: true },
   { id: 'pad', name: 'Pad', kind: 'midi', volume: 0.5, mute: false, solo: false, armed: false, agent: false },
-  { id: 'vox', name: 'Lead Vox', kind: 'audio', volume: 0.82, mute: false, solo: false, armed: true, agent: false },
-  { id: 'bgv', name: 'BGV', kind: 'audio', volume: 0.55, mute: true, solo: false, armed: false, agent: false },
-  { id: 'guitar', name: 'Guitar', kind: 'audio', volume: 0.66, mute: false, solo: false, armed: false, agent: false },
+  { id: 'vox', name: 'Lead Vox', kind: 'audio', volume: 0.82, mute: false, solo: false, armed: true, monitor: 'auto', agent: false },
+  { id: 'bgv', name: 'BGV', kind: 'audio', volume: 0.55, mute: true, solo: false, armed: false, monitor: 'off', agent: false },
+  { id: 'guitar', name: 'Guitar', kind: 'audio', volume: 0.66, mute: false, solo: false, armed: false, monitor: 'off', agent: false },
   { id: 'riser', name: 'Riser FX', kind: 'midi', volume: 0.6, mute: false, solo: false, armed: false, agent: false },
 ];
-const audio = (id, trackId, name, start, length, seed, wave = 'tonal') => ({ id, trackId, name, start, length, kind: 'audio', seed, wave, agent: false });
+const MONITOR_NEXT = { off: 'auto', auto: 'on', on: 'off' };
+const MONITOR_LABEL = { off: 'Off', auto: 'Auto', on: 'On' };
+// Song sections on the ruler, in bars from zero.
+const MARKERS = [
+  { name: 'Intro', bar: 0 },
+  { name: 'Verse', bar: 4 },
+  { name: 'Chorus', bar: 8 },
+];
+const sectionEnd = (i) => (MARKERS[i + 1]?.bar ?? BARS);
+// fade: lengths in bars and a curve (linear, exp, sCurve); gainDb is the clip gain.
+const audio = (id, trackId, name, start, length, seed, wave = 'tonal', extra = {}) => ({ id, trackId, name, start, length, kind: 'audio', seed, wave, agent: false, fadeIn: 0, fadeOut: 0, curve: 'linear', gainDb: 0, ...extra });
 const midi = (id, trackId, name, start, length, notes, agent = false) => ({ id, trackId, name, start, length, kind: 'midi', notes, agent });
 const clips = [
-  audio('drums-1', 'drums', 'Drums_take3', 0, 12, 1, 'drums'),
+  audio('drums-1', 'drums', 'Drums_take3', 0, 12, 1, 'drums', { fadeOut: 0.5 }),
   midi('bass-1', 'bass', 'Bass intro', 0, 4, scatterNotes(11, 4, false)),
   midi('bass-2', 'bass', 'Bass verse', 4, 8, bassVerseNotes(8)),
   midi('keys-1', 'keys', 'Keys A', 0, 4, scatterNotes(21, 4, false)),
   midi('keys-2', 'keys', 'Keys B', 4, 4, scatterNotes(22, 4, true), true),
   midi('keys-3', 'keys', 'Keys B', 8, 4, scatterNotes(23, 4, false)),
   midi('pad-1', 'pad', 'Pad swell', 4, 8, scatterNotes(31, 8, false)),
-  audio('vox-1', 'vox', 'LV_v2_comp', 4, 4, 2),
-  audio('vox-2', 'vox', 'LV_v2_comp', 8, 4, 3),
-  audio('bgv-1', 'bgv', 'BGV stack', 8, 4, 4),
-  audio('guitar-1', 'guitar', 'Gtr DI', 2, 6, 5),
-  audio('guitar-2', 'guitar', 'Gtr DI', 8, 3, 6),
+  audio('vox-1', 'vox', 'LV_v2_comp', 4, 4, 2, 'tonal', { fadeIn: 0.5, curve: 'exp' }),
+  audio('vox-2', 'vox', 'LV_v2_comp', 8, 4, 3, 'tonal', { fadeOut: 1, curve: 'sCurve' }),
+  audio('bgv-1', 'bgv', 'BGV stack', 8, 4, 4, 'tonal', { fadeIn: 1, gainDb: -4.5 }),
+  audio('guitar-1', 'guitar', 'Gtr DI', 2, 6, 5, 'tonal', { fadeIn: 0.75, curve: 'sCurve' }),
+  audio('guitar-2', 'guitar', 'Gtr DI', 8, 3, 6, 'tonal', { fadeOut: 1.5, curve: 'exp' }),
   midi('riser-1', 'riser', 'Riser', 7, 1, scatterNotes(41, 1, false)),
 ];
 
@@ -102,6 +113,8 @@ const state = {
   playing: false,
   recording: false,
   cycle: true,
+  cycleStart: 0, // bars
+  cycleEnd: BARS,
   position: 0, // bars, fractional
   tracks,
   agentApplied: true, // the agent's quantise of Keys B; Revert walks the undo stack
@@ -117,15 +130,20 @@ const commands = {
   'transport.togglePlay': (s) => { s.playing = !s.playing; },
   'transport.returnToStart': (s) => { s.position = 0; },
   'transport.setRecording': (s, { recording }) => { s.recording = recording; },
-  'transport.setCycle': (s, { enabled }) => { s.cycle = enabled; },
+  'transport.setCycle': (s, { enabled, startBar, endBar }) => {
+    s.cycle = enabled;
+    if (startBar !== undefined && endBar > startBar) { s.cycleStart = startBar; s.cycleEnd = endBar; }
+  },
+  'transport.locate': (s, { bar }) => { s.position = clamp(bar, 0, BARS); },
   'transport.tick': (s, { deltaSeconds }) => {
     s.position += (deltaSeconds * TEMPO) / 60 / 4;
-    if (s.position >= BARS) s.position = s.cycle ? s.position - BARS : 0;
-    if (!s.cycle && s.position === 0) s.playing = false;
+    if (s.cycle && s.position >= s.cycleEnd) s.position = s.cycleStart + (s.position - s.cycleEnd);
+    else if (s.position >= BARS) { s.position = 0; s.playing = false; }
   },
   'track.setMute': (s, { trackId, muted }) => { track(trackId).mute = muted; },
   'track.setSolo': (s, { trackId, solo }) => { track(trackId).solo = solo; },
   'track.setArmed': (s, { trackId, armed }) => { track(trackId).armed = armed; },
+  'track.setMonitor': (s, { trackId, monitor }) => { track(trackId).monitor = monitor; },
   'history.undo': (s) => { s.agentApplied = false; },
   'history.redo': (s) => { s.agentApplied = true; },
 };
@@ -169,9 +187,12 @@ if (headers) {
           ${t.agent ? '<span class="led led--accent th__agentdot" title="An agent is editing this track"></span>' : ''}
         </div>
         <div class="th__bottom">
-          <button class="hbtn" data-cmd="track.setMute" data-track="${t.id}" aria-label="Mute ${t.name}">M</button>
-          <button class="hbtn" data-cmd="track.setSolo" data-track="${t.id}" aria-label="Solo ${t.name}">S</button>
-          <button class="hbtn" data-cmd="track.setArmed" data-track="${t.id}" aria-label="Arm ${t.name}">R</button>
+          <button type="button" class="hbtn" data-cmd="track.setMute" data-track="${t.id}" aria-label="Mute ${t.name}">M</button>
+          <button type="button" class="hbtn" data-cmd="track.setSolo" data-track="${t.id}" aria-label="Solo ${t.name}">S</button>
+          <button type="button" class="hbtn" data-cmd="track.setArmed" data-track="${t.id}" aria-label="Arm ${t.name}">R</button>
+          ${t.kind === 'audio'
+            ? `<button type="button" class="hbtn" data-cmd="track.setMonitor" data-track="${t.id}" title="Input monitoring: Off, Auto, On">I</button>`
+            : '<span class="hbtn hbtn--spacer" aria-hidden="true"></span>'}
           <div class="slider" aria-hidden="true"><div class="slider__rail"></div><div class="slider__thumb" style="--v:${t.volume}"></div></div>
         </div>
       </div>`;
@@ -193,6 +214,7 @@ document.addEventListener('click', (e) => {
     case 'track.setMute': dispatch(name, { trackId, muted: !track(trackId).mute }); break;
     case 'track.setSolo': dispatch(name, { trackId, solo: !track(trackId).solo }); break;
     case 'track.setArmed': dispatch(name, { trackId, armed: !track(trackId).armed }); break;
+    case 'track.setMonitor': dispatch(name, { trackId, monitor: MONITOR_NEXT[track(trackId).monitor] }); break;
     case 'history.undo': dispatch(name, { steps: 1 }); break;
     case 'history.redo': dispatch(name, { steps: 1 }); break;
     default: dispatch(name);
@@ -200,15 +222,32 @@ document.addEventListener('click', (e) => {
 });
 
 // Agent panel tabs (Conversation / Changes), pure view state like the app.
-document.addEventListener('click', (e) => {
-  const tab = e.target.closest('[data-tab]');
-  if (!tab) return;
+function selectTab(tab) {
   for (const t of $$('[data-tab]')) {
     const on = t === tab;
     t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
     const panel = document.getElementById(t.getAttribute('aria-controls'));
     if (panel) panel.hidden = !on;
   }
+}
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-tab]');
+  if (tab) selectTab(tab);
+});
+
+// Arrow keys move within a tab list or a radio group, as the ARIA patterns expect.
+document.addEventListener('keydown', (e) => {
+  const group = e.target.closest?.('[role="tablist"], [role="radiogroup"]');
+  if (!group || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+  const items = $$('[role="tab"], [role="radio"]', group);
+  const i = items.indexOf(e.target.closest('[role="tab"], [role="radio"]'));
+  if (i < 0) return;
+  e.preventDefault();
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1
+    : (i + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[next].focus();
+  items[next].click();
 });
 
 // ---------------------------------------------------------------------------
@@ -233,7 +272,16 @@ function renderTime() {
   const f = Math.floor((seconds % 1) * SMPTE_FPS);
   const smpte = $('#smpte');
   if (smpte) smpte.textContent = `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}:${pad(f, 2)}`;
+  // The section the playhead is in, on the transport and on its marker.
+  const current = MARKERS.findLastIndex((mk) => mk.bar <= pos + 1e-9);
+  if (current !== shownSection) {
+    shownSection = current;
+    const section = $('#section');
+    if (section) section.textContent = MARKERS[current]?.name ?? '';
+    $$('.marker').forEach((el, i) => el.setAttribute('aria-current', String(i === current)));
+  }
 }
+let shownSection = -1;
 
 subscribe((s, name) => {
   if (name === 'transport.tick') return;
@@ -243,6 +291,12 @@ subscribe((s, name) => {
   $('#cycle')?.setAttribute('aria-pressed', String(s.cycle));
   for (const btn of $$('.hbtn[data-track]')) {
     const t = track(btn.dataset.track);
+    if (btn.dataset.cmd === 'track.setMonitor') {
+      btn.dataset.monitor = t.monitor;
+      btn.setAttribute('aria-pressed', String(t.monitor === 'on'));
+      btn.setAttribute('aria-label', `Input monitoring for ${t.name}: ${MONITOR_LABEL[t.monitor]}`);
+      continue;
+    }
     const on = btn.dataset.cmd === 'track.setMute' ? t.mute : btn.dataset.cmd === 'track.setSolo' ? t.solo : t.armed;
     btn.setAttribute('aria-pressed', String(on));
   }
@@ -335,6 +389,12 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentHighlight) {
   c.font = `500 ${T.fontSize.kind}px ${T.font.mono}`;
   c.textBaseline = 'middle';
   c.fillText(clip.name, x + 6, y + T.size.clipTitle / 2 + 0.5, w - 10);
+  if (clip.gainDb) {
+    const label = `${clip.gainDb > 0 ? '+' : '−'}${Math.abs(clip.gainDb).toFixed(1)} dB`;
+    c.textAlign = 'right';
+    c.fillText(label, x + w - 6, y + T.size.clipTitle / 2 + 0.5);
+    c.textAlign = 'left';
+  }
   // content
   const top = y + T.size.clipTitle + 3, bottom = y + h - 3, ch = bottom - top, mid = top + ch / 2;
   if (clip.kind === 'audio') {
@@ -342,10 +402,12 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentHighlight) {
     c.fillRect(x + 2, mid, w - 4, 1);
     c.fillStyle = T.line.waveform;
     const step = 2;
+    const clipGain = 10 ** (clip.gainDb / 20);
     for (let px = 3; px < w - 3; px += step) {
-      const a = peak(clip, px / w) * (ch / 2) * 0.92;
+      const a = peak(clip, px / w) * (ch / 2) * 0.92 * clipGain * fadeGain(clip, px / w);
       c.fillRect(x + px, mid - a, 1, Math.max(1, a * 2));
     }
+    drawFades(c, clip, x, y, w, h, top, bottom);
   } else {
     const noteH = T.size.clipNoteH;
     for (const n of clip.notes) {
@@ -377,6 +439,62 @@ function drawClip(c, clip, x, y, w, h, color, dim, agentHighlight) {
   }
 }
 
+// Fade gain at normalised clip time t (0..1), with the clip's curve.
+const CURVES = {
+  linear: (u) => u,
+  exp: (u) => u * u,
+  sCurve: (u) => 0.5 - 0.5 * Math.cos(Math.PI * u),
+};
+function fadeGain(clip, t) {
+  const bars = t * clip.length, shape = CURVES[clip.curve] ?? CURVES.linear;
+  let g = 1;
+  if (clip.fadeIn > 0 && bars < clip.fadeIn) g *= shape(bars / clip.fadeIn);
+  if (clip.fadeOut > 0 && bars > clip.length - clip.fadeOut) g *= shape((clip.length - bars) / clip.fadeOut);
+  return g;
+}
+// The fade curve over the clip body, the region it silences dimmed, and a handle at its end.
+function drawFades(c, clip, x, y, w, h, top, bottom) {
+  const ppbClip = w / clip.length;
+  const handle = (hx) => { c.fillStyle = T.line.clipName; c.fillRect(hx - 2.5, y + T.size.clipTitle + 1, 5, 5); };
+  for (const [len, from, dir] of [[clip.fadeIn, 0, 1], [clip.fadeOut, clip.length, -1]]) {
+    if (!(len > 0)) continue;
+    const x0 = x + from * ppbClip, x1 = x0 + dir * len * ppbClip;
+    const pts = [];
+    for (let i = 0; i <= 24; i++) {
+      const u = i / 24;
+      pts.push([x0 + (x1 - x0) * u, bottom - (bottom - top) * (CURVES[clip.curve] ?? CURVES.linear)(u)]);
+    }
+    c.save();
+    c.beginPath();
+    c.moveTo(x0, top);
+    for (const [px, py] of pts) c.lineTo(px, py);
+    c.lineTo(x1, top);
+    c.closePath();
+    c.globalAlpha = 0.35;
+    c.fillStyle = T.fill.clipTitle;
+    c.fill();
+    c.globalAlpha = 1;
+    c.beginPath();
+    pts.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py)));
+    c.strokeStyle = T.line.clipName; c.lineWidth = 1; c.stroke();
+    c.restore();
+    handle(x1);
+  }
+}
+
+// Markers are buttons over the ruler (focusable, with names); the canvas skips bar
+// numbers they cover and draws their line down the lanes.
+let markerSpans = [];
+function placeMarkers(ppb) {
+  const layer = $('#markers');
+  if (!layer) return;
+  markerSpans = $$('.marker', layer).map((el, i) => {
+    const left = Math.round(MARKERS[i].bar * ppb) + 2;
+    el.style.left = `${left}px`;
+    return [left, left + el.offsetWidth];
+  });
+}
+
 function draw() {
   if (!ctx || W === 0) return;
   const c = ctx;
@@ -395,7 +513,8 @@ function draw() {
     c.fillStyle = T.line.laneBottom; c.fillRect(0, y + rowH - 1, W, 1);
   });
   // cycle range shading on lanes
-  if (state.cycle) { c.fillStyle = T.fill.cycleLane; c.fillRect(0, rulerH, BARS * ppb, H - rulerH); }
+  const cx0 = state.cycleStart * ppb, cx1 = state.cycleEnd * ppb;
+  if (state.cycle) { c.fillStyle = T.fill.cycleLane; c.fillRect(cx0, rulerH, cx1 - cx0, H - rulerH); }
   // grid
   for (let b = 0; b <= BARS + 1; b++) {
     const x = Math.round(b * ppb) + 0.5;
@@ -412,16 +531,25 @@ function draw() {
     const agentApplied = clip.agent && state.agentApplied;
     drawClip(c, clip, x, y, w, h, PALETTE[t.id], dim, agentApplied);
   }
+  // marker lines
+  c.save();
+  c.globalAlpha = 0.45;
+  c.fillStyle = T.color.accent;
+  for (const mk of MARKERS) if (mk.bar > 0) c.fillRect(Math.round(mk.bar * ppb), rulerH, 1, H - rulerH);
+  c.restore();
   // ruler
   c.fillStyle = T.color.ruler; c.fillRect(0, 0, W, rulerH);
-  if (state.cycle) { c.fillStyle = T.fill.cycleRuler; c.fillRect(0, 0, BARS * ppb, rulerH); c.fillStyle = T.line.cycleEdge; c.fillRect(0, 0, 1, rulerH); c.fillRect(Math.round(BARS * ppb) - 1, 0, 1, rulerH); }
+  if (state.cycle) { c.fillStyle = T.fill.cycleRuler; c.fillRect(cx0, 0, cx1 - cx0, rulerH); c.fillStyle = T.line.cycleEdge; c.fillRect(Math.round(cx0), 0, 1, rulerH); c.fillRect(Math.round(cx1) - 1, 0, 1, rulerH); }
+  placeMarkers(ppb);
   c.font = `500 ${T.fontSize.small}px ${T.font.mono}`;
   c.textBaseline = 'alphabetic';
   for (let b = 0; b <= BARS + 1; b++) {
     const x = Math.round(b * ppb);
     c.fillStyle = T.line.rulerBar; c.fillRect(x, rulerH - T.timeline.rulerTickH, 1, T.timeline.rulerTickH);
     for (let q = 1; q < 4; q++) { c.fillStyle = T.line.rulerTick; c.fillRect(Math.round((b + q / 4) * ppb), rulerH - 3, 1, 3); }
-    c.fillStyle = T.color.ink500; c.fillText(String(b + 1), x + 5, 12);
+    const label = String(b + 1), lx = x + 5, lw = c.measureText(label).width;
+    if (markerSpans.some(([l, r]) => lx < r + 2 && lx + lw > l - 2)) continue;
+    c.fillStyle = T.color.ink500; c.fillText(label, lx, 12);
   }
   c.fillStyle = T.line.rulerBottom; c.fillRect(0, rulerH - 1, W, 1);
   // playhead
@@ -443,6 +571,28 @@ function draw() {
   c.restore();
 }
 
+const markerLayer = $('#markers');
+if (markerLayer) {
+  MARKERS.forEach((mk, i) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'marker';
+    el.textContent = mk.name;
+    el.title = `${mk.name}: click to jump, double-click or Shift+Enter to loop this section`;
+    el.setAttribute('aria-label', `${mk.name}, bar ${mk.bar + 1}. Jump here; Shift+Enter loops the section`);
+    el.addEventListener('click', (e) => { if (!e.shiftKey) dispatch('transport.locate', { bar: mk.bar }); });
+    const loop = () => {
+      dispatch('transport.setCycle', { enabled: true, startBar: mk.bar, endBar: sectionEnd(i) });
+      dispatch('transport.locate', { bar: mk.bar });
+    };
+    el.addEventListener('dblclick', loop);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); loop(); } });
+    markerLayer.append(el);
+  });
+  shownSection = -1;
+  renderTime();
+}
+
 if (canvas && wrap) {
   const resize = () => {
     const r = wrap.getBoundingClientRect();
@@ -452,6 +602,8 @@ if (canvas && wrap) {
   };
   new ResizeObserver(resize).observe(wrap);
   resize();
+  // Marker widths depend on the web font; measure again once it has loaded.
+  document.fonts?.ready.then(draw);
   subscribe((s, name) => { if (name !== 'transport.tick') draw(); });
 }
 
@@ -482,7 +634,7 @@ if (cpu) {
   const segs = $$('i', cpu);
   let level = 2;
   setInterval(() => {
-    if (document.hidden || reducedMotion) return;
+    if (document.hidden || reducedMotion || !dawVisible) return;
     const target = state.playing ? 4 + Math.random() * 4 : 1 + Math.random() * 1.2;
     level += (target - level) * 0.5;
     segs.forEach((el, i) => { el.classList.toggle('on', i < Math.round(level)); el.classList.toggle('hot', i >= 10); });
@@ -529,8 +681,10 @@ if (knob) {
   const apply = () => {
     knob.style.setProperty('--angle', `${-135 + v * 270}deg`);
     const db = -60 + v * 66;
-    $('#knob-value').textContent = v === 0 ? '-∞ dB' : `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
+    const text = v === 0 ? '-∞ dB' : `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
+    $('#knob-value').textContent = text;
     knob.setAttribute('aria-valuenow', db.toFixed(1));
+    knob.setAttribute('aria-valuetext', text);
   };
   dragVertical(knob, () => v, (nv) => { v = nv; apply(); }, 160);
   apply();
@@ -542,7 +696,11 @@ if (fader && meter) {
   let v = 0.78;
   meter.innerHTML = '<i></i>'.repeat(20);
   const segs = $$('i', meter);
-  const apply = () => { fader.style.setProperty('--v', v); fader.setAttribute('aria-valuenow', Math.round(v * 100)); };
+  const apply = () => {
+    fader.style.setProperty('--v', v);
+    fader.setAttribute('aria-valuenow', Math.round(v * 100));
+    fader.setAttribute('aria-valuetext', `${Math.round(v * 100)} %`);
+  };
   dragVertical(fader, () => v, (nv) => { v = nv; apply(); }, T.size.faderH);
   apply();
   let phase = 0, rackVisible = false, shown = 0;
@@ -564,7 +722,7 @@ const segmented = $('#segmented');
 segmented?.addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
-  for (const b of $$('button', segmented)) b.setAttribute('aria-selected', String(b === btn));
+  for (const b of $$('button', segmented)) b.setAttribute('aria-pressed', String(b === btn));
 });
 
 // Copy clone command
@@ -588,13 +746,35 @@ for (const el of $$('.reveal')) revealer.observe(el);
 // Sound folders light in order; cards carry the pointer position for their sheen.
 $$('.families__row li').forEach((li, i) => li.style.setProperty('--i', i));
 if (!reducedMotion) {
-  for (const card of $$('.feature, .switch__col')) {
+  for (const card of $$('.feature, .switch__col, .news__item')) {
     card.addEventListener('pointermove', (e) => {
       const r = card.getBoundingClientRect();
       card.style.setProperty('--mx', `${e.clientX - r.left}px`);
       card.style.setProperty('--my', `${e.clientY - r.top}px`);
     }, { passive: true });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Section menu on narrow screens.
+// ---------------------------------------------------------------------------
+
+const menuBtn = $('.nav__menu');
+const navLinks = $('#nav-links');
+if (menuBtn && navLinks) {
+  const setOpen = (open) => {
+    navLinks.classList.toggle('is-open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+  };
+  menuBtn.addEventListener('click', () => setOpen(!navLinks.classList.contains('is-open')));
+  navLinks.addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && navLinks.classList.contains('is-open')) { setOpen(false); menuBtn.focus(); }
+  });
+  document.addEventListener('click', (e) => {
+    if (navLinks.classList.contains('is-open') && !e.target.closest('.nav')) setOpen(false);
+  });
+  matchMedia('(min-width: 1141px)').addEventListener('change', (e) => { if (e.matches) setOpen(false); });
 }
 
 // ---------------------------------------------------------------------------
@@ -647,7 +827,7 @@ function applyTheme(theme, mode, remember = true) {
   }
   // Theme cards preview their own theme in the page's current mode.
   for (const card of $$('.themecard')) card.dataset.mode = mode;
-  $('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--color-desk').trim());
+  $('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--site-page').trim());
   draw();
 }
 document.addEventListener('click', (e) => {
