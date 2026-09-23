@@ -133,7 +133,7 @@ fn midi_roundtrip_preserves_arrangement_timing_meter_channel_and_note_clipping()
         .unwrap();
     assert_eq!(clip.start_bar, 1.0);
     assert!(clip.agent);
-    let ClipData::Midi { notes } = &clip.data else {
+    let ClipData::Midi { notes, .. } = &clip.data else {
         panic!()
     };
     assert_eq!(notes[0].start, 3.5);
@@ -166,7 +166,7 @@ fn midi_type_zero_running_status_and_channel_split_are_supported() {
     let mut store = Store::new(empty.store.session().clone()).unwrap();
     store.dispatch(batch).unwrap();
     for clip in &store.session().clips {
-        let ClipData::Midi { notes } = &clip.data else {
+        let ClipData::Midi { notes, .. } = &clip.data else {
             panic!()
         };
         assert_eq!(notes[0].start, 0.0);

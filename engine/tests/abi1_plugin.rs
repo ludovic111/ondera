@@ -43,7 +43,7 @@ fn exercise(mut instance: ondera_engine::plugin::Instance) {
     let mut audio = [[1.0f32, -1.0]; 64];
     processor.process(
         &mut audio,
-        &[note],
+        &[note.into()],
         &[ParamChange { id: 0, value: 2.0 }],
         &ctx,
     );

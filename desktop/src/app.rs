@@ -120,6 +120,8 @@ pub struct Ondera {
     pub show_help: bool,
     /// The web window shows the mixer in place of the region editor.
     pub show_mixer: bool,
+    /// The region editor shows the controller lane under the piano roll.
+    pub show_controllers: bool,
     /// The command palette is open.
     pub show_palette: bool,
     /// The copied clip, shared by the window, the CLI and agents.
@@ -137,6 +139,8 @@ pub struct Ondera {
     pub(crate) typing_down: Vec<u8>,
     typing_owners: midi::NoteOwners,
     pub(crate) midi_take: Vec<RecordedNote>,
+    /// Control changes, bend and pressure of the MIDI take, at absolute beats.
+    pub(crate) midi_controls: Vec<(f64, ondera_engine::plugin::Event)>,
     pub(crate) midi_recording: bool,
     pub(crate) recording_midi_tracks: Vec<String>,
     pub output_device: Option<String>,
@@ -287,6 +291,7 @@ impl Ondera {
             frontend_ready: false,
             show_help: false,
             show_mixer: false,
+            show_controllers: false,
             show_palette: false,
             clipboard: None,
             lane_width: 960.0,
@@ -301,6 +306,7 @@ impl Ondera {
             typing_down: vec![],
             typing_owners: Default::default(),
             midi_take: vec![],
+            midi_controls: vec![],
             midi_recording: false,
             recording_midi_tracks: vec![],
             output_device: None,
@@ -537,6 +543,12 @@ impl Ondera {
             note.end = Some(beats.max(note.start));
         }
     }
+    pub(crate) fn record_control(&mut self, event: ondera_engine::plugin::Event, beats: f64) {
+        if self.midi_recording {
+            self.midi_controls
+                .push((beats.max(self.record_start), event));
+        }
+    }
     fn poll_midi(&mut self) {
         let (events, failed, disconnected) = match &mut self.midi {
             Some(input) => {
@@ -551,7 +563,10 @@ impl Ondera {
         };
         for e in events {
             let beats = if e.playing { e.beats } else { self.position };
-            self.record_note_channel(e.on, e.pitch, e.velocity, beats, e.channel);
+            match e.control {
+                Some(control) => self.record_control(control, beats),
+                None => self.record_note_channel(e.on, e.pitch, e.velocity, beats, e.channel),
+            }
         }
         if failed {
             self.stop();
@@ -567,7 +582,7 @@ impl Ondera {
         self.midi_recording = false;
         // An audio take reports its own progress from here; a MIDI take is over.
         if self.recorder.is_none() && self.record_pending.is_none() {
-            self.status = if self.midi_take.is_empty() {
+            self.status = if self.midi_take.is_empty() && self.midi_controls.is_empty() {
                 "Ready".into()
             } else {
                 "MIDI take recorded".into()
@@ -578,6 +593,7 @@ impl Ondera {
         // tap instead of silently deleting it because both saw one playhead time.
         let minimum_length = self.store.session().transport.tempo / 60.0 * 0.001;
         let mut take = std::mem::take(&mut self.midi_take);
+        let controls = std::mem::take(&mut self.midi_controls);
         for note in &mut take {
             note.end = Some(
                 note.end
@@ -586,7 +602,7 @@ impl Ondera {
             );
         }
         take.retain(|n| n.end.is_some_and(|e| e > n.start + 1e-6));
-        if take.is_empty() {
+        if take.is_empty() && controls.is_empty() {
             return;
         }
         let s = self.store.session();
@@ -595,6 +611,7 @@ impl Ondera {
         let last = take
             .iter()
             .map(|n| n.end.unwrap_or(n.start))
+            .chain(controls.iter().map(|(beats, _)| beats + 1e-6))
             .fold(0.0, f64::max);
         let length_bars = ((last - start_bar * bpb) / bpb).ceil().max(1.0);
         let tracks: Vec<String> = self
@@ -616,6 +633,10 @@ impl Ondera {
                     agent: false,
                 })
                 .collect();
+            let controllers =
+                ondera_engine::controllers::recorded(&controls, start_bar * bpb, false, || {
+                    id("ctl")
+                });
             commands.push(Command::PutClip(Clip {
                 id: id("clip"),
                 name: "Take".into(),
@@ -623,7 +644,7 @@ impl Ondera {
                 track_id: track,
                 start_bar,
                 length_bars,
-                data: ClipData::Midi { notes },
+                data: ClipData::Midi { notes, controllers },
             }));
         }
         if !commands.is_empty() {
@@ -1142,6 +1163,7 @@ impl Ondera {
         if !self.recording_midi_tracks.is_empty() {
             self.midi_recording = true;
             self.midi_take.clear();
+            self.midi_controls.clear();
             self.status = "Recording MIDI…".into();
         }
         if self.recording_tracks.is_empty() {
@@ -1171,13 +1193,16 @@ impl Ondera {
             })
             .unwrap_or_default();
         for event in events {
-            self.record_note_channel(
-                event.on,
-                event.pitch,
-                event.velocity,
-                event.beats,
-                event.channel,
-            );
+            match event.control {
+                Some(control) => self.record_control(control, event.beats),
+                None => self.record_note_channel(
+                    event.on,
+                    event.pitch,
+                    event.velocity,
+                    event.beats,
+                    event.channel,
+                ),
+            }
         }
         self.playing = false;
         self.record_pending.take();
@@ -1294,7 +1319,10 @@ impl Ondera {
             track_id: track.clone(),
             start_bar,
             length_bars,
-            data: ClipData::Midi { notes: vec![] },
+            data: ClipData::Midi {
+                notes: vec![],
+                controllers: vec![],
+            },
         };
         let clip_id = clip.id.clone();
         self.dispatch(Command::PutClip(clip));
@@ -1892,7 +1920,7 @@ impl Ondera {
         {
             if let Some(n) = &s.view.selected_note_id {
                 let mut c = c.clone();
-                if let ClipData::Midi { notes } = &mut c.data {
+                if let ClipData::Midi { notes, .. } = &mut c.data {
                     notes.retain(|note| &note.id != n);
                 }
                 self.dispatch(Command::PutClip(c));
@@ -1963,7 +1991,10 @@ impl Ondera {
             track_id: track,
             start_bar: (self.position / bpb).floor(),
             length_bars: pattern["bars"].as_f64().unwrap_or(1.0) * 4.0 / bpb,
-            data: ClipData::Midi { notes },
+            data: ClipData::Midi {
+                notes,
+                controllers: vec![],
+            },
         }));
     }
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
@@ -2216,7 +2247,7 @@ mod tests {
             .iter()
             .find(|c| c.id == "bass-2")
             .unwrap();
-        let ClipData::Midi { notes } = &clip.data else {
+        let ClipData::Midi { notes, .. } = &clip.data else {
             panic!()
         };
         notes
@@ -2485,7 +2516,9 @@ mod tests {
         app.record_start = 4.0;
         app.position = 4.0;
         app.record_note(true, 60, 100, 4.5);
+        app.record_control(ondera_engine::plugin::Event::control(0, 1, 64), 4.75);
         app.record_note(true, 64, 90, 5.0);
+        app.record_control(ondera_engine::plugin::Event::pitch_bend(0, -1.0), 5.5);
         app.record_note(false, 60, 0, 6.0);
         app.position = 7.0;
         app.finish_recording();
@@ -2499,9 +2532,17 @@ mod tests {
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0].start_bar, 1.0);
         assert_eq!(clips[0].length_bars, 1.0);
-        let ClipData::Midi { notes } = &clips[0].data else {
+        let ClipData::Midi { notes, controllers } = &clips[0].data else {
             panic!()
         };
+        assert_eq!(
+            controllers
+                .iter()
+                .map(|c| (c.kind.as_str(), c.number, c.time, c.value))
+                .collect::<Vec<_>>(),
+            vec![("cc", Some(1), 0.75, 64), ("bend", None, 1.5, -8192)],
+            "the take keeps controllers relative to the region"
+        );
         assert_eq!(notes.len(), 2);
         assert_eq!(notes[0].start, 0.5);
         assert_eq!(notes[0].length, 1.5);
@@ -2534,7 +2575,7 @@ mod tests {
         app.record_note(false, 60, 0, 4.0);
         app.record_note(true, 64, 90, 4.0);
         app.commit_midi_take();
-        let ClipData::Midi { notes } = &app.store.session().clips[0].data else {
+        let ClipData::Midi { notes, .. } = &app.store.session().clips[0].data else {
             panic!()
         };
         assert_eq!(notes.len(), 2);
@@ -2578,7 +2619,7 @@ mod tests {
         }
         app.position = 6.0;
         app.stop();
-        let ClipData::Midi { notes } = &app.store.session().clips[0].data else {
+        let ClipData::Midi { notes, .. } = &app.store.session().clips[0].data else {
             panic!()
         };
         assert_eq!(
@@ -2592,7 +2633,7 @@ mod tests {
         let path = directory.path().join("sustain.ondera");
         document::save(app.store.session(), &app.library, &path).unwrap();
         let (loaded, _) = document::load(&path).unwrap();
-        let ClipData::Midi { notes } = &loaded.clips[0].data else {
+        let ClipData::Midi { notes, .. } = &loaded.clips[0].data else {
             panic!()
         };
         assert_eq!(notes[0].length, 3.0);

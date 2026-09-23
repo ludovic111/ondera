@@ -3,7 +3,7 @@
 //! `cargo run --release -p ondera-engine --example probe -- "clap:com.example.id"`
 use ondera_engine::{
     host,
-    plugin::{NoteEvent, ProcessContext, Rack, MAX_BLOCK},
+    plugin::{Event, NoteEvent, ProcessContext, Rack, MAX_BLOCK},
 };
 
 fn main() {
@@ -58,13 +58,13 @@ fn main() {
     let mut energy_in = 0.0f64;
     let mut energy_out = 0.0f64;
     let mut phase = 0.0f64;
-    let notes = [NoteEvent {
+    let notes = [Event::from(NoteEvent {
         frame: 0,
         on: true,
         pitch: 60,
         velocity: 100,
         channel: 0,
-    }];
+    })];
     let t = std::time::Instant::now();
     for i in 0..(48000 / MAX_BLOCK) {
         for f in &mut block {

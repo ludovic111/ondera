@@ -119,6 +119,10 @@ pub struct InstrumentParams {
     pub env_amount: f64,
     pub detune: f64,
     pub wave: u8,
+    /// Frequency multiplier from pitch bend; 1 when the wheel is centred.
+    pub pitch_ratio: f64,
+    /// Vibrato depth 0-1 from the mod wheel or pressure; about ten cents at full depth.
+    pub vibrato: f64,
 }
 impl InstrumentParams {
     pub fn for_preset(preset: Preset) -> Self {
@@ -132,9 +136,15 @@ impl InstrumentParams {
             env_amount: 0.4,
             detune: 8.0,
             wave: 0,
+            pitch_ratio: 1.0,
+            vibrato: 0.0,
         }
     }
 }
+
+/// Mod-wheel vibrato: rate in Hz and depth as a frequency ratio (about ten cents).
+const VIBRATO_HZ: f64 = 5.5;
+const VIBRATO_DEPTH: f64 = 0.0058;
 
 #[derive(Clone, Copy)]
 pub struct Voice {
@@ -205,7 +215,11 @@ impl Voice {
             self.pad_cutoff = p.cutoff;
             self.pad_alpha = (1.0 - (-TAU * p.cutoff.min(rate * 0.45) / rate).exp()) as f32;
         }
-        let hz = self.frequency.min(rate * 0.4);
+        let mut hz = self.frequency * p.pitch_ratio;
+        if p.vibrato > 0.0 {
+            hz *= 1.0 + p.vibrato * VIBRATO_DEPTH * (TAU * VIBRATO_HZ * self.age).sin();
+        }
+        let hz = hz.min(rate * 0.4);
         self.sample_with_coefficients(p, rate, hz, self.pad_alpha)
     }
     #[inline]

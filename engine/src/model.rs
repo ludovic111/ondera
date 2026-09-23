@@ -107,6 +107,10 @@ pub struct Clip {
 pub enum ClipData {
     Midi {
         notes: Vec<Note>,
+        /// Controller changes, pitch bend and pressure. Absent from the file when empty, so
+        /// clips without them read and write exactly as before.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        controllers: Vec<Controller>,
     },
     Audio {
         #[serde(rename = "sourceId")]
@@ -125,6 +129,75 @@ pub struct Note {
     pub velocity: u8,
     #[serde(default)]
     pub agent: bool,
+}
+
+/// What a [`Controller`] point moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ControllerKind {
+    /// A MIDI control change; `number` is 0-127 and `value` 0-127.
+    Cc,
+    /// Pitch bend; `value` is -8192 (full down) to 8191 (full up), 0 centred.
+    Bend,
+    /// Channel pressure (aftertouch); `value` is 0-127.
+    Pressure,
+}
+impl ControllerKind {
+    pub fn parse(text: &str) -> Result<Self> {
+        match text {
+            "cc" => Ok(Self::Cc),
+            "bend" => Ok(Self::Bend),
+            "pressure" => Ok(Self::Pressure),
+            other => Err(format!(
+                "Controller kind must be cc, bend or pressure, not {other}"
+            )),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cc => "cc",
+            Self::Bend => "bend",
+            Self::Pressure => "pressure",
+        }
+    }
+    /// Lowest and highest value a point of this kind may hold.
+    pub fn range(self) -> (i16, i16) {
+        match self {
+            Self::Bend => (-8192, 8191),
+            _ => (0, 127),
+        }
+    }
+}
+
+/// One controller point in a MIDI clip. The value holds until the next point of the same
+/// lane (kind and number), as MIDI does.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Controller {
+    pub id: String,
+    pub kind: ControllerKind,
+    /// The controller number, for `cc` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u8>,
+    /// Beats from the clip start.
+    pub time: f64,
+    pub value: i16,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
+}
+impl Controller {
+    /// The lane this point belongs to.
+    pub fn lane(&self) -> (ControllerKind, Option<u8>) {
+        (self.kind, self.number)
+    }
+    pub fn is_valid(&self) -> bool {
+        let (low, high) = self.kind.range();
+        valid_time(self.time)
+            && (low..=high).contains(&self.value)
+            && match self.kind {
+                ControllerKind::Cc => self.number.is_some_and(|n| n <= 127),
+                _ => self.number.is_none(),
+            }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -474,11 +547,17 @@ impl Session {
             }
             let track = self.tracks.iter().find(|t| t.id == c.track_id).unwrap();
             match &c.data {
-                ClipData::Midi { notes: ns } => {
+                ClipData::Midi {
+                    notes: ns,
+                    controllers: cs,
+                } => {
                     if track.kind != "midi" {
                         return Err("MIDI clip on audio track".into());
                     }
-                    notes += ns.len();
+                    notes += ns.len() + cs.len();
+                    if cs.iter().any(|c| !c.is_valid()) {
+                        return Err("Invalid MIDI controller point".into());
+                    }
                     if ns.iter().any(|n| {
                         !valid_time(n.start)
                             || !valid_time(n.length)
@@ -504,7 +583,7 @@ impl Session {
             }
         }
         if notes > 200_000 {
-            return Err("Too many notes".into());
+            return Err("Too many notes and controller points".into());
         }
         let mut decoded_bytes = 0.0;
         for (id, src) in &self.sources {

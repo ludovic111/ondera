@@ -160,7 +160,7 @@ fn pitch_of(audio: &[[f32; 2]], rate: f64) -> f64 {
 fn render(
     processor: &mut Box<dyn ondera_engine::plugin::Processor>,
     blocks: usize,
-    first: &[ondera_engine::plugin::NoteEvent],
+    first: &[ondera_engine::plugin::Event],
     params: &[ParamChange],
 ) -> Vec<[f32; 2]> {
     let mut out = vec![];
@@ -180,13 +180,15 @@ fn render(
 #[test]
 fn an_abi_2_plugin_keeps_state_of_its_own_in_the_insert_blob() {
     use base64::Engine as _;
-    let a4 = [ondera_engine::plugin::NoteEvent {
-        frame: 0,
-        on: true,
-        pitch: 69,
-        velocity: 100,
-        channel: 0,
-    }];
+    let a4 = [ondera_engine::plugin::Event::from(
+        ondera_engine::plugin::NoteEvent {
+            frame: 0,
+            on: true,
+            pitch: 69,
+            velocity: 100,
+            channel: 0,
+        },
+    )];
     let mut plain = bend_sine(48000);
     assert_eq!(plain.editor.tail_seconds(), 0.25);
     // Nothing but parameters: the state is the bare list older sessions hold.

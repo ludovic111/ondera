@@ -312,6 +312,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_edit::SPECS)
         .chain(crate::control_plugins::SPECS)
         .chain(crate::control_automation::SPECS)
+        .chain(crate::control_controllers::SPECS)
         .chain(crate::control_app::SPECS)
         .copied()
         .collect()
@@ -745,6 +746,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     if name.starts_with("automation.") {
         return crate::control_automation::call(host, name, params, agent);
     }
+    if name.starts_with("controller.") {
+        return crate::control_controllers::call(host, name, &a, agent);
+    }
     if crate::control_plugins::SPECS.iter().any(|s| s.name == name) {
         return crate::control_plugins::call(host, name, &a);
     }
@@ -1019,6 +1023,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                         Some(v) => parse_notes(v, agent)?,
                         None => vec![],
                     },
+                    controllers: vec![],
                 }
             };
             let count = s.clips.iter().filter(|c| c.track_id == track.id).count();
@@ -1092,10 +1097,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             clip.id = new_id("clip");
             clip.start_bar += clip.length_bars;
             clip.agent = agent;
-            if let ClipData::Midi { notes } = &mut clip.data {
+            if let ClipData::Midi { notes, controllers } = &mut clip.data {
                 for n in notes {
                     n.id = new_id("note");
                 }
+                crate::controllers::renew_ids(controllers, agent, || new_id("ctl"));
             }
             let id = clip.id.clone();
             host.dispatch(Command::PutClip(clip))?;
@@ -1172,10 +1178,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             clip.track_id = track;
             clip.start_bar = bar;
             clip.agent = agent;
-            if let ClipData::Midi { notes } = &mut clip.data {
+            if let ClipData::Midi { notes, controllers } = &mut clip.data {
                 for n in notes {
                     n.id = new_id("note");
                 }
+                crate::controllers::renew_ids(controllers, agent, || new_id("ctl"));
             }
             let id = clip.id.clone();
             host.dispatch(Command::PutClip(clip))?;
@@ -1189,12 +1196,10 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         }
         "clip.setNotes" => {
             let mut clip = find_clip(host.store().session(), a.str("clipId")?)?.clone();
-            if !matches!(clip.data, ClipData::Midi { .. }) {
+            let ClipData::Midi { notes, .. } = &mut clip.data else {
                 return Err("Only MIDI clips hold notes".into());
-            }
-            clip.data = ClipData::Midi {
-                notes: parse_notes(a.get("notes").ok_or_else(|| a.missing("notes"))?, agent)?,
             };
+            *notes = parse_notes(a.get("notes").ok_or_else(|| a.missing("notes"))?, agent)?;
             let id = clip.id.clone();
             host.dispatch(Command::PutClip(clip))?;
             Ok(clip_summary(find_clip(host.store().session(), &id)?))
@@ -1226,7 +1231,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         "note.add" | "note.update" | "note.remove" => {
             let mut clip = find_clip(host.store().session(), a.str("clipId")?)?.clone();
             let notes = match &mut clip.data {
-                ClipData::Midi { notes } => notes,
+                ClipData::Midi { notes, .. } => notes,
                 ClipData::Audio { .. } => return Err("Only MIDI clips hold notes".into()),
             };
             let touched = match name {
@@ -1610,7 +1615,7 @@ pub(crate) fn find_clip<'a>(s: &'a Session, id: &str) -> Result<&'a Clip> {
 }
 pub(crate) fn midi_notes(clip: &Clip) -> Result<&Vec<Note>> {
     match &clip.data {
-        ClipData::Midi { notes } => Ok(notes),
+        ClipData::Midi { notes, .. } => Ok(notes),
         ClipData::Audio { .. } => Err("Only MIDI clips hold notes".into()),
     }
 }
@@ -1853,7 +1858,10 @@ fn add_loop(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
             .opt_f64("startBar")
             .unwrap_or_else(|| (host.position() / bpb).floor()),
         length_bars: pattern["bars"].as_f64().unwrap_or(1.0) * 4.0 / bpb,
-        data: ClipData::Midi { notes },
+        data: ClipData::Midi {
+            notes,
+            controllers: vec![],
+        },
     };
     let id = clip.id.clone();
     commands.push(Command::PutClip(clip));
@@ -1995,9 +2003,12 @@ pub(crate) fn clip_summary(c: &Clip) -> Value {
         "agent": c.agent,
     });
     match &c.data {
-        ClipData::Midi { notes } => {
+        ClipData::Midi { notes, controllers } => {
             v["kind"] = json!("midi");
             v["noteCount"] = json!(notes.len());
+            if !controllers.is_empty() {
+                v["controllerCount"] = json!(controllers.len());
+            }
         }
         ClipData::Audio {
             source_id,

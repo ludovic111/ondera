@@ -1,8 +1,10 @@
-//! MIDI input. Notes go straight to the audio thread for live playing and are
-//! also queued, timestamped in beats, for recording and the interface.
+//! MIDI input. Notes, control changes, pitch bend and channel pressure go straight to the
+//! audio thread for live playing and are also queued, timestamped in beats, for recording
+//! and the interface.
 
 use crate::{
     device::{Message, Sender, Telemetry},
+    plugin::{event, Event},
     Result,
 };
 use midir::{MidiInput as Port, MidiInputConnection};
@@ -161,6 +163,17 @@ impl MidiNotes {
     }
 }
 
+/// A controller message worth playing and recording: control changes 0-119 (120-127 are
+/// channel mode messages, handled with the notes), pitch bend and channel pressure.
+pub fn controller(bytes: &[u8]) -> Option<Event> {
+    let e = Event::from_midi(0, bytes)?;
+    match e.kind {
+        event::CONTROL if e.key < 120 => Some(e),
+        event::PITCH_BEND | event::CHANNEL_PRESSURE => Some(e),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MidiEvent {
     pub beats: f64,
@@ -169,6 +182,9 @@ pub struct MidiEvent {
     pub pitch: u8,
     pub velocity: u8,
     pub channel: u8,
+    /// A control change, bend or pressure instead of a note; `on`, `pitch` and `velocity`
+    /// are then unused.
+    pub control: Option<Event>,
 }
 pub struct MidiInput {
     _connection: MidiInputConnection<()>,
@@ -222,7 +238,8 @@ pub fn connect(
             &chosen,
             "ondera-in",
             move |_, bytes, _| {
-                if bytes.len() < 3 || callback_failed.load(Ordering::Relaxed) {
+                // Channel pressure is the one two-byte message played and recorded.
+                if bytes.len() < 2 || callback_failed.load(Ordering::Relaxed) {
                     return;
                 }
                 let mut overflow = false;
@@ -245,13 +262,36 @@ pub fn connect(
                             pitch: event.pitch,
                             velocity: event.velocity,
                             channel: event.channel,
+                            control: None,
                         })
                         .is_err();
                 };
                 if callback_reset.swap(false, Ordering::AcqRel) {
                     notes.reset(&mut emit);
                 }
-                notes.receive(bytes, route_for_callback.load(Ordering::Relaxed), &mut emit);
+                let route = route_for_callback.load(Ordering::Relaxed);
+                notes.receive(bytes, route, &mut emit);
+                if let Some(control) = controller(bytes) {
+                    if route != UNROUTED {
+                        overflow |= sender
+                            .send(Message::RoutedControl {
+                                route,
+                                event: control,
+                            })
+                            .is_err();
+                    }
+                    overflow |= producer
+                        .push(MidiEvent {
+                            beats,
+                            playing,
+                            on: false,
+                            pitch: 0,
+                            velocity: 0,
+                            channel: control.channel,
+                            control: Some(control),
+                        })
+                        .is_err();
+                }
                 if overflow {
                     callback_failed.store(true, Ordering::Relaxed);
                     telemetry.input_overflow.store(true, Ordering::Release);
@@ -297,6 +337,29 @@ impl MidiInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn controllers_are_read_from_their_bytes_and_channel_mode_messages_are_not() {
+        let cc = controller(&[0xb3, 1, 90]).unwrap();
+        assert_eq!(
+            (cc.kind, cc.channel, cc.key, cc.value),
+            (event::CONTROL, 3, 1, 90)
+        );
+        let bend = controller(&[0xe0, 0x00, 0x60]).unwrap();
+        assert_eq!(bend.kind, event::PITCH_BEND);
+        assert_eq!(bend.bend, 0x3000 - 8192);
+        assert_eq!(bend.to_midi(), Some([0xe0, 0x00, 0x60]));
+        let pressure = controller(&[0xd0, 70]).unwrap();
+        assert_eq!(
+            (pressure.kind, pressure.value),
+            (event::CHANNEL_PRESSURE, 70)
+        );
+        assert!(controller(&[0xb0, 123, 0]).is_none());
+        assert!(controller(&[0x90, 60, 100]).is_none());
+        assert!(
+            controller(&[0xe0, 0x00]).is_none(),
+            "A truncated bend is dropped"
+        );
+    }
     #[test]
     fn sustain_holds_releases_per_channel_and_preserves_the_attack_route() {
         let mut notes = MidiNotes::default();

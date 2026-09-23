@@ -4,7 +4,7 @@ use ondera_engine::{
     dsp::{EFFECTS, INSTRUMENTS},
     host::scan,
     model::*,
-    plugin::{NoteEvent, ProcessContext, Rack},
+    plugin::{Event, NoteEvent, ProcessContext, Rack},
     render::{self, Renderer},
     stock,
     store::{self, Command, Store},
@@ -60,6 +60,7 @@ fn midi_session() -> Session {
                 velocity: 100,
                 agent: false,
             }],
+            controllers: vec![],
         },
     });
     s
@@ -263,10 +264,10 @@ fn saving_old_revision_cannot_mark_new_edits_clean() {
 fn split_retains_crossing_notes() {
     let s = midi_session();
     let (l, r) = store::split(&s.clips[0], 0.25, "right".into(), 4.0, 120.0).unwrap();
-    let ClipData::Midi { notes: a } = l.data else {
+    let ClipData::Midi { notes: a, .. } = l.data else {
         panic!()
     };
-    let ClipData::Midi { notes: b } = r.data else {
+    let ClipData::Midi { notes: b, .. } = r.data else {
         panic!()
     };
     assert_eq!(a[0].length, 1.0);
@@ -555,13 +556,13 @@ fn instrument_processor_handles_note_on_and_off() {
     let mut processor = instance.processor.take().unwrap();
     let ctx = ProcessContext::default();
     let mut block = [[0.0f32; 2]; 64];
-    let on = [NoteEvent {
+    let on = [Event::from(NoteEvent {
         frame: 0,
         on: true,
         pitch: 60,
         velocity: 100,
         channel: 0,
-    }];
+    })];
     processor.process(&mut block, &on, &[], &ctx);
     let mut held = 0.0;
     for _ in 0..50 {
@@ -570,13 +571,13 @@ fn instrument_processor_handles_note_on_and_off() {
         held += block.iter().map(|f| (f[0] * f[0]) as f64).sum::<f64>();
     }
     assert!(held > 0.1);
-    let off = [NoteEvent {
+    let off = [Event::from(NoteEvent {
         frame: 0,
         on: false,
         pitch: 60,
         velocity: 0,
         channel: 0,
-    }];
+    })];
     block.fill([0.0; 2]);
     processor.process(&mut block, &off, &[], &ctx);
     for _ in 0..1500 {
@@ -647,6 +648,29 @@ fn newer_session_version_is_rejected() {
 #[test]
 fn realtime_render_seek_and_preview_allocate_nothing() {
     let mut s = midi_session();
+    // Controllers are sequenced, chased on locate and reset at stop without allocating.
+    if let ClipData::Midi { controllers, .. } = &mut s.clips[0].data {
+        use ondera_engine::model::{Controller, ControllerKind};
+        for (i, (kind, number, time, value)) in [
+            (ControllerKind::Cc, Some(1), 0.0, 10),
+            (ControllerKind::Cc, Some(64), 0.1, 127),
+            (ControllerKind::Bend, None, 0.2, 3000),
+            (ControllerKind::Pressure, None, 0.3, 90),
+            (ControllerKind::Cc, Some(1), 0.6, 120),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            controllers.push(Controller {
+                id: format!("ctl{i}"),
+                kind,
+                number,
+                time,
+                value,
+                agent: false,
+            });
+        }
+    }
     let mut strip = Strip::default();
     for (i, name) in ["Channel EQ", "Space", "Echo", "Limiter"]
         .iter()
@@ -761,6 +785,8 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
     for i in 0..64 {
         if i == 20 {
             r.locate(0.5);
+            r.control(0, ondera_engine::plugin::Event::pitch_bend(0, -0.5));
+            std::hint::black_box(ondera_engine::midi::controller(&[0xb0, 1, 64]));
             r.preview(0, 64, 100);
             r.note(0, true, 67, 90);
             rack.set_param(0, 0, 0.5);

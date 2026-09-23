@@ -77,7 +77,10 @@ pub(crate) fn call(host: &mut dyn Host, args: &Args<'_>, agent: bool) -> Result<
         start_bar: args.opt_f64("startBar").unwrap_or(0.0),
         length_bars: bars as f64,
         agent,
-        data: ClipData::Midi { notes },
+        data: ClipData::Midi {
+            notes,
+            controllers: vec![],
+        },
     };
     let result = json!({"trackId":track.id,"clipId":clip.id,"noteCount":control::midi_notes(&clip)?.len(),"excludedBySolo":s.tracks.iter().any(|t|t.solo)});
     let select = Command::Select {

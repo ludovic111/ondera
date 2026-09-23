@@ -334,7 +334,8 @@ pub fn empty() -> Session {
     s
 }
 
-/// Clip splitting keeps offsets and notes aligned, including notes crossing the cut.
+/// Clip splitting keeps offsets and notes aligned, including notes crossing the cut. The
+/// right half starts with each controller's value at the cut.
 pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<(Clip, Clip)> {
     let relative = bar - clip.start_bar;
     if relative <= 0.0 || relative >= clip.length_bars {
@@ -356,7 +357,7 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
                 offset_seconds: offset_seconds + relative * bpb * 60.0 / tempo,
             }
         }
-        ClipData::Midi { notes } => {
+        ClipData::Midi { notes, controllers } => {
             let cut = relative * bpb;
             left.data = ClipData::Midi {
                 notes: notes
@@ -368,6 +369,9 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
                         n
                     })
                     .collect(),
+                controllers: crate::controllers::window(controllers, 0.0, cut, || {
+                    crate::control::new_id("ctl")
+                }),
             };
             right.data = ClipData::Midi {
                 notes: notes
@@ -381,6 +385,12 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
                         n
                     })
                     .collect(),
+                controllers: crate::controllers::window(
+                    controllers,
+                    cut,
+                    (clip.length_bars - relative) * bpb,
+                    || crate::control::new_id("ctl"),
+                ),
             };
         }
     }

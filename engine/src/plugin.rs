@@ -139,9 +139,10 @@ impl ParamInfo {
     }
 }
 
-/// Note events, parameter changes, transport context and the block bound are defined by the
-/// plugin SDK so native plugins and the hosts agree on one layout.
-pub use ondera_plugin::{NoteEvent, ParamChange, ProcessContext, MAX_BLOCK};
+/// Events, parameter changes, transport context and the block bound are defined by the
+/// plugin SDK so native plugins and the hosts agree on one layout. `Event` carries notes,
+/// controllers, pitch bend and pressure; `event` names its kinds.
+pub use ondera_plugin::{event, Event, NoteEvent, ParamChange, ProcessContext, MAX_BLOCK};
 
 /// The audio-thread half of a plugin. Nothing here may allocate, block or log.
 pub trait Processor: Send {
@@ -152,11 +153,12 @@ pub trait Processor: Send {
     /// Silence tails and release voices.
     fn reset(&mut self) {}
     /// Process stereo audio in place. Instruments receive silence and add their
-    /// output; effects transform. `notes` and `params` are sorted by frame.
+    /// output; effects transform. `events` (notes, controllers, pitch bend and pressure)
+    /// are sorted by frame; `params` apply at the block start.
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     );
@@ -301,7 +303,7 @@ impl Rack {
         &mut self,
         slot: u32,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         ctx: &ProcessContext,
     ) -> bool {
         let index = slot as usize;
@@ -309,7 +311,7 @@ impl Rack {
             return false;
         };
         let pending = &mut self.pending[index];
-        processor.process(audio, notes, &pending.changes[..pending.len], ctx);
+        processor.process(audio, events, &pending.changes[..pending.len], ctx);
         pending.len = 0;
         true
     }

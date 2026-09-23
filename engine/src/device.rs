@@ -99,6 +99,11 @@ pub enum Message {
         pitch: u8,
         velocity: u8,
     },
+    /// A live control change, pitch bend or channel pressure for the routed track.
+    RoutedControl {
+        route: usize,
+        event: crate::plugin::Event,
+    },
     Select(Option<usize>),
     Mount(u32, Box<dyn Processor>),
     Unmount(u32),
@@ -459,6 +464,7 @@ impl Callback {
                     message,
                     Message::Note { .. }
                         | Message::RoutedNote { .. }
+                        | Message::RoutedControl { .. }
                         | Message::Preview(..)
                         | Message::Start(..)
                         | Message::CountIn(..)
@@ -493,6 +499,9 @@ impl Callback {
                     pitch,
                     velocity,
                 } => self.renderer.routed_note(route, on, pitch, velocity),
+                Message::RoutedControl { route, event } => {
+                    self.renderer.routed_control(route, event)
+                }
                 Message::Select(track) => self.renderer.set_selected(track),
                 Message::Mount(slot, processor) => {
                     if let Some(old) = self.rack.mount(slot, processor) {

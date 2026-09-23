@@ -1,7 +1,7 @@
 use ondera_engine::{
     audio::Library,
     model::{Clip, ClipData, Insert, Note, Send, Strip, BUS_A, BUS_B, MASTER},
-    plugin::{NoteEvent, ParamChange, ProcessContext, Processor, Rack},
+    plugin::{Event, NoteEvent, ParamChange, ProcessContext, Processor, Rack},
     render::Renderer,
     store,
 };
@@ -31,12 +31,16 @@ impl Processor for DelayProcessor {
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        notes: &[Event],
         _: &[ParamChange],
         _: &ProcessContext,
     ) {
         if self.synth {
-            for note in notes.iter().filter(|note| note.on) {
+            for note in notes
+                .iter()
+                .filter_map(Event::as_note)
+                .filter(|note| note.on)
+            {
                 audio[note.frame as usize] = [0.1; 2];
             }
         }
@@ -75,6 +79,7 @@ fn fixture() -> ondera_engine::model::Session {
                 velocity: 100,
                 agent: false,
             }],
+            controllers: vec![],
         },
     }];
     session
@@ -158,17 +163,20 @@ impl Processor for NoteObserver {
     fn process(
         &mut self,
         _: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        notes: &[Event],
         _: &[ParamChange],
         _: &ProcessContext,
     ) {
-        self.0.lock().unwrap().extend_from_slice(notes);
+        self.0
+            .lock()
+            .unwrap()
+            .extend(notes.iter().filter_map(Event::as_note));
     }
 }
 #[test]
 fn preview_releases_and_sequence_events_are_chronological() {
     let mut session = fixture();
-    let ClipData::Midi { notes } = &mut session.clips[0].data else {
+    let ClipData::Midi { notes, .. } = &mut session.clips[0].data else {
         unreachable!()
     };
     notes[0].start = 14090.0 / 24000.0;
@@ -187,7 +195,7 @@ fn preview_releases_and_sequence_events_are_chronological() {
     // Position 14336; preview ends at frame 64. Place another sequenced start
     // at frame 10 of that same block, before the queued preview note-off.
     let mut updated = renderer.session().clone();
-    let ClipData::Midi { notes } = &mut updated.clips[0].data else {
+    let ClipData::Midi { notes, .. } = &mut updated.clips[0].data else {
         unreachable!()
     };
     notes.push(Note {
@@ -219,14 +227,7 @@ impl Processor for Lifecycle {
     fn stop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
-    fn process(
-        &mut self,
-        _: &mut [[f32; 2]],
-        _: &[NoteEvent],
-        _: &[ParamChange],
-        _: &ProcessContext,
-    ) {
-    }
+    fn process(&mut self, _: &mut [[f32; 2]], _: &[Event], _: &[ParamChange], _: &ProcessContext) {}
 }
 impl Drop for Lifecycle {
     fn drop(&mut self) {
@@ -345,7 +346,7 @@ fn live_pedal_keeps_stock_audio_sounding_after_key_up_and_releases_on_pedal_up()
 #[test]
 fn seeking_a_dense_chord_limits_chased_voices_and_releases_every_started_note() {
     let mut session = fixture();
-    let ClipData::Midi { notes } = &mut session.clips[0].data else {
+    let ClipData::Midi { notes, .. } = &mut session.clips[0].data else {
         unreachable!()
     };
     notes.clear();
@@ -449,7 +450,7 @@ impl Processor for ParameterObserver {
     fn process(
         &mut self,
         _: &mut [[f32; 2]],
-        _: &[NoteEvent],
+        _: &[Event],
         params: &[ParamChange],
         _: &ProcessContext,
     ) {

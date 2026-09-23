@@ -1106,7 +1106,7 @@ impl Ondera {
             return;
         };
         let mut clip = clip.clone();
-        if let ClipData::Midi { notes } = &mut clip.data {
+        if let ClipData::Midi { notes, .. } = &mut clip.data {
             for n in notes.iter_mut() {
                 n.start = (n.start / step).round() * step;
             }
@@ -1123,7 +1123,7 @@ impl Ondera {
             return;
         };
         let mut clip = clip.clone();
-        if let ClipData::Midi { notes } = &mut clip.data {
+        if let ClipData::Midi { notes, .. } = &mut clip.data {
             for n in notes.iter_mut() {
                 n.pitch = (n.pitch as i32 + semitones).clamp(0, 127) as u8;
             }
@@ -1930,7 +1930,7 @@ impl Ondera {
                     ui.add_space(14.0);
                     ui.label(mono(
                         match &c.data {
-                            ClipData::Midi { notes } => format!("{} notes", notes.len()),
+                            ClipData::Midi { notes, .. } => format!("{} notes", notes.len()),
                             ClipData::Audio { .. } => "audio".into(),
                         },
                         FS_CAPS,

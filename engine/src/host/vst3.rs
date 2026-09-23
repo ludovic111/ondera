@@ -3,8 +3,8 @@
 
 use crate::{
     plugin::{
-        Descriptor, Editor, Format, Instance, NoteEvent, ParamChange, ParamInfo, ParentWindow,
-        Processor, MAX_BLOCK,
+        event as kinds, Descriptor, Editor, Event as PluginEvent, Format, Instance, ParamChange,
+        ParamInfo, ParentWindow, Processor, MAX_BLOCK,
     },
     Result,
 };
@@ -660,6 +660,10 @@ struct Shared {
     in_channels: usize,
     out_channels: usize,
     has_event_input: bool,
+    /// The parameter each MIDI controller drives, as the plugin's `IMidiMapping` reports it
+    /// for the first event bus and channel: 0-127 are CCs, 128 channel pressure, 129 pitch
+    /// bend. VST3 has no MIDI controller events; this is how a host delivers them.
+    midi_map: [Option<ParamID>; 130],
     active: AtomicBool,
 }
 // SAFETY: VST3 objects are shared between the main thread (controller, state,
@@ -684,6 +688,37 @@ impl Drop for Shared {
             }
             self.component.terminate();
         }
+    }
+}
+
+/// Ask the controller which parameter each MIDI controller number drives.
+unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> [Option<ParamID>; 130] {
+    let mut map = [None; 130];
+    let Some(mapping) = controller.cast::<IMidiMapping>().filter(|_| events) else {
+        return map;
+    };
+    for (number, slot) in map.iter_mut().enumerate() {
+        let mut id: ParamID = 0;
+        if mapping.getMidiControllerAssignment(0, 0, number as CtrlNumber, &mut id) == kResultOk {
+            *slot = Some(id);
+        }
+    }
+    map
+}
+
+/// The `IMidiMapping` controller number and normalised value of a controller event.
+fn midi_controller(event: &PluginEvent) -> Option<(usize, f64)> {
+    match event.kind {
+        kinds::CONTROL => Some((
+            event.key.min(127) as usize,
+            event.value.min(127) as f64 / 127.0,
+        )),
+        kinds::CHANNEL_PRESSURE => Some((128, event.value.min(127) as f64 / 127.0)),
+        kinds::PITCH_BEND => Some((
+            129,
+            (event.bend.clamp(-8192, 8191) as f64 + 8192.0) / 16383.0,
+        )),
+        _ => None,
     }
 }
 
@@ -863,6 +898,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
                 controller.setComponentState(s.as_ptr());
             }
         }
+        let midi_map = midi_map(&controller, event_in > 0);
         let shared = Arc::new(Shared {
             _module: module,
             component,
@@ -874,6 +910,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             in_channels,
             out_channels,
             has_event_input: event_in > 0,
+            midi_map,
             active: AtomicBool::new(true),
         });
         let editor = Vst3Editor::new(shared.clone(), desc.clone());
@@ -1230,7 +1267,7 @@ impl Processor for Vst3Processor {
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[PluginEvent],
         params: &[ParamChange],
         ctx: &crate::plugin::ProcessContext,
     ) {
@@ -1272,13 +1309,40 @@ impl Processor for Vst3Processor {
             q.offset.store(0, Ordering::Relaxed);
             count += 1;
         }
+        // Controllers the plugin maps to parameters: the last value in the block wins, at its
+        // own frame.
+        for event in events {
+            let Some((number, value)) = midi_controller(event) else {
+                continue;
+            };
+            let Some(id) = self.shared.midi_map[number] else {
+                continue;
+            };
+            let existing = self.changes.queues[..count]
+                .iter()
+                .position(|q| q.id.load(Ordering::Relaxed) == id);
+            let index = match existing {
+                Some(index) => index,
+                None if count < self.changes.queues.len() => {
+                    count += 1;
+                    count - 1
+                }
+                None => continue,
+            };
+            let q = &self.changes.queues[index];
+            q.id.store(id, Ordering::Relaxed);
+            q.value.store(value.to_bits(), Ordering::Relaxed);
+            q.offset
+                .store((event.frame as usize).min(n - 1) as i32, Ordering::Relaxed);
+        }
         self.changes.count.store(count, Ordering::Relaxed);
         self.out_changes.count.store(0, Ordering::Relaxed);
+        let notes = events;
         unsafe {
             let events = &mut *self.events.events.get();
             events.clear();
             if self.shared.has_event_input {
-                for note in notes {
+                for note in notes.iter().filter_map(PluginEvent::as_note) {
                     if events.len() >= events.capacity() {
                         break;
                     }

@@ -59,7 +59,7 @@ impl Ondera {
             .unwrap_or(0);
         let color = track_color(&s.tracks[index].color, index);
         let velocity = match &clip.data {
-            ClipData::Midi { notes } => notes
+            ClipData::Midi { notes, .. } => notes
                 .iter()
                 .find(|n| Some(&n.id) == s.view.selected_note_id.as_ref())
                 .map_or(100, |n| n.velocity),
@@ -118,7 +118,7 @@ impl Ondera {
                 });
             },
         );
-        let ClipData::Midi { notes } = &clip.data else {
+        let ClipData::Midi { notes, .. } = &clip.data else {
             if let ClipData::Audio {
                 source_id,
                 offset_seconds,
@@ -407,7 +407,7 @@ impl Ondera {
                         if r.clicked() {
                             if step_mode {
                                 let mut c = clip.clone();
-                                if let ClipData::Midi { notes } = &mut c.data {
+                                if let ClipData::Midi { notes, .. } = &mut c.data {
                                     notes.retain(|v| v.id != n.id);
                                 }
                                 self.dispatch(Command::PutClip(c));
@@ -438,7 +438,7 @@ impl Ondera {
                                 ui.label(text("Velocity", FS_SECONDARY, Weight::Medium, FAINT));
                                 if hslider(ui, &mut velocity, 1.0..=127.0, 120.0).changed() {
                                     let mut c = clip.clone();
-                                    if let ClipData::Midi { notes } = &mut c.data {
+                                    if let ClipData::Midi { notes, .. } = &mut c.data {
                                         if let Some(note) =
                                             notes.iter_mut().find(|note| note.id == n.id)
                                         {
@@ -455,7 +455,7 @@ impl Ondera {
                             });
                             if ui.button("Delete note").clicked() {
                                 let mut c = clip.clone();
-                                if let ClipData::Midi { notes } = &mut c.data {
+                                if let ClipData::Midi { notes, .. } = &mut c.data {
                                     notes.retain(|note| note.id != n.id);
                                 }
                                 self.dispatch(Command::PutClip(c));
@@ -489,7 +489,7 @@ impl Ondera {
                                 .clamp(0.0, 127.0) as u8;
                             if start < beats {
                                 let mut c = clip.clone();
-                                if let ClipData::Midi { notes } = &mut c.data {
+                                if let ClipData::Midi { notes, .. } = &mut c.data {
                                     notes.push(Note {
                                         id: id("note"),
                                         start,
@@ -528,7 +528,7 @@ impl Ondera {
                             }
                         }
                         if ui.input(|i| i.pointer.any_released()) {
-                            if let ClipData::Midi { notes } = &mut drag.clip.data {
+                            if let ClipData::Midi { notes, .. } = &mut drag.clip.data {
                                 if let Some(n) = notes.iter_mut().find(|n| n.id == drag.note.id) {
                                     *n = drag.current;
                                 }

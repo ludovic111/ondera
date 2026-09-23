@@ -151,7 +151,7 @@ fn delayed_audio_keeps_the_previous_cycles_automation_until_its_audio_crosses_th
         fn process(
             &mut self,
             audio: &mut [[f32; 2]],
-            _: &[ondera_engine::plugin::NoteEvent],
+            _: &[ondera_engine::plugin::Event],
             _: &[ondera_engine::plugin::ParamChange],
             _: &ondera_engine::plugin::ProcessContext,
         ) {
