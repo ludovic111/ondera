@@ -1040,15 +1040,16 @@ impl Host for Ondera {
                 if self.record_enabled != enabled {
                     self.record_enabled = enabled;
                     if self.playing {
-                        if enabled {
-                            self.start_recording();
-                        } else {
-                            self.finish_recording();
-                        }
+                        // Only this punch's own failure answers the request: an error the
+                        // window was already showing is not about it.
+                        self.guarded(|app| {
+                            if enabled {
+                                app.start_recording();
+                            } else {
+                                app.finish_recording();
+                            }
+                        })?;
                     }
-                }
-                if let Some(error) = self.error.clone().filter(|_| enabled && self.playing) {
-                    return Err(error);
                 }
                 Ok(
                     json!({ "recordEnabled": self.record_enabled, "playing": self.playing,
@@ -1416,6 +1417,20 @@ fn release_json(release: &crate::update::Release) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn punch_answers_for_itself_not_for_an_error_already_on_screen() {
+        let mut app = Ondera::from_session(ondera_engine::store::empty(), None);
+        app.error = Some("Audio device disconnected".into());
+        app.playing = true;
+        app.record_enabled = true;
+        let reply = app
+            .run_control_command("transport.punch", &json!({"enabled": true}), false, "CLI")
+            .expect("nothing changed, so nothing failed");
+        assert_eq!(reply["recordEnabled"], true);
+        assert_eq!(app.error.as_deref(), Some("Audio device disconnected"));
+        app.playing = false;
+    }
+
     use super::*;
     use ondera_engine::{audio::AudioBuffer, model::*, store};
     use std::time::{Duration, Instant};
