@@ -1404,10 +1404,7 @@ impl Ondera {
                 track_id: track,
                 start_bar,
                 length_bars,
-                data: ClipData::Audio {
-                    source_id: source_id.clone(),
-                    offset_seconds: 0.0,
-                },
+                data: ClipData::audio(source_id.clone(), 0.0),
             }));
         }
         self.library.insert(source_id, buffer);

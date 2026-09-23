@@ -246,6 +246,9 @@ export function modern(mode: Mode): ThemeSpec {
     dropTarget: ac(0.1),
     stepCell: ink(dark ? 0.055 : 0.05),
     hover: ink(dark ? 0.06 : 0.045),
+    fadeShade: dark ? black(0.35) : "rgba(17,20,31,.16)",
+    fadeHandle: dark ? white(0.92) : "rgba(17,20,31,.8)",
+    markerFlag: dark ? "rgba(24,26,32,.86)" : "rgba(255,255,255,.9)",
   };
 
   const line: Record<LineKey, string> = {
@@ -282,6 +285,9 @@ export function modern(mode: Mode): ThemeSpec {
     border,
     borderStrong,
     hairline,
+    fadeCurve: dark ? white(0.85) : "rgba(17,20,31,.75)",
+    marker: dark ? ok(0.8, 0.13, 75) : ok(0.57, 0.15, 60),
+    markerLane: dark ? ok(0.8, 0.13, 75, 0.3) : ok(0.57, 0.15, 60, 0.35),
   };
 
   const ring = `inset 0 0 0 1px ${border}`;

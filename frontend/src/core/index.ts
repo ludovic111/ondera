@@ -3,6 +3,7 @@
 export * from "./types";
 export * from "./time";
 export * from "./gain";
+export * from "./fade";
 export * from "./strip";
 export * from "./palette";
 export type { NativeStore as SessionStore } from "../state/native";
@@ -37,6 +38,18 @@ export const commands = {
     split: command("clip.split"),
     duplicate: command("clip.duplicate"),
     remove: command("clip.remove"),
+    setFades: command("clip.setFades"),
+    setGain: command("clip.setGain"),
+  },
+  marker: {
+    add: command("marker.add"),
+    rename: command("marker.rename"),
+    move: command("marker.move"),
+    remove: command("marker.remove"),
+    goto: command("marker.goto"),
+    next: command("marker.next"),
+    previous: command("marker.previous"),
+    cycleSection: command("marker.cycleSection"),
   },
   strip: {
     setSendLevel: command("strip.setSendLevel"),

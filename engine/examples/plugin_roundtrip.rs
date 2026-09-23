@@ -191,10 +191,7 @@ fn main() {
         track_id: second_id,
         start_bar: 0.0,
         length_bars: 2.0,
-        data: ClipData::Audio {
-            source_id: "imported".into(),
-            offset_seconds: 0.0,
-        },
+        data: ClipData::audio("imported", 0.0),
     });
     session.normalize();
     let library = Library::from([("imported".into(), buffer)]);

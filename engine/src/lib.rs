@@ -3,6 +3,7 @@ pub mod audio;
 pub mod automation;
 pub mod control;
 pub mod control_app;
+pub mod control_arrange;
 pub mod control_automation;
 pub mod control_edit;
 pub mod control_media;

@@ -567,6 +567,7 @@ impl Ondera {
                             ClipData::Audio {
                                 source_id,
                                 offset_seconds,
+                                ..
                             } => {
                                 if let Some(buffer) = self.library.get(source_id) {
                                     let visible = body.intersect(lane).intersect(ui.clip_rect());

@@ -42,10 +42,7 @@ fn fixture() -> (ondera_engine::model::Session, Library) {
         track_id: session.tracks[0].id.clone(),
         start_bar: 0.0,
         length_bars: 0.5,
-        data: ClipData::Audio {
-            source_id: "audio".into(),
-            offset_seconds: 0.0,
-        },
+        data: ClipData::audio("audio", 0.0),
     });
     (session, Library::from([("audio".into(), buffer)]))
 }

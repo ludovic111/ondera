@@ -29,6 +29,7 @@ const GROUPS: [string, (id: string) => boolean][] = [
       ),
   ],
   ["Tracks", (id) => /Track$/.test(id)],
+  ["Markers", (id) => /Marker$|^cycleSection$/.test(id)],
   ["View and tools", () => true],
 ];
 
@@ -74,7 +75,9 @@ export function ShortcutList() {
         ⌘ is Ctrl on Windows and Linux. With musical typing on, A–; play notes
         and Z / X shift the octave. In the arrangement: double-click a lane to
         create a region, drag edges to resize, drag the ruler to set the cycle,
-        drop audio files from your file manager to import them.
+        drag the top corners of an audio region to fade it, drag a marker to
+        move it and double-click it to rename it, drop audio files from your
+        file manager to import them.
       </p>
     </div>
   );

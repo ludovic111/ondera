@@ -32,6 +32,14 @@ const PHRASES: Record<string, (a: Args) => string> = {
   "clip.transpose": (a) => `Transposed by ${a.semitones} semitones`,
   "clip.humanize": () => "Humanized the timing",
   "clip.fitScale": () => "Fitted the notes to the scale",
+  "clip.setFades": () => "Shaped a region's fades",
+  "clip.setGain": (a) => `Set a region's gain to ${a.gainDb} dB`,
+  "marker.add": (a) => `Marked a section${q(a.name)}`,
+  "marker.rename": (a) => `Renamed a section to${q(a.name)}`,
+  "marker.move": () => "Moved a section marker",
+  "marker.remove": () => "Removed a section marker",
+  "marker.goto": (a) => `Went to${q(a.name) || " a marker"}`,
+  "marker.cycleSection": () => "Looped a section",
   "note.add": () => "Added a note",
   "note.update": () => "Changed a note",
   "note.remove": () => "Removed a note",
@@ -96,6 +104,7 @@ export function describeTool(tool: ToolCall): string {
       view: "the view",
       source: "the audio",
       history: "the undo history",
+      marker: "the song sections",
     };
     return `Looked at ${SUBJECTS[subject] ?? subject}`;
   }

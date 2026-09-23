@@ -97,8 +97,10 @@ interface NativeStrip extends ChannelStrip {
     plugin?: string;
   })[];
 }
-export interface DocumentData extends Omit<Session, "strips"> {
+export interface DocumentData extends Omit<Session, "strips" | "markers"> {
   snapshotSequence?: number;
+  /** Absent in documents from hosts that predate markers. */
+  markers?: Session["markers"];
   strips: Record<string, NativeStrip>;
   masterVolume: number;
   automation: AutomationLane[];
@@ -218,6 +220,7 @@ const empty: Session = {
   name: "Ondera",
   tracks: [],
   clips: [],
+  markers: [],
   sources: {},
   strips: {},
   view: defaultView,
@@ -510,6 +513,7 @@ export class NativeStore {
     this.state = {
       ...this.state,
       ...doc,
+      markers: doc.markers ?? [],
       strips,
       browser: {
         ...this.state.browser,
