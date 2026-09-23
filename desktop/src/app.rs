@@ -1442,15 +1442,7 @@ impl Ondera {
             let mut files = vec![];
             let mut decoded_bytes = 0usize;
             for path in paths {
-                if std::fs::metadata(&path).map_err(|e| e.to_string())?.len()
-                    > audio::MAX_AUDIO_BYTES as u64
-                {
-                    return Err("Audio file exceeds 512 MiB".into());
-                }
-                let buffer = audio::decode(
-                    std::fs::read(&path).map_err(|e| e.to_string())?,
-                    path.extension().and_then(|s| s.to_str()),
-                )?;
+                let buffer = ondera_engine::control::decode_file(&path)?;
                 decoded_bytes = decoded_bytes.saturating_add(buffer.frames.len() * 8);
                 if decoded_bytes > audio::MAX_LIBRARY_BYTES {
                     return Err("Imported batch exceeds 1 GiB of decoded audio".into());

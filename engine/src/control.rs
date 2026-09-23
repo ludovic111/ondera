@@ -481,14 +481,24 @@ pub trait Host {
 }
 
 /// Decode an audio file with the same limits the desktop import applies.
+/// Errors name the file: an import of several files must say which one failed.
 pub fn decode_file(path: &Path) -> Result<AudioBuffer> {
-    if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > audio::MAX_AUDIO_BYTES as u64 {
-        return Err("Audio file exceeds 512 MiB".into());
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let named = |e: String| format!("{name}: {e}");
+    let size = std::fs::metadata(path)
+        .map_err(|e| named(e.to_string()))?
+        .len();
+    if size > audio::MAX_AUDIO_BYTES as u64 {
+        return Err(named("Audio file exceeds 512 MiB".into()));
     }
     audio::decode(
-        std::fs::read(path).map_err(|e| e.to_string())?,
+        std::fs::read(path).map_err(|e| named(e.to_string()))?,
         path.extension().and_then(|s| s.to_str()),
     )
+    .map_err(named)
 }
 
 /// File-backed host without a window or audio device.
