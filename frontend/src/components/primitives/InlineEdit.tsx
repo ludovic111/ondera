@@ -46,6 +46,8 @@ export function InlineEdit({
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
+    // Enter that confirms an input method's composition (Japanese, Chinese…) is not a commit.
+    if (e.nativeEvent.isComposing) return;
     if (isEnterKey(e)) commit();
     if (e.key === "Escape") {
       done.current = true;

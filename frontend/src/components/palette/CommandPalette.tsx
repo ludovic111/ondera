@@ -102,6 +102,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             e.stopPropagation();
+            if (e.nativeEvent.isComposing) return;
             if (e.key === "Escape") onClose();
             else if (e.key === "Enter") run(results[active]);
             else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
