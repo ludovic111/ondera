@@ -120,10 +120,18 @@ pub fn list(plugin_id: Option<&str>) -> Result<Vec<PluginPreset>> {
     });
     Ok(all)
 }
+/// Two names can share a file name ("Lead/1" and "Lead_1", or two plugin ids that slug
+/// alike): a file only answers for the preset it says it holds.
+fn holds(preset: &PluginPreset, plugin_id: &str, name: &str) -> bool {
+    preset.plugin_id == plugin_id && preset.name.trim().eq_ignore_ascii_case(name.trim())
+}
 pub fn load(plugin_id: &str, name: &str) -> Result<PluginPreset> {
     let path = preset_path(plugin_id, name);
     if path.is_file() {
-        return read(&path);
+        let preset = read(&path)?;
+        if holds(&preset, plugin_id, name) {
+            return Ok(preset);
+        }
     }
     factory(Some(plugin_id))
         .into_iter()
@@ -139,7 +147,7 @@ pub fn save(preset: &PluginPreset) -> Result<PathBuf> {
     }
     if factory(Some(&preset.plugin_id))
         .iter()
-        .any(|p| p.name.eq_ignore_ascii_case(&preset.name))
+        .any(|p| p.name.eq_ignore_ascii_case(preset.name.trim()))
     {
         return Err(format!(
             "`{}` is a factory preset; choose another name",
@@ -150,6 +158,14 @@ pub fn save(preset: &PluginPreset) -> Result<PathBuf> {
         return Err("Preset state is too large or invalid".into());
     }
     let path = preset_path(&preset.plugin_id, &preset.name);
+    if let Ok(existing) = read(&path) {
+        if !holds(&existing, &preset.plugin_id, &preset.name) {
+            return Err(format!(
+                "`{}` would replace the preset `{}` saved under the same file name; choose another name",
+                preset.name, existing.name
+            ));
+        }
+    }
     std::fs::create_dir_all(path.parent().ok_or("Preset path has no parent")?)
         .map_err(|e| e.to_string())?;
     let mut stored = preset.clone();
@@ -163,7 +179,7 @@ pub fn save(preset: &PluginPreset) -> Result<PathBuf> {
 }
 pub fn delete(plugin_id: &str, name: &str) -> Result<()> {
     let path = preset_path(plugin_id, name);
-    if path.is_file() {
+    if path.is_file() && read(&path).is_ok_and(|p| holds(&p, plugin_id, name)) {
         return std::fs::remove_file(&path).map_err(|e| e.to_string());
     }
     if factory(Some(plugin_id))
@@ -208,6 +224,33 @@ mod tests {
         delete("stock:Space", "My hall / take 2").unwrap();
         assert_eq!(list(Some("stock:Space")).unwrap().len(), factory_count);
         assert!(load("stock:Space", "cathedral").unwrap().factory);
+        // "Lead/1" and "Lead_1" share a file name: the second must not replace the first,
+        // and loading one never answers with the other.
+        save(&PluginPreset {
+            name: "Lead/1".into(),
+            ..preset.clone()
+        })
+        .unwrap();
+        let clash = save(&PluginPreset {
+            name: "Lead_1".into(),
+            ..preset.clone()
+        })
+        .unwrap_err();
+        assert!(clash.contains("Lead/1"), "{clash}");
+        assert!(load("stock:Space", "Lead_1").is_err());
+        assert_eq!(load("stock:Space", "Lead/1").unwrap().name, "Lead/1");
+        // Re-saving the same preset still replaces it.
+        save(&PluginPreset {
+            name: "lead/1".into(),
+            ..preset.clone()
+        })
+        .unwrap();
+        // A trailing space does not slip past the factory name.
+        assert!(save(&PluginPreset {
+            name: "Cathedral ".into(),
+            ..preset.clone()
+        })
+        .is_err());
         std::env::remove_var("ONDERA_DATA_DIR");
     }
 }
