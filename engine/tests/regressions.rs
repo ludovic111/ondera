@@ -324,3 +324,31 @@ fn a_new_meter_keeps_automation_on_its_bars() {
         4
     );
 }
+
+/// Exporting MIDI at 90 BPM and importing it with its tempo set the song to 89.99995 BPM.
+#[test]
+fn a_midi_round_trip_keeps_the_tempo() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("song.mid");
+    let mut host = Headless::new();
+    call(&mut host, "transport.setTempo", json!({"bpm": 90}));
+    let track = midi_track(&mut host);
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":1,
+               "notes":[{"start":0,"length":1,"pitch":60}]}),
+    );
+    call(&mut host, "session.exportMidi", json!({ "path": path }));
+    let mut other = Headless::new();
+    let report = call(
+        &mut other,
+        "session.importMidi",
+        json!({ "path": path, "importTempo": true }),
+    );
+    assert_eq!(report["fileTempo"], 90.0);
+    assert_eq!(
+        call(&mut other, "session.info", json!({}))["transport"]["tempo"],
+        90.0
+    );
+}
