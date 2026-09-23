@@ -226,6 +226,18 @@ impl Ondera {
         app
     }
     /// Remember a session file in the recent list and as the last one opened.
+    /// Keep the audio a finished "Updating audio" job generated, but only what the open
+    /// document uses: a New, Open or Recover while it ran cleared the library, and adding the
+    /// previous session's buffers back would hold them in memory and count them against the
+    /// 1 GiB limit that later imports and recordings hit.
+    pub(crate) fn adopt_prepared_library(&mut self, library: Library) {
+        let sources = &self.store.session().sources;
+        for (id, buffer) in library {
+            if sources.contains_key(&id) {
+                self.library.entry(id).or_insert(buffer);
+            }
+        }
+    }
     pub(crate) fn remember_session(&mut self, path: &std::path::Path) {
         let text = path.to_string_lossy().into_owned();
         let recent = &mut self.settings.general.recent_sessions;
@@ -714,7 +726,7 @@ impl Ondera {
                     library,
                     revision,
                 }) => {
-                    self.library.extend(library);
+                    self.adopt_prepared_library(library);
                     if revision == self.store.revision
                         && self
                             .device
@@ -2195,6 +2207,28 @@ impl eframe::App for Ondera {
 mod tests {
     use super::*;
     use egui::{vec2, Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect};
+
+    #[test]
+    fn audio_prepared_for_a_replaced_session_is_not_kept() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        let current: Vec<String> = app.store.session().sources.keys().cloned().collect();
+        let buffer = || {
+            Arc::new(ondera_engine::audio::AudioBuffer {
+                frames: vec![[0.0; 2]; 4],
+                sample_rate: 48000,
+                peaks: vec![],
+            })
+        };
+        let mut prepared = Library::new();
+        prepared.insert("from-the-old-session".into(), buffer());
+        for id in &current {
+            prepared.insert(id.clone(), buffer());
+        }
+        app.library.clear();
+        app.adopt_prepared_library(prepared);
+        assert!(!app.library.contains_key("from-the-old-session"));
+        assert_eq!(app.library.len(), current.len());
+    }
 
     #[test]
     fn a_save_that_does_not_happen_forgets_what_was_to_follow() {
