@@ -322,17 +322,23 @@ impl Session {
                 return id;
             }
         };
-        for strip in self.strips.values_mut() {
-            for insert in &mut strip.inserts {
-                if insert.id.is_empty() {
+        // Two slots with one id (a hand-merged file) would share one plugin instance in the
+        // audio rack: the second one gets an id of its own.
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut keys: Vec<String> = self.strips.keys().cloned().collect();
+        keys.sort();
+        for key in keys {
+            let strip = self.strips.get_mut(&key).expect("key from the map");
+            for insert in strip.inserts.iter_mut().chain(strip.synth.iter_mut()) {
+                if insert.id.is_empty() || !seen.insert(insert.id.clone()) {
                     insert.id = fresh(&mut used);
+                    seen.insert(insert.id.clone());
                 }
             }
-            if let Some(s) = &mut strip.synth {
-                if s.id.is_empty() {
-                    s.id = fresh(&mut used);
-                }
-            }
+        }
+        // The piano roll shows 20 rows up from here; the command allows 0-108.
+        if let Some(pitch) = self.view.editor_low_pitch {
+            self.view.editor_low_pitch = Some(pitch.min(108));
         }
         for (bus, effect, mix_index) in [(BUS_A, "Space", 4), (BUS_B, "Echo", 5)] {
             if !self.strips.contains_key(bus) {

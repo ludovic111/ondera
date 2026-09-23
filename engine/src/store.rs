@@ -249,6 +249,8 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             } else {
                 s.clips.push(clip);
             }
+            // clip.setNotes and note.remove can take the selected note with them.
+            sanitize_selection(s);
         }
         Command::RemoveClip(id) => {
             s.clips.retain(|c| c.id != id);
@@ -315,6 +317,19 @@ fn sanitize_selection(s: &mut Session) {
         .any(|c| Some(&c.id) == s.view.editor_clip_id.as_ref())
     {
         s.view.editor_clip_id = None;
+    }
+    if let Some(note) = &s.view.selected_note_id {
+        let present = s
+            .clips
+            .iter()
+            .find(|c| Some(&c.id) == s.view.selected_clip_id.as_ref())
+            .is_some_and(|c| match &c.data {
+                crate::model::ClipData::Midi { notes } => notes.iter().any(|n| &n.id == note),
+                _ => false,
+            });
+        if !present {
+            s.view.selected_note_id = None;
+        }
     }
 }
 
