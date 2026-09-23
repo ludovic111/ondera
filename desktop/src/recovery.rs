@@ -207,7 +207,7 @@ impl Ondera {
                         revision,
                     }) => {
                         if self.store.revision == revision {
-                            self.loaded(*session, library, path, None);
+                            self.load_document(*session, library, path, None, false);
                             if self.store.revision != revision {
                                 self.path = None;
                                 self.store.mark_unsaved();
@@ -492,6 +492,19 @@ mod tests {
         let _ = ctx.run(egui::RawInput::default(), |ctx| app.poll_recovery(ctx));
         assert_eq!(app.store.session().name, "Recovered song");
         assert!(app.path.is_none());
+        // A snapshot is not a project: it must not be reopened at launch as if it were one.
+        assert!(!app
+            .settings
+            .general
+            .recent_sessions
+            .iter()
+            .any(|p| p.contains("recovery-snapshot")));
+        assert!(app
+            .settings
+            .general
+            .last_session
+            .as_ref()
+            .is_none_or(|p| !p.contains("recovery-snapshot")));
         assert!(app.store.dirty());
         assert!(!app.store.can_undo());
         app.dispatch(ondera_engine::store::Command::Rename("Edit".into()));

@@ -1512,6 +1512,18 @@ impl Ondera {
         path: PathBuf,
         ownership: Option<SessionFileLock>,
     ) {
+        self.load_document(session, library, path, ownership, true);
+    }
+    /// `remember` files the path under Recent sessions and as the session to reopen; a
+    /// recovery snapshot is neither.
+    pub(crate) fn load_document(
+        &mut self,
+        session: Session,
+        library: Library,
+        path: PathBuf,
+        ownership: Option<SessionFileLock>,
+        remember: bool,
+    ) {
         self.unload_plugins();
         self.position = session.transport.position_beats;
         self.zoom = session.view.pixels_per_bar.clamp(12.0, 480.0);
@@ -1522,7 +1534,9 @@ impl Ondera {
             self.reset_agent_history();
             self.recovery.new_document();
             self.library = library;
-            self.remember_session(&path);
+            if remember {
+                self.remember_session(&path);
+            }
             self.path = Some(path);
             self.session_file = ownership;
             self.sync_needed = true;
