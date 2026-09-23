@@ -5,7 +5,7 @@
 use crate::{
     audio::{AudioBuffer, Library},
     automation::AutomationTarget,
-    model::{fader_gain, is_bus, ClipData, Monitor, Session, BUS_A, BUS_B, MASTER},
+    model::{fader_gain, is_bus, ClipData, FadeCurve, Monitor, Session, BUS_A, BUS_B, MASTER},
     plugin::{NoteEvent, ProcessContext, Rack, MAX_BLOCK},
     Result,
 };
@@ -35,7 +35,36 @@ enum Sound {
     Audio {
         buffer: Arc<AudioBuffer>,
         offset: f64,
+        /// Linear clip gain.
+        gain: f32,
+        /// Fade lengths in seconds; zero for none.
+        fade_in: f64,
+        fade_out: f64,
+        curve: FadeCurve,
     },
+}
+/// Edge ramp every audio clip gets, fade or not, so a cut never clicks.
+const EDGE_RAMP_SECONDS: f64 = 0.003;
+/// The clip's gain at `age` seconds after its start with `left` seconds before its end.
+#[inline]
+fn clip_envelope(
+    age: f64,
+    left: f64,
+    gain: f32,
+    fade_in: f64,
+    fade_out: f64,
+    curve: FadeCurve,
+) -> f32 {
+    let mut g = (age / EDGE_RAMP_SECONDS)
+        .min(1.0)
+        .min((left / EDGE_RAMP_SECONDS).clamp(0.0, 1.0));
+    if fade_in > 0.0 && age < fade_in {
+        g *= curve.gain(age / fade_in);
+    }
+    if fade_out > 0.0 && left < fade_out {
+        g *= curve.gain(left / fade_out);
+    }
+    g as f32 * gain
 }
 struct Event {
     start: f64,
@@ -247,6 +276,10 @@ impl Renderer {
                     ClipData::Audio {
                         source_id,
                         offset_seconds,
+                        fade_in,
+                        fade_out,
+                        fade_curve,
+                        gain_db,
                     } => {
                         let buffer = library
                             .get(source_id)
@@ -258,6 +291,10 @@ impl Renderer {
                             sound: Sound::Audio {
                                 buffer: Arc::clone(buffer),
                                 offset: *offset_seconds,
+                                gain: 10f32.powf(gain_db / 20.0),
+                                fade_in: *fade_in,
+                                fade_out: *fade_out,
+                                curve: *fade_curve,
                             },
                         });
                     }
@@ -948,14 +985,21 @@ impl Renderer {
                         }
                         continue;
                     }
-                    if let Sound::Audio { buffer, offset } = &e.sound {
+                    if let Sound::Audio {
+                        buffer,
+                        offset,
+                        gain,
+                        fade_in,
+                        fade_out,
+                        curve,
+                    } = &e.sound
+                    {
                         let age = (self.position - e.start).max(0.0) * spb;
                         let mut v = buffer.sample(age + offset);
-                        // 3 ms boundary ramps avoid discontinuities when trimming or looping clips.
-                        let ramp = (age / 0.003)
-                            .min(1.0)
-                            .min(((e.end - self.position) * spb / 0.003).clamp(0.0, 1.0))
-                            as f32;
+                        // Fades and gain, on the sample; 3 ms boundary ramps keep trims and
+                        // loops free of clicks even without a fade.
+                        let left = (e.end - self.position) * spb;
+                        let ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
                         v[0] *= ramp;
                         v[1] *= ramp;
                         let frame = &mut self.buffers[e.track][i];

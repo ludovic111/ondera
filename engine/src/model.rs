@@ -33,9 +33,24 @@ pub struct Session {
     pub view: View,
     #[serde(default = "default_master_volume")]
     pub master_volume: f32,
+    /// Song sections on the ruler, in bar order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<Marker>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
+/// A named position on the ruler: the start of a song section.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Marker {
+    pub id: String,
+    /// Zero-based bar, like clip positions.
+    pub bar: f64,
+    pub name: String,
+    /// CSS colour; absent draws the theme's marker colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+pub const MAX_MARKERS: usize = 1000;
 fn default_master_volume() -> f32 {
     0.75
 }
@@ -113,7 +128,102 @@ pub enum ClipData {
         source_id: String,
         #[serde(rename = "offsetSeconds")]
         offset_seconds: f64,
+        /// Fade lengths in seconds, like the offset: the audio is not stretched with the tempo,
+        /// so a fade keeps its sound when the tempo changes. Absent when zero.
+        #[serde(rename = "fadeInSeconds", default, skip_serializing_if = "is_zero")]
+        fade_in: f64,
+        #[serde(rename = "fadeOutSeconds", default, skip_serializing_if = "is_zero")]
+        fade_out: f64,
+        #[serde(
+            rename = "fadeCurve",
+            default,
+            skip_serializing_if = "FadeCurve::is_default"
+        )]
+        fade_curve: FadeCurve,
+        /// Clip gain in dB, applied before the track's inserts. Absent when 0 dB.
+        #[serde(rename = "gainDb", default, skip_serializing_if = "is_zero_f32")]
+        gain_db: f32,
     },
+}
+impl ClipData {
+    /// An audio clip at `offset_seconds` into its source, without fades and at 0 dB.
+    pub fn audio(source_id: impl Into<String>, offset_seconds: f64) -> Self {
+        Self::Audio {
+            source_id: source_id.into(),
+            offset_seconds,
+            fade_in: 0.0,
+            fade_out: 0.0,
+            fade_curve: FadeCurve::default(),
+            gain_db: 0.0,
+        }
+    }
+}
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+/// Clip gain range in dB.
+pub const CLIP_GAIN_MIN_DB: f32 = -60.0;
+pub const CLIP_GAIN_MAX_DB: f32 = 24.0;
+
+/// The shape of an audio clip's fades. Fade-outs mirror fade-ins.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FadeCurve {
+    /// Equal power (a quarter sine): crossfades keep their loudness. The default.
+    #[default]
+    EqualPower,
+    Linear,
+    /// Slow start, fast finish: sounds even to the ear on long fades in.
+    Exponential,
+}
+impl FadeCurve {
+    pub const ALL: [FadeCurve; 3] = [Self::EqualPower, Self::Linear, Self::Exponential];
+    pub fn parse(text: &str) -> Result<Self> {
+        match text {
+            "equalPower" => Ok(Self::EqualPower),
+            "linear" => Ok(Self::Linear),
+            "exponential" => Ok(Self::Exponential),
+            other => Err(format!(
+                "Fade curve must be equalPower, linear or exponential, not {other}"
+            )),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::EqualPower => "equalPower",
+            Self::Linear => "linear",
+            Self::Exponential => "exponential",
+        }
+    }
+    fn is_default(&self) -> bool {
+        *self == Self::EqualPower
+    }
+    /// Gain 0-1 at `x` of the way through a fade-in (0 = silent, 1 = full).
+    #[inline]
+    pub fn gain(self, x: f64) -> f64 {
+        let x = x.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => x,
+            Self::EqualPower => (x * std::f64::consts::FRAC_PI_2).sin(),
+            Self::Exponential => ((4.0 * x).exp() - 1.0) / (4f64.exp() - 1.0),
+        }
+    }
+}
+
+/// Keep fades inside a clip of `length` seconds: each fits the clip, and when together they
+/// would overlap they shrink in proportion.
+pub fn clamp_fades(fade_in: f64, fade_out: f64, length: f64) -> (f64, f64) {
+    let length = length.max(0.0);
+    let (fade_in, fade_out) = (fade_in.clamp(0.0, length), fade_out.clamp(0.0, length));
+    let sum = fade_in + fade_out;
+    if sum > length && sum > 0.0 {
+        (fade_in * length / sum, fade_out * length / sum)
+    } else {
+        (fade_in, fade_out)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -493,6 +603,10 @@ impl Session {
                 ClipData::Audio {
                     source_id,
                     offset_seconds,
+                    fade_in,
+                    fade_out,
+                    gain_db,
+                    ..
                 } => {
                     if track.kind != "audio"
                         || !self.sources.contains_key(source_id)
@@ -500,11 +614,31 @@ impl Session {
                     {
                         return Err("Invalid audio clip or missing source".into());
                     }
+                    if !valid_time(*fade_in)
+                        || !valid_time(*fade_out)
+                        || !gain_db.is_finite()
+                        || !(CLIP_GAIN_MIN_DB..=CLIP_GAIN_MAX_DB).contains(gain_db)
+                    {
+                        return Err("Invalid audio clip fades or gain".into());
+                    }
                 }
             }
         }
         if notes > 200_000 {
             return Err("Too many notes".into());
+        }
+        if self.markers.len() > MAX_MARKERS {
+            return Err("Too many markers".into());
+        }
+        let mut marker_ids = HashSet::new();
+        for m in &self.markers {
+            if !marker_ids.insert(&m.id)
+                || m.id.is_empty()
+                || !valid_time(m.bar)
+                || m.name.chars().count() > 120
+            {
+                return Err("Invalid or duplicate marker".into());
+            }
         }
         let mut decoded_bytes = 0.0;
         for (id, src) in &self.sources {

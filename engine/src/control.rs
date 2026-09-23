@@ -158,9 +158,10 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("transport.play", "Start playback from the playhead. Needs the Ondera app (live mode).", &[]),
     edit("transport.record", "Record armed audio and MIDI tracks in the running app. Disable cycle before recording.", &[]),
     edit("transport.stop", "Stop playback and recording.", &[]),
-    edit("transport.locate", "Move the playhead. Give either bar or beats.", &[
+    edit("transport.locate", "Move the playhead. Give one of bar, beats or markerId.", &[
         opt("bar", Kind::Number, "Zero-based bar position."),
         opt("beats", Kind::Number, "Zero-based beat position."),
+        opt("markerId", Kind::String, "A marker from marker.list: go to its bar."),
     ]),
     edit("transport.returnToStart", "Move the playhead to the beginning.", &[]),
     edit("transport.setTempo", "Set the tempo.", &[req("bpm", Kind::Number, "Beats per minute, 20-400.")]),
@@ -310,6 +311,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .iter()
         .chain(crate::control_media::SPECS)
         .chain(crate::control_edit::SPECS)
+        .chain(crate::control_arrange::SPECS)
         .chain(crate::control_plugins::SPECS)
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_app::SPECS)
@@ -751,6 +753,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     if crate::control_edit::SPECS.iter().any(|s| s.name == name) {
         return crate::control_edit::call(host, name, params, agent);
     }
+    if crate::control_arrange::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_arrange::call(host, name, &a);
+    }
     if crate::control_media::SPECS.iter().any(|s| s.name == name) {
         return crate::control_media::call(host, name, params, agent);
     }
@@ -814,11 +819,21 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         }
         "transport.locate" => {
             let bpb = host.store().session().beats_per_bar();
-            let beats = match (a.opt_f64("bar"), a.opt_f64("beats")) {
-                (Some(_), Some(_)) => return Err("Give either `bar` or `beats`, not both".into()),
-                (Some(bar), None) => bar * bpb,
-                (None, Some(beats)) => beats,
-                (None, None) => return Err("transport.locate needs `bar` or `beats`".into()),
+            let given = ["bar", "beats", "markerId"]
+                .iter()
+                .filter(|key| a.get(key).is_some())
+                .count();
+            if given > 1 {
+                return Err("Give one of `bar`, `beats` or `markerId`, not several".into());
+            }
+            let beats = if let Some(bar) = a.opt_f64("bar") {
+                bar * bpb
+            } else if let Some(beats) = a.opt_f64("beats") {
+                beats
+            } else if let Some(id) = a.opt_str("markerId") {
+                crate::control_arrange::marker_bar(host.store().session(), id)? * bpb
+            } else {
+                return Err("transport.locate needs `bar`, `beats` or `markerId`".into());
             };
             if !valid_time(beats) {
                 return Err("Position must be between 0 and 1,000,000".into());
@@ -1006,10 +1021,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 if a.get("notes").is_some() {
                     return Err("Audio clips cannot hold notes".into());
                 }
-                ClipData::Audio {
-                    source_id: source_id.into(),
-                    offset_seconds: a.opt_f64("offsetSeconds").unwrap_or(0.0),
-                }
+                ClipData::audio(source_id, a.opt_f64("offsetSeconds").unwrap_or(0.0))
             } else {
                 if a.get("sourceId").is_some() || a.get("offsetSeconds").is_some() {
                     return Err("MIDI clips do not reference an audio source".into());
@@ -1571,7 +1583,7 @@ fn check_instrument(name: &str) -> Result<()> {
         ))
     }
 }
-fn check_color(css: &str) -> Result<&str> {
+pub(crate) fn check_color(css: &str) -> Result<&str> {
     let hex = css
         .strip_prefix('#')
         .is_some_and(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()));
@@ -1771,10 +1783,7 @@ fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
         track_id: track,
         start_bar,
         length_bars: buffer.duration() * s.transport.tempo / 60.0 / bpb,
-        data: ClipData::Audio {
-            source_id: source.id.clone(),
-            offset_seconds: 0.0,
-        },
+        data: ClipData::audio(source.id.clone(), 0.0),
     };
     let (source_id, clip_id) = (source.id.clone(), clip.id.clone());
     commands.push(Command::PutSource(source));
@@ -1907,6 +1916,7 @@ fn inspect(host: &dyn Host, include_notes: bool) -> Value {
     json!({
         "info":info(host),"tracks":session.tracks.iter().map(|t| track_json(session, t)).collect::<Vec<_>>(),"clips":clips,"sources":session.sources,
         "strips":strips,"automation":session.automation,"masterVolume":session.master_volume,
+        "markers":session.markers,
         "includesNotes":include_notes,"includesPluginState":false
     })
 }
@@ -1955,6 +1965,7 @@ pub(crate) fn info(host: &dyn Host) -> Value {
         "trackCount": s.tracks.len(),
         "clipCount": s.clips.len(),
         "sourceCount": s.sources.len(),
+        "markerCount": s.markers.len(),
         "endBar": s.end_bar(),
         "selection": selection(host),
         "history": history(host),
@@ -2002,10 +2013,18 @@ pub(crate) fn clip_summary(c: &Clip) -> Value {
         ClipData::Audio {
             source_id,
             offset_seconds,
+            fade_in,
+            fade_out,
+            fade_curve,
+            gain_db,
         } => {
             v["kind"] = json!("audio");
             v["sourceId"] = json!(source_id);
             v["offsetSeconds"] = json!(offset_seconds);
+            v["fadeInSeconds"] = json!(fade_in);
+            v["fadeOutSeconds"] = json!(fade_out);
+            v["fadeCurve"] = json!(fade_curve.as_str());
+            v["gainDb"] = json!(gain_db);
         }
     }
     v

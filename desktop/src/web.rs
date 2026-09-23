@@ -226,7 +226,8 @@ impl WebHost {
         Ok(
             json!({"snapshotSequence":self.snapshot_sequence.get(),"name":session.name,"tracks":session.tracks,"clips":session.clips,
             "sources":session.sources,"strips":strips,"transport":session.transport,
-            "view":session.view,"masterVolume":session.master_volume,"automation":session.automation}),
+            "view":session.view,"masterVolume":session.master_volume,"automation":session.automation,
+            "markers":session.markers}),
         )
     }
     fn ui(&mut self) -> Result<Value> {

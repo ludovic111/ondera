@@ -17,6 +17,9 @@ pub enum Command {
     PutClip(Clip),
     RemoveClip(String),
     PutSource(Source),
+    /// Add or replace a marker by id; markers stay in bar order.
+    PutMarker(Marker),
+    RemoveMarker(String),
     SetStrip {
         track: String,
         strip: Strip,
@@ -224,7 +227,15 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             let t = s.tracks.remove(from);
             s.tracks.insert(index.min(s.tracks.len()), t);
         }
-        Command::PutClip(clip) => {
+        Command::PutClip(mut clip) => {
+            // Trims, resizes and tempo-free edits all land here: keep fades inside the clip.
+            let seconds = clip.length_bars * s.beats_per_bar() * 60.0 / s.transport.tempo;
+            if let ClipData::Audio {
+                fade_in, fade_out, ..
+            } = &mut clip.data
+            {
+                (*fade_in, *fade_out) = clamp_fades(*fade_in, *fade_out, seconds);
+            }
             if let Some(c) = s.clips.iter_mut().find(|c| c.id == clip.id) {
                 *c = clip;
             } else {
@@ -254,6 +265,21 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             }
         }
         Command::RemoveAutomation(id) => s.automation.retain(|lane| lane.id != id),
+        Command::PutMarker(marker) => {
+            if let Some(m) = s.markers.iter_mut().find(|m| m.id == marker.id) {
+                *m = marker;
+            } else {
+                s.markers.push(marker);
+            }
+            s.markers.sort_by(|a, b| a.bar.total_cmp(&b.bar));
+        }
+        Command::RemoveMarker(id) => {
+            let before = s.markers.len();
+            s.markers.retain(|m| m.id != id);
+            if s.markers.len() == before {
+                return Err("Marker not found".into());
+            }
+        }
         Command::SetTransport(t) => s.transport = t,
         Command::SetMasterVolume(v) => s.master_volume = v,
         Command::Select { track, clip, note } => {
@@ -349,11 +375,29 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
     match &clip.data {
         ClipData::Audio {
             offset_seconds,
-            source_id,
+            fade_in,
+            fade_out,
+            ..
         } => {
-            right.data = ClipData::Audio {
-                source_id: source_id.clone(),
-                offset_seconds: offset_seconds + relative * bpb * 60.0 / tempo,
+            // The cut is a hard edge: the left part keeps the fade-in, the right the fade-out.
+            let seconds = |bars: f64| bars * bpb * 60.0 / tempo;
+            if let ClipData::Audio {
+                fade_in: left_in,
+                fade_out: left_out,
+                ..
+            } = &mut left.data
+            {
+                (*left_in, *left_out) = clamp_fades(*fade_in, 0.0, seconds(left.length_bars));
+            }
+            if let ClipData::Audio {
+                offset_seconds: right_offset,
+                fade_in: right_in,
+                fade_out: right_out,
+                ..
+            } = &mut right.data
+            {
+                *right_offset = offset_seconds + seconds(relative);
+                (*right_in, *right_out) = clamp_fades(0.0, *fade_out, seconds(right.length_bars));
             }
         }
         ClipData::Midi { notes } => {

@@ -122,6 +122,7 @@ impl Ondera {
             if let ClipData::Audio {
                 source_id,
                 offset_seconds,
+                ..
             } = &clip.data
             {
                 let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());

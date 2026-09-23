@@ -77,10 +77,7 @@ fn export_stays_bounded(bars: usize) {
             track_id: session.tracks[0].id.clone(),
             start_bar: bar as f64,
             length_bars: 1.0,
-            data: ClipData::Audio {
-                source_id: "src".into(),
-                offset_seconds: 0.0,
-            },
+            data: ClipData::audio("src", 0.0),
         });
     }
     let library = audio::Library::from([("src".into(), buffer)]);
