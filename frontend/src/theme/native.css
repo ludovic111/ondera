@@ -408,6 +408,9 @@ textarea:focus-visible {
   width: 100%;
   gap: 6px;
 }
+.region-values label:has(select) {
+  width: 62%;
+}
 .region-values select {
   width: 100%;
   min-width: 0;
