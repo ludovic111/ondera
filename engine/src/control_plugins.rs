@@ -376,54 +376,124 @@ fn has(text: &str, words: &[&str]) -> bool {
 
 /// The folder a plugin belongs in when the user has not filed it themselves. Formats describe
 /// themselves differently (CLAP features, VST3 sub-categories, a bare AU type), so the name
-/// is read as well as the category.
+/// is read first and the category only when the name gives nothing away: a word the category
+/// happens to contain must not beat the product the name says it is, or the VST3 and the
+/// Audio Unit of one plugin land in different folders.
 pub fn automatic_folder(d: &Descriptor) -> &'static str {
-    // Ondera's own plugins, and native ones written for it, name their folder outright.
+    // Ondera's own plugins, and native ones written for it, name their folder outright. A
+    // VST3 or CLAP category that happens to read "Dynamics" is only a hint, like any other.
     let own: &[&str] = if d.instrument && !d.effect {
         INSTRUMENT_FOLDERS
     } else {
         EFFECT_FOLDERS
     };
+    let ondera = matches!(
+        d.format,
+        crate::plugin::Format::Stock | crate::plugin::Format::Native
+    );
     if let Some(named) = own
         .iter()
-        .find(|f| f.eq_ignore_ascii_case(d.category.trim()) && !f.starts_with("Other"))
+        .find(|f| ondera && f.eq_ignore_ascii_case(d.category.trim()) && !f.starts_with("Other"))
     {
         return named;
     }
-    // Padded, so a rule can ask for a whole word (" q1 ") wherever the name puts it.
-    let text = format!(" {} {} ", d.category, d.name).to_lowercase();
-    if d.instrument && (!d.effect || has(&text, &["instrument", "synth"])) {
-        return if has(&text, &["bass", "808"]) {
-            "Bass"
-        } else if has(&text, &["drum", "percuss", "kick", "snare", "beat"]) {
-            "Drums"
-        } else if has(
-            &text,
-            &[
-                "piano", "keys", "organ", "rhodes", "clav", "wurli", "mallet",
-            ],
-        ) {
-            "Keys"
-        } else if has(&text, &["pad", "choir", "string", "ambient", "atmos"]) {
-            "Pads"
-        } else if has(&text, &["sampl", "rompler", "player"]) {
-            "Samplers"
-        } else if has(&text, &["riser", "texture", "noise", "drone", "fx"]) {
-            "Textures"
-        } else if has(
-            &text,
-            &["synth", "instrument", "lead", "pluck", "wavetable", "fm"],
-        ) {
-            "Synths"
-        } else {
-            "Other Instruments"
-        };
-    }
-    EFFECT_RULES
+    let base = layout_of(&d.name).0.trim().to_lowercase();
+    let vendor = d.vendor.to_lowercase();
+    if let Some((_, _, folder)) = PRODUCTS
         .iter()
-        .find(|(_, words)| has(&text, words))
-        .map_or("Other Effects", |(folder, _)| folder)
+        .find(|(maker, name, _)| vendor.contains(maker) && base == *name)
+    {
+        return folder;
+    }
+    // Padded, so a rule can ask for a whole word (" q1 ") wherever the name puts it.
+    let name = format!(" {base} ");
+    let category = format!(" {} ", d.category).to_lowercase();
+    if d.instrument && (!d.effect || has(&format!("{category}{name}"), &["instrument", "synth"])) {
+        return instrument_folder(&name)
+            .or_else(|| instrument_folder(&category))
+            .unwrap_or("Other Instruments");
+    }
+    effect_folder(&name)
+        .or_else(|| effect_folder(&category))
+        .unwrap_or("Other Effects")
 }
+
+fn instrument_folder(text: &str) -> Option<&'static str> {
+    Some(if has(text, &["bass", "808"]) {
+        "Bass"
+    } else if has(text, &["drum", "percuss", "kick", "snare", "beat"]) {
+        "Drums"
+    } else if has(
+        text,
+        &[
+            "piano", "keys", "organ", "rhodes", "clav", "wurli", "mallet", "electric",
+        ],
+    ) {
+        "Keys"
+    } else if has(text, &["pad", "choir", "string", "ambient", "atmos"]) {
+        "Pads"
+    } else if has(text, &["sampl", "rompler", "player"]) {
+        "Samplers"
+    } else if has(text, &["riser", "texture", "noise", "drone", "fx"]) {
+        "Textures"
+    } else if has(
+        text,
+        &["synth", "instrument", "lead", "pluck", "wavetable", "fm"],
+    ) {
+        "Synths"
+    } else {
+        return None;
+    })
+}
+
+fn effect_folder(text: &str) -> Option<&'static str> {
+    PRIORITY_RULES
+        .iter()
+        .chain(EFFECT_RULES)
+        .find(|(_, words)| has(text, words))
+        .map(|(folder, _)| *folder)
+}
+
+/// Products whose names are too plain to classify by word, by vendor (a substring of it,
+/// lower case) and exact name without its channel layout.
+const PRODUCTS: &[(&str, &str, &str)] = &[
+    ("antares", "warm", "Distortion"),
+    ("antares", "punch", "Dynamics"),
+    ("antares", "mic mod", "Channel Strips"),
+    ("antares", "metamorph", "Pitch"),
+    ("fabfilter", "micro", "EQ & Filter"),
+    // Effect racks whose presets lean on chorus, flanging, delay and movement.
+    ("xfer", "serum 2 fx", "Modulation"),
+    ("xfer", "serumfx", "Modulation"),
+    ("waves", "waves gemstones", "Modulation"),
+    ("waves", "codex", "Synths"),
+    ("waves", "element", "Synths"),
+    ("waves", "flow motion", "Synths"),
+];
+
+/// Product names that contain a word another folder's rule would take first: "Marshall"
+/// holds "hall", "Amp Room" holds "room", a tape machine is not a delay.
+const PRIORITY_RULES: &[(&str, &[&str])] = &[
+    (
+        "EQ & Filter",
+        &["kramer hls", "preamp and eq", "channel eq"],
+    ),
+    ("Modulation", &["spacemodulator", "ubermod"]),
+    (
+        "Distortion",
+        &[
+            "marshall",
+            "amp room",
+            "reverb amp",
+            "tape recorder",
+            "oxide tape",
+            "kramer tape",
+            "j37 tape",
+            "master tape",
+            "vinyl",
+        ],
+    ),
+];
 
 /// Effect folders by the words that give them away, most specific first. Audio Units carry
 /// no category at all, so well-known hardware model names are part of the vocabulary.
@@ -450,6 +520,9 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "ua 610",
             "cs-1",
             "centric",
+            "preamp",
+            "ekramer",
+            "88rs",
         ],
     ),
     (
@@ -592,6 +665,8 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "intrigger",
             "emo-d5",
             " pse ",
+            "kramer pie",
+            "33609",
         ],
     ),
     (
@@ -609,10 +684,10 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "spring",
             "emt",
             "supertap",
+            "tapped delay",
             "ir-l",
             "ir1",
             "ir360",
-            "tap",
             "chambers",
             "irlive",
             "bx 20",
@@ -723,7 +798,6 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
             "puigtec",
             "1073",
             "1081",
-            "88rs",
             "helios",
             "curves",
             "bass",
@@ -815,18 +889,61 @@ const EFFECT_RULES: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// The automatic folder of every installed plugin, decided per product. The Audio Unit of a
+/// synth often has no category where its VST3 says "Synth", so each product (vendor, kind and
+/// name without the channel layout) takes the first named folder any of its formats gives,
+/// asking the formats that describe themselves best first.
+pub struct AutoFolders(std::collections::HashMap<String, &'static str>);
+
+impl AutoFolders {
+    pub fn new(installed: &[Descriptor]) -> Self {
+        let rank = |d: &Descriptor| match d.format {
+            crate::plugin::Format::Stock | crate::plugin::Format::Native => 0,
+            crate::plugin::Format::Clap => 1,
+            crate::plugin::Format::Vst3 => 2,
+            crate::plugin::Format::AudioUnit => 3,
+        };
+        let mut ordered: Vec<&Descriptor> = installed.iter().collect();
+        ordered.sort_by_key(|d| rank(d));
+        let mut map = std::collections::HashMap::new();
+        for d in ordered {
+            let found = automatic_folder(d);
+            let slot = map.entry(product_key(d)).or_insert(found);
+            if slot.starts_with("Other") && !found.starts_with("Other") {
+                *slot = found;
+            }
+        }
+        Self(map)
+    }
+    pub fn of(&self, d: &Descriptor) -> &'static str {
+        self.0
+            .get(&product_key(d))
+            .copied()
+            .unwrap_or_else(|| automatic_folder(d))
+    }
+}
+
+fn product_key(d: &Descriptor) -> String {
+    format!(
+        "{}|{}|{}",
+        d.vendor.to_lowercase(),
+        d.instrument,
+        layout_of(&d.name).0.trim().to_lowercase()
+    )
+}
+
 /// The folder shown for a plugin: the user's filing when there is one.
-pub fn folder(d: &Descriptor, library: &Plugins) -> String {
+pub fn folder(d: &Descriptor, library: &Plugins, auto: &AutoFolders) -> String {
     library
         .folders
         .get(&d.id)
         .cloned()
-        .unwrap_or_else(|| automatic_folder(d).to_string())
+        .unwrap_or_else(|| auto.of(d).to_string())
 }
 
-fn entry(d: &Descriptor, library: &Plugins) -> Value {
+fn entry(d: &Descriptor, library: &Plugins, auto: &AutoFolders) -> Value {
     let mut value = serde_json::to_value(d).unwrap_or_else(|_| json!({}));
-    value["folder"] = json!(folder(d, library));
+    value["folder"] = json!(folder(d, library, auto));
     value["favorite"] = json!(library.favorites.contains(&d.id));
     value
 }
@@ -888,7 +1005,7 @@ fn row_key(plugin: &Descriptor) -> String {
         }
     )
 }
-fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins) -> Vec<Value> {
+fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFolders) -> Vec<Value> {
     let mut rows: Vec<(String, Vec<Descriptor>)> = vec![];
     for plugin in plugins {
         let key = row_key(&plugin);
@@ -903,7 +1020,7 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins) -> Vec<Value> {
                 .iter()
                 .min_by_key(|d| layout_rank(layout_of(&d.name).1))
                 .expect("a group has at least one plugin");
-            let mut value = entry(best, library);
+            let mut value = entry(best, library, auto);
             if group.len() > 1 {
                 value["name"] = json!(layout_of(&best.name).0);
                 value["favorite"] = json!(group.iter().any(|d| library.favorites.contains(&d.id)));
@@ -938,7 +1055,9 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
     let query = args.opt_str("query").unwrap_or("").to_lowercase();
     let wanted_folder = args.opt_str("folder").map(str::to_lowercase);
     let favorite = args.opt_bool("favorite").unwrap_or(false);
-    let mut filtered: Vec<Descriptor> = scan::installed()
+    let installed = scan::installed();
+    let auto = AutoFolders::new(&installed);
+    let mut filtered: Vec<Descriptor> = installed
         .into_iter()
         .filter(|plugin| {
             format.is_none_or(|format| format == plugin.format.prefix())
@@ -952,12 +1071,14 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
                 && (!favorite || library.favorites.contains(&plugin.id))
                 && wanted_folder
                     .as_ref()
-                    .is_none_or(|f| folder(plugin, library).to_lowercase() == *f)
+                    .is_none_or(|f| folder(plugin, library, &auto).to_lowercase() == *f)
                 && (query.is_empty()
                     || plugin.name.to_lowercase().contains(&query)
                     || plugin.vendor.to_lowercase().contains(&query)
                     || plugin.id.to_lowercase().contains(&query)
-                    || folder(plugin, library).to_lowercase().contains(&query))
+                    || folder(plugin, library, &auto)
+                        .to_lowercase()
+                        .contains(&query))
         })
         .collect();
     if sort == "recent" {
@@ -972,9 +1093,9 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
         filtered.sort_by_key(rank);
     }
     let rows: Vec<Value> = if args.opt_bool("everyLayout").unwrap_or(false) {
-        filtered.iter().map(|d| entry(d, library)).collect()
+        filtered.iter().map(|d| entry(d, library, &auto)).collect()
     } else {
-        collapse_layouts(filtered, library)
+        collapse_layouts(filtered, library, &auto)
     };
     let total = rows.len();
     let offset = usize::try_from(offset).map_err(|_| "Plugin offset is too large")?;
@@ -1012,6 +1133,7 @@ pub(crate) fn note_recent(host: &mut dyn Host, plugin_id: &str) {
 
 pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
     let installed = scan::installed();
+    let auto = AutoFolders::new(&installed);
     let known = |id: &str| -> Result<Descriptor> {
         installed
             .iter()
@@ -1039,7 +1161,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
                     let mut rows = std::collections::HashSet::new();
                     let inside: Vec<&Descriptor> = installed
                         .iter()
-                        .filter(|d| folder(d, &library) == *name)
+                        .filter(|d| folder(d, &library, &auto) == *name)
                         .filter(|d| rows.insert(row_key(d)))
                         .collect();
                     json!({ "name": name,
@@ -1061,7 +1183,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
             if favorite {
                 settings.plugins.favorites.push(plugin.id.clone());
             }
-            let reply = entry(&plugin, &settings.plugins);
+            let reply = entry(&plugin, &settings.plugins, &auto);
             host.update_settings(settings)?;
             Ok(reply)
         }
@@ -1069,7 +1191,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
             let plugin = known(a.str("pluginId")?)?;
             let mut settings = host.settings();
             match a.opt_str("folder").map(str::trim).filter(|f| !f.is_empty()) {
-                Some(name) if name == automatic_folder(&plugin) => {
+                Some(name) if name == auto.of(&plugin) => {
                     settings.plugins.folders.remove(&plugin.id);
                 }
                 Some(name) => {
@@ -1083,7 +1205,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
                 }
             }
             settings.validate()?;
-            let reply = entry(&plugin, &settings.plugins);
+            let reply = entry(&plugin, &settings.plugins, &auto);
             host.update_settings(settings)?;
             Ok(reply)
         }
@@ -1221,9 +1343,78 @@ mod tests {
             ("Center (s)", "", "Utility"),
             // Names too plain to guess from stay where the user can see and re-file them.
             ("Warm", "", "Other Effects"),
+            // A word inside a product name must not win over the product: Marshall holds
+            // "hall", Amp Room holds "room", Tape holds "tap", 33609 holds "360".
+            ("UAD Marshall Plexi Classic", "", "Distortion"),
+            ("UAD Softube Amp Room Half-Stack", "", "Distortion"),
+            ("Kramer Tape (m)", "", "Distortion"),
+            ("UADx Oxide Tape Recorder", "", "Distortion"),
+            ("UAD Neve 33609 C", "", "Dynamics"),
+            ("Kramer PIE (s)", "", "Dynamics"),
+            ("Kramer HLS (s)", "", "EQ & Filter"),
+            ("EKramer VC (m)", "", "Channel Strips"),
+            ("UAD Neve Preamp", "", "Channel Strips"),
+            ("ValhallaSpaceModulator", "", "Modulation"),
+            ("SuperTap 6-Taps (s)", "", "Space & Time"),
+            // The name decides before the category: the VST3 of these says something else.
+            ("Abbey Road Vinyl (s)", "Fx|Modulation", "Distortion"),
+            ("UAD Little Labs IBP", "Fx|Delay", "Utility"),
+            ("Vocal Rider (m)", "Fx|Channel Strip", "Dynamics"),
+            ("Waves Tune", "Fx|Pitch Shift", "Pitch"),
+            ("Obscure Thing", "Fx|Reverb", "Space & Time"),
+            // Only Ondera's own plugins name their folder by category.
+            ("Ozone 11 Dynamics", "Dynamics", "Mastering"),
+            ("NLS Channel (s)", "Distortion", "Channel Strips"),
         ] {
             assert_eq!(automatic_folder(&effect(name, category)), folder, "{name}");
         }
+        let by = |vendor: &str, name: &str| Descriptor {
+            vendor: vendor.into(),
+            ..effect(name, "")
+        };
+        for (vendor, name, folder) in [
+            ("Antares", "Warm", "Distortion"),
+            ("Antares", "Punch", "Dynamics"),
+            ("Antares", "Mic Mod", "Channel Strips"),
+            ("Antares", "Metamorph", "Pitch"),
+            ("FabFilter", "Micro", "EQ & Filter"),
+            ("Xfer Records", "Serum 2 FX", "Modulation"),
+            ("Waves", "Waves Gemstones (m->s)", "Modulation"),
+        ] {
+            assert_eq!(automatic_folder(&by(vendor, name)), folder, "{name}");
+        }
+    }
+
+    #[test]
+    fn every_format_of_one_product_shares_its_folder() {
+        let plugin = |format, id: &str, name: &str, category: &str| Descriptor {
+            id: id.into(),
+            format,
+            name: name.into(),
+            vendor: "FabFilter".into(),
+            path: String::new(),
+            instrument: true,
+            effect: false,
+            category: category.into(),
+        };
+        use crate::plugin::Format;
+        let au = plugin(Format::AudioUnit, "au:twin", "Twin 3", "");
+        let clap = plugin(Format::Clap, "clap:twin", "Twin 3", "");
+        let vst3 = plugin(Format::Vst3, "vst3:twin", "Twin 3", "Synth");
+        assert_eq!(automatic_folder(&au), "Other Instruments");
+        let auto = AutoFolders::new(&[au.clone(), clap.clone(), vst3.clone()]);
+        for d in [&au, &clap, &vst3] {
+            assert_eq!(auto.of(d), "Synths", "{}", d.id);
+        }
+        // An effect of the same name is another product.
+        let effect = Descriptor {
+            instrument: false,
+            effect: true,
+            ..au.clone()
+        };
+        assert_eq!(auto.of(&effect), "Other Effects");
+        let library = Plugins::default();
+        assert_eq!(folder(&au, &library, &auto), "Synths");
     }
 
     #[test]
@@ -1268,6 +1459,7 @@ mod tests {
                 au("C1 comp (s)", "Someone Else"),
             ],
             &library,
+            &AutoFolders::new(&[]),
         );
         let seen: Vec<(&str, &str)> = rows
             .iter()
