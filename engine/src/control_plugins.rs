@@ -1021,8 +1021,13 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFold
                 .min_by_key(|d| layout_rank(layout_of(&d.name).1))
                 .expect("a group has at least one plugin");
             let mut value = entry(best, library, auto);
+            // The row names the plugin, not its channel layout, even when only one layout is
+            // installed ("CODEX Stereo", "Element (0->2)").
+            let (base, layout) = layout_of(&best.name);
+            if layout.is_some() {
+                value["name"] = json!(base);
+            }
             if group.len() > 1 {
-                value["name"] = json!(layout_of(&best.name).0);
                 value["favorite"] = json!(group.iter().any(|d| library.favorites.contains(&d.id)));
                 value["layouts"] = group
                     .iter()
@@ -1457,6 +1462,7 @@ mod tests {
                 au("Doubler2 (m->s)", "Waves"),
                 au("Pro-Q 3", "FabFilter"),
                 au("C1 comp (s)", "Someone Else"),
+                au("CODEX (0->2)", "Waves"),
             ],
             &library,
             &AutoFolders::new(&[]),
@@ -1472,7 +1478,9 @@ mod tests {
                 // No stereo layout: mono in, stereo out is the one a stereo track wants.
                 ("Doubler2", "au:Doubler2 (m->s)"),
                 ("Pro-Q 3", "au:Pro-Q 3"),
-                ("C1 comp (s)", "au:C1 comp (s)"),
+                // One layout alone still reads as the plugin's name.
+                ("C1 comp", "au:C1 comp (s)"),
+                ("CODEX", "au:CODEX (0->2)"),
             ]
         );
         assert_eq!(rows[0]["layouts"].as_array().unwrap().len(), 3);
