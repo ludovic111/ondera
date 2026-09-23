@@ -1449,8 +1449,11 @@ impl Ondera {
         });
     }
     pub(crate) fn save(&mut self, save_as: bool) {
+        // A save that does not start must not leave "then quit" (or New, Open…) waiting for
+        // the next ordinary save to run it.
         if self.job.is_some() || self.control_job.is_some() {
             self.status = "Wait for the current operation before saving".into();
+            self.after_save = None;
             return;
         }
         self.stop();
@@ -1460,6 +1463,7 @@ impl Ondera {
         }
         if let Err(error) = self.guarded(Ondera::capture_plugin_states) {
             self.error = Some(error);
+            self.after_save = None;
             return;
         }
         let mut session = (*self.store.snapshot()).clone();
@@ -1551,8 +1555,12 @@ impl Ondera {
         self.session_file = Some(ownership);
         self.store.mark_saved(revision);
         self.status = "Session saved".into();
-        if !self.store.dirty() {
-            if let Some(intent) = self.after_save.take() {
+        if let Some(intent) = self.after_save.take() {
+            if self.store.dirty() {
+                // Edited while saving: ask again rather than quit over the new changes, or
+                // keep the request around for an unrelated save later.
+                self.intent = Some(intent);
+            } else {
                 self.execute(intent);
             }
         }
@@ -2187,6 +2195,30 @@ impl eframe::App for Ondera {
 mod tests {
     use super::*;
     use egui::{vec2, Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect};
+
+    #[test]
+    fn a_save_that_does_not_happen_forgets_what_was_to_follow() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.dispatch(Command::Rename("Edited".into()));
+        app.after_save = Some(Intent::Quit);
+        let (_busy, receiver) = mpsc::sync_channel(1);
+        app.job = Some(receiver);
+        app.save(false);
+        assert!(app.after_save.is_none(), "a later Cmd+S must not quit");
+        app.job = None;
+
+        // Edits made while the save ran: ask again instead of quitting over them.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.ondera");
+        let lock = SessionFileLock::acquire_or_reuse(&path, None).unwrap();
+        let saved_revision = app.store.revision;
+        app.dispatch(Command::Rename("Edited again".into()));
+        app.after_save = Some(Intent::Quit);
+        app.saved(path, saved_revision, lock);
+        assert!(!app.closing);
+        assert!(matches!(app.intent, Some(Intent::Quit)));
+        assert!(app.after_save.is_none());
+    }
 
     fn frame(app: &mut Ondera, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
         let input = RawInput {
