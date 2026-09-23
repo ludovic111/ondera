@@ -125,7 +125,7 @@ export function RhythmLab({ busy }: { busy: boolean }) {
           <div key={lane.name} className={styles.rhythmLane}>
             <strong>{lane.name}</strong>
             <div
-              className={styles.steps}
+              className={styles.grooveSteps}
               aria-label={`${lane.pulses} hits over ${lane.steps} steps`}
             >
               {Array.from({ length: lane.steps }, (_, i) => (
