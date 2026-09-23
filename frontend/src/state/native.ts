@@ -373,13 +373,20 @@ export class NativeStore {
   private notifyMeta = () => {
     for (const listener of this.metadataListeners) listener();
   };
+  /**
+   * An error the window found itself ("All eight inserts are occupied", a failed chooser).
+   * The host's UI state knows nothing of it, so it outlives the host's next update.
+   */
+  private localError: string | null = null;
   dismissError = () => {
+    this.localError = null;
     this.ui = { ...this.ui, error: null };
     this.notifyMeta();
     this.fire("ui.dismissError");
   };
   reportError = (error: unknown) => {
-    this.ui = { ...this.ui, error: String(error) };
+    this.localError = String(error);
+    this.ui = { ...this.ui, error: this.localError };
     this.notifyMeta();
   };
   async connect() {
@@ -451,7 +458,8 @@ export class NativeStore {
     // unrelated update, which could still carry the value from before a local toggle.
     if (ui.palette !== undefined && ui.palette !== this.ui.palette)
       this.overlays = { ...this.overlays, palette: ui.palette };
-    this.ui = ui;
+    this.ui =
+      !ui.error && this.localError ? { ...ui, error: this.localError } : ui;
     this.state = {
       ...this.state,
       view: {
