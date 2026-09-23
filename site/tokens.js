@@ -30,6 +30,10 @@ const scales = {
     "keyColumn": 56,
     "keyRow": 10,
     "keyRows": 25,
+    "controllerLane": 96,
+    "controllerPoint": 3,
+    "controllerGrip": 6,
+    "controllerInset": 6,
     "agentHeader": 44,
     "browser": 220,
     "trackHeader": 184,
@@ -66,6 +70,10 @@ const scales = {
     "clipNoteH": 3,
     "clipEdgeGrip": 7,
     "cycleGrip": 6,
+    "fadeHandle": 7,
+    "fadeGrip": 6,
+    "markerTop": 15,
+    "markerH": 12,
     "noteEdgeGrip": 5,
     "menuMinW": 200,
     "menuItemH": 24,
@@ -203,7 +211,10 @@ export const themes = {
       "cycleHandle": "rgba(127,170,250,0.9)",
       "dropTarget": "rgba(127,170,250,0.1)",
       "stepCell": "rgba(255,255,255,0.055)",
-      "hover": "rgba(255,255,255,0.06)"
+      "hover": "rgba(255,255,255,0.06)",
+      "fadeShade": "rgba(0,0,0,0.35)",
+      "fadeHandle": "rgba(255,255,255,0.92)",
+      "markerFlag": "rgba(24,26,32,.86)"
     },
     "line": {
       "barLine": "rgba(255,255,255,0.075)",
@@ -238,7 +249,10 @@ export const themes = {
       "noteHead": "rgba(230,232,235,1)",
       "border": "rgba(255,255,255,0.085)",
       "borderStrong": "rgba(255,255,255,0.15)",
-      "hairline": "rgba(255,255,255,0.05)"
+      "hairline": "rgba(255,255,255,0.05)",
+      "fadeCurve": "rgba(255,255,255,0.85)",
+      "marker": "rgba(238,177,84,1)",
+      "markerLane": "rgba(238,177,84,0.3)"
     },
     "radius": {
       "xs": 2,
@@ -388,7 +402,10 @@ export const themes = {
       "cycleHandle": "rgba(50,98,213,0.9)",
       "dropTarget": "rgba(50,98,213,0.1)",
       "stepCell": "rgba(17,20,31,0.05)",
-      "hover": "rgba(17,20,31,0.045)"
+      "hover": "rgba(17,20,31,0.045)",
+      "fadeShade": "rgba(17,20,31,.16)",
+      "fadeHandle": "rgba(17,20,31,.8)",
+      "markerFlag": "rgba(255,255,255,.9)"
     },
     "line": {
       "barLine": "rgba(17,20,31,0.1)",
@@ -423,7 +440,10 @@ export const themes = {
       "noteHead": "rgba(22,24,29,1)",
       "border": "rgba(17,20,31,0.1)",
       "borderStrong": "rgba(17,20,31,0.17)",
-      "hairline": "rgba(17,20,31,0.06)"
+      "hairline": "rgba(17,20,31,0.06)",
+      "fadeCurve": "rgba(17,20,31,.75)",
+      "marker": "rgba(181,93,0,1)",
+      "markerLane": "rgba(181,93,0,0.35)"
     },
     "radius": {
       "xs": 2,
@@ -573,7 +593,10 @@ export const themes = {
       "cycleHandle": "rgba(255,255,255,0.35)",
       "dropTarget": "rgba(71,214,207,0.12)",
       "stepCell": "rgba(255,255,255,0.06)",
-      "hover": "rgba(255,255,255,0.05)"
+      "hover": "rgba(255,255,255,0.05)",
+      "fadeShade": "rgba(0,0,0,0.38)",
+      "fadeHandle": "rgba(255,255,255,0.9)",
+      "markerFlag": "rgba(22,22,21,.78)"
     },
     "line": {
       "barLine": "rgba(255,255,255,0.075)",
@@ -608,7 +631,10 @@ export const themes = {
       "noteHead": "rgba(255,255,255,0.9)",
       "border": "rgba(0,0,0,0.55)",
       "borderStrong": "rgba(0,0,0,0.7)",
-      "hairline": "rgba(255,255,255,0.05)"
+      "hairline": "rgba(255,255,255,0.05)",
+      "fadeCurve": "rgba(255,255,255,0.85)",
+      "marker": "rgba(233,180,82,1)",
+      "markerLane": "rgba(233,180,82,0.3)"
     },
     "radius": {
       "xs": 2,
@@ -832,7 +858,10 @@ export const themes = {
       "cycleHandle": "rgba(58,47,30,0.4)",
       "dropTarget": "rgba(0,122,124,0.12)",
       "stepCell": "rgba(58,47,30,0.07)",
-      "hover": "rgba(58,47,30,0.06)"
+      "hover": "rgba(58,47,30,0.06)",
+      "fadeShade": "rgba(58,47,30,0.3)",
+      "fadeHandle": "rgba(40,33,22,.85)",
+      "markerFlag": "rgba(245,241,236,0.9)"
     },
     "line": {
       "barLine": "rgba(58,47,30,0.2)",
@@ -867,7 +896,10 @@ export const themes = {
       "noteHead": "rgba(29,26,22,1)",
       "border": "rgba(58,47,30,0.32)",
       "borderStrong": "rgba(58,47,30,0.48)",
-      "hairline": "rgba(58,47,30,0.1)"
+      "hairline": "rgba(58,47,30,0.1)",
+      "fadeCurve": "rgba(40,33,22,.8)",
+      "marker": "rgba(169,90,0,1)",
+      "markerLane": "rgba(169,90,0,0.35)"
     },
     "radius": {
       "xs": 2,
@@ -1091,7 +1123,10 @@ export const themes = {
       "cycleHandle": "rgba(150,245,90,.85)",
       "dropTarget": "rgba(84,216,244,0.12)",
       "stepCell": "rgba(170,220,255,0.07)",
-      "hover": "rgba(170,220,255,0.08)"
+      "hover": "rgba(170,220,255,0.08)",
+      "fadeShade": "rgba(0,0,0,0.38)",
+      "fadeHandle": "rgba(255,255,255,0.92)",
+      "markerFlag": "rgba(2,14,28,.72)"
     },
     "line": {
       "barLine": "rgba(170,220,255,0.1)",
@@ -1126,7 +1161,10 @@ export const themes = {
       "noteHead": "rgba(255,255,255,0.92)",
       "border": "rgba(2,12,26,.75)",
       "borderStrong": "rgba(130,200,255,.3)",
-      "hairline": "rgba(170,220,255,0.07)"
+      "hairline": "rgba(170,220,255,0.07)",
+      "fadeCurve": "rgba(255,255,255,0.85)",
+      "marker": "rgba(247,193,95,1)",
+      "markerLane": "rgba(247,193,95,0.3)"
     },
     "radius": {
       "xs": 2,
@@ -1350,7 +1388,10 @@ export const themes = {
       "cycleHandle": "rgba(64,155,71,.8)",
       "dropTarget": "rgba(0,106,162,0.1)",
       "stepCell": "rgba(28,70,94,0.08)",
-      "hover": "rgba(33,123,168,.09)"
+      "hover": "rgba(33,123,168,.09)",
+      "fadeShade": "rgba(28,70,94,0.22)",
+      "fadeHandle": "#123a55",
+      "markerFlag": "rgba(255,255,255,.86)"
     },
     "line": {
       "barLine": "rgba(28,70,94,0.22)",
@@ -1385,7 +1426,10 @@ export const themes = {
       "noteHead": "rgba(30,66,82,1)",
       "border": "rgba(151,183,196,1)",
       "borderStrong": "rgba(107,147,163,1)",
-      "hairline": "rgba(28,70,94,0.1)"
+      "hairline": "rgba(28,70,94,0.1)",
+      "fadeCurve": "rgba(16,50,74,.8)",
+      "marker": "rgba(174,92,0,1)",
+      "markerLane": "rgba(174,92,0,0.35)"
     },
     "radius": {
       "xs": 2,

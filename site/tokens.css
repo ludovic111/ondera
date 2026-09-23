@@ -47,6 +47,10 @@
   --size-key-column: 56px;
   --size-key-row: 10px;
   --size-key-rows: 25px;
+  --size-controller-lane: 96px;
+  --size-controller-point: 3px;
+  --size-controller-grip: 6px;
+  --size-controller-inset: 6px;
   --size-agent-header: 44px;
   --size-browser: 220px;
   --size-track-header: 184px;
@@ -83,6 +87,10 @@
   --size-clip-note-h: 3px;
   --size-clip-edge-grip: 7px;
   --size-cycle-grip: 6px;
+  --size-fade-handle: 7px;
+  --size-fade-grip: 6px;
+  --size-marker-top: 15px;
+  --size-marker-h: 12px;
   --size-note-edge-grip: 5px;
   --size-menu-min-w: 200px;
   --size-menu-item-h: 24px;
@@ -315,6 +323,9 @@
   --fill-drop-target: rgba(71,214,207,0.12);
   --fill-step-cell: rgba(255,255,255,0.06);
   --fill-hover: rgba(255,255,255,0.05);
+  --fill-fade-shade: rgba(0,0,0,0.38);
+  --fill-fade-handle: rgba(255,255,255,0.9);
+  --fill-marker-flag: rgba(22,22,21,.78);
   --line-bar-line: rgba(255,255,255,0.075);
   --line-beat-line: rgba(255,255,255,0.025);
   --line-ruler-bar: rgba(255,255,255,0.16);
@@ -348,6 +359,9 @@
   --line-border: rgba(0,0,0,0.55);
   --line-border-strong: rgba(0,0,0,0.7);
   --line-hairline: rgba(255,255,255,0.05);
+  --line-fade-curve: rgba(255,255,255,0.85);
+  --line-marker: rgba(233,180,82,1);
+  --line-marker-lane: rgba(233,180,82,0.3);
   --blur-glass: 8px;
   --blur-glass-agent: 10px;
   --blur-glass-card: 12px;
@@ -606,6 +620,9 @@
   --fill-drop-target: rgba(127,170,250,0.1);
   --fill-step-cell: rgba(255,255,255,0.055);
   --fill-hover: rgba(255,255,255,0.06);
+  --fill-fade-shade: rgba(0,0,0,0.35);
+  --fill-fade-handle: rgba(255,255,255,0.92);
+  --fill-marker-flag: rgba(24,26,32,.86);
   --line-bar-line: rgba(255,255,255,0.075);
   --line-beat-line: rgba(255,255,255,0.028);
   --line-ruler-bar: rgba(255,255,255,0.18);
@@ -639,6 +656,9 @@
   --line-border: rgba(255,255,255,0.085);
   --line-border-strong: rgba(255,255,255,0.15);
   --line-hairline: rgba(255,255,255,0.05);
+  --line-fade-curve: rgba(255,255,255,0.85);
+  --line-marker: rgba(238,177,84,1);
+  --line-marker-lane: rgba(238,177,84,0.3);
   --blur-glass: 16px;
   --blur-glass-agent: 16px;
   --blur-glass-card: 20px;
@@ -897,6 +917,9 @@
   --fill-drop-target: rgba(50,98,213,0.1);
   --fill-step-cell: rgba(17,20,31,0.05);
   --fill-hover: rgba(17,20,31,0.045);
+  --fill-fade-shade: rgba(17,20,31,.16);
+  --fill-fade-handle: rgba(17,20,31,.8);
+  --fill-marker-flag: rgba(255,255,255,.9);
   --line-bar-line: rgba(17,20,31,0.1);
   --line-beat-line: rgba(17,20,31,0.04);
   --line-ruler-bar: rgba(17,20,31,0.24);
@@ -930,6 +953,9 @@
   --line-border: rgba(17,20,31,0.1);
   --line-border-strong: rgba(17,20,31,0.17);
   --line-hairline: rgba(17,20,31,0.06);
+  --line-fade-curve: rgba(17,20,31,.75);
+  --line-marker: rgba(181,93,0,1);
+  --line-marker-lane: rgba(181,93,0,0.35);
   --blur-glass: 16px;
   --blur-glass-agent: 16px;
   --blur-glass-card: 20px;
@@ -1188,6 +1214,9 @@
   --fill-drop-target: rgba(71,214,207,0.12);
   --fill-step-cell: rgba(255,255,255,0.06);
   --fill-hover: rgba(255,255,255,0.05);
+  --fill-fade-shade: rgba(0,0,0,0.38);
+  --fill-fade-handle: rgba(255,255,255,0.9);
+  --fill-marker-flag: rgba(22,22,21,.78);
   --line-bar-line: rgba(255,255,255,0.075);
   --line-beat-line: rgba(255,255,255,0.025);
   --line-ruler-bar: rgba(255,255,255,0.16);
@@ -1221,6 +1250,9 @@
   --line-border: rgba(0,0,0,0.55);
   --line-border-strong: rgba(0,0,0,0.7);
   --line-hairline: rgba(255,255,255,0.05);
+  --line-fade-curve: rgba(255,255,255,0.85);
+  --line-marker: rgba(233,180,82,1);
+  --line-marker-lane: rgba(233,180,82,0.3);
   --blur-glass: 8px;
   --blur-glass-agent: 10px;
   --blur-glass-card: 12px;
@@ -1479,6 +1511,9 @@
   --fill-drop-target: rgba(0,122,124,0.12);
   --fill-step-cell: rgba(58,47,30,0.07);
   --fill-hover: rgba(58,47,30,0.06);
+  --fill-fade-shade: rgba(58,47,30,0.3);
+  --fill-fade-handle: rgba(40,33,22,.85);
+  --fill-marker-flag: rgba(245,241,236,0.9);
   --line-bar-line: rgba(58,47,30,0.2);
   --line-beat-line: rgba(58,47,30,0.075);
   --line-ruler-bar: rgba(58,47,30,0.4);
@@ -1512,6 +1547,9 @@
   --line-border: rgba(58,47,30,0.32);
   --line-border-strong: rgba(58,47,30,0.48);
   --line-hairline: rgba(58,47,30,0.1);
+  --line-fade-curve: rgba(40,33,22,.8);
+  --line-marker: rgba(169,90,0,1);
+  --line-marker-lane: rgba(169,90,0,0.35);
   --blur-glass: 8px;
   --blur-glass-agent: 10px;
   --blur-glass-card: 12px;
@@ -1770,6 +1808,9 @@
   --fill-drop-target: rgba(84,216,244,0.12);
   --fill-step-cell: rgba(170,220,255,0.07);
   --fill-hover: rgba(170,220,255,0.08);
+  --fill-fade-shade: rgba(0,0,0,0.38);
+  --fill-fade-handle: rgba(255,255,255,0.92);
+  --fill-marker-flag: rgba(2,14,28,.72);
   --line-bar-line: rgba(170,220,255,0.1);
   --line-beat-line: rgba(170,220,255,0.035);
   --line-ruler-bar: rgba(170,220,255,0.24);
@@ -1803,6 +1844,9 @@
   --line-border: rgba(2,12,26,.75);
   --line-border-strong: rgba(130,200,255,.3);
   --line-hairline: rgba(170,220,255,0.07);
+  --line-fade-curve: rgba(255,255,255,0.85);
+  --line-marker: rgba(247,193,95,1);
+  --line-marker-lane: rgba(247,193,95,0.3);
   --blur-glass: 14px;
   --blur-glass-agent: 16px;
   --blur-glass-card: 18px;
@@ -2061,6 +2105,9 @@
   --fill-drop-target: rgba(0,106,162,0.1);
   --fill-step-cell: rgba(28,70,94,0.08);
   --fill-hover: rgba(33,123,168,.09);
+  --fill-fade-shade: rgba(28,70,94,0.22);
+  --fill-fade-handle: #123a55;
+  --fill-marker-flag: rgba(255,255,255,.86);
   --line-bar-line: rgba(28,70,94,0.22);
   --line-beat-line: rgba(28,70,94,0.08);
   --line-ruler-bar: rgba(28,70,94,0.38);
@@ -2094,6 +2141,9 @@
   --line-border: rgba(151,183,196,1);
   --line-border-strong: rgba(107,147,163,1);
   --line-hairline: rgba(28,70,94,0.1);
+  --line-fade-curve: rgba(16,50,74,.8);
+  --line-marker: rgba(174,92,0,1);
+  --line-marker-lane: rgba(174,92,0,0.35);
   --blur-glass: 14px;
   --blur-glass-agent: 16px;
   --blur-glass-card: 18px;
