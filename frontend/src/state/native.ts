@@ -11,6 +11,7 @@ import type {
   BrowserTab,
 } from "@ondera/core";
 import { library } from "../audio/library";
+import { beatsPerBar } from "../core/time";
 
 export type Params = Record<string, unknown>;
 export interface UiState {
@@ -639,6 +640,31 @@ export class NativeStore {
       },
     };
     this.notify();
+  }
+  /**
+   * File > Import MIDI…: choose a file, then `session.importMidi` places it at the playhead's
+   * bar. The window's own dialog belongs to the egui interface, which Tauri does not draw.
+   */
+  async importMidiFile(): Promise<void> {
+    const path = await invoke<string | null>("daw_pick", { kind: "midi" });
+    if (!path) return;
+    const { positionBeats, timeSignature } = this.state.transport;
+    const bars = positionBeats / beatsPerBar(timeSignature);
+    await this.run("session.importMidi", {
+      path,
+      startBar: Number.isFinite(bars) ? Math.max(0, Math.floor(bars)) : 0,
+    });
+  }
+  /** File > Export MIDI…: choose where, then `session.exportMidi` writes every track. */
+  async exportMidiFile(): Promise<void> {
+    const path = await invoke<string | null>("daw_pick", {
+      kind: "saveMidi",
+      name: `${this.state.name.replace(/\.ondera$/i, "")}.mid`,
+    });
+    if (!path) return;
+    await this.run("session.exportMidi", {
+      path: /\.midi?$/i.test(path) ? path : `${path}.mid`,
+    });
   }
   run<T = unknown>(method: string, params: Params = {}): Promise<T> {
     const task = this.queue.then(() => native<T>(method, params));

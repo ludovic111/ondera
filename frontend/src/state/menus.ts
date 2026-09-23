@@ -63,9 +63,15 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         file("Save", "save"),
         call("Save as…", "web.file", { action: "save", saveAs: true }),
         file("Import audio…", "import"),
-        file("Import MIDI…", "importMidi"),
+        {
+          label: "Import MIDI…",
+          onSelect: () => void store.importMidiFile().catch(() => {}),
+        },
         file("Export audio…", "export"),
-        file("Export MIDI…", "exportMidi"),
+        {
+          label: "Export MIDI…",
+          onSelect: () => void store.exportMidiFile().catch(() => {}),
+        },
         separator,
         panel("Recover session…", "recovery"),
         separator,
