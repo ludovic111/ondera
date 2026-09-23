@@ -477,12 +477,22 @@ function Settings({ onClose }: { onClose: () => void }) {
     </Modal>
   );
 }
+/** Vorbis quality steps and the stereo bitrate each comes to, roughly. */
+const OGG_QUALITIES: [number, string][] = [
+  [0.2, "Small (about 96 kbit/s)"],
+  [0.4, "Good (about 128 kbit/s)"],
+  [0.6, "High (about 192 kbit/s)"],
+  [0.8, "Very high (about 256 kbit/s)"],
+  [1, "Maximum (about 500 kbit/s)"],
+];
 function Export({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const session = useSession((s) => s);
   const [rate, setRate] = useState(48000);
   const [format, setFormat] = useState("pcm24");
   const [container, setContainer] = useState("wav");
+  const [quality, setQuality] = useState(0.6);
+  const lossy = container === "ogg";
   const [tail, setTail] = useState(3);
   const [dither, setDither] = useState(true);
   const [range, setRange] = useState(false);
@@ -521,9 +531,10 @@ function Export({ onClose }: { onClose: () => void }) {
       if (!path) return;
       const params: Params = {
         sampleRate: rate,
-        format,
         tailSeconds: tail,
-        dither: format !== "float32" && dither,
+        ...(lossy
+          ? { quality }
+          : { format, dither: format !== "float32" && dither }),
         ...(stems ? { container } : {}),
         ...(range ? { startBar: start - 1, endBar: end - 1 } : {}),
       };
@@ -533,7 +544,7 @@ function Export({ onClose }: { onClose: () => void }) {
         params.includeEffects = includeEffects;
         params.includeMaster = includeMaster;
       } else
-        params.path = /\.(wav|aiff?|flac)$/i.test(path)
+        params.path = /\.(wav|aiff?|flac|ogg)$/i.test(path)
           ? path
           : `${path}.${container}`;
       const result = await store.run<AudioExportReport>(
@@ -575,34 +586,59 @@ function Export({ onClose }: { onClose: () => void }) {
             value={container}
             onChange={(e) => {
               setContainer(e.target.value);
-              if (e.target.value !== "wav" && format === "float32")
+              if (
+                !["wav", "ogg"].includes(e.target.value) &&
+                format === "float32"
+              )
                 setFormat("pcm24");
             }}
           >
             <option value="wav">WAV</option>
             <option value="aiff">AIFF</option>
             <option value="flac">FLAC (lossless, smaller)</option>
+            <option value="ogg">Ogg Vorbis (compressed)</option>
           </select>
         </label>
-        <label>
-          Format
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
-            <option value="pcm16">16-bit PCM</option>
-            <option value="pcm24">24-bit PCM</option>
-            <option value="float32" disabled={container !== "wav"}>
-              32-bit float{container !== "wav" ? " (WAV only)" : ""}
-            </option>
-          </select>
-        </label>
-        <label>
-          Dither (PCM only)
-          <input
-            type="checkbox"
-            disabled={format === "float32"}
-            checked={format !== "float32" && dither}
-            onChange={(e) => setDither(e.target.checked)}
-          />
-        </label>
+        {lossy ? (
+          <label>
+            Quality
+            <select
+              value={quality}
+              onChange={(e) => setQuality(Number(e.target.value))}
+            >
+              {OGG_QUALITIES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <>
+            <label>
+              Format
+              <select
+                value={format}
+                onChange={(e) => setFormat(e.target.value)}
+              >
+                <option value="pcm16">16-bit PCM</option>
+                <option value="pcm24">24-bit PCM</option>
+                <option value="float32" disabled={container !== "wav"}>
+                  32-bit float{container !== "wav" ? " (WAV only)" : ""}
+                </option>
+              </select>
+            </label>
+            <label>
+              Dither (PCM only)
+              <input
+                type="checkbox"
+                disabled={format === "float32"}
+                checked={format !== "float32" && dither}
+                onChange={(e) => setDither(e.target.checked)}
+              />
+            </label>
+          </>
+        )}
         <label>
           Release tail (seconds)
           <input

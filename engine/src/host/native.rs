@@ -15,7 +15,7 @@
 //! restores go through a lock-free handoff that the processor applies before its next block.
 
 use crate::{
-    plugin::{Descriptor, Editor, Format, Instance, ParamInfo, Processor},
+    plugin::{Descriptor, Editor, Format, Instance, ParamChange, ParamInfo, Processor},
     Result,
 };
 use base64::Engine as _;
@@ -23,7 +23,7 @@ use ondera_plugin::{
     ffi::{
         self, Entry, Entry2, Entry2Fn, EntryFn, Manifest, PluginVTable, PluginVTable2, RawContext,
     },
-    Event, Kind, NoteEvent, ParamChange, ProcessContext, TimedParam, ENTRY_SYMBOL, ENTRY_SYMBOL_V2,
+    Event, Kind, NoteEvent, ProcessContext, TimedParam, ENTRY_SYMBOL, ENTRY_SYMBOL_V2,
 };
 use std::{
     collections::HashMap,
@@ -564,6 +564,7 @@ impl Processor for NativeProcessor {
         }
         let raw = RawContext::from(ctx);
         let Some(v2) = self.table.v2 else {
+            // ABI 1 applies values between blocks; the rack splits the block at each change.
             for change in params {
                 unsafe { (self.table.base.set_param)(self.instance, change.id, change.value) };
             }
@@ -583,9 +584,10 @@ impl Processor for NativeProcessor {
         self.events
             .extend(notes.iter().take(EVENT_CAPACITY).map(|n| Event::from(*n)));
         self.changes.clear();
+        let last = audio.len().saturating_sub(1) as u32;
         self.changes
             .extend(params.iter().take(EVENT_CAPACITY).map(|change| TimedParam {
-                frame: 0,
+                frame: change.frame.min(last),
                 index: change.id,
                 value: change.value,
             }));
@@ -608,6 +610,10 @@ impl Processor for NativeProcessor {
     }
     fn latency(&self) -> u32 {
         unsafe { (self.table.base.latency)(self.instance) }
+    }
+    /// ABI 2 carries each change's frame to the plugin.
+    fn timed_params(&self) -> bool {
+        self.table.v2.is_some()
     }
 }
 impl Drop for NativeProcessor {

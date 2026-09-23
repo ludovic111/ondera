@@ -37,6 +37,7 @@ async fn daw_pick(kind: String, name: Option<String>) -> Result<Option<String>> 
                 .add_filter("WAV", &["wav"])
                 .add_filter("AIFF", &["aiff", "aif"])
                 .add_filter("FLAC", &["flac"])
+                .add_filter("Ogg Vorbis", &["ogg"])
                 .save_file(),
             "saveMidi" => dialog.add_filter("MIDI", &["mid"]).save_file(),
             "folder" => dialog.pick_folder(),
@@ -444,7 +445,7 @@ impl WebHost {
                 .map(|p| (p * 1000.).round() / 1000.)
                 .collect()
         });
-        self.app.poll_input_meter();
+        self.app.poll_input();
         let (input_peak, counting_in) = self.app.device.as_ref().map_or((0., false), |d| {
             (
                 (d.telemetry.take_input_peak().min(1.) * 1000.).round() / 1000.,

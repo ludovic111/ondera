@@ -950,7 +950,7 @@ impl ClapProcessor {
             outputs,
             input_buffers,
             output_buffers,
-            events: Vec::with_capacity(parameter_count.max(64) + 512),
+            events: Vec::with_capacity(parameter_count.max(64) + 1024),
             transport: unsafe { std::mem::zeroed() },
             steady_time: 0,
             started: false,
@@ -1009,6 +1009,10 @@ impl Processor for ClapProcessor {
     fn latency(&self) -> u32 {
         0
     }
+    /// Parameter value events carry their `time`.
+    fn timed_params(&self) -> bool {
+        true
+    }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
@@ -1027,69 +1031,76 @@ impl Processor for ClapProcessor {
             return;
         }
         self.events.clear();
-        for change in params {
-            self.push(ClapEvent {
-                param: clap_event_param_value {
-                    header: clap_event_header {
-                        size: std::mem::size_of::<clap_event_param_value>() as u32,
-                        time: 0,
-                        space_id: CLAP_CORE_EVENT_SPACE_ID,
-                        type_: CLAP_EVENT_PARAM_VALUE,
-                        flags: 0,
-                    },
-                    param_id: change.id,
-                    cookie: std::ptr::null_mut(),
-                    note_id: -1,
-                    port_index: -1,
-                    channel: -1,
-                    key: -1,
-                    value: change.value,
-                },
-            });
-        }
-        if let Some((port, dialect)) = self.shared.layout.note_input {
-            for note in notes {
-                if dialect != CLAP_NOTE_DIALECT_CLAP {
-                    self.push(ClapEvent {
-                        midi: clap_event_midi {
-                            header: clap_event_header {
-                                size: std::mem::size_of::<clap_event_midi>() as u32,
-                                time: (note.frame as usize).min(n - 1) as u32,
-                                space_id: CLAP_CORE_EVENT_SPACE_ID,
-                                type_: CLAP_EVENT_MIDI,
-                                flags: 0,
-                            },
-                            port_index: port,
-                            data: [
-                                (if note.on { 0x90 } else { 0x80 }) | (note.channel & 0x0f),
-                                note.pitch.min(127),
-                                note.velocity.min(127),
-                            ],
-                        },
-                    });
-                    continue;
-                }
+        // CLAP wants one list sorted by time: parameter values and notes are merged, a
+        // value first when both land on the same frame.
+        let note_input = self.shared.layout.note_input;
+        let notes = if note_input.is_some() { notes } else { &[] };
+        let mut changes = params.iter().peekable();
+        for note in notes.iter().map(Some).chain(std::iter::once(None)) {
+            let until = note.map_or(u32::MAX, |note| note.frame);
+            while let Some(change) = changes.next_if(|change| change.frame <= until) {
                 self.push(ClapEvent {
-                    note: clap_event_note {
+                    param: clap_event_param_value {
                         header: clap_event_header {
-                            size: std::mem::size_of::<clap_event_note>() as u32,
-                            time: (note.frame as usize).min(n - 1) as u32,
+                            size: std::mem::size_of::<clap_event_param_value>() as u32,
+                            time: (change.frame as usize).min(n - 1) as u32,
                             space_id: CLAP_CORE_EVENT_SPACE_ID,
-                            type_: if note.on {
-                                CLAP_EVENT_NOTE_ON
-                            } else {
-                                CLAP_EVENT_NOTE_OFF
-                            },
+                            type_: CLAP_EVENT_PARAM_VALUE,
                             flags: 0,
                         },
+                        param_id: change.id,
+                        cookie: std::ptr::null_mut(),
                         note_id: -1,
-                        port_index: port as i16,
-                        channel: note.channel as i16,
-                        key: note.pitch as i16,
-                        velocity: note.velocity as f64 / 127.0,
+                        port_index: -1,
+                        channel: -1,
+                        key: -1,
+                        value: change.value,
                     },
                 });
             }
+            let (Some(note), Some((port, dialect))) = (note, note_input) else {
+                continue;
+            };
+            if dialect != CLAP_NOTE_DIALECT_CLAP {
+                self.push(ClapEvent {
+                    midi: clap_event_midi {
+                        header: clap_event_header {
+                            size: std::mem::size_of::<clap_event_midi>() as u32,
+                            time: (note.frame as usize).min(n - 1) as u32,
+                            space_id: CLAP_CORE_EVENT_SPACE_ID,
+                            type_: CLAP_EVENT_MIDI,
+                            flags: 0,
+                        },
+                        port_index: port,
+                        data: [
+                            (if note.on { 0x90 } else { 0x80 }) | (note.channel & 0x0f),
+                            note.pitch.min(127),
+                            note.velocity.min(127),
+                        ],
+                    },
+                });
+                continue;
+            }
+            self.push(ClapEvent {
+                note: clap_event_note {
+                    header: clap_event_header {
+                        size: std::mem::size_of::<clap_event_note>() as u32,
+                        time: (note.frame as usize).min(n - 1) as u32,
+                        space_id: CLAP_CORE_EVENT_SPACE_ID,
+                        type_: if note.on {
+                            CLAP_EVENT_NOTE_ON
+                        } else {
+                            CLAP_EVENT_NOTE_OFF
+                        },
+                        flags: 0,
+                    },
+                    note_id: -1,
+                    port_index: port as i16,
+                    channel: note.channel as i16,
+                    key: note.pitch as i16,
+                    velocity: note.velocity as f64 / 127.0,
+                },
+            });
         }
         // Main input gets the track signal; extra ports stay silent.
         for (i, port) in self.inputs.iter_mut().enumerate() {

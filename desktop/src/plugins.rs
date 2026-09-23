@@ -1249,7 +1249,7 @@ mod tests {
         let params: Vec<_> = captured
             .params
             .iter()
-            .map(|(&id, &value)| ParamChange { id, value })
+            .map(|(&id, &value)| ParamChange::now(id, value))
             .collect();
         let mut reference =
             host::instantiate(&captured.plugin_id(), &captured.name, 48000).unwrap();
@@ -1264,10 +1264,7 @@ mod tests {
         reference.processor.as_mut().unwrap().process(
             &mut expected,
             &[],
-            &[ParamChange {
-                id: parameter,
-                value: native,
-            }],
+            &[ParamChange::now(parameter, native)],
             &ProcessContext::default(),
         );
         assert_eq!(actual, expected);

@@ -215,7 +215,7 @@ fn delayed_audio_keeps_the_previous_cycles_automation_until_its_audio_crosses_th
     }
 }
 #[test]
-fn stock_plugin_automation_is_audible_at_block_boundaries_and_delete_restores_manual() {
+fn stock_plugin_step_automation_lands_on_its_frame_inside_a_block_and_delete_restores_manual() {
     let (mut session, library) = fixture();
     let track = session.tracks[0].id.clone();
     let mut insert = Insert::new("utility".into(), "stock:Utility", "Utility");
@@ -244,8 +244,11 @@ fn stock_plugin_automation_is_audible_at_block_boundaries_and_delete_restores_ma
     renderer.playing = true;
     let mut audio = [[0.0; 2]; 768];
     renderer.render(&mut rack, &mut audio);
-    assert!((audio[511][0] - 0.2).abs() < 1e-5);
-    assert!((audio[512][0] - 0.2 * 10f32.powf(-12.0 / 20.0)).abs() < 1e-5);
+    // The point sits on frame 300, inside the second 256-frame block.
+    let quieter = 0.2 * 10f32.powf(-12.0 / 20.0);
+    assert!((audio[299][0] - 0.2).abs() < 1e-5);
+    assert!((audio[300][0] - quieter).abs() < 1e-5);
+    assert!((audio[511][0] - quieter).abs() < 1e-5);
     session.automation.clear();
     let mut new = Renderer::new(
         session,
@@ -432,4 +435,121 @@ fn linear_step_and_range_tail_hold_have_defined_endpoint_behavior() {
     session.automation.push(automation);
     ondera_engine::automation::hold_after(&mut session, 2.0);
     assert!((session.automation[0].value_at(5.0).unwrap() - 0.5).abs() < 1e-12);
+}
+
+/// Records every parameter change a plugin receives, at its absolute frame.
+struct Changes {
+    timed: bool,
+    seen: Arc<std::sync::Mutex<Vec<(i64, f64)>>>,
+}
+impl ondera_engine::plugin::Processor for Changes {
+    fn process(
+        &mut self,
+        _: &mut [[f32; 2]],
+        _: &[ondera_engine::plugin::NoteEvent],
+        params: &[ondera_engine::plugin::ParamChange],
+        ctx: &ondera_engine::plugin::ProcessContext,
+    ) {
+        let mut seen = self.seen.lock().unwrap();
+        for change in params {
+            assert!(
+                self.timed || change.frame == 0,
+                "an untimed plugin got a later frame"
+            );
+            seen.push((ctx.sample_time + change.frame as i64, change.value));
+        }
+    }
+    fn timed_params(&self) -> bool {
+        self.timed
+    }
+}
+fn automated_changes(
+    timed: bool,
+    interpolation: Interpolation,
+    points: &[(f64, f64)],
+    frames: usize,
+    block: usize,
+) -> Vec<(i64, f64)> {
+    let (mut session, library) = fixture();
+    let track = session.tracks[0].id.clone();
+    session.strips.insert(
+        track.clone(),
+        Strip {
+            inserts: vec![Insert::new("fx".into(), "clap:org.example.fx", "Fx")],
+            ..Default::default()
+        },
+    );
+    let beats: Vec<(f64, f64)> = points
+        .iter()
+        .map(|(frame, value)| (frame / 24000.0, *value))
+        .collect();
+    let mut automation = lane(
+        AutomationTarget::PluginParameter {
+            track_id: track,
+            insert_id: "fx".into(),
+            plugin_id: "clap:org.example.fx".into(),
+            parameter_id: 7,
+        },
+        0.0,
+        1.0,
+        &beats,
+    );
+    automation.interpolation = interpolation;
+    session.automation.push(automation);
+    let mut renderer =
+        Renderer::new(session, &library, 48000, &HashMap::from([("fx".into(), 0)])).unwrap();
+    renderer.playing = true;
+    let seen = Arc::new(std::sync::Mutex::new(vec![]));
+    let mut rack = Rack::new(1);
+    rack.mount(
+        0,
+        Box::new(Changes {
+            timed,
+            seen: seen.clone(),
+        }),
+    );
+    let mut audio = vec![[0.0; 2]; block];
+    for _ in 0..frames / block {
+        renderer.render(&mut rack, &mut audio);
+    }
+    let seen = seen.lock().unwrap().clone();
+    seen
+}
+#[test]
+fn plugin_automation_reaches_the_plugin_on_breakpoints_and_every_grain_while_it_moves() {
+    // 120 BPM at 48 kHz: 24,000 frames per beat. A ramp from frame 0 to frame 100, then held.
+    let seen = automated_changes(
+        true,
+        Interpolation::Linear,
+        &[(0.0, 0.0), (100.0, 1.0), (400.0, 1.0)],
+        512,
+        256,
+    );
+    let frames: Vec<i64> = seen.iter().map(|(frame, _)| *frame).collect();
+    assert_eq!(frames, vec![0, 32, 64, 96, 100, 256]);
+    for (frame, value) in &seen[..4] {
+        assert!(
+            (value - *frame as f64 / 100.0).abs() < 1e-9,
+            "{frame}: {value}"
+        );
+    }
+    assert_eq!(seen[4].1, 1.0);
+    assert_eq!(seen[5].1, 1.0, "each block restates its first value");
+}
+#[test]
+fn a_step_lands_on_its_exact_frame_for_timed_and_untimed_plugins() {
+    for timed in [true, false] {
+        let seen = automated_changes(
+            timed,
+            Interpolation::Step,
+            &[(0.0, 0.25), (300.0, 0.75), (301.0, 0.5)],
+            768,
+            768,
+        );
+        assert_eq!(
+            seen,
+            vec![(0, 0.25), (256, 0.25), (300, 0.75), (301, 0.5), (512, 0.5)],
+            "timed={timed}"
+        );
+    }
 }

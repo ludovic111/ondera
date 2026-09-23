@@ -3,6 +3,8 @@ export interface AudioExportReport {
   directory?: string;
   seconds?: number;
   clippedSamples?: number;
+  /** Ogg Vorbis only: the average bitrate the chosen quality came to. */
+  kbps?: number;
   warnings?: string[];
   files?: AudioExportReport[];
 }
@@ -46,9 +48,13 @@ export function exportSummary(report: AudioExportReport): string {
     if (file.path) lines.push(file.path);
     if (file.seconds != null)
       lines.push(`Duration: ${file.seconds.toFixed(2)} seconds`);
+    if (file.kbps != null)
+      lines.push(`Ogg Vorbis, about ${Math.round(file.kbps)} kbit/s`);
     if (file.clippedSamples)
       lines.push(
-        `${file.clippedSamples} samples clipped. Lower the mix level or export 32-bit float to preserve headroom.`,
+        file.path?.toLowerCase().endsWith(".ogg")
+          ? `${file.clippedSamples} samples are above full scale and will clip when played. Lower the mix level.`
+          : `${file.clippedSamples} samples clipped. Lower the mix level or export 32-bit float to preserve headroom.`,
       );
     lines.push(...(file.warnings ?? []));
   }

@@ -41,12 +41,7 @@ fn exercise(mut instance: ondera_engine::plugin::Instance) {
         channel: 0,
     };
     let mut audio = [[1.0f32, -1.0]; 64];
-    processor.process(
-        &mut audio,
-        &[note],
-        &[ParamChange { id: 0, value: 2.0 }],
-        &ctx,
-    );
+    processor.process(&mut audio, &[note], &[ParamChange::now(0, 2.0)], &ctx);
     assert_eq!(audio[8], [2.0, -2.0]);
     assert_eq!(
         audio[9],

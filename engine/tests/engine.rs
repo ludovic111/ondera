@@ -525,10 +525,7 @@ fn stock_parameters_change_the_sound_and_persist() {
                 let v = noise(&mut seed);
                 *f = [v, v];
             }
-            let change = [ondera_engine::plugin::ParamChange {
-                id: 1,
-                value: cutoff,
-            }];
+            let change = [ondera_engine::plugin::ParamChange::now(1, cutoff)];
             processor.process(&mut block, &[], if i == 0 { &change } else { &[] }, &ctx);
             if i > 20 {
                 total += block.iter().map(|f| (f[0] * f[0]) as f64).sum::<f64>();
