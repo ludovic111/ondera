@@ -131,7 +131,7 @@ pub fn load(plugin_id: &str, name: &str) -> Result<PluginPreset> {
         .ok_or_else(|| format!("No preset `{name}` for {plugin_id}. Use preset.list."))
 }
 pub fn save(preset: &PluginPreset) -> Result<PathBuf> {
-    if preset.name.trim().is_empty() || preset.name.len() > 120 {
+    if preset.name.trim().is_empty() || preset.name.chars().count() > 120 {
         return Err("Preset names are 1-120 characters".into());
     }
     if preset.plugin_id.is_empty() {

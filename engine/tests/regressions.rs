@@ -217,3 +217,36 @@ fn loading_repairs_shared_insert_ids_and_the_piano_roll_scroll() {
     assert_eq!(ids.len(), count, "every slot has its own id");
     assert_eq!(session.view.editor_low_pitch, Some(108));
 }
+
+/// `clip.legato` failed with "Invalid MIDI note" when a shortened region left a note past its
+/// end; names of 41 CJK characters were refused as longer than 120 "characters".
+#[test]
+fn legato_ignores_notes_past_the_region_and_names_count_characters() {
+    let mut host = Headless::new();
+    let track = midi_track(&mut host);
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":2,
+               "notes":[{"start":0,"length":0.5,"pitch":60},{"start":6,"length":1,"pitch":62}]}),
+    );
+    let id = clip["id"].as_str().unwrap().to_string();
+    call(
+        &mut host,
+        "clip.resize",
+        json!({"clipId":id,"lengthBars":1}),
+    );
+    call(&mut host, "clip.legato", json!({"clipId":id}));
+    let notes = call(&mut host, "note.list", json!({"clipId":id}));
+    assert_eq!(notes[0]["length"], 4.0, "held to the region end");
+    assert_eq!(notes[1]["start"], 6.0);
+    assert_eq!(notes[1]["length"], 1.0);
+    let name: String = "音".repeat(41);
+    call(&mut host, "take.create", json!({ "name": name }));
+    let lanes = json!([{"steps":4,"pulses":4,"rotation":0,"pitch":36,"velocity":100}]);
+    call(
+        &mut host,
+        "rhythm.create",
+        json!({ "lanes": lanes, "bars": 1, "name": "ドラム".repeat(40) }),
+    );
+}

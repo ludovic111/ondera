@@ -38,7 +38,7 @@ fn read(session: &Session) -> Result<Takes> {
         if take.id.is_empty()
             || !ids.insert(&take.id)
             || take.name.is_empty()
-            || take.name.len() > 120
+            || take.name.chars().count() > 120
             || take.session.extra.contains_key(KEY)
         {
             return Err("Invalid creative take metadata".into());
@@ -82,7 +82,7 @@ pub(crate) fn call(host: &mut dyn Host, method: &str, args: &Args<'_>) -> Result
                 );
             }
             let name = args.str("name")?.trim();
-            if name.is_empty() || name.len() > 120 {
+            if name.is_empty() || name.chars().count() > 120 {
                 return Err("Take names must be 1–120 characters".into());
             }
             let id = crate::control::new_id("take");

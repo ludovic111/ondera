@@ -122,10 +122,16 @@ pub(crate) fn call(host: &mut dyn Host, method: &str, a: &Args<'_>, agent: bool)
             }
         }
         "clip.legato" => {
-            let mut starts: Vec<_> = notes.iter().map(|n| n.start).collect();
+            let mut starts: Vec<_> = notes
+                .iter()
+                .map(|n| n.start)
+                .filter(|&start| start < length)
+                .collect();
             starts.sort_by(f64::total_cmp);
             starts.dedup();
-            for n in notes.iter_mut() {
+            // Notes left past the end by a shorter region are not heard: leave them be, or
+            // their length would come out zero or negative and fail the whole edit.
+            for n in notes.iter_mut().filter(|n| n.start < length) {
                 let index = starts.partition_point(|&start| start <= n.start);
                 n.length = starts.get(index).copied().unwrap_or(length) - n.start;
             }
