@@ -754,6 +754,15 @@ export class NativeStore {
         return;
       case "transport.togglePlay":
         method = s.transport.playing ? "transport.stop" : "transport.play";
+        // Telemetry reports the change a tick later: a second press queued behind this one
+        // must see it, or two quick presses both start playback.
+        this.state = {
+          ...s,
+          transport: {
+            ...s.transport,
+            playing: method === "transport.play",
+          },
+        };
         break;
       case "transport.setPosition":
         method = "transport.locate";

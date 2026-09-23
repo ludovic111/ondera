@@ -32,3 +32,21 @@ it("an error the window reported survives the host's next UI update", () => {
   store.receiveUi({ status: "Saved", error: null } as never);
   expect(store.ui.error).toBeNull();
 });
+
+// Space twice, quickly: the second toggle was translated before telemetry said playback had
+// started, so it sent play again instead of stop.
+it("two quick play toggles start and stop", async () => {
+  const sent: string[] = [];
+  mock.invoke.mockReset().mockImplementation(async (_command, args) => {
+    sent.push(args.method);
+    return {};
+  });
+  const store = new NativeStore();
+  store.dispatch({ name: "transport.togglePlay", params: {} });
+  store.dispatch({ name: "transport.togglePlay", params: {} });
+  await store.run("barrier");
+  expect(sent.filter((m) => m.startsWith("transport."))).toEqual([
+    "transport.play",
+    "transport.stop",
+  ]);
+});
