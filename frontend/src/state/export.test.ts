@@ -41,6 +41,15 @@ describe("audio export", () => {
         { path: "/music/stems/drums.wav", seconds: 3.25, warnings: [] },
       ],
     });
+    const ogg = exportSummary({
+      path: "/music/mix.ogg",
+      seconds: 2,
+      kbps: 203.4,
+      clippedSamples: 4,
+    });
+    expect(ogg).toContain("about 203 kbit/s");
+    expect(ogg).toContain("4 samples are above full scale");
+    expect(ogg).not.toContain("32-bit float");
     for (const text of [
       "2 stem files",
       "keys.wav",

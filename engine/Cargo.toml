@@ -21,6 +21,8 @@ vst3 = "0.3"
 libloading = "0.8"
 midir = "0.11"
 midly = { version = "0.5.3", default-features = false, features = ["std", "strict"] }
+# Ogg Vorbis export: BSD-3-Clause, vendored libogg/libvorbis (aoTuV) built with `cc`.
+vorbis_rs = { version = "0.5", default-features = false }
 
 [dev-dependencies]
 ondera-plugin-gain = { path = "../plugins/gain" }

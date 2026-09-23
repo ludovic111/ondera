@@ -19,8 +19,8 @@ pub const SPECS:&[Spec]=&[
         req("path",Kind::String,"Destination .mid file, replaced atomically after success."),
         opt("trackIds",Kind::Array,"MIDI track IDs to export; defaults to all MIDI tracks."),
     ]),
-    edit("session.exportAudio","Export an offline stereo WAV, AIFF or FLAC using the live plugin graph, with chosen rate, format, range and tail. The file type follows the path's extension and every type streams to disk. PCM clips above full scale; float retains headroom. Reports peak/clipping.",&[
-        req("path",Kind::String,"Destination .wav, .aiff for AIFF or .flac for lossless FLAC (both pcm16 or pcm24 only). Replaced atomically after success."),
+    edit("session.exportAudio","Export an offline stereo WAV, AIFF, FLAC or Ogg Vorbis using the live plugin graph, with chosen rate, format, range and tail. The file type follows the path's extension and every type streams to disk. PCM clips above full scale; float retains headroom. Reports peak/clipping, and the bitrate for Ogg.",&[
+        req("path",Kind::String,"Destination .wav, .aiff for AIFF, .flac for lossless FLAC (both pcm16 or pcm24 only) or .ogg for lossy Ogg Vorbis. Replaced atomically after success."),
         opt("sampleRate",Kind::Integer,"44100, 48000 (default), or 96000 Hz."),
         opt("format",Kind::String,"pcm16, pcm24 (default), or float32."),
         opt("startBar",Kind::Number,"Zero-based range start bar, default 0. Use bars or beats, never both."),
@@ -29,14 +29,15 @@ pub const SPECS:&[Spec]=&[
         opt("endBeat",Kind::Number,"Exclusive end in quarter-note beats instead of bars."),
         opt("tailSeconds",Kind::Number,"Effect release tail after range end, 0–120 seconds, default 3."),
         opt("dither",Kind::Boolean,"TPDF dither for integer PCM, default true. Ignored for float32."),
+        opt("quality",Kind::Number,"Ogg Vorbis quality 0–1, default 0.6 (about 192 kbit/s; 0.4 ≈ 128, 0.8 ≈ 256). Ignored by the other file types, as format and dither are by Ogg."),
     ]),
-    edit("session.exportStems","Export one stereo file per track (WAV, or AIFF or FLAC with `container`) into a new folder, publishing the entire set only on success. Solo-rendered nonlinear/shared effects can prevent exact summation to the full mix.",&[
+    edit("session.exportStems","Export one stereo file per track (WAV, or AIFF, FLAC or Ogg Vorbis with `container`) into a new folder, publishing the entire set only on success. Solo-rendered nonlinear/shared effects can prevent exact summation to the full mix.",&[
         req("directory",Kind::String,"New destination folder; an existing folder is never replaced."),
         opt("trackIds",Kind::Array,"Track IDs to export; defaults to all tracks. Mute/solo are ignored."),
         opt("includeEffects",Kind::Boolean,"Include track inserts and send/bus processing, default true."),
         opt("includeMaster",Kind::Boolean,"Apply master inserts/fader to each stem, default false."),
         opt("sampleRate",Kind::Integer,"44100, 48000 (default), or 96000 Hz."),
-        opt("container",Kind::String,"File type of every stem: wav (default), aiff or flac. aiff and flac need pcm16 or pcm24."),
+        opt("container",Kind::String,"File type of every stem: wav (default), aiff, flac or ogg. aiff and flac need pcm16 or pcm24; ogg uses quality instead of format."),
         opt("format",Kind::String,"pcm16, pcm24 (default), or float32."),
         opt("startBar",Kind::Number,"Zero-based range start bar, default 0. Use bars or beats, never both."),
         opt("endBar",Kind::Number,"Exclusive end bar; defaults to arrangement end for every stem."),
@@ -44,6 +45,7 @@ pub const SPECS:&[Spec]=&[
         opt("endBeat",Kind::Number,"Exclusive end in quarter-note beats instead of bars."),
         opt("tailSeconds",Kind::Number,"Effect release tail after range end, 0–120 seconds, default 3."),
         opt("dither",Kind::Boolean,"TPDF dither for integer PCM, default true. Ignored for float32."),
+        opt("quality",Kind::Number,"Ogg Vorbis quality 0–1 for container ogg, default 0.6 (about 192 kbit/s)."),
     ]),
 ];
 

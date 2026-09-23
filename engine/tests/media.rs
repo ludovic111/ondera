@@ -619,3 +619,110 @@ fn stems_take_the_container_that_was_asked_for() {
         export::Container::Wav
     );
 }
+
+#[test]
+fn ogg_export_decodes_back_to_the_mix_at_a_fraction_of_the_size() {
+    use ondera_engine::{audio, export, store};
+    let mut session = store::demo();
+    session.name = "Night Drive".into();
+    let dir = tempfile::tempdir().unwrap();
+    let mut prepared = audio::Library::new();
+    audio::prepare_sources(&session, &mut prepared).unwrap();
+    let options = export::ExportOptions {
+        end_beat: Some(9.3),
+        tail_seconds: 0.0,
+        format: export::SampleFormat::Float32,
+        ..Default::default()
+    };
+    let wav = dir.path().join("mix.wav");
+    let ogg = dir.path().join("mix.ogg");
+    export::mix(&session, &prepared, &wav, &options).unwrap();
+    let report = export::mix(&session, &prepared, &ogg, &options).unwrap();
+    assert_eq!(report.container, export::Container::Ogg);
+    assert_eq!(report.quality, Some(export::DEFAULT_QUALITY));
+    let kbps = report.kbps.unwrap();
+    assert!((80.0..400.0).contains(&kbps), "{kbps} kbit/s");
+    let bytes = std::fs::read(&ogg).unwrap();
+    assert_eq!(&bytes[..4], b"OggS");
+    assert!(
+        bytes.windows(17).any(|w| w == b"TITLE=Night Drive"),
+        "the title is tagged"
+    );
+    // Ondera imports what it exports.
+    assert!(audio::is_importable(&ogg));
+    let original = audio::decode(std::fs::read(&wav).unwrap(), Some("wav")).unwrap();
+    let decoded = audio::decode(bytes.clone(), Some("ogg")).unwrap();
+    assert_eq!(decoded.sample_rate, 48000);
+    let length = decoded.frames.len() as i64 - report.frames as i64;
+    assert!(length.abs() < 2048, "{length} frames off");
+    let (mut signal, mut error) = (0f64, 0f64);
+    for (a, b) in original.frames.iter().zip(&decoded.frames) {
+        for c in 0..2 {
+            signal += (a[c] as f64).powi(2);
+            error += (a[c] as f64 - b[c] as f64).powi(2);
+        }
+    }
+    let snr = 10.0 * (signal / error.max(1e-12)).log10();
+    assert!(signal > 1.0, "the demo is audible");
+    eprintln!("Ogg Vorbis at quality 0.6: {kbps} kbit/s, {snr:.1} dB SNR, {length} frames off");
+    assert!(snr > 15.0, "decoded audio follows the mix: {snr:.1} dB");
+    let wav_size = std::fs::metadata(&wav).unwrap().len();
+    assert!(
+        (bytes.len() as u64) * 5 < wav_size,
+        "Vorbis is small: {} vs {wav_size}",
+        bytes.len()
+    );
+    // A lower quality is smaller; a quality outside 0-1 is refused and replaces nothing.
+    let low = export::ExportOptions {
+        quality: 0.1,
+        ..options.clone()
+    };
+    let small = export::mix(&session, &prepared, &dir.path().join("low.ogg"), &low).unwrap();
+    assert!(small.kbps.unwrap() < kbps);
+    let wrong = export::ExportOptions {
+        quality: 1.5,
+        ..options
+    };
+    assert!(export::mix(&session, &prepared, &ogg, &wrong)
+        .unwrap_err()
+        .contains("quality"));
+    assert_eq!(std::fs::read(&ogg).unwrap(), bytes);
+}
+
+#[test]
+fn ogg_stems_carry_the_track_name() {
+    use ondera_engine::{audio, export, store};
+    let session = store::demo();
+    let mut prepared = audio::Library::new();
+    audio::prepare_sources(&session, &mut prepared).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let options = export::ExportOptions {
+        end_bar: Some(1.0),
+        tail_seconds: 0.0,
+        container: export::Container::parse("ogg").unwrap(),
+        quality: 0.3,
+        ..Default::default()
+    };
+    let ids = [session.tracks[0].id.clone()];
+    let report = export::stems(
+        &session,
+        &prepared,
+        &dir.path().join("stems"),
+        &options,
+        Some(&ids),
+        true,
+        false,
+    )
+    .unwrap();
+    let path = &report.files[0].path;
+    assert_eq!(path.extension().unwrap(), "ogg");
+    let bytes = std::fs::read(path).unwrap();
+    let title = format!("TITLE={} - {}", session.name, session.tracks[0].name);
+    assert!(bytes.windows(title.len()).any(|w| w == title.as_bytes()));
+    let decoded = audio::decode(bytes, Some("ogg")).unwrap();
+    assert!(!decoded.frames.is_empty());
+    assert_eq!(
+        export::Container::of(std::path::Path::new("a.OGG")),
+        export::Container::Ogg
+    );
+}

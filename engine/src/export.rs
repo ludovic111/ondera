@@ -40,6 +40,8 @@ pub enum Container {
     Wav,
     Aiff,
     Flac,
+    /// Ogg Vorbis, lossy. Encodes the float mix at [`ExportOptions::quality`].
+    Ogg,
 }
 impl Container {
     pub fn of(path: &Path) -> Self {
@@ -50,6 +52,7 @@ impl Container {
         match extension.as_deref() {
             Some("aif" | "aiff") => Self::Aiff,
             Some("flac") => Self::Flac,
+            Some("ogg" | "oga") => Self::Ogg,
             _ => Self::Wav,
         }
     }
@@ -58,7 +61,10 @@ impl Container {
             "wav" => Ok(Self::Wav),
             "aiff" | "aif" => Ok(Self::Aiff),
             "flac" => Ok(Self::Flac),
-            other => Err(format!("Container must be wav, aiff or flac, not {other}")),
+            "ogg" | "vorbis" => Ok(Self::Ogg),
+            other => Err(format!(
+                "Container must be wav, aiff, flac or ogg, not {other}"
+            )),
         }
     }
     pub fn extension(self) -> &'static str {
@@ -66,9 +72,12 @@ impl Container {
             Self::Wav => "wav",
             Self::Aiff => "aiff",
             Self::Flac => "flac",
+            Self::Ogg => "ogg",
         }
     }
 }
+/// Vorbis quality when none is given: about 192 kbit/s for a stereo mix.
+pub const DEFAULT_QUALITY: f64 = 0.6;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportOptions {
@@ -83,6 +92,9 @@ pub struct ExportOptions {
     pub dither: bool,
     /// File type of each stem. A mix follows its destination's extension instead.
     pub container: Container,
+    /// Ogg Vorbis quality, 0 (about 64 kbit/s) to 1 (about 500 kbit/s). Ignored by the
+    /// lossless containers; `format` and `dither` are ignored by Ogg.
+    pub quality: f64,
 }
 impl Default for ExportOptions {
     fn default() -> Self {
@@ -96,6 +108,7 @@ impl Default for ExportOptions {
             tail_seconds: 3.0,
             dither: true,
             container: Container::Wav,
+            quality: DEFAULT_QUALITY,
         }
     }
 }
@@ -103,8 +116,14 @@ impl Default for ExportOptions {
 #[serde(rename_all = "camelCase")]
 pub struct ExportReport {
     pub path: PathBuf,
+    pub container: Container,
     pub sample_rate: u32,
     pub format: SampleFormat,
+    /// Ogg only: the Vorbis quality and the average bitrate it came to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kbps: Option<f64>,
     pub frames: u64,
     pub seconds: f64,
     pub start_beat: f64,
@@ -121,6 +140,9 @@ impl ExportOptions {
         }
         if !self.tail_seconds.is_finite() || !(0.0..=120.0).contains(&self.tail_seconds) {
             return Err("Export tailSeconds must be between 0 and 120".into());
+        }
+        if !self.quality.is_finite() || !(0.0..=1.0).contains(&self.quality) {
+            return Err("Export quality must be between 0 and 1".into());
         }
         if (self.start_bar.is_some() || self.end_bar.is_some())
             && (self.start_beat.is_some() || self.end_beat.is_some())
@@ -185,10 +207,15 @@ pub fn mix(
     let frames = (((end - start) * seconds_per_beat + options.tail_seconds)
         * options.sample_rate as f64)
         .ceil() as u64;
+    let container = Container::of(path);
+    let lossy = container == Container::Ogg;
     let mut report = ExportReport {
         path: path.into(),
+        container,
         sample_rate: options.sample_rate,
         format: options.format,
+        quality: lossy.then_some(options.quality),
+        kbps: None,
         frames,
         seconds: frames as f64 / options.sample_rate as f64,
         start_beat: start,
@@ -199,7 +226,7 @@ pub fn mix(
         warnings: vec![],
     };
     document::atomic_write(path, |file| {
-        let mut writer = Sink::open(file, path, options, frames)?;
+        let mut writer = Sink::open(file, path, options, frames, &song.name)?;
         let mut block = [[0.0f32; 2]; MAX_BLOCK];
         let mut skip = (start * seconds_per_beat * options.sample_rate as f64).round() as u64
             + renderer.latency_samples() as u64;
@@ -223,6 +250,13 @@ pub fn mix(
                 }
                 let value = *sample as f64;
                 report.peak = report.peak.max(value.abs());
+                if lossy {
+                    // Vorbis keeps the float mix; players clip what is above full scale.
+                    if value.abs() > 1.0 {
+                        report.clipped_samples += 1;
+                    }
+                    continue;
+                }
                 match options.format {
                     SampleFormat::Float32 => writer.float(*sample),
                     format => {
@@ -246,6 +280,9 @@ pub fn mix(
                     }
                 }?;
             }
+            if lossy {
+                writer.block(&block[..n])?;
+            }
             written += n as u64;
         }
         if renderer.voice_overflows > 0 || renderer.note_overflows > 0 {
@@ -260,19 +297,29 @@ pub fn mix(
             format!("{name} never falls silent on its own; the export stops it after {:.1} s.", options.tail_seconds)
         });
     }
-    if report.clipped_samples > 0 {
+    if lossy {
+        let bytes = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+        report.kbps = Some((bytes as f64 * 8.0 / report.seconds.max(1e-9) / 100.0).round() / 10.0);
+        if report.clipped_samples > 0 {
+            report.warnings.push(format!(
+                "{} samples are above full scale and will clip when played; lower the master.",
+                report.clipped_samples
+            ));
+        }
+    } else if report.clipped_samples > 0 {
         report.warnings.push(format!("{} samples exceeded integer PCM headroom and were clipped; lower the master or export float32.",report.clipped_samples));
     }
-    if options.format == SampleFormat::Float32 && report.peak > 1.0 {
+    if !lossy && options.format == SampleFormat::Float32 && report.peak > 1.0 {
         report.warnings.push("Floating-point audio retains levels above 0 dBFS; downstream integer conversion needs attenuation.".into());
     }
     Ok(report)
 }
 /// Where rendered samples go. The container follows the file extension: `.aif`/`.aiff`
-/// write AIFF, `.flac` FLAC, anything else WAV. All stream, so an export never holds the
-/// song in memory.
+/// write AIFF, `.flac` FLAC, `.ogg` Ogg Vorbis, anything else WAV. All stream, so an export
+/// never holds the song in memory.
 enum Sink<'a> {
     Flac(Box<crate::flac::Encoder<std::io::BufWriter<&'a mut std::fs::File>>>),
+    Ogg(Box<Vorbis<'a>>),
     Wav(hound::WavWriter<std::io::BufWriter<&'a mut std::fs::File>>),
     Aiff {
         out: std::io::BufWriter<&'a mut std::fs::File>,
@@ -296,14 +343,75 @@ fn extended(rate: u32) -> [u8; 10] {
     out[2..6].copy_from_slice(&(rate << shift).to_be_bytes());
     out
 }
+/// A streaming Ogg Vorbis encoder fed one render block at a time.
+struct Vorbis<'a> {
+    encoder: vorbis_rs::VorbisEncoder<std::io::BufWriter<&'a mut std::fs::File>>,
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
+impl<'a> Vorbis<'a> {
+    fn new(file: &'a mut std::fs::File, options: &ExportOptions, title: &str) -> Result<Self> {
+        use std::num::{NonZeroU32, NonZeroU8};
+        let rate = NonZeroU32::new(options.sample_rate).ok_or("Export needs a sample rate")?;
+        // The Ogg stream serial only has to differ between streams chained in one file.
+        let serial = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0x0dea, |time| time.subsec_nanos() as i32);
+        let mut builder = vorbis_rs::VorbisEncoderBuilder::new_with_serial(
+            rate,
+            NonZeroU8::new(2).expect("two channels"),
+            std::io::BufWriter::new(file),
+            serial,
+        );
+        builder.bitrate_management_strategy(
+            vorbis_rs::VorbisBitrateManagementStrategy::QualityVbr {
+                target_quality: options.quality as f32,
+            },
+        );
+        if !title.trim().is_empty() {
+            builder
+                .comment_tag("TITLE", title.trim())
+                .map_err(|e| format!("Ogg Vorbis title: {e}"))?;
+        }
+        let encoder = builder.build().map_err(|e| format!("Ogg Vorbis: {e}"))?;
+        Ok(Self {
+            encoder,
+            left: Vec::with_capacity(MAX_BLOCK),
+            right: Vec::with_capacity(MAX_BLOCK),
+        })
+    }
+    fn block(&mut self, frames: &[[f32; 2]]) -> Result<()> {
+        self.left.clear();
+        self.right.clear();
+        for frame in frames {
+            self.left.push(frame[0]);
+            self.right.push(frame[1]);
+        }
+        self.encoder
+            .encode_audio_block([&self.left[..], &self.right[..]])
+            .map_err(|e| format!("Ogg Vorbis: {e}"))
+    }
+    fn finish(self) -> Result<()> {
+        use std::io::Write;
+        self.encoder
+            .finish()
+            .map_err(|e| format!("Ogg Vorbis: {e}"))?
+            .flush()
+            .map_err(|e| e.to_string())
+    }
+}
 impl<'a> Sink<'a> {
     fn open(
         file: &'a mut std::fs::File,
         path: &Path,
         options: &ExportOptions,
         frames: u64,
+        title: &str,
     ) -> Result<Self> {
         use std::io::Write;
+        if Container::of(path) == Container::Ogg {
+            return Vorbis::new(file, options, title).map(|ogg| Sink::Ogg(Box::new(ogg)));
+        }
         if Container::of(path) == Container::Flac {
             if options.format == SampleFormat::Float32 {
                 return Err("FLAC holds 16 or 24-bit audio here; choose pcm16 or pcm24, or export float32 as WAV".into());
@@ -360,6 +468,7 @@ impl<'a> Sink<'a> {
         match self {
             Sink::Wav(writer) => writer.write_sample(pcm).map_err(|e| e.to_string()),
             Sink::Flac(encoder) => encoder.write(pcm),
+            Sink::Ogg(_) => Err("Ogg export takes whole blocks".into()),
             Sink::Aiff { out, bytes } => {
                 let be = pcm.to_be_bytes();
                 out.write_all(&be[4 - *bytes..]).map_err(|e| e.to_string())
@@ -371,6 +480,13 @@ impl<'a> Sink<'a> {
             Sink::Wav(writer) => writer.write_sample(sample).map_err(|e| e.to_string()),
             Sink::Aiff { .. } => Err("AIFF export is integer PCM".into()),
             Sink::Flac(_) => Err("FLAC export is integer PCM".into()),
+            Sink::Ogg(_) => Err("Ogg export takes whole blocks".into()),
+        }
+    }
+    fn block(&mut self, frames: &[[f32; 2]]) -> Result<()> {
+        match self {
+            Sink::Ogg(ogg) => ogg.block(frames),
+            _ => Err("Only Ogg export takes whole blocks".into()),
         }
     }
     fn finish(self) -> Result<()> {
@@ -378,6 +494,7 @@ impl<'a> Sink<'a> {
         match self {
             Sink::Wav(writer) => writer.finalize().map_err(|e| e.to_string()),
             Sink::Flac(encoder) => encoder.finish(),
+            Sink::Ogg(ogg) => ogg.finish(),
             Sink::Aiff { mut out, .. } => out.flush().map_err(|e| e.to_string()),
         }
     }
@@ -458,6 +575,8 @@ pub fn stems(
     resolved.end_beat = Some(end);
     for (index, track) in tracks.iter().enumerate() {
         let mut song = session.clone();
+        // The title an Ogg stem carries.
+        song.name = format!("{} - {}", session.name, track.name);
         song.tracks.retain(|t| t.id == track.id);
         song.tracks[0].mute = false;
         song.tracks[0].solo = false;

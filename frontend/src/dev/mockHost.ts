@@ -2,7 +2,7 @@
  * Development-only stand-in for the Rust host. `npm run dev` in a plain browser
  * has no Tauri bridge, so this answers the handful of commands the renderer
  * needs with a fixed song. It exists to check themes and layouts quickly:
- * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|plugin:<name>`.
+ * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|export|plugin:<name>`.
  * Never imported by a production build.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -174,7 +174,7 @@ const ui = {
   settingsSection: "interface",
   help: false,
   mixer: panel === "mixer",
-  export: false,
+  export: panel === "export",
   recovery: false,
   tool: "pointer",
   musicalTyping: false,
@@ -755,6 +755,34 @@ function command(method: string, params: Params): unknown {
       void emit("daw:ui", { ...ui });
       return {};
     }
+    case "session.exportAudio":
+    case "session.exportStems": {
+      const container = String(
+        params.container ??
+          /\.(\w+)$/.exec(String(params.path ?? ""))?.[1] ??
+          "wav",
+      ).toLowerCase();
+      const quality = Number(params.quality ?? 0.6);
+      const file = (path: string) => ({
+        path,
+        container,
+        seconds: 32,
+        clippedSamples: 0,
+        warnings: [],
+        ...(container === "ogg"
+          ? { quality, kbps: Math.round(64 + quality * 230) }
+          : { format: params.format ?? "pcm24" }),
+      });
+      if (method === "session.exportAudio") return file(String(params.path));
+      const directory = String(params.directory);
+      return {
+        directory,
+        files: TRACKS.map(([, name], i) =>
+          file(`${directory}/0${i + 1}-${name}.${container}`),
+        ),
+        warnings: [],
+      };
+    }
     default:
       return {};
   }
@@ -767,6 +795,13 @@ export function install(): void {
       const args = (payload ?? {}) as { method?: string; params?: Params };
       if (cmd === "daw_command")
         return command(args.method ?? "", args.params ?? {});
+      // Export choosers answer with a demo location instead of opening a dialog.
+      if (cmd === "daw_pick") {
+        const pick = (payload ?? {}) as { kind?: string; name?: string };
+        if (pick.kind === "folder") return "/Users/demo/Music";
+        if (pick.kind === "wav")
+          return `/Users/demo/Music/${pick.name ?? "Export.wav"}`;
+      }
       return null;
     },
     { shouldMockEvents: true },
