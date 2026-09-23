@@ -152,6 +152,8 @@ pub struct Ondera {
     pub(crate) settings_ui: crate::settings::SettingsWindow,
     pub(crate) live_jobs: Vec<crate::control::LiveJob>,
     pub(crate) attach_live: Option<usize>,
+    /// The last command started `control_job`, so a waiting caller belongs to it.
+    pub(crate) attach_control: bool,
     /// A `session.batch` is running: its commands share one undo step.
     pub(crate) batching: bool,
     /// Input stream kept open for the level meter while an audio track is armed.
@@ -328,6 +330,7 @@ impl Ondera {
             settings_ui: Default::default(),
             live_jobs: vec![],
             attach_live: None,
+            attach_control: false,
             batching: false,
             input_meter: None,
             input_meter_pending: None,

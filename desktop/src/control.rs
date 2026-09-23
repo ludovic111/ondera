@@ -124,9 +124,13 @@ impl Ondera {
     /// Hand a waiting party to the job the last command started. Returns the reply when
     /// nothing is pending so the caller can answer immediately.
     pub(crate) fn attach_reply(&mut self, reply: Reply) -> std::result::Result<(), Reply> {
-        if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
-            job.reply = Some(reply);
-            return Ok(());
+        // Only the job this command started: a file job started earlier (a dropped MIDI file
+        // imports with nobody waiting) must not take the answer of an unrelated command.
+        if std::mem::take(&mut self.attach_control) {
+            if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
+                job.reply = Some(reply);
+                return Ok(());
+            }
         }
         if let Some(index) = self.attach_live.take() {
             if let Some(job) = self
@@ -153,6 +157,7 @@ impl Ondera {
         let before = self.store.revision;
         let depth_before = self.store.undo_depth();
         self.attach_live = None;
+        self.attach_control = false;
         let result = (|| {
             control::validate_request(method, params)?;
             if method.starts_with("take.") && method != "take.list" && self.agents.runtime.running()
@@ -265,6 +270,7 @@ impl Ondera {
                     });
                     let _ = tx.send(outcome);
                 });
+                self.attach_control = true;
                 self.control_job = Some(ControlJob {
                     receiver: rx,
                     reply: None,
@@ -1417,6 +1423,33 @@ fn release_json(release: &crate::update::Release) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reply_waits_only_on_the_job_its_own_command_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = Ondera::from_session(store::empty(), None);
+        // A save nobody waits on, like a dropped MIDI file importing.
+        let started = app
+            .run_control_command(
+                "session.save",
+                &json!({"path": dir.path().join("song.ondera")}),
+                false,
+                "Interface",
+            )
+            .unwrap();
+        assert_eq!(started["status"], "running");
+        app.run_control_command("session.info", &json!({}), false, "CLI")
+            .unwrap();
+        let (tx, _rx) = mpsc::sync_channel(1);
+        assert!(
+            app.attach_reply(Reply::Channel(tx)).is_err(),
+            "session.info must be answered now, not with the save's result"
+        );
+        while app.control_job.is_some() {
+            app.poll_control_job();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn punch_answers_for_itself_not_for_an_error_already_on_screen() {
         let mut app = Ondera::from_session(ondera_engine::store::empty(), None);
