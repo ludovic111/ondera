@@ -124,9 +124,13 @@ impl Ondera {
     /// Hand a waiting party to the job the last command started. Returns the reply when
     /// nothing is pending so the caller can answer immediately.
     pub(crate) fn attach_reply(&mut self, reply: Reply) -> std::result::Result<(), Reply> {
-        if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
-            job.reply = Some(reply);
-            return Ok(());
+        // Only the job this command started: a file job started earlier (a dropped MIDI file
+        // imports with nobody waiting) must not take the answer of an unrelated command.
+        if std::mem::take(&mut self.attach_control) {
+            if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
+                job.reply = Some(reply);
+                return Ok(());
+            }
         }
         if let Some(index) = self.attach_live.take() {
             if let Some(job) = self
@@ -153,6 +157,7 @@ impl Ondera {
         let before = self.store.revision;
         let depth_before = self.store.undo_depth();
         self.attach_live = None;
+        self.attach_control = false;
         let result = (|| {
             control::validate_request(method, params)?;
             if method.starts_with("take.") && method != "take.list" && self.agents.runtime.running()
@@ -171,23 +176,26 @@ impl Ondera {
                 {
                     return Err("Agent connections and permissions must be changed by the person in Settings".into());
                 }
-                if let Some(denied) =
-                    control_app::denied_for_agent(method, &self.settings.agent.permissions)
-                {
+                if let Some(denied) = control_app::denied_for_agent_request(
+                    method,
+                    params,
+                    &self.settings.agent.permissions,
+                ) {
                     return Err(denied);
                 }
             }
             if matches!(method, "session.new" | "session.open") {
                 self.can_replace_document()?;
             }
-            if self.control_job.is_some()
-                && control::COMMANDS
+            if let Some(job) = self.control_job.as_ref().filter(|_| {
+                control::COMMANDS
                     .iter()
                     .any(|s| s.name == method && s.mutates)
-            {
-                return Err(
-                    "An agent file operation is in progress; retry when it finishes.".into(),
-                );
+            }) {
+                return Err(format!(
+                    "{} is still running; retry {method} when it finishes.",
+                    job.method
+                ));
             }
             if matches!(
                 method,
@@ -262,6 +270,7 @@ impl Ondera {
                     });
                     let _ = tx.send(outcome);
                 });
+                self.attach_control = true;
                 self.control_job = Some(ControlJob {
                     receiver: rx,
                     reply: None,
@@ -275,6 +284,10 @@ impl Ondera {
                 return Ok(json!({"status":"running", "command":method}));
             }
             if method == "rhythm.preview" {
+                // The render runs on a scratch document that has no file: check the window's.
+                if let Some(path) = params.get("path").and_then(Value::as_str) {
+                    control::protect_session_file(self.path.as_deref(), Path::new(path))?;
+                }
                 // An offline render: seconds of work that must not hold the interface, and that
                 // needs nothing from the open document but its tempo and meter.
                 let mut scratch = Headless::new();
@@ -1034,15 +1047,16 @@ impl Host for Ondera {
                 if self.record_enabled != enabled {
                     self.record_enabled = enabled;
                     if self.playing {
-                        if enabled {
-                            self.start_recording();
-                        } else {
-                            self.finish_recording();
-                        }
+                        // Only this punch's own failure answers the request: an error the
+                        // window was already showing is not about it.
+                        self.guarded(|app| {
+                            if enabled {
+                                app.start_recording();
+                            } else {
+                                app.finish_recording();
+                            }
+                        })?;
                     }
-                }
-                if let Some(error) = self.error.clone().filter(|_| enabled && self.playing) {
-                    return Err(error);
                 }
                 Ok(
                     json!({ "recordEnabled": self.record_enabled, "playing": self.playing,
@@ -1411,6 +1425,47 @@ fn release_json(release: &crate::update::Release) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reply_waits_only_on_the_job_its_own_command_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = Ondera::from_session(store::empty(), None);
+        // A save nobody waits on, like a dropped MIDI file importing.
+        let started = app
+            .run_control_command(
+                "session.save",
+                &json!({"path": dir.path().join("song.ondera")}),
+                false,
+                "Interface",
+            )
+            .unwrap();
+        assert_eq!(started["status"], "running");
+        app.run_control_command("session.info", &json!({}), false, "CLI")
+            .unwrap();
+        let (tx, _rx) = mpsc::sync_channel(1);
+        assert!(
+            app.attach_reply(Reply::Channel(tx)).is_err(),
+            "session.info must be answered now, not with the save's result"
+        );
+        while app.control_job.is_some() {
+            app.poll_control_job();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn punch_answers_for_itself_not_for_an_error_already_on_screen() {
+        let mut app = Ondera::from_session(ondera_engine::store::empty(), None);
+        app.error = Some("Audio device disconnected".into());
+        app.playing = true;
+        app.record_enabled = true;
+        let reply = app
+            .run_control_command("transport.punch", &json!({"enabled": true}), false, "CLI")
+            .expect("nothing changed, so nothing failed");
+        assert_eq!(reply["recordEnabled"], true);
+        assert_eq!(app.error.as_deref(), Some("Audio device disconnected"));
+        app.playing = false;
+    }
+
     use super::*;
     use ondera_engine::{audio::AudioBuffer, model::*, store};
     use std::time::{Duration, Instant};

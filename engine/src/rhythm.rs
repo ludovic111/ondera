@@ -60,7 +60,7 @@ pub(crate) fn call(host: &mut dyn Host, args: &Args<'_>, agent: bool) -> Result<
     }
     notes.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
     let name = args.opt_str("name").unwrap_or("Rhythm Lab").trim();
-    if name.is_empty() || name.len() > 120 {
+    if name.is_empty() || name.chars().count() > 120 {
         return Err("Groove names must be 1–120 characters".into());
     }
     let mut track = control::new_track(s, "midi", Some(name.into()), "#7cced8".into());

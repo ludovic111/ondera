@@ -250,6 +250,12 @@ impl WebHost {
         match method {
             "web.ready" => {
                 self.ready = true;
+                // A reloaded page starts empty: send the agent panel, the audio list, the
+                // meters and the UI state again instead of waiting for them to change.
+                self.last_agent = 0;
+                self.last_library.clear();
+                self.last_telemetry = Value::Null;
+                self.last_ui = Value::Null;
                 Ok(json!({"session":self.document()?,"ui":self.ui()?,
                     "catalog":control::call(&mut self.app,"session.catalog",&json!({}),false)?,
                     "platform":std::env::consts::OS,"version":env!("CARGO_PKG_VERSION")}))
@@ -380,6 +386,14 @@ impl WebHost {
             );
         }
         if !audio.is_empty() {
+            // One import runs at a time: say what was left out rather than drop it silently.
+            if !midi.is_empty() {
+                self.app.error = Some(format!(
+                    "Importing the audio. {} MIDI file{} left out: drop MIDI on its own.",
+                    midi.len(),
+                    if midi.len() == 1 { " was" } else { "s were" }
+                ));
+            }
             self.app.import(Some(audio));
         } else if let Some(path) = midi.first() {
             let bar = (self.app.position / self.app.store.session().beats_per_bar()).floor();
@@ -408,6 +422,7 @@ impl WebHost {
             self.app.poll_control_job();
             self.app.poll_recovery(ctx);
             self.app.poll_agent(ctx);
+            self.app.poll_bridge(ctx);
             self.app.serve_control(false);
             self.app.poll_updates();
         });
@@ -695,6 +710,32 @@ mod tests {
             startup_capture: false,
             last_library: Default::default(),
         }
+    }
+
+    #[test]
+    fn a_drop_of_audio_and_midi_says_the_midi_was_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("loop.wav");
+        let mid = dir.path().join("riff.mid");
+        std::fs::write(&wav, b"").unwrap();
+        std::fs::write(&mid, b"").unwrap();
+        let mut host = host();
+        host.drop_files(vec![wav, mid]).unwrap();
+        let error = host.app.error.clone().unwrap_or_default();
+        assert!(error.contains("MIDI file was left out"), "{error}");
+    }
+
+    #[test]
+    fn a_reloaded_page_is_sent_everything_again() {
+        let mut host = host();
+        host.last_agent = 42;
+        host.last_library.insert("source".into(), 1);
+        host.last_telemetry = json!({"playing": false});
+        host.last_ui = json!({"status": "Ready"});
+        host.command("web.ready", &json!({})).unwrap();
+        assert_eq!(host.last_agent, 0);
+        assert!(host.last_library.is_empty());
+        assert!(host.last_telemetry.is_null() && host.last_ui.is_null());
     }
 
     #[test]

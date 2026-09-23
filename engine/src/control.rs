@@ -262,8 +262,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("strip.setInsert", "Load, bypass or clear an insert effect slot.", &[
         TRACK_ID,
         req("slot", Kind::Integer, "Insert slot 0-7."),
-        opt("effect", Kind::String, "Effect name from session.catalog. Omit or null to empty the slot."),
-        opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false)."),
+        opt("effect", Kind::String, "Effect name from session.catalog. Omit it, and bypassed, to empty the slot."),
+        opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false). Without effect, bypasses or enables the effect already in the slot."),
     ]),
     edit("strip.setSendLevel", "Set a send level to the reverb (A) or delay (B) bus.", &[
         TRACK_ID,
@@ -484,14 +484,24 @@ pub trait Host {
 }
 
 /// Decode an audio file with the same limits the desktop import applies.
+/// Errors name the file: an import of several files must say which one failed.
 pub fn decode_file(path: &Path) -> Result<AudioBuffer> {
-    if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > audio::MAX_AUDIO_BYTES as u64 {
-        return Err("Audio file exceeds 512 MiB".into());
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let named = |e: String| format!("{name}: {e}");
+    let size = std::fs::metadata(path)
+        .map_err(|e| named(e.to_string()))?
+        .len();
+    if size > audio::MAX_AUDIO_BYTES as u64 {
+        return Err(named("Audio file exceeds 512 MiB".into()));
     }
     audio::decode(
-        std::fs::read(path).map_err(|e| e.to_string())?,
+        std::fs::read(path).map_err(|e| named(e.to_string()))?,
         path.extension().and_then(|s| s.to_str()),
     )
+    .map_err(named)
 }
 
 /// File-backed host without a window or audio device.
@@ -745,6 +755,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     ) {
         protect_session_file(host.path(), Path::new(a.str("path")?))?;
     }
+    if name == "rhythm.preview" {
+        if let Some(path) = a.opt_str("path") {
+            protect_session_file(host.path(), Path::new(path))?;
+        }
+    }
     if name.starts_with("automation.") {
         return crate::control_automation::call(host, name, params, agent);
     }
@@ -877,7 +892,28 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "transport.setMetronome" => t.metronome = a.bool("enabled")?,
                 _ => t.snap_division = whole(a.int("division")?, "division")?,
             }
-            host.dispatch(Command::SetTransport(t))?;
+            // Clips sit on bars and automation on beats: a new meter moves every clip, so
+            // the automation moves with them (by bar position), in the same undo step.
+            let session = host.store().session();
+            let (old, new) = (
+                session.beats_per_bar(),
+                t.time_signature.numerator as f64 * 4.0 / t.time_signature.denominator as f64,
+            );
+            let mut commands = vec![Command::SetTransport(t)];
+            if old != new && old > 0.0 {
+                for lane in &session.automation {
+                    let mut lane = lane.clone();
+                    for point in &mut lane.points {
+                        point.beat *= new / old;
+                    }
+                    commands.push(Command::PutAutomation(lane));
+                }
+            }
+            host.dispatch(if commands.len() == 1 {
+                commands.remove(0)
+            } else {
+                Command::Batch(commands)
+            })?;
             Ok(transport(host))
         }
         "track.list" => {
@@ -1459,6 +1495,22 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "strip.setInsert" => {
                     let slot = plugin_slot(&a)?.ok_or("Insert slot required")?;
                     strip.inserts[slot] = match a.opt_str("effect") {
+                        // `bypassed` alone bypasses what is there: emptying the slot would
+                        // throw away the effect and its settings.
+                        None if a.opt_bool("bypassed").is_some() => {
+                            let mut insert = strip.inserts[slot].clone();
+                            if insert.is_empty() {
+                                return Err(format!(
+                                    "Insert slot {slot} is empty; pass `effect` to load one"
+                                ));
+                            }
+                            insert.state = if a.opt_bool("bypassed") == Some(true) {
+                                "bypassed".into()
+                            } else {
+                                "active".into()
+                            };
+                            insert
+                        }
                         None => Insert::empty_slot(),
                         Some(effect) => {
                             if !EFFECTS.contains(&effect) {
@@ -1542,7 +1594,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
 
 /// Exports must not replace the document that the host is currently editing,
 /// including through a relative path or a symlink alias.
-fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
+pub fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
     fn identity(path: &Path) -> Result<PathBuf> {
         if path.exists() {
             return std::fs::canonicalize(path).map_err(|e| e.to_string());

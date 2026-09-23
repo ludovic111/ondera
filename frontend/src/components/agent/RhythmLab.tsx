@@ -79,7 +79,7 @@ export function RhythmLab({ busy }: { busy: boolean }) {
         await audio.play();
         setMessage("Previewing through your system audio output.");
       } else {
-        const result = await store.run<{
+        const result = await store.request<{
           noteCount: number;
           excludedBySolo: boolean;
         }>("rhythm.create", params());
@@ -125,7 +125,7 @@ export function RhythmLab({ busy }: { busy: boolean }) {
           <div key={lane.name} className={styles.rhythmLane}>
             <strong>{lane.name}</strong>
             <div
-              className={styles.steps}
+              className={styles.grooveSteps}
               aria-label={`${lane.pulses} hits over ${lane.steps} steps`}
             >
               {Array.from({ length: lane.steps }, (_, i) => (

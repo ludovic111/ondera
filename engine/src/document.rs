@@ -94,15 +94,36 @@ pub fn save(session: &Session, library: &Library, path: &Path) -> Result<()> {
     })
 }
 /// Write, flush and sync a sibling temporary file, then atomically replace the destination.
+/// The result has the permissions a plain write would give it: the replaced file's, or
+/// readable by others for a new one (the temporary file starts owner-only, so a re-saved song
+/// or an exported mix would otherwise turn 0600). A symlinked destination is written through.
+/// `write` may tighten the permissions itself (settings do).
 pub fn atomic_write(
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> Result<()>,
 ) -> Result<()> {
+    let resolved;
+    let path = if path.is_symlink() {
+        resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        resolved.as_path()
+    } else {
+        path
+    };
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path)
+            .map(|m| m.permissions().mode() & 0o7777)
+            .unwrap_or(0o644);
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(mode))
+            .map_err(|e| e.to_string())?;
+    }
     write(tmp.as_file_mut())?;
     tmp.as_file().sync_all().map_err(|e| e.to_string())?;
     tmp.persist(path).map_err(|e| e.to_string())?;

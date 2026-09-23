@@ -46,7 +46,7 @@ pub const SPECS: &[Spec] = &[
         opt("browserSelection", Kind::String, "Name of the browser row to select; an empty string clears it."),
         opt("laneWidth", Kind::Number, "Width of the arrangement lanes in pixels, 50-20000. The window reports it as it resizes; scripts rarely need to."),
     ]),
-    query("rhythm.preview", "Render a Euclidean groove to a WAV at the session's tempo and meter without creating anything: hear it before rhythm.create. In the app it runs as a job and answers when the file is written.", &[req("lanes", Kind::Array, "As for rhythm.create."), req("bars", Kind::Integer, "1-4 bars, at most 30 seconds."), opt("path", Kind::String, "Destination .wav; defaults to one preview file in the data folder that each preview replaces."), opt("inline", Kind::Boolean, "Also return the file as wavBase64 (default false).")]),
+    edit("rhythm.preview", "Render a Euclidean groove to a WAV at the session's tempo and meter without creating anything: hear it before rhythm.create. In the app it runs as a job and answers when the file is written.", &[req("lanes", Kind::Array, "As for rhythm.create."), req("bars", Kind::Integer, "1-4 bars, at most 30 seconds."), opt("path", Kind::String, "Destination .wav; defaults to one preview file in the data folder that each preview replaces."), opt("inline", Kind::Boolean, "Also return the file as wavBase64 (default false).")]),
     edit("clip.quantize", "Snap every note start in a MIDI clip to the grid, in one undo step.", &[
         CLIP_ID,
         opt("division", Kind::Integer, "Notes per bar: 1, 2, 4, 8, 16, 32 or 64. Defaults to the transport snap."),
@@ -218,6 +218,24 @@ pub fn is_live_only(name: &str) -> bool {
 }
 
 /// Agent permission check from Settings > Agent. `None` when a command is allowed.
+/// `denied_for_agent` for a whole request: commands that write only to Ondera's own data
+/// folder by default count as file operations when they are given a `path`.
+pub fn denied_for_agent_request(
+    name: &str,
+    params: &serde_json::Value,
+    permissions: &settings::Permissions,
+) -> Option<String> {
+    if matches!(name, "rhythm.preview" | "ui.screenshot")
+        && params.get("path").is_some_and(|p| !p.is_null())
+        && !permissions.file_operations
+    {
+        return Some(format!(
+            "{name} with a path is not allowed for agents: file operations is off in Settings > Agent (fileOperations). Omit path to use the default location."
+        ));
+    }
+    denied_for_agent(name, permissions)
+}
+
 pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Option<String> {
     let deny = |what: &str, setting: &str| {
         Some(format!(

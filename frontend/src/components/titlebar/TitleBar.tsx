@@ -54,6 +54,7 @@ export function TitleBar() {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
+          anchor={menu.anchor}
         />
       )}
     </div>

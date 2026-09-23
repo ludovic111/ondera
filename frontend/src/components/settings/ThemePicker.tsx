@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { TRACK_PALETTE } from "@ondera/core";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import {
   normalizeTheme,
@@ -15,9 +16,9 @@ const BLURB: Record<ThemeId, string> = {
   aero: "Glass, water and sky",
 };
 const CLIPS = [
-  ["oklch(0.72 0.14 40)", 8, 46],
-  ["oklch(0.72 0.13 300)", 8, 70],
-  ["oklch(0.75 0.13 250)", 30, 52],
+  [TRACK_PALETTE.drums, 8, 46],
+  [TRACK_PALETTE.bass, 8, 70],
+  [TRACK_PALETTE.keys, 30, 52],
 ] as const;
 
 /** A window in miniature, painted with the real tokens of that theme. */

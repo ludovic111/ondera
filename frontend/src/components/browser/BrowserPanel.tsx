@@ -10,6 +10,7 @@ import { importAudioFiles } from "../../state/document";
 import { playheadBar } from "../../state/actions";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import { Button } from "../primitives/Button";
+import { InlineEdit } from "../primitives/InlineEdit";
 import { CapsLabel } from "../primitives/CapsLabel";
 import {
   ChevronRightIcon,
@@ -62,6 +63,8 @@ export function BrowserPanel() {
   const [query, setQuery] = useState("");
   const [closed, setClosed] = useState(readClosed);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // The plugin being filed under a folder whose name is being typed.
+  const [naming, setNaming] = useState<string | null>(null);
   const pluginTab = tab === "plugins" || tab === "instruments";
   // Only the folder the person just opened animates its rows in; the list as a whole, a
   // search, or a rescan must not ripple.
@@ -128,11 +131,9 @@ export function BrowserPanel() {
           onSelect: () => setFolder(item, name),
         })),
       {
+        // The webview has no text prompt (window.prompt returns null at once): name it in place.
         label: "Move to new folder…",
-        onSelect: () => {
-          const name = window.prompt("Folder name")?.trim();
-          if (name) setFolder(item, name);
-        },
+        onSelect: () => setNaming(item.id ?? null),
       },
       { label: "Return to automatic folder", onSelect: () => setFolder(item) },
     ];
@@ -321,7 +322,20 @@ export function BrowserPanel() {
                           background: it.color ?? "var(--color-neutral-dot)",
                         }}
                       />
-                      <span className={styles.itemName}>{it.name}</span>
+                      {naming !== null && naming === it.id ? (
+                        <InlineEdit
+                          className={styles.itemName}
+                          value=""
+                          placeholder={`New folder for ${it.name}`}
+                          onCommit={(name) => {
+                            setNaming(null);
+                            setFolder(it, name);
+                          }}
+                          onCancel={() => setNaming(null)}
+                        />
+                      ) : (
+                        <span className={styles.itemName}>{it.name}</span>
+                      )}
                       <span className={styles.meta}>{it.meta}</span>
                       {pluginTab && it.id && (
                         <button

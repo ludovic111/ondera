@@ -78,7 +78,7 @@ export function ModelSelector({
             setSaving(true);
             setError("");
             try {
-              await store.run("agent.configure", {
+              await store.request("agent.configure", {
                 provider,
                 model: model.trim(),
                 reasoningEffort: effort,

@@ -85,6 +85,9 @@ pub fn batchable(name: &str) -> bool {
             | "session.restoreSnapshot"
             | "plugin.scan"
             | "ui.screenshot"
+            // Capturing a plugin's state is an undo step of its own in the window, which
+            // would end the batch's step and break its rollback.
+            | "strip.getState"
     ))
 }
 

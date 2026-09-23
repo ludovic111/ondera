@@ -246,7 +246,9 @@ pub fn import_bytes(
     if micros == 0 {
         return Err("MIDI tempo cannot be zero".into());
     }
-    let tempo = 60_000_000.0 / micros as f64;
+    // A file stores whole microseconds per quarter, so 90 BPM comes back as 89.99995:
+    // thousandths of a BPM are all a tempo shows, and a round trip lands where it started.
+    let tempo = (60_000_000.0 / micros as f64 * 1000.0).round() / 1000.0;
     let mut warnings = vec![];
     if tempo_events
         .iter()

@@ -15,14 +15,18 @@ export type MenuEntry = MenuItem | { separator: true };
 
 export const separator: MenuEntry = { separator: true };
 
-/** A menu row for an action, resolving enabled/checked against current state. */
+/**
+ * A menu row for an action, resolving enabled/checked against current state, or against
+ * `state` when the caller knows better: a context menu selects what was clicked, but that
+ * selection reaches the store only after the menu is built.
+ */
 export function actionItem(
   store: SessionStore,
   id: ActionId,
   label?: string,
+  state: Session = store.getState(),
 ): MenuEntry {
   const def = actions[id];
-  const state = store.getState();
   return {
     label: label ?? def.label,
     ...(def.shortcut ? { shortcut: formatShortcut(def.shortcut) } : {}),
@@ -63,9 +67,15 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         file("Save", "save"),
         call("Save as…", "web.file", { action: "save", saveAs: true }),
         file("Import audio…", "import"),
-        file("Import MIDI…", "importMidi"),
+        {
+          label: "Import MIDI…",
+          onSelect: () => void store.importMidiFile().catch(() => {}),
+        },
         file("Export audio…", "export"),
-        file("Export MIDI…", "exportMidi"),
+        {
+          label: "Export MIDI…",
+          onSelect: () => void store.exportMidiFile().catch(() => {}),
+        },
         separator,
         panel("Recover session…", "recovery"),
         separator,

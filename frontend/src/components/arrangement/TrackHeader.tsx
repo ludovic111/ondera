@@ -10,6 +10,7 @@ import { MonitorButton } from "../primitives/MonitorButton";
 import { LedStrip } from "../primitives/LedStrip";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { actionItem, separator, type MenuEntry } from "../../state/menus";
+import type { ActionId } from "../../state/actions";
 import styles from "./TrackHeader.module.css";
 
 /** Degrees of knob rotation per pan unit; ±100 maps to ±135°. */
@@ -35,6 +36,19 @@ export function TrackHeader({ track }: { track: Track }) {
   const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     dispatch(commands.track.select({ trackId: track.id }));
+    // The select reaches the store after the menu is built: judge the rows by this track.
+    const state = store.getState();
+    const picked = {
+      ...state,
+      view: {
+        ...state.view,
+        selectedTrackId: track.id,
+        selectedClipId: null,
+        selectedNoteId: null,
+      },
+    };
+    const item = (id: ActionId, label?: string) =>
+      actionItem(store, id, label, picked);
     const colors: MenuEntry[] = Object.entries(TRACK_PALETTE).map(
       ([name, color]) => ({
         label: `Colour · ${name}`,
@@ -48,13 +62,11 @@ export function TrackHeader({ track }: { track: Track }) {
       y: e.clientY,
       items: [
         { label: "Rename…", onSelect: () => setRenaming(true) },
-        actionItem(store, "muteSelectedTrack"),
-        actionItem(store, "soloSelectedTrack"),
-        actionItem(store, "armSelectedTrack"),
-        ...(track.kind === "audio"
-          ? [actionItem(store, "cycleMonitorSelectedTrack")]
-          : []),
-        actionItem(store, "duplicateTrack"),
+        item("muteSelectedTrack"),
+        item("soloSelectedTrack"),
+        item("armSelectedTrack"),
+        ...(track.kind === "audio" ? [item("cycleMonitorSelectedTrack")] : []),
+        item("duplicateTrack"),
         separator,
         {
           label: "Move Up",
@@ -75,11 +87,11 @@ export function TrackHeader({ track }: { track: Track }) {
         separator,
         ...colors,
         separator,
-        actionItem(store, "addAudioTrack"),
-        actionItem(store, "addMidiTrack"),
-        actionItem(store, "removeSelectedTrack"),
+        item("addAudioTrack"),
+        item("addMidiTrack"),
+        item("removeSelectedTrack"),
         separator,
-        actionItem(store, "askAgent", "Ask Agent About This Track…"),
+        item("askAgent", "Ask Agent About This Track…"),
       ],
     });
   };

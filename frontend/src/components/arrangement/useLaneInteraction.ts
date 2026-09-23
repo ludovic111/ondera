@@ -391,6 +391,20 @@ export function useLaneInteraction() {
     [store],
   );
 
+  /**
+   * The system took the pointer (a gesture, a dialog, a lost capture): drop the drag and its
+   * ghost. Left alone, the next release would commit a move nobody made.
+   */
+  const onPointerCancel = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!drag.current) return;
+      drag.current = null;
+      setOverlay({});
+      e.currentTarget.style.cursor = "default";
+    },
+    [],
+  );
+
   /** Plain click on empty lane: clear clip selection and select the track. */
   const onClick = useCallback(
     (
@@ -429,6 +443,7 @@ export function useLaneInteraction() {
     onPointerDown,
     onPointerMove,
     onPointerUp,
+    onPointerCancel,
     onClick,
     onDoubleClick,
   };

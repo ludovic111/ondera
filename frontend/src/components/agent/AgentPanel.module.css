@@ -662,20 +662,22 @@
   border-radius: var(--radius-glass);
   border: 1px solid var(--color-control-face);
 }
-.steps {
+/* The groove's step dots. Named apart from .steps (the agent's tool steps): one class for
+   both gave every label in the conversation the dots' 12 px width. */
+.grooveSteps {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin: 9px 0 12px;
 }
-.steps span {
+.grooveSteps span {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: var(--color-groove);
   box-shadow: var(--shadow-groove-send);
 }
-.steps span[data-hit="true"] {
+.grooveSteps span[data-hit="true"] {
   background: var(--gradient-lit);
   box-shadow: var(--shadow-led-lit);
 }

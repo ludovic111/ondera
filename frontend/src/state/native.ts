@@ -11,6 +11,7 @@ import type {
   BrowserTab,
 } from "@ondera/core";
 import { library } from "../audio/library";
+import { beatsPerBar } from "../core/time";
 
 export type Params = Record<string, unknown>;
 export interface UiState {
@@ -377,13 +378,20 @@ export class NativeStore {
   private notifyMeta = () => {
     for (const listener of this.metadataListeners) listener();
   };
+  /**
+   * An error the window found itself ("All eight inserts are occupied", a failed chooser).
+   * The host's UI state knows nothing of it, so it outlives the host's next update.
+   */
+  private localError: string | null = null;
   dismissError = () => {
+    this.localError = null;
     this.ui = { ...this.ui, error: null };
     this.notifyMeta();
     this.fire("ui.dismissError");
   };
   reportError = (error: unknown) => {
-    this.ui = { ...this.ui, error: String(error) };
+    this.localError = String(error);
+    this.ui = { ...this.ui, error: this.localError };
     this.notifyMeta();
   };
   async connect() {
@@ -455,7 +463,8 @@ export class NativeStore {
     // unrelated update, which could still carry the value from before a local toggle.
     if (ui.palette !== undefined && ui.palette !== this.ui.palette)
       this.overlays = { ...this.overlays, palette: ui.palette };
-    this.ui = ui;
+    this.ui =
+      !ui.error && this.localError ? { ...ui, error: this.localError } : ui;
     this.state = {
       ...this.state,
       view: {
@@ -646,9 +655,43 @@ export class NativeStore {
     };
     this.notify();
   }
+  /**
+   * File > Import MIDI…: choose a file, then `session.importMidi` places it at the playhead's
+   * bar. The window's own dialog belongs to the egui interface, which Tauri does not draw.
+   */
+  async importMidiFile(): Promise<void> {
+    const path = await invoke<string | null>("daw_pick", { kind: "midi" });
+    if (!path) return;
+    const { positionBeats, timeSignature } = this.state.transport;
+    const bars = positionBeats / beatsPerBar(timeSignature);
+    await this.run("session.importMidi", {
+      path,
+      startBar: Number.isFinite(bars) ? Math.max(0, Math.floor(bars)) : 0,
+    });
+  }
+  /** File > Export MIDI…: choose where, then `session.exportMidi` writes every track. */
+  async exportMidiFile(): Promise<void> {
+    const path = await invoke<string | null>("daw_pick", {
+      kind: "saveMidi",
+      name: `${this.state.name.replace(/\.ondera$/i, "")}.mid`,
+    });
+    if (!path) return;
+    await this.run("session.exportMidi", {
+      path: /\.midi?$/i.test(path) ? path : `${path}.mid`,
+    });
+  }
   run<T = unknown>(method: string, params: Params = {}): Promise<T> {
     const task = this.queue.then(() => native<T>(method, params));
     this.queue = task.catch(this.reportError);
+    return task;
+  }
+  /**
+   * `run` for a caller that shows its own error (a form's inline message): the window's
+   * error dialog stays closed. Queued in the same order as every other command.
+   */
+  request<T = unknown>(method: string, params: Params = {}): Promise<T> {
+    const task = this.queue.then(() => native<T>(method, params));
+    this.queue = task.catch(() => {});
     return task;
   }
   /**
@@ -717,6 +760,15 @@ export class NativeStore {
         return;
       case "transport.togglePlay":
         method = s.transport.playing ? "transport.stop" : "transport.play";
+        // Telemetry reports the change a tick later: a second press queued behind this one
+        // must see it, or two quick presses both start playback.
+        this.state = {
+          ...s,
+          transport: {
+            ...s.transport,
+            playing: method === "transport.play",
+          },
+        };
         break;
       case "transport.setPosition":
         method = "transport.locate";

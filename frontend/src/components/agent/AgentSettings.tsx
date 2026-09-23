@@ -105,7 +105,10 @@ export function AgentSettings({
     setNotice("");
     try {
       for (const [path, value] of entries)
-        await store.run("settings.set", { path: `agent.${path}`, value });
+        await store.request("settings.set", {
+          path: `agent.${path}`,
+          value,
+        });
       await refresh();
       setKey("");
       setModel(model.trim());

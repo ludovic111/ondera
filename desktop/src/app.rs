@@ -157,6 +157,8 @@ pub struct Ondera {
     pub(crate) settings_ui: crate::settings::SettingsWindow,
     pub(crate) live_jobs: Vec<crate::control::LiveJob>,
     pub(crate) attach_live: Option<usize>,
+    /// The last command started `control_job`, so a waiting caller belongs to it.
+    pub(crate) attach_control: bool,
     /// A `session.batch` is running: its commands share one undo step.
     pub(crate) batching: bool,
     /// The one input stream: level meter, monitoring and takes. Open while an audio track is
@@ -233,6 +235,18 @@ impl Ondera {
         app
     }
     /// Remember a session file in the recent list and as the last one opened.
+    /// Keep the audio a finished "Updating audio" job generated, but only what the open
+    /// document uses: a New, Open or Recover while it ran cleared the library, and adding the
+    /// previous session's buffers back would hold them in memory and count them against the
+    /// 1 GiB limit that later imports and recordings hit.
+    pub(crate) fn adopt_prepared_library(&mut self, library: Library) {
+        let sources = &self.store.session().sources;
+        for (id, buffer) in library {
+            if sources.contains_key(&id) {
+                self.library.entry(id).or_insert(buffer);
+            }
+        }
+    }
     pub(crate) fn remember_session(&mut self, path: &std::path::Path) {
         let text = path.to_string_lossy().into_owned();
         let recent = &mut self.settings.general.recent_sessions;
@@ -325,6 +339,7 @@ impl Ondera {
             settings_ui: Default::default(),
             live_jobs: vec![],
             attach_live: None,
+            attach_control: false,
             batching: false,
             input: None,
             input_pending: None,
@@ -713,7 +728,7 @@ impl Ondera {
                     library,
                     revision,
                 }) => {
-                    self.library.extend(library);
+                    self.adopt_prepared_library(library);
                     if revision == self.store.revision
                         && self
                             .device
@@ -1454,15 +1469,7 @@ impl Ondera {
             let mut files = vec![];
             let mut decoded_bytes = 0usize;
             for path in paths {
-                if std::fs::metadata(&path).map_err(|e| e.to_string())?.len()
-                    > audio::MAX_AUDIO_BYTES as u64
-                {
-                    return Err("Audio file exceeds 512 MiB".into());
-                }
-                let buffer = audio::decode(
-                    std::fs::read(&path).map_err(|e| e.to_string())?,
-                    path.extension().and_then(|s| s.to_str()),
-                )?;
+                let buffer = ondera_engine::control::decode_file(&path)?;
                 decoded_bytes = decoded_bytes.saturating_add(buffer.frames.len() * 8);
                 if decoded_bytes > audio::MAX_LIBRARY_BYTES {
                     return Err("Imported batch exceeds 1 GiB of decoded audio".into());
@@ -1473,8 +1480,11 @@ impl Ondera {
         });
     }
     pub(crate) fn save(&mut self, save_as: bool) {
+        // A save that does not start must not leave "then quit" (or New, Open…) waiting for
+        // the next ordinary save to run it.
         if self.job.is_some() || self.control_job.is_some() {
             self.status = "Wait for the current operation before saving".into();
+            self.after_save = None;
             return;
         }
         self.stop();
@@ -1484,6 +1494,7 @@ impl Ondera {
         }
         if let Err(error) = self.guarded(Ondera::capture_plugin_states) {
             self.error = Some(error);
+            self.after_save = None;
             return;
         }
         let mut session = (*self.store.snapshot()).clone();
@@ -1536,6 +1547,18 @@ impl Ondera {
         path: PathBuf,
         ownership: Option<SessionFileLock>,
     ) {
+        self.load_document(session, library, path, ownership, true);
+    }
+    /// `remember` files the path under Recent sessions and as the session to reopen; a
+    /// recovery snapshot is neither.
+    pub(crate) fn load_document(
+        &mut self,
+        session: Session,
+        library: Library,
+        path: PathBuf,
+        ownership: Option<SessionFileLock>,
+        remember: bool,
+    ) {
         self.unload_plugins();
         self.position = session.transport.position_beats;
         self.zoom = session.view.pixels_per_bar.clamp(12.0, 480.0);
@@ -1546,7 +1569,9 @@ impl Ondera {
             self.reset_agent_history();
             self.recovery.new_document();
             self.library = library;
-            self.remember_session(&path);
+            if remember {
+                self.remember_session(&path);
+            }
             self.path = Some(path);
             self.session_file = ownership;
             self.sync_needed = true;
@@ -1561,8 +1586,12 @@ impl Ondera {
         self.session_file = Some(ownership);
         self.store.mark_saved(revision);
         self.status = "Session saved".into();
-        if !self.store.dirty() {
-            if let Some(intent) = self.after_save.take() {
+        if let Some(intent) = self.after_save.take() {
+            if self.store.dirty() {
+                // Edited while saving: ask again rather than quit over the new changes, or
+                // keep the request around for an unrelated save later.
+                self.intent = Some(intent);
+            } else {
                 self.execute(intent);
             }
         }
@@ -1641,11 +1670,12 @@ impl Ondera {
                 self.closing = true;
             }
             Intent::Relaunch => {
-                if let Some(target) = self.updates.installed.take() {
-                    if let Err(e) = crate::update::relaunch(&target) {
-                        self.error = Some(e);
-                        return;
-                    }
+                // Without an installed update, Relaunch starts this copy again: quitting
+                // without a new window would look like a crash.
+                let target = crate::update::relaunch_target(self.updates.installed.take());
+                if let Err(e) = target.and_then(|target| crate::update::relaunch(&target)) {
+                    self.error = Some(e);
+                    return;
                 }
                 self.shutdown_audio();
                 self.closing = true;
@@ -2199,6 +2229,52 @@ impl eframe::App for Ondera {
 mod tests {
     use super::*;
     use egui::{vec2, Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect};
+
+    #[test]
+    fn audio_prepared_for_a_replaced_session_is_not_kept() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        let current: Vec<String> = app.store.session().sources.keys().cloned().collect();
+        let buffer = || {
+            Arc::new(ondera_engine::audio::AudioBuffer {
+                frames: vec![[0.0; 2]; 4],
+                sample_rate: 48000,
+                peaks: vec![],
+            })
+        };
+        let mut prepared = Library::new();
+        prepared.insert("from-the-old-session".into(), buffer());
+        for id in &current {
+            prepared.insert(id.clone(), buffer());
+        }
+        app.library.clear();
+        app.adopt_prepared_library(prepared);
+        assert!(!app.library.contains_key("from-the-old-session"));
+        assert_eq!(app.library.len(), current.len());
+    }
+
+    #[test]
+    fn a_save_that_does_not_happen_forgets_what_was_to_follow() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.dispatch(Command::Rename("Edited".into()));
+        app.after_save = Some(Intent::Quit);
+        let (_busy, receiver) = mpsc::sync_channel(1);
+        app.job = Some(receiver);
+        app.save(false);
+        assert!(app.after_save.is_none(), "a later Cmd+S must not quit");
+        app.job = None;
+
+        // Edits made while the save ran: ask again instead of quitting over them.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.ondera");
+        let lock = SessionFileLock::acquire_or_reuse(&path, None).unwrap();
+        let saved_revision = app.store.revision;
+        app.dispatch(Command::Rename("Edited again".into()));
+        app.after_save = Some(Intent::Quit);
+        app.saved(path, saved_revision, lock);
+        assert!(!app.closing);
+        assert!(matches!(app.intent, Some(Intent::Quit)));
+        assert!(app.after_save.is_none());
+    }
 
     fn frame(app: &mut Ondera, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
         let input = RawInput {

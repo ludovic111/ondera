@@ -1,5 +1,6 @@
 import {
   barsToSeconds,
+  beatLineOffsets,
   beatsPerBar,
   beatsToBars,
   clipEnvelope,
@@ -8,6 +9,7 @@ import {
   type Clip,
   type Marker,
   type Session,
+  type TimeSignature,
   type Track,
 } from "@ondera/core";
 import {
@@ -209,7 +211,7 @@ export function drawLanes(
   }
 
   // Grid.
-  drawGrid(ctx, w, tracksBottom, geo);
+  drawGrid(ctx, w, tracksBottom, geo, transport.timeSignature);
 
   // Markers: a line down every lane where a section starts.
   for (const m of markersWith(state, overlay.marker)) {
@@ -302,19 +304,17 @@ function drawGrid(
   w: number,
   h: number,
   geo: LaneGeometry,
+  sig: TimeSignature,
 ): void {
   const firstBar = Math.floor(geo.scrollBars);
   const lastBar = Math.ceil(geo.scrollBars + w / geo.ppb);
-  const showBeats = geo.ppb >= 24;
+  const beats = beatLineOffsets(geo.ppb, sig);
   for (let bar = firstBar; bar <= lastBar; bar++) {
     const x = Math.round(barToX(bar, geo));
     ctx.fillStyle = cc(line.barLine);
     ctx.fillRect(x, 0, 1, h);
-    if (showBeats) {
-      ctx.fillStyle = cc(line.beatLine);
-      for (let b = 1; b < 4; b++)
-        ctx.fillRect(Math.round(x + (b * geo.ppb) / 4), 0, 1, h);
-    }
+    ctx.fillStyle = cc(line.beatLine);
+    for (const offset of beats) ctx.fillRect(Math.round(x + offset), 0, 1, h);
   }
 }
 
