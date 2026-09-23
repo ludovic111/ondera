@@ -511,7 +511,7 @@ export function AgentPanel() {
                   disabled={busy}
                   onClick={() => {
                     void store
-                      .run("agent.clear")
+                      .request("agent.clear")
                       .then(() => setConfirmClear(false))
                       .catch(() => {});
                   }}

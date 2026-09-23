@@ -79,7 +79,7 @@ export function RhythmLab({ busy }: { busy: boolean }) {
         await audio.play();
         setMessage("Previewing through your system audio output.");
       } else {
-        const result = await store.run<{
+        const result = await store.request<{
           noteCount: number;
           excludedBySolo: boolean;
         }>("rhythm.create", params());

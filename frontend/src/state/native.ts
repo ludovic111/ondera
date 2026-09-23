@@ -672,6 +672,15 @@ export class NativeStore {
     return task;
   }
   /**
+   * `run` for a caller that shows its own error (a form's inline message): the window's
+   * error dialog stays closed. Queued in the same order as every other command.
+   */
+  request<T = unknown>(method: string, params: Params = {}): Promise<T> {
+    const task = this.queue.then(() => native<T>(method, params));
+    this.queue = task.catch(() => {});
+    return task;
+  }
+  /**
    * Fire and forget. Continuous absolute edits (a dial under the pointer) keep
    * only the newest queued value: the host never sees a backlog of stale ones.
    */

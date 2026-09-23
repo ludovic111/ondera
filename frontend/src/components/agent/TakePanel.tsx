@@ -20,7 +20,7 @@ export function TakePanel({
   const locked = useRef(false);
   const refresh = useCallback(async () => {
     try {
-      setData((await store.run("take.list")) as Takes);
+      setData((await store.request("take.list")) as Takes);
     } catch (e) {
       setError(String(e));
     }
@@ -55,8 +55,8 @@ export function TakePanel({
           e.preventDefault();
           void run(async () => {
             if (!data.takes.length)
-              await store.run("take.create", { name: "Original" });
-            await store.run("take.create", {
+              await store.request("take.create", { name: "Original" });
+            await store.request("take.create", {
               name:
                 name.trim() || `Variation ${Math.max(1, data.takes.length)}`,
             });
@@ -92,7 +92,7 @@ export function TakePanel({
               aria-pressed={data.active === take.id}
               disabled={busy || working || data.active === take.id}
               onClick={() =>
-                void run(() => store.run("take.select", { id: take.id }))
+                void run(() => store.request("take.select", { id: take.id }))
               }
             >
               <strong>{take.name}</strong>
@@ -108,7 +108,7 @@ export function TakePanel({
                 title="Remove this saved take (undoable)"
                 disabled={busy || working}
                 onClick={() =>
-                  void run(() => store.run("take.remove", { id: take.id }))
+                  void run(() => store.request("take.remove", { id: take.id }))
                 }
               >
                 ×
