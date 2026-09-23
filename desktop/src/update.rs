@@ -1053,7 +1053,9 @@ pub fn cleanup() {
 }
 
 /// A download interrupted by quitting leaves its `.ondera-update-<pid>` folder beside the app.
-/// One more than a day old belongs to no install still running.
+/// One more than a day old belongs to no install still running. Only macOS stages beside the
+/// app; the other platforms keep companion backups, which `companions::cleanup_backups` owns.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn remove_abandoned_staging(parent: &Path, now: std::time::SystemTime) {
     let Ok(entries) = fs::read_dir(parent) else {
         return;
