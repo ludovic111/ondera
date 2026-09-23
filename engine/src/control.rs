@@ -873,7 +873,28 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "transport.setMetronome" => t.metronome = a.bool("enabled")?,
                 _ => t.snap_division = whole(a.int("division")?, "division")?,
             }
-            host.dispatch(Command::SetTransport(t))?;
+            // Clips sit on bars and automation on beats: a new meter moves every clip, so
+            // the automation moves with them (by bar position), in the same undo step.
+            let session = host.store().session();
+            let (old, new) = (
+                session.beats_per_bar(),
+                t.time_signature.numerator as f64 * 4.0 / t.time_signature.denominator as f64,
+            );
+            let mut commands = vec![Command::SetTransport(t)];
+            if old != new && old > 0.0 {
+                for lane in &session.automation {
+                    let mut lane = lane.clone();
+                    for point in &mut lane.points {
+                        point.beat *= new / old;
+                    }
+                    commands.push(Command::PutAutomation(lane));
+                }
+            }
+            host.dispatch(if commands.len() == 1 {
+                commands.remove(0)
+            } else {
+                Command::Batch(commands)
+            })?;
             Ok(transport(host))
         }
         "track.list" => {

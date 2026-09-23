@@ -283,3 +283,44 @@ fn saved_and_exported_files_keep_ordinary_permissions() {
     assert!(link.is_symlink(), "the link stays a link");
     assert_eq!(std::fs::read(&target).unwrap(), b"new");
 }
+
+/// Clips are placed in bars and automation in beats: changing 4/4 to 3/4 moved every clip
+/// but left the automation where it was, so a fade written for bar 5 landed in bar 6.
+#[test]
+fn a_new_meter_keeps_automation_on_its_bars() {
+    let mut host = Headless::new();
+    let track = midi_track(&mut host);
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":4,"lengthBars":1}),
+    );
+    call(
+        &mut host,
+        "automation.create",
+        json!({"target":"trackVolume","trackId":track,
+               "points":[{"beat":16,"value":0.2},{"beat":20,"value":0.9}]}),
+    );
+    call(
+        &mut host,
+        "transport.setTimeSignature",
+        json!({"numerator":3,"denominator":4}),
+    );
+    let lanes = call(&mut host, "automation.list", json!({}));
+    let beats: Vec<f64> = lanes["lanes"][0]["points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["beat"].as_f64().unwrap())
+        .collect();
+    // Bar 4 starts at beat 12 in 3/4: the point written at the clip's start stays there.
+    assert_eq!(beats, [12.0, 15.0]);
+    // One undo restores both the meter and the points.
+    call(&mut host, "history.undo", json!({}));
+    let lanes = call(&mut host, "automation.list", json!({}));
+    assert_eq!(lanes["lanes"][0]["points"][0]["beat"], 16.0);
+    assert_eq!(
+        call(&mut host, "session.info", json!({}))["transport"]["timeSignature"]["numerator"],
+        4
+    );
+}
