@@ -12,7 +12,7 @@ import {
   FADE_CURVES,
   type Command,
 } from "@ondera/core";
-import { fadeHandleAt, markersWith } from "../canvas/timeline";
+import { fadeHandleAt, markersWith, nameStart } from "../canvas/timeline";
 import { markerAt } from "../canvas/markers";
 import { describeTool } from "../components/agent/toolSteps";
 import { size } from "../theme/tokens";
@@ -149,6 +149,22 @@ describe("audio clip fades and gain", () => {
     const half = Math.pow(10, -6 / 20);
     expect(envelopeAt(env, 0.5, 7)).toBeCloseTo(half * Math.SQRT1_2, 9);
     expect(envelopeAt(env, 3, 5)).toBeCloseTo(half, 9);
+  });
+  it("starts a clip's name after a fade-in handle that would cover it", () => {
+    const s = store.getState();
+    const clip = s.clips[0]!;
+    if (clip.data.kind !== "audio") throw new Error("audio");
+    const ctx = { measureText: (t: string) => ({ width: t.length * 6 }) };
+    const measure = ctx as unknown as CanvasRenderingContext2D;
+    const env = clipEnvelope(clip.data);
+    // 20 px a second: a 1 s fade puts the handle 20 px in, on a 60 px name.
+    const after = nameStart(measure, "LV_v2_comp", env, 80, 160, false, s);
+    expect(after).toBeGreaterThanOrEqual(80 + 20 + size.fadeHandle / 2);
+    // A name that ends before the handle stays where it was.
+    expect(nameStart(measure, "V", env, 80, 160, false, s)).toBe(86);
+    // No fades and not selected: no handles, no shift.
+    const none = { ...env, fadeIn: 0, fadeOut: 0 };
+    expect(nameStart(measure, "LV_v2_comp", none, 80, 160, false, s)).toBe(86);
   });
   it("finds the fade handles in the clip's title strip", () => {
     const s = store.getState();

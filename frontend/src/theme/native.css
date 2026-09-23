@@ -409,7 +409,16 @@ textarea:focus-visible {
   gap: 6px;
 }
 .region-values label:has(select) {
-  width: 62%;
+  flex: 1 1 0;
+}
+.region-values label:has(input[aria-label="Region gain in dB"]) {
+  flex: 0 0 auto;
+  width: 40%;
+}
+.region-values input[aria-label="Region gain in dB"]::-webkit-inner-spin-button,
+.region-values input[aria-label="Region gain in dB"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .region-values select {
   width: 100%;

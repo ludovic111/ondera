@@ -369,7 +369,14 @@ function drawClip(
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillStyle = cc(line.clipName);
-  ctx.fillText(clip.name, x + 6, y + titleH / 2 + 0.5, Math.max(0, w - 12));
+  const fades = fadesFor(clip, overlay);
+  const nameX = nameStart(ctx, clip.name, fades, x, w, selected, state);
+  ctx.fillText(
+    clip.name,
+    nameX,
+    y + titleH / 2 + 0.5,
+    Math.max(0, x + w - 6 - nameX),
+  );
   if (clip.agent && w > 70) {
     ctx.font = monoFont("kind", "medium");
     ctx.textAlign = "right";
@@ -381,7 +388,6 @@ function drawClip(
   // Content.
   const cy = y + titleH;
   const ch = h - titleH;
-  const fades = fadesFor(clip, overlay);
   if (fades) {
     drawAudioContent(ctx, clip, fades, x, cy, w, ch, state);
     drawFades(ctx, fades, x, y, w, h, selected, state);
@@ -404,6 +410,31 @@ function drawClip(
     roundRectPath(ctx, x - 0.25, y - 0.25, w + 0.5, h + 0.5, r);
     ctx.stroke();
   }
+}
+
+/**
+ * Where a clip's name starts: after the fade-in handle when that handle would sit on the
+ * name, so the two never overlap.
+ */
+export function nameStart(
+  ctx: Pick<CanvasRenderingContext2D, "measureText">,
+  name: string,
+  env: ReturnType<typeof clipEnvelope> | null,
+  x: number,
+  w: number,
+  selected: boolean,
+  state: Session,
+): number {
+  const start = x + 6;
+  if (!env || w < size.fadeHandle * 4) return start;
+  const fin = Math.min(w, env.fadeIn * pixelsPerSecond(state));
+  if (!selected && fin < 1 && env.fadeOut * pixelsPerSecond(state) < 1)
+    return start;
+  const hs = size.fadeHandle;
+  const left = Math.max(x + 1, Math.min(x + w - hs - 1, x + fin - hs / 2));
+  const end = start + ctx.measureText(name).width;
+  if (left + hs + 4 <= start || left - 4 >= end) return start;
+  return left + hs + 4;
 }
 
 /**
