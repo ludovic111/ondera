@@ -311,6 +311,8 @@ function TrackList() {
           onPointerDown={lanes.onPointerDown}
           onPointerMove={lanes.onPointerMove}
           onPointerUp={lanes.onPointerUp}
+          onPointerCancel={lanes.onPointerCancel}
+          onLostPointerCapture={lanes.onPointerCancel}
           onClick={lanes.onClick}
           onDoubleClick={lanes.onDoubleClick}
           onContextMenu={onContextMenu}
