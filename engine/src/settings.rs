@@ -288,6 +288,13 @@ impl Default for Control {
     }
 }
 
+/// Where an unreadable settings file is copied before defaults replace it.
+pub fn invalid_copy(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".invalid");
+    path.with_file_name(name)
+}
+
 /// Dotted paths of fields that hold secrets.
 pub const SECRET_PATHS: [&str; 3] = [
     "agent.anthropicApiKey",
@@ -305,7 +312,32 @@ impl Settings {
     }
     /// The stored settings, or defaults when the file is absent or unreadable.
     pub fn load() -> Self {
-        Self::read(&Self::path()).unwrap_or_default()
+        Self::load_from(&Self::path())
+    }
+    /// Defaults stand in for a file that cannot be read, and the next change saves them over
+    /// it: keep a copy first (`settings.json.invalid`, owner-only), so API keys and the rest
+    /// survive a hand edit gone wrong or a downgrade that does not know a newer value.
+    pub fn load_from(path: &Path) -> Self {
+        match Self::read(path) {
+            Ok(settings) => settings,
+            Err(error) => {
+                let backup = invalid_copy(path);
+                if std::fs::copy(path, &backup).is_ok() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(
+                            &backup,
+                            std::fs::Permissions::from_mode(0o600),
+                        );
+                    }
+                    eprintln!("{error}; kept a copy at {}", backup.display());
+                } else {
+                    eprintln!("{error}");
+                }
+                Self::default()
+            }
+        }
     }
     /// The stored settings, reporting an unreadable file instead of hiding it.
     pub fn read(path: &Path) -> Result<Self> {
@@ -718,5 +750,31 @@ mod tests {
         assert!(Settings::read(&dir.path().join("absent.json")).unwrap() == Settings::default());
         std::fs::write(&path, "{broken").unwrap();
         assert!(Settings::read(&path).is_err());
+    }
+
+    #[test]
+    fn an_unreadable_file_is_kept_before_defaults_replace_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut settings = Settings::default();
+        settings.agent.anthropic_api_key = "sk-ant-keep-me".into();
+        settings.save_to(&path).unwrap();
+        // A value this version does not accept makes the whole file unreadable.
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"scale\": 1.0", "\"scale\": 9.0");
+        std::fs::write(&path, &text).unwrap();
+        assert_eq!(Settings::load_from(&path), Settings::default());
+        let kept = std::fs::read_to_string(invalid_copy(&path)).unwrap();
+        assert!(kept.contains("sk-ant-keep-me"));
+        // Saving the defaults afterwards leaves the copy alone.
+        Settings::default().save_to(&path).unwrap();
+        assert!(std::fs::read_to_string(invalid_copy(&path))
+            .unwrap()
+            .contains("sk-ant-keep-me"));
+        // An absent file is not an error and leaves nothing behind.
+        let absent = dir.path().join("absent.json");
+        assert_eq!(Settings::load_from(&absent), Settings::default());
+        assert!(!invalid_copy(&absent).exists());
     }
 }
