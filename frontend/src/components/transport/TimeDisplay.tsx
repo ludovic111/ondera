@@ -75,6 +75,7 @@ export function TimeDisplay() {
     setMenu({
       x: r.left,
       y: r.bottom + 4,
+      anchor: e.currentTarget,
       items: SIGNATURES.map(([n, d]) => ({
         label: `${n}/${d}`,
         checked: sig.numerator === n && sig.denominator === d,
@@ -93,6 +94,7 @@ export function TimeDisplay() {
     setMenu({
       x: r.left,
       y: r.bottom + 4,
+      anchor: e.currentTarget,
       items: ["maj", "min"].flatMap((mode) =>
         KEYS.map((k) => ({
           label: `${k} ${mode}`,
@@ -176,6 +178,7 @@ export function TimeDisplay() {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
+          anchor={menu.anchor}
         />
       )}
     </div>

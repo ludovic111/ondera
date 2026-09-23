@@ -109,6 +109,7 @@ export function InspectorPanel() {
     setMenu({
       x: r.left,
       y: r.bottom + 4,
+      anchor: e.currentTarget,
       items: store.catalog.instruments.map((name) => ({
         label: name,
         checked: strip.instrument === name,
@@ -129,6 +130,7 @@ export function InspectorPanel() {
       setMenu({
         x: r.left,
         y: r.bottom + 4,
+        anchor: e.currentTarget,
         items: [
           ...store.catalog.effects.map((name) => ({
             label: name,
@@ -482,6 +484,7 @@ export function InspectorPanel() {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
+          anchor={menu.anchor}
         />
       )}
     </div>
