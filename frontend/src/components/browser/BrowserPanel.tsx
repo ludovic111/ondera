@@ -10,6 +10,7 @@ import { importAudioFiles } from "../../state/document";
 import { playheadBar } from "../../state/actions";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import { Button } from "../primitives/Button";
+import { InlineEdit } from "../primitives/InlineEdit";
 import { CapsLabel } from "../primitives/CapsLabel";
 import {
   ChevronRightIcon,
@@ -62,11 +63,20 @@ export function BrowserPanel() {
   const [query, setQuery] = useState("");
   const [closed, setClosed] = useState(readClosed);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // The plugin being filed under a folder whose name is being typed.
+  const [naming, setNaming] = useState<string | null>(null);
   const pluginTab = tab === "plugins" || tab === "instruments";
+  // Only the folder the person just opened animates its rows in; the list as a whole, a
+  // search, or a rescan must not ripple.
+  const [revealed, setRevealed] = useState<string | null>(null);
   const toggleFolder = (key: string) =>
     setClosed((prior) => {
       const next = new Set(prior);
-      if (!next.delete(key)) next.add(key);
+      if (next.delete(key)) setRevealed(key);
+      else {
+        next.add(key);
+        setRevealed(null);
+      }
       try {
         localStorage.setItem(CLOSED_KEY, JSON.stringify([...next]));
       } catch {
@@ -121,11 +131,9 @@ export function BrowserPanel() {
           onSelect: () => setFolder(item, name),
         })),
       {
+        // The webview has no text prompt (window.prompt returns null at once): name it in place.
         label: "Move to new folder…",
-        onSelect: () => {
-          const name = window.prompt("Folder name")?.trim();
-          if (name) setFolder(item, name);
-        },
+        onSelect: () => setNaming(item.id ?? null),
       },
       { label: "Return to automatic folder", onSelect: () => setFolder(item) },
     ];
@@ -289,49 +297,68 @@ export function BrowserPanel() {
                   {g.name}
                 </CapsLabel>
               )}
-              {open &&
-                g.items.map((it) => (
-                  <div
-                    key={it.id ?? it.name}
-                    className={`${styles.item} ${pluginTab ? styles.filed : ""} ${(it.id ?? it.name) === selection ? styles.highlighted : ""}`}
-                    onClick={() =>
-                      dispatch(
-                        commands.view.setBrowserSelection({
-                          name: it.id ?? it.name,
-                        }),
-                      )
-                    }
-                    onDoubleClick={() => void activate(it)}
-                    onContextMenu={(e) => openItemMenu(e, it)}
-                  >
-                    <span
-                      className={`${styles.dot} m-swatch`}
-                      style={{
-                        background: it.color ?? "var(--color-neutral-dot)",
-                      }}
-                    />
-                    <span className={styles.itemName}>{it.name}</span>
-                    <span className={styles.meta}>{it.meta}</span>
-                    {pluginTab && it.id && (
-                      <button
-                        className={`${styles.star} ${it.favorite ? styles.starred : ""}`}
-                        title={
-                          it.favorite
-                            ? "Remove from Favourites"
-                            : "Add to Favourites"
-                        }
-                        aria-pressed={it.favorite ?? false}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setFavorite(it, !it.favorite);
+              {open && (
+                <div
+                  className={styles.rows}
+                  data-motion={revealed === key ? "reveal" : undefined}
+                >
+                  {g.items.map((it) => (
+                    <div
+                      key={it.id ?? it.name}
+                      className={`${styles.item} ${pluginTab ? styles.filed : ""} ${(it.id ?? it.name) === selection ? styles.highlighted : ""}`}
+                      onClick={() =>
+                        dispatch(
+                          commands.view.setBrowserSelection({
+                            name: it.id ?? it.name,
+                          }),
+                        )
+                      }
+                      onDoubleClick={() => void activate(it)}
+                      onContextMenu={(e) => openItemMenu(e, it)}
+                    >
+                      <span
+                        className={`${styles.dot} m-swatch`}
+                        style={{
+                          background: it.color ?? "var(--color-neutral-dot)",
                         }}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                      >
-                        <StarIcon filled={it.favorite ?? false} />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                      />
+                      {naming !== null && naming === it.id ? (
+                        <InlineEdit
+                          className={styles.itemName}
+                          value=""
+                          placeholder={`New folder for ${it.name}`}
+                          onCommit={(name) => {
+                            setNaming(null);
+                            setFolder(it, name);
+                          }}
+                          onCancel={() => setNaming(null)}
+                        />
+                      ) : (
+                        <span className={styles.itemName}>{it.name}</span>
+                      )}
+                      <span className={styles.meta}>{it.meta}</span>
+                      {pluginTab && it.id && (
+                        <button
+                          className={`${styles.star} ${it.favorite ? styles.starred : ""}`}
+                          title={
+                            it.favorite
+                              ? "Remove from Favourites"
+                              : "Add to Favourites"
+                          }
+                          aria-pressed={it.favorite ?? false}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFavorite(it, !it.favorite);
+                          }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                        >
+                          <StarIcon filled={it.favorite ?? false} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

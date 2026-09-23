@@ -3,8 +3,8 @@
 
 use crate::{
     plugin::{
-        Descriptor, Editor, Format, Instance, NoteEvent, ParamChange, ParamInfo, ParentWindow,
-        Processor, MAX_BLOCK,
+        event as kinds, Descriptor, Editor, Event as PluginEvent, Format, Instance, ParamChange,
+        ParamInfo, ParentWindow, Processor, MAX_BLOCK,
     },
     Result,
 };
@@ -536,11 +536,40 @@ impl IBStreamTrait for BStream {
         kResultOk
     }
 }
-/// Parameter changes for one block: one queue per parameter, one point each.
+/// Points one queue holds per block: automation sends one every 32 frames and one on each
+/// breakpoint, eight or nine in a 256-frame block. Past the limit, the last point takes the
+/// latest value.
+const QUEUE_POINTS: usize = 16;
+/// Parameter changes for one block: one queue per parameter, its points in offset order.
 struct ParamQueue {
     id: AtomicU32,
-    value: AtomicU64,
-    offset: AtomicI32,
+    count: AtomicUsize,
+    offsets: [AtomicI32; QUEUE_POINTS],
+    values: [AtomicU64; QUEUE_POINTS],
+}
+impl ParamQueue {
+    fn new() -> Self {
+        Self {
+            id: AtomicU32::new(0),
+            count: AtomicUsize::new(0),
+            offsets: std::array::from_fn(|_| AtomicI32::new(0)),
+            values: std::array::from_fn(|_| AtomicU64::new(0)),
+        }
+    }
+    /// Start the queue over for `id`.
+    fn reset(&self, id: ParamID) {
+        self.id.store(id, Ordering::Relaxed);
+        self.count.store(0, Ordering::Relaxed);
+    }
+    fn push(&self, offset: i32, value: f64) -> usize {
+        let count = self.count.load(Ordering::Relaxed);
+        let index = count.min(QUEUE_POINTS - 1);
+        self.offsets[index].store(offset, Ordering::Relaxed);
+        self.values[index].store(value.to_bits(), Ordering::Relaxed);
+        self.count
+            .store((count + 1).min(QUEUE_POINTS), Ordering::Relaxed);
+        index
+    }
 }
 impl Class for ParamQueue {
     type Interfaces = (IParamValueQueue,);
@@ -550,7 +579,7 @@ impl IParamValueQueueTrait for ParamQueue {
         self.id.load(Ordering::Relaxed)
     }
     unsafe fn getPointCount(&self) -> int32 {
-        1
+        self.count.load(Ordering::Relaxed) as int32
     }
     unsafe fn getPoint(
         &self,
@@ -558,11 +587,11 @@ impl IParamValueQueueTrait for ParamQueue {
         sample_offset: *mut int32,
         value: *mut ParamValue,
     ) -> tresult {
-        if index != 0 {
+        if index < 0 || index as usize >= self.count.load(Ordering::Relaxed) {
             return kResultFalse;
         }
-        *sample_offset = self.offset.load(Ordering::Relaxed);
-        *value = f64::from_bits(self.value.load(Ordering::Relaxed));
+        *sample_offset = self.offsets[index as usize].load(Ordering::Relaxed);
+        *value = f64::from_bits(self.values[index as usize].load(Ordering::Relaxed));
         kResultOk
     }
     unsafe fn addPoint(
@@ -571,10 +600,9 @@ impl IParamValueQueueTrait for ParamQueue {
         value: ParamValue,
         index: *mut int32,
     ) -> tresult {
-        self.offset.store(sample_offset, Ordering::Relaxed);
-        self.value.store(value.to_bits(), Ordering::Relaxed);
+        let at = self.push(sample_offset, value);
         if !index.is_null() {
-            *index = 0;
+            *index = at as int32;
         }
         kResultOk
     }
@@ -607,7 +635,7 @@ impl IParameterChangesTrait for ParameterChanges {
         if count >= self.queues.len() || id.is_null() {
             return std::ptr::null_mut();
         }
-        self.queues[count].id.store(*id, Ordering::Relaxed);
+        self.queues[count].reset(*id);
         self.count.store(count + 1, Ordering::Relaxed);
         if !index.is_null() {
             *index = count as i32;
@@ -660,6 +688,10 @@ struct Shared {
     in_channels: usize,
     out_channels: usize,
     has_event_input: bool,
+    /// The parameter each MIDI controller drives, as the plugin's `IMidiMapping` reports it
+    /// for the first event bus and channel: 0-127 are CCs, 128 channel pressure, 129 pitch
+    /// bend. VST3 has no MIDI controller events; this is how a host delivers them.
+    midi_map: [Option<ParamID>; 130],
     active: AtomicBool,
 }
 // SAFETY: VST3 objects are shared between the main thread (controller, state,
@@ -684,6 +716,37 @@ impl Drop for Shared {
             }
             self.component.terminate();
         }
+    }
+}
+
+/// Ask the controller which parameter each MIDI controller number drives.
+unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> [Option<ParamID>; 130] {
+    let mut map = [None; 130];
+    let Some(mapping) = controller.cast::<IMidiMapping>().filter(|_| events) else {
+        return map;
+    };
+    for (number, slot) in map.iter_mut().enumerate() {
+        let mut id: ParamID = 0;
+        if mapping.getMidiControllerAssignment(0, 0, number as CtrlNumber, &mut id) == kResultOk {
+            *slot = Some(id);
+        }
+    }
+    map
+}
+
+/// The `IMidiMapping` controller number and normalised value of a controller event.
+fn midi_controller(event: &PluginEvent) -> Option<(usize, f64)> {
+    match event.kind {
+        kinds::CONTROL => Some((
+            event.key.min(127) as usize,
+            event.value.min(127) as f64 / 127.0,
+        )),
+        kinds::CHANNEL_PRESSURE => Some((128, event.value.min(127) as f64 / 127.0)),
+        kinds::PITCH_BEND => Some((
+            129,
+            (event.bend.clamp(-8192, 8191) as f64 + 8192.0) / 16383.0,
+        )),
+        _ => None,
     }
 }
 
@@ -863,6 +926,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
                 controller.setComponentState(s.as_ptr());
             }
         }
+        let midi_map = midi_map(&controller, event_in > 0);
         let shared = Arc::new(Shared {
             _module: module,
             component,
@@ -874,6 +938,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             in_channels,
             out_channels,
             has_event_input: event_in > 0,
+            midi_map,
             active: AtomicBool::new(true),
         });
         let editor = Vst3Editor::new(shared.clone(), desc.clone());
@@ -1170,17 +1235,7 @@ impl Vst3Processor {
             .collect();
         let in_ptrs = in_channels.iter_mut().map(|c| c.as_mut_ptr()).collect();
         let out_ptrs = out_channels.iter_mut().map(|c| c.as_mut_ptr()).collect();
-        let queues = |n: usize| {
-            (0..n)
-                .map(|_| {
-                    ComWrapper::new(ParamQueue {
-                        id: AtomicU32::new(0),
-                        value: AtomicU64::new(0),
-                        offset: AtomicI32::new(0),
-                    })
-                })
-                .collect()
-        };
+        let queues = |n: usize| (0..n).map(|_| ComWrapper::new(ParamQueue::new())).collect();
         let parameter_count =
             unsafe { shared.controller.getParameterCount().clamp(0, 8192) as usize };
         Self {
@@ -1227,10 +1282,14 @@ impl Processor for Vst3Processor {
     fn latency(&self) -> u32 {
         0
     }
+    /// Each queue point carries its sample offset.
+    fn timed_params(&self) -> bool {
+        true
+    }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[PluginEvent],
         params: &[ParamChange],
         ctx: &crate::plugin::ProcessContext,
     ) {
@@ -1244,18 +1303,25 @@ impl Processor for Vst3Processor {
         if n == 0 {
             return;
         }
-        // Parameter changes: the host's, then edits made in the plugin GUI.
+        // Parameter changes: the host's, one queue per parameter with a point at each change's
+        // frame, then edits made in the plugin GUI.
         let mut count = 0;
+        let last = n as u32 - 1;
         for change in params {
-            if count >= self.changes.queues.len() {
-                break;
-            }
-            let q = &self.changes.queues[count];
-            q.id.store(change.id, Ordering::Relaxed);
-            q.value
-                .store(change.value.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-            q.offset.store(0, Ordering::Relaxed);
-            count += 1;
+            let queues = &self.changes.queues;
+            let queue = match queues[..count]
+                .iter()
+                .find(|q| q.id.load(Ordering::Relaxed) == change.id)
+            {
+                Some(queue) => queue,
+                None if count < queues.len() => {
+                    queues[count].reset(change.id);
+                    count += 1;
+                    &queues[count - 1]
+                }
+                None => continue,
+            };
+            queue.push(change.frame.min(last) as i32, change.value.clamp(0.0, 1.0));
         }
         if let Ok(mut edits) = self.shared.handler.edits.try_lock() {
             self.edits.clear();
@@ -1267,18 +1333,41 @@ impl Processor for Vst3Processor {
                 break;
             }
             let q = &self.changes.queues[count];
-            q.id.store(id, Ordering::Relaxed);
-            q.value.store(value.to_bits(), Ordering::Relaxed);
-            q.offset.store(0, Ordering::Relaxed);
+            q.reset(id);
+            q.push(0, value);
             count += 1;
+        }
+        // Controllers the plugin maps to parameters: one point per value, at its own frame.
+        for event in events {
+            let Some((number, value)) = midi_controller(event) else {
+                continue;
+            };
+            let Some(id) = self.shared.midi_map[number] else {
+                continue;
+            };
+            let queues = &self.changes.queues;
+            let queue = match queues[..count]
+                .iter()
+                .find(|q| q.id.load(Ordering::Relaxed) == id)
+            {
+                Some(queue) => queue,
+                None if count < queues.len() => {
+                    queues[count].reset(id);
+                    count += 1;
+                    &queues[count - 1]
+                }
+                None => continue,
+            };
+            queue.push((event.frame as usize).min(n - 1) as i32, value);
         }
         self.changes.count.store(count, Ordering::Relaxed);
         self.out_changes.count.store(0, Ordering::Relaxed);
+        let notes = events;
         unsafe {
             let events = &mut *self.events.events.get();
             events.clear();
             if self.shared.has_event_input {
-                for note in notes {
+                for note in notes.iter().filter_map(PluginEvent::as_note) {
                     if events.len() >= events.capacity() {
                         break;
                     }

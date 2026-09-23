@@ -33,11 +33,57 @@ pub struct Session {
     pub view: View,
     #[serde(default = "default_master_volume")]
     pub master_volume: f32,
+    /// Song sections on the ruler, in bar order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<Marker>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
+/// A named position on the ruler: the start of a song section.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Marker {
+    pub id: String,
+    /// Zero-based bar, like clip positions.
+    pub bar: f64,
+    pub name: String,
+    /// CSS colour; absent draws the theme's marker colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+pub const MAX_MARKERS: usize = 1000;
 fn default_master_volume() -> f32 {
     0.75
+}
+
+/// Whether the live input is heard through an audio track's strip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Monitor {
+    #[default]
+    Off,
+    /// While the track is armed and is not playing back one of its own clips.
+    Auto,
+    On,
+}
+impl Monitor {
+    pub fn parse(text: &str) -> Result<Self> {
+        match text {
+            "off" => Ok(Self::Off),
+            "auto" => Ok(Self::Auto),
+            "on" => Ok(Self::On),
+            other => Err(format!("Monitor must be off, auto or on, not {other}")),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Auto => "auto",
+            Self::On => "on",
+        }
+    }
+    fn is_off(&self) -> bool {
+        *self == Self::Off
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -47,6 +93,8 @@ pub struct Track {
     pub name: String,
     pub color: String,
     pub armed: bool,
+    #[serde(default, skip_serializing_if = "Monitor::is_off")]
+    pub monitor: Monitor,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
     pub kind: String,
@@ -74,13 +122,112 @@ pub struct Clip {
 pub enum ClipData {
     Midi {
         notes: Vec<Note>,
+        /// Controller changes, pitch bend and pressure. Absent from the file when empty, so
+        /// clips without them read and write exactly as before.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        controllers: Vec<Controller>,
     },
     Audio {
         #[serde(rename = "sourceId")]
         source_id: String,
         #[serde(rename = "offsetSeconds")]
         offset_seconds: f64,
+        /// Fade lengths in seconds, like the offset: the audio is not stretched with the tempo,
+        /// so a fade keeps its sound when the tempo changes. Absent when zero.
+        #[serde(rename = "fadeInSeconds", default, skip_serializing_if = "is_zero")]
+        fade_in: f64,
+        #[serde(rename = "fadeOutSeconds", default, skip_serializing_if = "is_zero")]
+        fade_out: f64,
+        #[serde(
+            rename = "fadeCurve",
+            default,
+            skip_serializing_if = "FadeCurve::is_default"
+        )]
+        fade_curve: FadeCurve,
+        /// Clip gain in dB, applied before the track's inserts. Absent when 0 dB.
+        #[serde(rename = "gainDb", default, skip_serializing_if = "is_zero_f32")]
+        gain_db: f32,
     },
+}
+impl ClipData {
+    /// An audio clip at `offset_seconds` into its source, without fades and at 0 dB.
+    pub fn audio(source_id: impl Into<String>, offset_seconds: f64) -> Self {
+        Self::Audio {
+            source_id: source_id.into(),
+            offset_seconds,
+            fade_in: 0.0,
+            fade_out: 0.0,
+            fade_curve: FadeCurve::default(),
+            gain_db: 0.0,
+        }
+    }
+}
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+/// Clip gain range in dB.
+pub const CLIP_GAIN_MIN_DB: f32 = -60.0;
+pub const CLIP_GAIN_MAX_DB: f32 = 24.0;
+
+/// The shape of an audio clip's fades. Fade-outs mirror fade-ins.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FadeCurve {
+    /// Equal power (a quarter sine): crossfades keep their loudness. The default.
+    #[default]
+    EqualPower,
+    Linear,
+    /// Slow start, fast finish: sounds even to the ear on long fades in.
+    Exponential,
+}
+impl FadeCurve {
+    pub const ALL: [FadeCurve; 3] = [Self::EqualPower, Self::Linear, Self::Exponential];
+    pub fn parse(text: &str) -> Result<Self> {
+        match text {
+            "equalPower" => Ok(Self::EqualPower),
+            "linear" => Ok(Self::Linear),
+            "exponential" => Ok(Self::Exponential),
+            other => Err(format!(
+                "Fade curve must be equalPower, linear or exponential, not {other}"
+            )),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::EqualPower => "equalPower",
+            Self::Linear => "linear",
+            Self::Exponential => "exponential",
+        }
+    }
+    fn is_default(&self) -> bool {
+        *self == Self::EqualPower
+    }
+    /// Gain 0-1 at `x` of the way through a fade-in (0 = silent, 1 = full).
+    #[inline]
+    pub fn gain(self, x: f64) -> f64 {
+        let x = x.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => x,
+            Self::EqualPower => (x * std::f64::consts::FRAC_PI_2).sin(),
+            Self::Exponential => ((4.0 * x).exp() - 1.0) / (4f64.exp() - 1.0),
+        }
+    }
+}
+
+/// Keep fades inside a clip of `length` seconds: each fits the clip, and when together they
+/// would overlap they shrink in proportion.
+pub fn clamp_fades(fade_in: f64, fade_out: f64, length: f64) -> (f64, f64) {
+    let length = length.max(0.0);
+    let (fade_in, fade_out) = (fade_in.clamp(0.0, length), fade_out.clamp(0.0, length));
+    let sum = fade_in + fade_out;
+    if sum > length && sum > 0.0 {
+        (fade_in * length / sum, fade_out * length / sum)
+    } else {
+        (fade_in, fade_out)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -92,6 +239,75 @@ pub struct Note {
     pub velocity: u8,
     #[serde(default)]
     pub agent: bool,
+}
+
+/// What a [`Controller`] point moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ControllerKind {
+    /// A MIDI control change; `number` is 0-127 and `value` 0-127.
+    Cc,
+    /// Pitch bend; `value` is -8192 (full down) to 8191 (full up), 0 centred.
+    Bend,
+    /// Channel pressure (aftertouch); `value` is 0-127.
+    Pressure,
+}
+impl ControllerKind {
+    pub fn parse(text: &str) -> Result<Self> {
+        match text {
+            "cc" => Ok(Self::Cc),
+            "bend" => Ok(Self::Bend),
+            "pressure" => Ok(Self::Pressure),
+            other => Err(format!(
+                "Controller kind must be cc, bend or pressure, not {other}"
+            )),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cc => "cc",
+            Self::Bend => "bend",
+            Self::Pressure => "pressure",
+        }
+    }
+    /// Lowest and highest value a point of this kind may hold.
+    pub fn range(self) -> (i16, i16) {
+        match self {
+            Self::Bend => (-8192, 8191),
+            _ => (0, 127),
+        }
+    }
+}
+
+/// One controller point in a MIDI clip. The value holds until the next point of the same
+/// lane (kind and number), as MIDI does.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Controller {
+    pub id: String,
+    pub kind: ControllerKind,
+    /// The controller number, for `cc` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u8>,
+    /// Beats from the clip start.
+    pub time: f64,
+    pub value: i16,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
+}
+impl Controller {
+    /// The lane this point belongs to.
+    pub fn lane(&self) -> (ControllerKind, Option<u8>) {
+        (self.kind, self.number)
+    }
+    pub fn is_valid(&self) -> bool {
+        let (low, high) = self.kind.range();
+        valid_time(self.time)
+            && (low..=high).contains(&self.value)
+            && match self.kind {
+                ControllerKind::Cc => self.number.is_some_and(|n| n <= 127),
+                _ => self.number.is_none(),
+            }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -253,8 +469,22 @@ pub struct View {
     pub scroll_bars: f64,
     pub follow_playhead: bool,
     pub editor_mode: String,
+    /// Browser tab: instruments, loops, plugins or files. Sessions have carried it and the
+    /// selected row since the first format; they are fields now so commands can reach them.
+    #[serde(default = "default_browser_tab")]
+    pub browser_tab: String,
+    /// The browser row that is selected, by name.
+    #[serde(default)]
+    pub browser_selection: Option<String>,
+    /// Lowest pitch the piano roll shows; `None` lets it frame the open clip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor_low_pitch: Option<u8>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+pub const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
+fn default_browser_tab() -> String {
+    BROWSER_TABS[0].into()
 }
 
 impl Session {
@@ -275,17 +505,23 @@ impl Session {
                 return id;
             }
         };
-        for strip in self.strips.values_mut() {
-            for insert in &mut strip.inserts {
-                if insert.id.is_empty() {
+        // Two slots with one id (a hand-merged file) would share one plugin instance in the
+        // audio rack: the second one gets an id of its own.
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut keys: Vec<String> = self.strips.keys().cloned().collect();
+        keys.sort();
+        for key in keys {
+            let strip = self.strips.get_mut(&key).expect("key from the map");
+            for insert in strip.inserts.iter_mut().chain(strip.synth.iter_mut()) {
+                if insert.id.is_empty() || !seen.insert(insert.id.clone()) {
                     insert.id = fresh(&mut used);
+                    seen.insert(insert.id.clone());
                 }
             }
-            if let Some(s) = &mut strip.synth {
-                if s.id.is_empty() {
-                    s.id = fresh(&mut used);
-                }
-            }
+        }
+        // The piano roll shows 20 rows up from here; the command allows 0-108.
+        if let Some(pitch) = self.view.editor_low_pitch {
+            self.view.editor_low_pitch = Some(pitch.min(108));
         }
         for (bus, effect, mix_index) in [(BUS_A, "Space", 4), (BUS_B, "Echo", 5)] {
             if !self.strips.contains_key(bus) {
@@ -427,11 +663,17 @@ impl Session {
             }
             let track = self.tracks.iter().find(|t| t.id == c.track_id).unwrap();
             match &c.data {
-                ClipData::Midi { notes: ns } => {
+                ClipData::Midi {
+                    notes: ns,
+                    controllers: cs,
+                } => {
                     if track.kind != "midi" {
                         return Err("MIDI clip on audio track".into());
                     }
-                    notes += ns.len();
+                    notes += ns.len() + cs.len();
+                    if cs.iter().any(|c| !c.is_valid()) {
+                        return Err("Invalid MIDI controller point".into());
+                    }
                     if ns.iter().any(|n| {
                         !valid_time(n.start)
                             || !valid_time(n.length)
@@ -446,6 +688,10 @@ impl Session {
                 ClipData::Audio {
                     source_id,
                     offset_seconds,
+                    fade_in,
+                    fade_out,
+                    gain_db,
+                    ..
                 } => {
                     if track.kind != "audio"
                         || !self.sources.contains_key(source_id)
@@ -453,11 +699,31 @@ impl Session {
                     {
                         return Err("Invalid audio clip or missing source".into());
                     }
+                    if !valid_time(*fade_in)
+                        || !valid_time(*fade_out)
+                        || !gain_db.is_finite()
+                        || !(CLIP_GAIN_MIN_DB..=CLIP_GAIN_MAX_DB).contains(gain_db)
+                    {
+                        return Err("Invalid audio clip fades or gain".into());
+                    }
                 }
             }
         }
         if notes > 200_000 {
-            return Err("Too many notes".into());
+            return Err("Too many notes and controller points".into());
+        }
+        if self.markers.len() > MAX_MARKERS {
+            return Err("Too many markers".into());
+        }
+        let mut marker_ids = HashSet::new();
+        for m in &self.markers {
+            if !marker_ids.insert(&m.id)
+                || m.id.is_empty()
+                || !valid_time(m.bar)
+                || m.name.chars().count() > 120
+            {
+                return Err("Invalid or duplicate marker".into());
+            }
         }
         let mut decoded_bytes = 0.0;
         for (id, src) in &self.sources {

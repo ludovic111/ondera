@@ -36,6 +36,7 @@ fn main() {
                         agent: false,
                     })
                     .collect(),
+                controllers: vec![],
             },
         });
     }

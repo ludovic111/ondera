@@ -5,16 +5,18 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { beatsToBars, commands } from "@ondera/core";
+import { beatsToBars, commands, snapBars } from "@ondera/core";
 import { importAudioFiles } from "../../state/document";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { useCanvasSurface } from "../../canvas/surface";
 import { drawRuler } from "../../canvas/ruler";
+import { markerAt, markerLabelRect } from "../../canvas/markers";
 import {
   drawLanes,
   hitTestClip,
   laneGeometry,
   barToX,
+  xToBar,
 } from "../../canvas/timeline";
 import { useTimelineWheel } from "./useTimelineWheel";
 import { useLaneInteraction } from "./useLaneInteraction";
@@ -25,7 +27,11 @@ import { Button } from "../primitives/Button";
 import { InlineEdit } from "../primitives/InlineEdit";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { actionItem, separator, type MenuEntry } from "../../state/menus";
-import { runAction, reportLaneViewportWidth } from "../../state/actions";
+import {
+  runAction,
+  reportLaneViewportWidth,
+  type ActionId,
+} from "../../state/actions";
 import { size } from "../../theme/tokens";
 import styles from "./Arrangement.module.css";
 
@@ -41,7 +47,9 @@ export function Arrangement() {
 
 function RulerRow() {
   const store = useStore();
+  const dispatch = useDispatch();
   const ruler = useRulerInteraction();
+  const markers = useSession((s) => s.markers);
   const rulerRef = useCanvasSurface(
     useCallback(
       (ctx, w, h) => drawRuler(ctx, w, h, store.getState(), ruler.overlay),
@@ -51,6 +59,7 @@ function RulerRow() {
   const wrapRef = useRef<HTMLDivElement>(null);
   useTimelineWheel(wrapRef);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const openAddMenu = (e: MouseEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -63,6 +72,74 @@ function RulerRow() {
       ],
     });
   };
+
+  const at = (e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const onDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
+    const { x, y } = at(e);
+    const marker = markerAt(store.getState(), x, y);
+    if (marker) setRenaming(marker.id);
+  };
+  const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const state = store.getState();
+    const { x, y } = at(e);
+    const marker = markerAt(state, x, y);
+    if (marker) {
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: "Go to Marker",
+            onSelect: () =>
+              dispatch(commands.marker.goto({ markerId: marker.id })),
+          },
+          { label: "Rename Marker…", onSelect: () => setRenaming(marker.id) },
+          {
+            label: "Cycle This Section",
+            onSelect: () =>
+              dispatch(commands.marker.cycleSection({ markerId: marker.id })),
+          },
+          separator,
+          {
+            label: "Delete Marker",
+            onSelect: () =>
+              dispatch(commands.marker.remove({ markerId: marker.id })),
+          },
+        ],
+      });
+      return;
+    }
+    const t = state.transport;
+    const bar = Math.max(
+      0,
+      snapBars(xToBar(x, laneGeometry(state)), t.snapDivision, t.timeSignature),
+    );
+    const taken = state.markers.some((m) => Math.abs(m.bar - bar) < 1e-6);
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: "Add Marker Here",
+          disabled: taken,
+          onSelect: () => dispatch(commands.marker.add({ bar })),
+        },
+        actionItem(store, "addMarker"),
+        separator,
+        actionItem(store, "previousMarker"),
+        actionItem(store, "nextMarker"),
+        actionItem(store, "cycleSection"),
+      ],
+    });
+  };
+
+  const renamingMarker = renaming
+    ? markers.find((m) => m.id === renaming)
+    : undefined;
 
   return (
     <div className={styles.rulerRow}>
@@ -83,9 +160,25 @@ function RulerRow() {
         onPointerDown={ruler.onPointerDown}
         onPointerMove={ruler.onPointerMove}
         onPointerUp={ruler.onPointerUp}
-        title="Click to locate · drag to set the cycle range"
+        onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
+        title="Click to locate · drag to set the cycle range · drag a marker to move it, double-click to rename"
       >
         <canvas ref={rulerRef} className={styles.canvas} />
+        {renamingMarker && (
+          <InlineEdit
+            className={styles.renameInput}
+            style={markerLabelRect(store.getState(), renamingMarker)}
+            value={renamingMarker.name}
+            onCommit={(name) => {
+              dispatch(
+                commands.marker.rename({ markerId: renamingMarker.id, name }),
+              );
+              setRenaming(null);
+            }}
+            onCancel={() => setRenaming(null)}
+          />
+        )}
       </div>
       {menu && (
         <PopupMenu
@@ -146,10 +239,18 @@ function TrackList() {
   useEffect(() => {
     const el = lanesRef.current;
     if (!el) return;
-    reportLaneViewportWidth(el.clientWidth);
-    const ro = new ResizeObserver(() =>
-      reportLaneViewportWidth(el.clientWidth),
-    );
+    // The host keeps the width too: view.fit and scripts need it.
+    let reported = 0;
+    const report = () => {
+      const width = Math.round(el.clientWidth);
+      reportLaneViewportWidth(width);
+      if (width >= 50 && width !== reported) {
+        reported = width;
+        store.fire("view.set", { laneWidth: width });
+      }
+    };
+    report();
+    const ro = new ResizeObserver(report);
     ro.observe(el);
     const off = store.subscribe(() => {
       const s = store.getState();
@@ -184,18 +285,31 @@ function TrackList() {
     const clip = hitTestClip(state, x, y);
     if (clip) {
       dispatch(commands.clip.select({ clipId: clip.id }));
+      // What the menu offers depends on the clicked clip being selected; the select above
+      // reaches the store later.
+      const picked = {
+        ...state,
+        view: {
+          ...state.view,
+          selectedTrackId: clip.trackId,
+          selectedClipId: clip.id,
+          selectedNoteId: null,
+        },
+      };
+      const item = (id: ActionId, label?: string) =>
+        actionItem(store, id, label, picked);
       const items: MenuEntry[] = [
-        actionItem(store, "openInEditor"),
+        item("openInEditor"),
         { label: "Rename…", onSelect: () => setRenaming(clip.id) },
         separator,
-        actionItem(store, "cut"),
-        actionItem(store, "copy"),
-        actionItem(store, "duplicateClip"),
-        actionItem(store, "splitAtPlayhead"),
+        item("cut"),
+        item("copy"),
+        item("duplicateClip"),
+        item("splitAtPlayhead"),
         separator,
-        actionItem(store, "deleteSelection", "Delete Clip"),
+        item("deleteSelection", "Delete Clip"),
         separator,
-        actionItem(store, "askAgent", "Ask Agent About This Region…"),
+        item("askAgent", "Ask Agent About This Region…"),
       ];
       setMenu({ x: e.clientX, y: e.clientY, items });
       return;
@@ -286,6 +400,8 @@ function TrackList() {
           onPointerDown={lanes.onPointerDown}
           onPointerMove={lanes.onPointerMove}
           onPointerUp={lanes.onPointerUp}
+          onPointerCancel={lanes.onPointerCancel}
+          onLostPointerCapture={lanes.onPointerCancel}
           onClick={lanes.onClick}
           onDoubleClick={lanes.onDoubleClick}
           onContextMenu={onContextMenu}

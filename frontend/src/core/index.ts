@@ -3,6 +3,7 @@
 export * from "./types";
 export * from "./time";
 export * from "./gain";
+export * from "./fade";
 export * from "./strip";
 export * from "./palette";
 export type { NativeStore as SessionStore } from "../state/native";
@@ -27,6 +28,12 @@ export const commands = {
     remove: command("note.remove"),
     select: command("note.select"),
   },
+  controller: {
+    add: command("controller.add"),
+    update: command("controller.update"),
+    remove: command("controller.remove"),
+    setPoints: command("controller.setPoints"),
+  },
   clip: {
     select: command("clip.select"),
     clearSelection: command("clip.clearSelection"),
@@ -37,6 +44,18 @@ export const commands = {
     split: command("clip.split"),
     duplicate: command("clip.duplicate"),
     remove: command("clip.remove"),
+    setFades: command("clip.setFades"),
+    setGain: command("clip.setGain"),
+  },
+  marker: {
+    add: command("marker.add"),
+    rename: command("marker.rename"),
+    move: command("marker.move"),
+    remove: command("marker.remove"),
+    goto: command("marker.goto"),
+    next: command("marker.next"),
+    previous: command("marker.previous"),
+    cycleSection: command("marker.cycleSection"),
   },
   strip: {
     setSendLevel: command("strip.setSendLevel"),
@@ -73,6 +92,7 @@ export const commands = {
     setMute: command("track.setMute"),
     setSolo: command("track.setSolo"),
     setArmed: command("track.setArmed"),
+    setMonitor: command("track.setMonitor"),
     setVolume: command("track.setVolume"),
     setPan: command("track.setPan"),
     rename: command("track.rename"),

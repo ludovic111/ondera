@@ -29,6 +29,7 @@ const GROUPS: [string, (id: string) => boolean][] = [
       ),
   ],
   ["Tracks", (id) => /Track$/.test(id)],
+  ["Markers", (id) => /Marker$|^cycleSection$/.test(id)],
   ["View and tools", () => true],
 ];
 
@@ -72,9 +73,11 @@ export function ShortcutList() {
       </section>
       <p className={styles.note}>
         ⌘ is Ctrl on Windows and Linux. With musical typing on, A–; play notes
-        and Z / X shift the octave. In the arrangement: double-click a lane to
-        create a region, drag edges to resize, drag the ruler to set the cycle,
-        drop audio files from your file manager to import them.
+        and Z / X shift the octave. In the arrangement: draw a region with the
+        pencil tool, double-click a MIDI region to open it in the editor, drag
+        edges to resize, drag the ruler to set the cycle, drag the top corners
+        of an audio region to fade it, drag a marker to move it and double-click
+        it to rename it, drop audio files from your file manager to import them.
       </p>
     </div>
   );

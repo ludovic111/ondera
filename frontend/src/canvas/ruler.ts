@@ -1,4 +1,5 @@
 import {
+  beatLineOffsets,
   beatsToBarBeat,
   beatsToBars,
   formatBarBeatShort,
@@ -14,11 +15,13 @@ import {
   timeline,
 } from "../theme/tokens";
 import { cc, hline, monoFont, roundRectPath, withShadows } from "./paint";
-import { barToX, laneGeometry } from "./timeline";
+import { barToX, laneGeometry, type MarkerDrag } from "./timeline";
+import { drawMarkerFlags } from "./markers";
 
-/** Cycle range being dragged; drawn instead of the committed one. */
+/** Cycle range or marker being dragged; drawn instead of the committed one. */
 export interface RulerOverlay {
   cycle?: { startBar: number; endBar: number };
+  marker?: MarkerDrag;
 }
 
 export function drawRuler(
@@ -55,6 +58,7 @@ export function drawRuler(
 
   const labelEvery =
     geo.ppb >= 40 ? 1 : geo.ppb >= 20 ? 2 : geo.ppb >= 10 ? 4 : 8;
+  const beats = beatLineOffsets(geo.ppb, transport.timeSignature);
   const firstBar = Math.floor(geo.scrollBars);
   const lastBar = Math.ceil(geo.scrollBars + w / geo.ppb);
   ctx.font = monoFont("value");
@@ -68,20 +72,20 @@ export function drawRuler(
       ctx.fillStyle = color.ink300;
       ctx.fillText(String(bar + 1), x + 5, 4);
     }
-    if (geo.ppb >= 24) {
-      ctx.fillStyle = cc(line.rulerTick);
-      for (let b = 1; b < 4; b++) {
-        ctx.fillRect(
-          Math.round(x + (b * geo.ppb) / 4),
-          h - timeline.rulerTickH,
-          1,
-          timeline.rulerTickH,
-        );
-      }
+    ctx.fillStyle = cc(line.rulerTick);
+    for (const offset of beats) {
+      ctx.fillRect(
+        Math.round(x + offset),
+        h - timeline.rulerTickH,
+        1,
+        timeline.rulerTickH,
+      );
     }
   }
 
   hline(ctx, 0, h - 1, w, line.rulerBottom);
+
+  drawMarkerFlags(ctx, w, state, overlay.marker);
 
   // Playhead: line, flag, and position bubble.
   const posBars = beatsToBars(transport.positionBeats, transport.timeSignature);

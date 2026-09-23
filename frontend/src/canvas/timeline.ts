@@ -1,9 +1,15 @@
 import {
   barsToSeconds,
+  beatLineOffsets,
   beatsPerBar,
   beatsToBars,
+  clipEnvelope,
+  envelopeAt,
+  fadeGain,
   type Clip,
+  type Marker,
   type Session,
+  type TimeSignature,
   type Track,
 } from "@ondera/core";
 import {
@@ -45,6 +51,71 @@ export interface LaneOverlay {
   split?: { trackIndex: number; bar: number };
   /** Lane a dragged file would drop onto. */
   dropTrackIndex?: number;
+  /** Fade lengths in seconds while a fade handle is dragged. */
+  fade?: { clipId: string; fadeIn: number; fadeOut: number };
+  /** A marker being dragged in the ruler. */
+  marker?: MarkerDrag;
+}
+
+/** A marker being dragged: drawn at `bar` instead of where it is. */
+export interface MarkerDrag {
+  id: string;
+  bar: number;
+}
+
+/** Markers in bar order, with a drag in progress applied. */
+export function markersWith(state: Session, drag?: MarkerDrag): Marker[] {
+  const list = (state.markers ?? []).map((m) =>
+    drag && m.id === drag.id ? { ...m, bar: drag.bar } : m,
+  );
+  return list.sort((a, b) => a.bar - b.bar);
+}
+
+/** Screen pixels per second of audio at the current zoom and tempo. */
+export function pixelsPerSecond(state: Session): number {
+  const { tempo, timeSignature } = state.transport;
+  return state.view.pixelsPerBar / barsToSeconds(1, tempo, timeSignature);
+}
+
+/** Fade lengths an audio clip is drawn with: the drag in progress, else its own. */
+function fadesFor(clip: Clip, overlay: LaneOverlay) {
+  if (clip.data.kind !== "audio") return null;
+  const env = clipEnvelope(clip.data);
+  if (overlay.fade?.clipId === clip.id) {
+    env.fadeIn = overlay.fade.fadeIn;
+    env.fadeOut = overlay.fade.fadeOut;
+  }
+  return env;
+}
+
+/**
+ * The fade handle of an audio clip under (x, y) in lane pixels: they sit in the title strip
+ * at the end of the fade-in and the start of the fade-out (at the corners when there is none).
+ */
+export function fadeHandleAt(
+  state: Session,
+  clip: Clip,
+  x: number,
+  y: number,
+): "in" | "out" | null {
+  if (clip.data.kind !== "audio") return null;
+  const geo = laneGeometry(state);
+  const row = state.tracks.findIndex((t) => t.id === clip.trackId);
+  const top = row * geo.rowHeight + size.clipInset;
+  if (y < top || y > top + size.clipTitle) return null;
+  const x0 = barToX(clip.startBar, geo);
+  const x1 = barToX(clip.startBar + clip.lengthBars, geo);
+  if (x1 - x0 < size.fadeHandle * 4) return null;
+  const env = clipEnvelope(clip.data);
+  const pps = pixelsPerSecond(state);
+  const hin = x0 + env.fadeIn * pps;
+  const hout = x1 - env.fadeOut * pps;
+  const din = Math.abs(x - hin);
+  const dout = Math.abs(x - hout);
+  const grip = size.fadeGrip + size.fadeHandle / 2;
+  if (din <= grip && din <= dout) return "in";
+  if (dout <= grip) return "out";
+  return null;
 }
 
 export function barToX(bar: number, geo: LaneGeometry): number {
@@ -140,7 +211,15 @@ export function drawLanes(
   }
 
   // Grid.
-  drawGrid(ctx, w, tracksBottom, geo);
+  drawGrid(ctx, w, tracksBottom, geo, transport.timeSignature);
+
+  // Markers: a line down every lane where a section starts.
+  for (const m of markersWith(state, overlay.marker)) {
+    const x = Math.round(barToX(m.bar, geo));
+    if (x < 0 || x > w) continue;
+    ctx.fillStyle = cc(m.color ? withAlpha(m.color, 0.3) : line.markerLane);
+    ctx.fillRect(x, 0, 1, tracksBottom);
+  }
 
   // Clips.
   tracks.forEach((track, i) => {
@@ -162,6 +241,7 @@ export function drawLanes(
         view.selectedClipId === clip.id,
         geo,
         state,
+        overlay,
       );
     }
   });
@@ -224,19 +304,17 @@ function drawGrid(
   w: number,
   h: number,
   geo: LaneGeometry,
+  sig: TimeSignature,
 ): void {
   const firstBar = Math.floor(geo.scrollBars);
   const lastBar = Math.ceil(geo.scrollBars + w / geo.ppb);
-  const showBeats = geo.ppb >= 24;
+  const beats = beatLineOffsets(geo.ppb, sig);
   for (let bar = firstBar; bar <= lastBar; bar++) {
     const x = Math.round(barToX(bar, geo));
     ctx.fillStyle = cc(line.barLine);
     ctx.fillRect(x, 0, 1, h);
-    if (showBeats) {
-      ctx.fillStyle = cc(line.beatLine);
-      for (let b = 1; b < 4; b++)
-        ctx.fillRect(Math.round(x + (b * geo.ppb) / 4), 0, 1, h);
-    }
+    ctx.fillStyle = cc(line.beatLine);
+    for (const offset of beats) ctx.fillRect(Math.round(x + offset), 0, 1, h);
   }
 }
 
@@ -251,6 +329,7 @@ function drawClip(
   selected: boolean,
   geo: LaneGeometry,
   state: Session,
+  overlay: LaneOverlay,
 ): void {
   const r = radius.clip;
   const faceTop = mix(track.color, color.panel, clipMix.faceTop);
@@ -290,7 +369,14 @@ function drawClip(
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillStyle = cc(line.clipName);
-  ctx.fillText(clip.name, x + 6, y + titleH / 2 + 0.5, Math.max(0, w - 12));
+  const fades = fadesFor(clip, overlay);
+  const nameX = nameStart(ctx, clip.name, fades, x, w, selected, state);
+  ctx.fillText(
+    clip.name,
+    nameX,
+    y + titleH / 2 + 0.5,
+    Math.max(0, x + w - 6 - nameX),
+  );
   if (clip.agent && w > 70) {
     ctx.font = monoFont("kind", "medium");
     ctx.textAlign = "right";
@@ -302,9 +388,10 @@ function drawClip(
   // Content.
   const cy = y + titleH;
   const ch = h - titleH;
-  if (clip.data.kind === "audio") {
-    drawAudioContent(ctx, clip, x, cy, w, ch, state);
-  } else {
+  if (fades) {
+    drawAudioContent(ctx, clip, fades, x, cy, w, ch, state);
+    drawFades(ctx, fades, x, y, w, h, selected, state);
+  } else if (clip.data.kind === "midi") {
     drawMidiPreview(ctx, clip.data.notes, x, cy, w, ch, geo, state);
   }
   ctx.restore();
@@ -325,10 +412,93 @@ function drawClip(
   }
 }
 
+/**
+ * Where a clip's name starts: after the fade-in handle when that handle would sit on the
+ * name, so the two never overlap.
+ */
+export function nameStart(
+  ctx: Pick<CanvasRenderingContext2D, "measureText">,
+  name: string,
+  env: ReturnType<typeof clipEnvelope> | null,
+  x: number,
+  w: number,
+  selected: boolean,
+  state: Session,
+): number {
+  const start = x + 6;
+  if (!env || w < size.fadeHandle * 4) return start;
+  const fin = Math.min(w, env.fadeIn * pixelsPerSecond(state));
+  if (!selected && fin < 1 && env.fadeOut * pixelsPerSecond(state) < 1)
+    return start;
+  const hs = size.fadeHandle;
+  const left = Math.max(x + 1, Math.min(x + w - hs - 1, x + fin - hs / 2));
+  const end = start + ctx.measureText(name).width;
+  if (left + hs + 4 <= start || left - 4 >= end) return start;
+  return left + hs + 4;
+}
+
+/**
+ * Fade shapes over an audio clip: the region above each curve is shaded, and a handle in the
+ * title strip marks where each fade ends. Handles show on the selected clip or once a fade exists.
+ */
+function drawFades(
+  ctx: CanvasRenderingContext2D,
+  env: ReturnType<typeof clipEnvelope>,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  selected: boolean,
+  state: Session,
+): void {
+  const pps = pixelsPerSecond(state);
+  const top = y + size.clipTitle;
+  const ch = h - size.clipTitle;
+  const fin = Math.min(w, env.fadeIn * pps);
+  const fout = Math.min(w, env.fadeOut * pps);
+  const steps = 24;
+  const shade = (from: number, span: number, rising: boolean) => {
+    if (span < 1) return;
+    const point = (i: number) => {
+      const t = i / steps;
+      const g = fadeGain(env.curve, rising ? t : 1 - t);
+      return [from + t * span, top + ch * (1 - g)] as const;
+    };
+    ctx.beginPath();
+    ctx.moveTo(from, top);
+    ctx.lineTo(from + span, top);
+    for (let i = steps; i >= 0; i--) ctx.lineTo(...point(i));
+    ctx.closePath();
+    ctx.fillStyle = cc(fill.fadeShade);
+    ctx.fill();
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const [px, py] = point(i);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = cc(line.fadeCurve);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+  shade(x, fin, true);
+  shade(x + w - fout, fout, false);
+  if (w < size.fadeHandle * 4 || (!selected && fin < 1 && fout < 1)) return;
+  const hs = size.fadeHandle;
+  const hy = y + (size.clipTitle - hs) / 2;
+  ctx.fillStyle = cc(fill.fadeHandle);
+  for (const cx of [x + fin, x + w - fout]) {
+    const left = Math.max(x + 1, Math.min(x + w - hs - 1, cx - hs / 2));
+    roundRectPath(ctx, left, hy, hs, hs, radius.xs);
+    ctx.fill();
+  }
+}
+
 /** Draw peaks from the Rust audio library; never synthesize a visual waveform. */
 function drawAudioContent(
   ctx: CanvasRenderingContext2D,
   clip: Clip,
+  env: ReturnType<typeof clipEnvelope>,
   x: number,
   y: number,
   w: number,
@@ -352,7 +522,13 @@ function drawAudioContent(
     const last =
       (clip.data.offsetSeconds + f1 * clipSeconds) *
       library.rateFor(clip.data.sourceId);
-    drawWaveform(ctx, real, visX0, y, visX1 - visX0, h, first, last);
+    // Drawn as it sounds: scaled by the clip gain and the fades.
+    const perPx = clipSeconds / w;
+    const gainAt = (px: number) => {
+      const age = (visX0 - x + px + 0.5) * perPx;
+      return envelopeAt(env, age, clipSeconds - age);
+    };
+    drawWaveform(ctx, real, visX0, y, visX1 - visX0, h, first, last, gainAt);
     return;
   }
   // Keep the lane empty until the Rust decoder supplies actual peaks.

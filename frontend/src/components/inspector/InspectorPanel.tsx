@@ -4,8 +4,15 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  clipEnvelope,
+  CLIP_GAIN_MAX_DB,
+  CLIP_GAIN_MIN_DB,
   commands,
   dbToFader,
+  FADE_CURVE_LABELS,
+  FADE_CURVES,
+  type AudioClipData,
+  type FadeCurve,
   defaultStrip,
   faderToDb,
   formatDb,
@@ -109,6 +116,7 @@ export function InspectorPanel() {
     setMenu({
       x: r.left,
       y: r.bottom + 4,
+      anchor: e.currentTarget,
       items: store.catalog.instruments.map((name) => ({
         label: name,
         checked: strip.instrument === name,
@@ -129,6 +137,7 @@ export function InspectorPanel() {
       setMenu({
         x: r.left,
         y: r.bottom + 4,
+        anchor: e.currentTarget,
         items: [
           ...store.catalog.effects.map((name) => ({
             label: name,
@@ -454,6 +463,24 @@ export function InspectorPanel() {
           >
             ●
           </button>
+          {track.kind === "audio" && (
+            <button
+              className="m-button"
+              aria-label="Input monitoring"
+              title={`Input monitoring: ${track.monitor ?? "off"}`}
+              aria-pressed={(track.monitor ?? "off") !== "off"}
+              onClick={() =>
+                store.fire("track.setMonitor", {
+                  trackId: track.id,
+                  monitor: { off: "auto", auto: "on", on: "off" }[
+                    track.monitor ?? "off"
+                  ],
+                })
+              }
+            >
+              {track.monitor === "auto" ? "A" : "I"}
+            </button>
+          )}
           <span>Stereo Out</span>
         </div>
       )}
@@ -464,6 +491,7 @@ export function InspectorPanel() {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
+          anchor={menu.anchor}
         />
       )}
     </div>
@@ -601,10 +629,11 @@ function Region() {
     s.clips.find((c) => c.id === s.view.selectedClipId),
   );
   if (!clip) return null;
+  const audio = clip.data.kind === "audio" ? clip.data : null;
   return (
     <div
       className={styles.section}
-      key={`${clip.id}-${clip.name}-${clip.startBar}-${clip.lengthBars}`}
+      key={`${clip.id}-${clip.name}-${clip.startBar}-${clip.lengthBars}-${JSON.stringify(audio)}`}
     >
       <div className={styles.sectionHead}>
         <CapsLabel>Region</CapsLabel>
@@ -639,9 +668,17 @@ function Region() {
             step=".0625"
             defaultValue={clip.startBar + 1}
             onBlur={(e) => {
+              // Tabbing through must not add an undo step that changes nothing.
               const startBar = e.currentTarget.valueAsNumber - 1;
-              if (Number.isFinite(startBar) && startBar >= 0)
+              if (
+                Number.isFinite(startBar) &&
+                startBar >= 0 &&
+                startBar !== clip.startBar
+              )
                 store.fire("clip.move", { clipId: clip.id, startBar });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
           />
         </label>
@@ -655,12 +692,121 @@ function Region() {
             defaultValue={clip.lengthBars}
             onBlur={(e) => {
               const lengthBars = e.currentTarget.valueAsNumber;
-              if (Number.isFinite(lengthBars) && lengthBars > 0)
+              if (
+                Number.isFinite(lengthBars) &&
+                lengthBars > 0 &&
+                lengthBars !== clip.lengthBars
+              )
                 store.fire("clip.resize", { clipId: clip.id, lengthBars });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
           />
         </label>
       </div>
+      {audio && <AudioRegion clipId={clip.id} data={audio} />}
     </div>
+  );
+}
+
+/** Clip gain and fades of an audio region. Fades show in milliseconds; the host keeps seconds. */
+function AudioRegion({
+  clipId,
+  data,
+}: {
+  clipId: string;
+  data: AudioClipData;
+}) {
+  const dispatch = useDispatch();
+  const env = clipEnvelope(data);
+  const commit = (value: number, apply: (v: number) => void) => {
+    if (Number.isFinite(value)) apply(value);
+  };
+  const fades = (fadeInSeconds: number, fadeOutSeconds: number) =>
+    dispatch(commands.clip.setFades({ clipId, fadeInSeconds, fadeOutSeconds }));
+  return (
+    <>
+      <div className="region-values">
+        <label title="Clip gain, before the track's inserts">
+          Gain
+          <input
+            aria-label="Region gain in dB"
+            type="number"
+            min={CLIP_GAIN_MIN_DB}
+            max={CLIP_GAIN_MAX_DB}
+            step=".5"
+            defaultValue={Math.round(env.gainDb * 10) / 10}
+            onBlur={(e) =>
+              commit(e.currentTarget.valueAsNumber, (db) => {
+                const gainDb = Math.max(
+                  CLIP_GAIN_MIN_DB,
+                  Math.min(CLIP_GAIN_MAX_DB, db),
+                );
+                if (gainDb !== env.gainDb)
+                  dispatch(commands.clip.setGain({ clipId, gainDb }));
+              })
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+          <span>dB</span>
+        </label>
+        <label title="Fade shape">
+          <select
+            aria-label="Fade curve"
+            value={env.curve}
+            onChange={(e) =>
+              dispatch(
+                commands.clip.setFades({
+                  clipId,
+                  curve: e.currentTarget.value as FadeCurve,
+                }),
+              )
+            }
+          >
+            {FADE_CURVES.map((curve) => (
+              <option key={curve} value={curve}>
+                {FADE_CURVE_LABELS[curve]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="region-values">
+        <label
+          className="region-wide"
+          title="Fade in and fade out, in milliseconds"
+        >
+          Fades
+          {(["in", "out"] as const).map((edge) => (
+            <input
+              key={edge}
+              aria-label={`Fade ${edge} in milliseconds`}
+              type="number"
+              min="0"
+              step="10"
+              defaultValue={Math.round(
+                (edge === "in" ? env.fadeIn : env.fadeOut) * 1000,
+              )}
+              onBlur={(e) =>
+                commit(e.currentTarget.valueAsNumber, (ms) => {
+                  const seconds = Math.max(0, ms) / 1000;
+                  if (edge === "in" && seconds !== env.fadeIn)
+                    fades(seconds, env.fadeOut);
+                  if (edge === "out" && seconds !== env.fadeOut)
+                    fades(env.fadeIn, seconds);
+                })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+          ))}
+          <span>ms</span>
+        </label>
+      </div>
+    </>
   );
 }

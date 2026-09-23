@@ -34,9 +34,13 @@ export function roundRectPath(
   h: number,
   r: number,
 ): void {
-  const rr = Math.min(r, w / 2, h / 2);
+  // A clip narrower than its inset (a 1/64-bar region zoomed out) gives a negative width, and
+  // roundRect throws on a negative radius: the whole frame would stop painting.
+  const width = Math.max(0, w);
+  const height = Math.max(0, h);
+  const rr = Math.max(0, Math.min(r, width / 2, height / 2));
   ctx.beginPath();
-  ctx.roundRect(x, y, w, h, rr);
+  ctx.roundRect(x, y, width, height, rr);
 }
 
 /** Paints `fillPath` once per shadow layer, back to front. */

@@ -5,7 +5,7 @@ use crate::{
 use eframe::egui;
 use ondera_engine::{
     audio::{self, Library},
-    device::{DeviceEngine, Message, RecordedAudio, Recorder},
+    device::{DeviceEngine, LiveInput, Message, RecordedAudio, Recorder},
     document, host, midi,
     model::*,
     plugin::Descriptor,
@@ -102,7 +102,8 @@ pub struct Ondera {
     pub(crate) synced_revision: Option<u64>,
     pub(crate) recorder: Option<Recorder>,
     pub(crate) device_pending: Option<mpsc::Receiver<Result<DeviceEngine>>>,
-    pub(crate) record_pending: Option<mpsc::Receiver<Result<Recorder>>>,
+    /// A take waiting for the input to open, with its byte limit.
+    pub(crate) record_pending: Option<usize>,
     pub(crate) record_finishing: Option<mpsc::Receiver<Result<RecordedAudio>>>,
     pub(crate) after_take: Option<AfterTake>,
     pub(crate) recording_tracks: Vec<String>,
@@ -120,6 +121,14 @@ pub struct Ondera {
     pub show_help: bool,
     /// The web window shows the mixer in place of the region editor.
     pub show_mixer: bool,
+    /// The region editor shows the controller lane under the piano roll.
+    pub show_controllers: bool,
+    /// The command palette is open.
+    pub show_palette: bool,
+    /// The copied clip, shared by the window, the CLI and agents.
+    pub(crate) clipboard: Option<Clip>,
+    /// Width of the arrangement lanes as the window last reported it.
+    pub(crate) lane_width: f64,
     pub plugins: Bank,
     pub catalog: Vec<Descriptor>,
     pub(crate) scan_job: Option<mpsc::Receiver<ScanEvent>>,
@@ -131,6 +140,8 @@ pub struct Ondera {
     pub(crate) typing_down: Vec<u8>,
     typing_owners: midi::NoteOwners,
     pub(crate) midi_take: Vec<RecordedNote>,
+    /// Control changes, bend and pressure of the MIDI take, at absolute beats.
+    pub(crate) midi_controls: Vec<(f64, ondera_engine::plugin::Event)>,
     pub(crate) midi_recording: bool,
     pub(crate) recording_midi_tracks: Vec<String>,
     pub output_device: Option<String>,
@@ -146,15 +157,25 @@ pub struct Ondera {
     pub(crate) settings_ui: crate::settings::SettingsWindow,
     pub(crate) live_jobs: Vec<crate::control::LiveJob>,
     pub(crate) attach_live: Option<usize>,
+    /// The last command started `control_job`, so a waiting caller belongs to it.
+    pub(crate) attach_control: bool,
     /// A `session.batch` is running: its commands share one undo step.
     pub(crate) batching: bool,
-    /// Input stream kept open for the level meter while an audio track is armed.
-    input_meter: Option<ondera_engine::device::InputMeter>,
-    input_meter_pending: Option<mpsc::Receiver<Result<ondera_engine::device::InputMeter>>>,
-    /// The device the meter was opened on; a change reopens it.
-    input_meter_device: Option<String>,
-    /// The meter failed for this device; do not retry until something changes.
-    input_meter_failed: bool,
+    /// The one input stream: level meter, monitoring and takes. Open while an audio track is
+    /// armed (and the meter setting allows it), a track monitors the input, or a take runs.
+    input: Option<LiveInput>,
+    input_pending: Option<mpsc::Receiver<Result<LiveInput>>>,
+    /// The device and buffer size the input was opened with; a change reopens it between takes.
+    input_key: (Option<String>, Option<u32>),
+    /// The input failed to open for this key; do not retry until something changes.
+    input_failed: bool,
+    /// What the open input was last told about monitoring: (monitoring wanted, speakers
+    /// allowed). `None` after the input or the output changed, so the tap is made again.
+    monitor_key: Option<(bool, bool)>,
+    /// How the open input stream answered the request to monitor.
+    pub(crate) monitoring: ondera_engine::device::Monitoring,
+    /// The user accepted built-in microphone to built-in speakers, until the app closes.
+    pub(crate) monitor_speakers_ok: bool,
     pub(crate) bridge_wanted: bool,
 }
 pub fn id(prefix: &str) -> String {
@@ -214,6 +235,18 @@ impl Ondera {
         app
     }
     /// Remember a session file in the recent list and as the last one opened.
+    /// Keep the audio a finished "Updating audio" job generated, but only what the open
+    /// document uses: a New, Open or Recover while it ran cleared the library, and adding the
+    /// previous session's buffers back would hold them in memory and count them against the
+    /// 1 GiB limit that later imports and recordings hit.
+    pub(crate) fn adopt_prepared_library(&mut self, library: Library) {
+        let sources = &self.store.session().sources;
+        for (id, buffer) in library {
+            if sources.contains_key(&id) {
+                self.library.entry(id).or_insert(buffer);
+            }
+        }
+    }
     pub(crate) fn remember_session(&mut self, path: &std::path::Path) {
         let text = path.to_string_lossy().into_owned();
         let recent = &mut self.settings.general.recent_sessions;
@@ -275,6 +308,10 @@ impl Ondera {
             frontend_ready: false,
             show_help: false,
             show_mixer: false,
+            show_controllers: false,
+            show_palette: false,
+            clipboard: None,
+            lane_width: 960.0,
             plugins: Bank::default(),
             catalog: vec![],
             scan_job: None,
@@ -286,6 +323,7 @@ impl Ondera {
             typing_down: vec![],
             typing_owners: Default::default(),
             midi_take: vec![],
+            midi_controls: vec![],
             midi_recording: false,
             recording_midi_tracks: vec![],
             output_device: None,
@@ -301,11 +339,15 @@ impl Ondera {
             settings_ui: Default::default(),
             live_jobs: vec![],
             attach_live: None,
+            attach_control: false,
             batching: false,
-            input_meter: None,
-            input_meter_pending: None,
-            input_meter_device: None,
-            input_meter_failed: false,
+            input: None,
+            input_pending: None,
+            input_key: (None, None),
+            input_failed: false,
+            monitor_key: None,
+            monitoring: ondera_engine::device::Monitoring::Off,
+            monitor_speakers_ok: false,
             bridge_wanted: false,
         }
     }
@@ -386,11 +428,12 @@ impl Ondera {
         self.device = None;
         let empty = store::empty();
         let name = self.output_device.clone();
+        let buffer = self.settings.audio.buffer_frames;
         let (tx, rx) = mpsc::sync_channel(1);
         self.device_pending = Some(rx);
         self.status = "Opening audio output…".into();
         std::thread::spawn(move || {
-            let _ = tx.send(DeviceEngine::open(name, |rate| {
+            let _ = tx.send(DeviceEngine::open(name, buffer, |rate| {
                 Renderer::new(empty, &Library::new(), rate, &HashMap::new())
             }));
         });
@@ -518,6 +561,12 @@ impl Ondera {
             note.end = Some(beats.max(note.start));
         }
     }
+    pub(crate) fn record_control(&mut self, event: ondera_engine::plugin::Event, beats: f64) {
+        if self.midi_recording {
+            self.midi_controls
+                .push((beats.max(self.record_start), event));
+        }
+    }
     fn poll_midi(&mut self) {
         let (events, failed, disconnected) = match &mut self.midi {
             Some(input) => {
@@ -532,7 +581,10 @@ impl Ondera {
         };
         for e in events {
             let beats = if e.playing { e.beats } else { self.position };
-            self.record_note_channel(e.on, e.pitch, e.velocity, beats, e.channel);
+            match e.control {
+                Some(control) => self.record_control(control, beats),
+                None => self.record_note_channel(e.on, e.pitch, e.velocity, beats, e.channel),
+            }
         }
         if failed {
             self.stop();
@@ -546,11 +598,20 @@ impl Ondera {
             return;
         }
         self.midi_recording = false;
+        // An audio take reports its own progress from here; a MIDI take is over.
+        if self.recorder.is_none() && self.record_pending.is_none() {
+            self.status = if self.midi_take.is_empty() && self.midi_controls.is_empty() {
+                "Ready".into()
+            } else {
+                "MIDI take recorded".into()
+            };
+        }
         let end_position = self.position;
         // Key down/up can arrive in the same UI frame. Keep a one-millisecond
         // tap instead of silently deleting it because both saw one playhead time.
         let minimum_length = self.store.session().transport.tempo / 60.0 * 0.001;
         let mut take = std::mem::take(&mut self.midi_take);
+        let controls = std::mem::take(&mut self.midi_controls);
         for note in &mut take {
             note.end = Some(
                 note.end
@@ -559,7 +620,7 @@ impl Ondera {
             );
         }
         take.retain(|n| n.end.is_some_and(|e| e > n.start + 1e-6));
-        if take.is_empty() {
+        if take.is_empty() && controls.is_empty() {
             return;
         }
         let s = self.store.session();
@@ -568,6 +629,7 @@ impl Ondera {
         let last = take
             .iter()
             .map(|n| n.end.unwrap_or(n.start))
+            .chain(controls.iter().map(|(beats, _)| beats + 1e-6))
             .fold(0.0, f64::max);
         let length_bars = ((last - start_bar * bpb) / bpb).ceil().max(1.0);
         let tracks: Vec<String> = self
@@ -589,6 +651,10 @@ impl Ondera {
                     agent: false,
                 })
                 .collect();
+            let controllers =
+                ondera_engine::controllers::recorded(&controls, start_bar * bpb, false, || {
+                    id("ctl")
+                });
             commands.push(Command::PutClip(Clip {
                 id: id("clip"),
                 name: "Take".into(),
@@ -596,7 +662,7 @@ impl Ondera {
                 track_id: track,
                 start_bar,
                 length_bars,
-                data: ClipData::Midi { notes },
+                data: ClipData::Midi { notes, controllers },
             }));
         }
         if !commands.is_empty() {
@@ -626,6 +692,9 @@ impl Ondera {
             match result {
                 Ok(device) => {
                     self.device = Some(device);
+                    // The monitor tap belonged to the previous output callback: make a new
+                    // one; the input stream itself stays open.
+                    self.monitor_key = None;
                     self.sync_needed = true;
                     self.synced_revision = None;
                     self.connect_midi(self.midi_port.clone());
@@ -633,37 +702,15 @@ impl Ondera {
                 Err(e) => self.error = Some(e),
             }
         }
+        self.refresh_recording_status();
         self.poll_scan();
         self.collect_retired();
         self.poll_midi();
         self.update_midi_route();
         self.reconcile_plugins();
         self.idle_plugins();
-        if let Some(result) = self
-            .record_pending
-            .as_ref()
-            .and_then(|rx| match rx.try_recv() {
-                Ok(v) => Some(v),
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    Some(Err("Microphone worker stopped".into()))
-                }
-                Err(_) => None,
-            })
-        {
-            self.record_pending = None;
-            match result {
-                Ok(recorder) if self.playing && self.record_enabled => {
-                    self.recorder = Some(recorder);
-                    self.status = "Recording…".into();
-                }
-                Ok(recorder) => {
-                    std::thread::spawn(move || drop(recorder));
-                }
-                Err(e) => {
-                    self.error = Some(e);
-                    self.record_enabled = false;
-                }
-            }
+        if self.record_pending.is_some() {
+            self.poll_input();
         }
         let result = self.job.as_ref().and_then(|rx| match rx.try_recv() {
             Ok(v) => Some(v),
@@ -681,7 +728,7 @@ impl Ondera {
                     library,
                     revision,
                 }) => {
-                    self.library.extend(library);
+                    self.adopt_prepared_library(library);
                     if revision == self.store.revision
                         && self
                             .device
@@ -857,11 +904,7 @@ impl Ondera {
                 self.error=Some("Audio device disconnected. Use Audio > Reconnect output after reconnecting it.".into());
             }
         }
-        if self
-            .recorder
-            .as_ref()
-            .is_some_and(|r| r.failed.load(Ordering::Relaxed))
-        {
+        if self.recorder.as_ref().is_some_and(|r| r.failed()) {
             self.stop();
         }
     }
@@ -913,60 +956,171 @@ impl Ondera {
             self.start_recording();
         }
     }
-    /// Keep the input open for the level meter exactly while it is useful: an audio track
-    /// is armed, the setting allows it, and no take owns the microphone.
-    pub(crate) fn poll_input_meter(&mut self) {
+    /// Some audio track routes the live input to its strip right now.
+    pub(crate) fn monitor_wanted(&self) -> bool {
+        use ondera_engine::model::Monitor;
+        self.store.session().tracks.iter().any(|t| {
+            t.kind == "audio"
+                && match t.monitor {
+                    Monitor::Off => false,
+                    Monitor::Auto => t.armed,
+                    Monitor::On => true,
+                }
+        })
+    }
+    /// Where an input worker sends the monitor tap, when some track wants to hear the input.
+    fn monitor_link(&self) -> Option<ondera_engine::device::MonitorLink> {
+        let device = self.device.as_ref()?;
+        self.monitor_wanted()
+            .then(|| ondera_engine::device::MonitorLink {
+                sender: device.sender(),
+                output_rate: device.sample_rate,
+                output_name: device.device_name.clone(),
+                allow_speakers: self.monitor_speakers_ok,
+            })
+    }
+    /// Keep the one input stream open exactly while it is useful: an audio track is armed and
+    /// the setting allows the meter, a track monitors the input, or a take runs. Monitoring and
+    /// takes attach to the open stream, so neither reopens the device.
+    pub(crate) fn poll_input(&mut self) {
+        use ondera_engine::device::Monitoring;
         if let Some(result) = self
-            .input_meter_pending
+            .input_pending
             .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
+            .and_then(|rx| match rx.try_recv() {
+                Ok(v) => Some(v),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("Microphone worker stopped".into()))
+                }
+                Err(_) => None,
+            })
         {
-            self.input_meter_pending = None;
+            self.input_pending = None;
             match result {
-                Ok(meter) => self.input_meter = Some(meter),
-                Err(_) => self.input_meter_failed = true,
+                Ok(input) => {
+                    self.input = Some(input);
+                    self.monitor_key = None;
+                }
+                Err(error) => {
+                    self.input_failed = true;
+                    if self.record_pending.take().is_some() {
+                        self.error = Some(error.clone());
+                        self.record_enabled = false;
+                    }
+                    self.monitoring = if self.monitor_wanted() {
+                        Monitoring::Failed(error)
+                    } else {
+                        Monitoring::Off
+                    };
+                }
             }
         }
-        let recording = self.recorder.is_some()
-            || self.record_pending.is_some()
-            || self.record_finishing.is_some();
-        let wanted = self.settings.audio.meter_input_when_armed
-            && !recording
-            && self.device.is_some()
+        let taking = self.recorder.is_some() || self.record_pending.is_some();
+        // A new device or buffer size reopens the input, but never under a running take.
+        let key = (self.input_device.clone(), self.settings.audio.buffer_frames);
+        if self.input_key != key && !taking {
+            self.input = None;
+            self.input_pending = None;
+            self.input_failed = false;
+            self.input_key = key;
+        }
+        if !taking && self.input.as_ref().is_some_and(|input| input.failed()) {
+            self.input = None;
+            self.input_failed = true;
+            if self.monitor_wanted() {
+                self.monitoring = Monitoring::Failed(
+                    "The input device stopped; reconnect it or choose another in Settings > Audio"
+                        .into(),
+                );
+            }
+        }
+        let monitor = self.monitor_wanted();
+        let metering = self.settings.audio.meter_input_when_armed
             && self
                 .store
                 .session()
                 .tracks
                 .iter()
                 .any(|t| t.kind == "audio" && t.armed);
-        if self.input_meter_device != self.input_device {
-            self.input_meter = None;
-            self.input_meter_failed = false;
-            self.input_meter_device = self.input_device.clone();
-        }
+        let wanted = (metering || monitor || taking) && self.device.is_some();
         if !wanted {
-            // Dropping the handle closes the stream, so a take never competes for the device.
-            self.input_meter = None;
-            if !recording {
-                self.input_meter_failed = false;
+            self.input = None;
+            self.input_pending = None;
+            self.input_failed = false;
+            self.monitor_key = None;
+            self.monitoring = Monitoring::Off;
+            return;
+        }
+        if self.input.is_some() {
+            let monitor_key = (monitor, self.monitor_speakers_ok);
+            if self.monitor_key != Some(monitor_key) {
+                let link = self.monitor_link();
+                if let Some(input) = self.input.as_mut() {
+                    self.monitoring = input.monitor(link.as_ref());
+                }
+                self.monitor_key = Some(monitor_key);
+            }
+            if let (Some(limit), Some(input)) = (self.record_pending.take(), self.input.as_mut()) {
+                match input.record(limit) {
+                    Ok(recorder) => {
+                        self.recorder = Some(recorder);
+                        self.status = "Recording…".into();
+                    }
+                    Err(error) => {
+                        self.error = Some(error);
+                        self.record_enabled = false;
+                    }
+                }
             }
             return;
         }
-        if self.input_meter.is_some()
-            || self.input_meter_pending.is_some()
-            || self.input_meter_failed
-        {
+        if self.input_pending.is_some() || self.input_failed {
             return;
         }
         let Some(telemetry) = self.device.as_ref().map(|d| d.telemetry.clone()) else {
             return;
         };
         let input = self.input_device.clone();
+        let buffer = self.settings.audio.buffer_frames;
         let (tx, rx) = mpsc::sync_channel(1);
-        self.input_meter_pending = Some(rx);
+        self.input_pending = Some(rx);
         std::thread::spawn(move || {
-            let _ = tx.send(ondera_engine::device::InputMeter::start(telemetry, input));
+            let _ = tx.send(LiveInput::open(telemetry, input, buffer));
         });
+    }
+    /// What the status line says while a take runs; `None` leaves it alone (the microphone
+    /// is still opening and its permission hint matters more).
+    pub(crate) fn recording_status(
+        counting_in: bool,
+        audio: bool,
+        midi: bool,
+        opening: bool,
+    ) -> Option<&'static str> {
+        match (counting_in, audio, midi, opening) {
+            (_, false, false, _) | (false, false, _, true) => None,
+            (true, ..) => Some("Count-in…"),
+            (false, true, ..) => Some("Recording…"),
+            (false, false, true, false) => Some("Recording MIDI…"),
+        }
+    }
+    fn refresh_recording_status(&mut self) {
+        if !self.playing {
+            return;
+        }
+        let counting_in = self
+            .device
+            .as_ref()
+            .is_some_and(|d| d.telemetry.counting_in.load(Ordering::Relaxed));
+        if let Some(status) = Self::recording_status(
+            counting_in,
+            self.recorder.is_some(),
+            self.midi_recording,
+            self.record_pending.is_some(),
+        ) {
+            if self.status != status {
+                self.status = status.into();
+            }
+        }
     }
     pub(crate) fn start_recording(&mut self) {
         if self.recorder.is_some()
@@ -1033,21 +1187,17 @@ impl Ondera {
         if !self.recording_midi_tracks.is_empty() {
             self.midi_recording = true;
             self.midi_take.clear();
+            self.midi_controls.clear();
             self.status = "Recording MIDI…".into();
         }
         if self.recording_tracks.is_empty() {
             return;
         }
-        let telemetry = d.telemetry.clone();
-        let input = self.input_device.clone();
-        self.input_meter = None;
-        self.input_meter_pending = None;
-        let (tx, rx) = mpsc::sync_channel(1);
-        self.record_pending = Some(rx);
+        // The take joins the open input stream (opening it first if needed), so what a
+        // monitoring singer hears does not drop out when the take starts.
+        self.record_pending = Some(byte_limit);
         self.status = "Opening microphone — check system permission…".into();
-        std::thread::spawn(move || {
-            let _ = tx.send(Recorder::start(telemetry, input, byte_limit));
-        });
+        self.poll_input();
     }
     pub fn stop(&mut self) {
         let events = self
@@ -1060,13 +1210,16 @@ impl Ondera {
             })
             .unwrap_or_default();
         for event in events {
-            self.record_note_channel(
-                event.on,
-                event.pitch,
-                event.velocity,
-                event.beats,
-                event.channel,
-            );
+            match event.control {
+                Some(control) => self.record_control(control, event.beats),
+                None => self.record_note_channel(
+                    event.on,
+                    event.pitch,
+                    event.velocity,
+                    event.beats,
+                    event.channel,
+                ),
+            }
         }
         self.playing = false;
         self.record_pending.take();
@@ -1083,13 +1236,10 @@ impl Ondera {
         if let Some(d) = &mut self.device {
             let _ = d.send(Message::SetRecording(false));
         }
+        self.record_pending = None;
         if let Some(r) = self.recorder.take() {
-            let first = f64::from_bits(r.first_beat.load(Ordering::Relaxed));
-            self.record_start = if first.is_finite() {
-                first
-            } else {
-                self.record_start
-            };
+            r.end();
+            self.record_start = r.first_beat().unwrap_or(self.record_start);
             let (tx, rx) = mpsc::sync_channel(1);
             self.record_finishing = Some(rx);
             self.status = "Finishing take…".into();
@@ -1169,6 +1319,7 @@ impl Ondera {
             mute: false,
             solo: false,
             armed: false,
+            monitor: Default::default(),
             extra: HashMap::new(),
         };
         self.dispatch(Command::AddTrack(track));
@@ -1182,7 +1333,10 @@ impl Ondera {
             track_id: track.clone(),
             start_bar,
             length_bars,
-            data: ClipData::Midi { notes: vec![] },
+            data: ClipData::Midi {
+                notes: vec![],
+                controllers: vec![],
+            },
         };
         let clip_id = clip.id.clone();
         self.dispatch(Command::PutClip(clip));
@@ -1293,10 +1447,7 @@ impl Ondera {
                 track_id: track,
                 start_bar,
                 length_bars,
-                data: ClipData::Audio {
-                    source_id: source_id.clone(),
-                    offset_seconds: 0.0,
-                },
+                data: ClipData::audio(source_id.clone(), 0.0),
             }));
         }
         self.library.insert(source_id, buffer);
@@ -1318,15 +1469,7 @@ impl Ondera {
             let mut files = vec![];
             let mut decoded_bytes = 0usize;
             for path in paths {
-                if std::fs::metadata(&path).map_err(|e| e.to_string())?.len()
-                    > audio::MAX_AUDIO_BYTES as u64
-                {
-                    return Err("Audio file exceeds 512 MiB".into());
-                }
-                let buffer = audio::decode(
-                    std::fs::read(&path).map_err(|e| e.to_string())?,
-                    path.extension().and_then(|s| s.to_str()),
-                )?;
+                let buffer = ondera_engine::control::decode_file(&path)?;
                 decoded_bytes = decoded_bytes.saturating_add(buffer.frames.len() * 8);
                 if decoded_bytes > audio::MAX_LIBRARY_BYTES {
                     return Err("Imported batch exceeds 1 GiB of decoded audio".into());
@@ -1337,8 +1480,11 @@ impl Ondera {
         });
     }
     pub(crate) fn save(&mut self, save_as: bool) {
+        // A save that does not start must not leave "then quit" (or New, Open…) waiting for
+        // the next ordinary save to run it.
         if self.job.is_some() || self.control_job.is_some() {
             self.status = "Wait for the current operation before saving".into();
+            self.after_save = None;
             return;
         }
         self.stop();
@@ -1348,6 +1494,7 @@ impl Ondera {
         }
         if let Err(error) = self.guarded(Ondera::capture_plugin_states) {
             self.error = Some(error);
+            self.after_save = None;
             return;
         }
         let mut session = (*self.store.snapshot()).clone();
@@ -1400,6 +1547,18 @@ impl Ondera {
         path: PathBuf,
         ownership: Option<SessionFileLock>,
     ) {
+        self.load_document(session, library, path, ownership, true);
+    }
+    /// `remember` files the path under Recent sessions and as the session to reopen; a
+    /// recovery snapshot is neither.
+    pub(crate) fn load_document(
+        &mut self,
+        session: Session,
+        library: Library,
+        path: PathBuf,
+        ownership: Option<SessionFileLock>,
+        remember: bool,
+    ) {
         self.unload_plugins();
         self.position = session.transport.position_beats;
         self.zoom = session.view.pixels_per_bar.clamp(12.0, 480.0);
@@ -1410,7 +1569,9 @@ impl Ondera {
             self.reset_agent_history();
             self.recovery.new_document();
             self.library = library;
-            self.remember_session(&path);
+            if remember {
+                self.remember_session(&path);
+            }
             self.path = Some(path);
             self.session_file = ownership;
             self.sync_needed = true;
@@ -1425,8 +1586,12 @@ impl Ondera {
         self.session_file = Some(ownership);
         self.store.mark_saved(revision);
         self.status = "Session saved".into();
-        if !self.store.dirty() {
-            if let Some(intent) = self.after_save.take() {
+        if let Some(intent) = self.after_save.take() {
+            if self.store.dirty() {
+                // Edited while saving: ask again rather than quit over the new changes, or
+                // keep the request around for an unrelated save later.
+                self.intent = Some(intent);
+            } else {
                 self.execute(intent);
             }
         }
@@ -1505,11 +1670,12 @@ impl Ondera {
                 self.closing = true;
             }
             Intent::Relaunch => {
-                if let Some(target) = self.updates.installed.take() {
-                    if let Err(e) = crate::update::relaunch(&target) {
-                        self.error = Some(e);
-                        return;
-                    }
+                // Without an installed update, Relaunch starts this copy again: quitting
+                // without a new window would look like a crash.
+                let target = crate::update::relaunch_target(self.updates.installed.take());
+                if let Err(e) = target.and_then(|target| crate::update::relaunch(&target)) {
+                    self.error = Some(e);
+                    return;
                 }
                 self.shutdown_audio();
                 self.closing = true;
@@ -1780,7 +1946,7 @@ impl Ondera {
         {
             if let Some(n) = &s.view.selected_note_id {
                 let mut c = c.clone();
-                if let ClipData::Midi { notes } = &mut c.data {
+                if let ClipData::Midi { notes, .. } = &mut c.data {
                     notes.retain(|note| &note.id != n);
                 }
                 self.dispatch(Command::PutClip(c));
@@ -1851,7 +2017,10 @@ impl Ondera {
             track_id: track,
             start_bar: (self.position / bpb).floor(),
             length_bars: pattern["bars"].as_f64().unwrap_or(1.0) * 4.0 / bpb,
-            data: ClipData::Midi { notes },
+            data: ClipData::Midi {
+                notes,
+                controllers: vec![],
+            },
         }));
     }
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
@@ -2061,6 +2230,52 @@ mod tests {
     use super::*;
     use egui::{vec2, Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect};
 
+    #[test]
+    fn audio_prepared_for_a_replaced_session_is_not_kept() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        let current: Vec<String> = app.store.session().sources.keys().cloned().collect();
+        let buffer = || {
+            Arc::new(ondera_engine::audio::AudioBuffer {
+                frames: vec![[0.0; 2]; 4],
+                sample_rate: 48000,
+                peaks: vec![],
+            })
+        };
+        let mut prepared = Library::new();
+        prepared.insert("from-the-old-session".into(), buffer());
+        for id in &current {
+            prepared.insert(id.clone(), buffer());
+        }
+        app.library.clear();
+        app.adopt_prepared_library(prepared);
+        assert!(!app.library.contains_key("from-the-old-session"));
+        assert_eq!(app.library.len(), current.len());
+    }
+
+    #[test]
+    fn a_save_that_does_not_happen_forgets_what_was_to_follow() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.dispatch(Command::Rename("Edited".into()));
+        app.after_save = Some(Intent::Quit);
+        let (_busy, receiver) = mpsc::sync_channel(1);
+        app.job = Some(receiver);
+        app.save(false);
+        assert!(app.after_save.is_none(), "a later Cmd+S must not quit");
+        app.job = None;
+
+        // Edits made while the save ran: ask again instead of quitting over them.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.ondera");
+        let lock = SessionFileLock::acquire_or_reuse(&path, None).unwrap();
+        let saved_revision = app.store.revision;
+        app.dispatch(Command::Rename("Edited again".into()));
+        app.after_save = Some(Intent::Quit);
+        app.saved(path, saved_revision, lock);
+        assert!(!app.closing);
+        assert!(matches!(app.intent, Some(Intent::Quit)));
+        assert!(app.after_save.is_none());
+    }
+
     fn frame(app: &mut Ondera, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
@@ -2104,10 +2319,44 @@ mod tests {
             .iter()
             .find(|c| c.id == "bass-2")
             .unwrap();
-        let ClipData::Midi { notes } = &clip.data else {
+        let ClipData::Midi { notes, .. } = &clip.data else {
             panic!()
         };
         notes
+    }
+
+    #[test]
+    fn the_status_line_follows_the_take_and_lets_go_of_it_afterwards() {
+        let status = Ondera::recording_status;
+        assert_eq!(status(true, false, true, false), Some("Count-in…"));
+        assert_eq!(status(true, true, false, false), Some("Count-in…"));
+        assert_eq!(status(false, true, true, false), Some("Recording…"));
+        assert_eq!(status(false, false, true, false), Some("Recording MIDI…"));
+        // Still opening the microphone: keep the permission hint, but never hide the count.
+        assert_eq!(status(false, false, true, true), None);
+        assert_eq!(status(true, false, true, true), Some("Count-in…"));
+        assert_eq!(status(false, false, false, false), None);
+
+        let (mut app, _) = setup();
+        app.midi_recording = true;
+        app.status = "Recording MIDI…".into();
+        app.finish_recording();
+        assert_eq!(
+            app.status, "Ready",
+            "an empty MIDI take leaves nothing behind"
+        );
+        app.midi_recording = true;
+        app.recording_midi_tracks = vec!["bass".into()];
+        app.midi_take.push(RecordedNote {
+            pitch: 60,
+            velocity: 100,
+            start: 0.0,
+            end: Some(1.0),
+            channel: 0,
+        });
+        app.status = "Recording MIDI…".into();
+        app.finish_recording();
+        assert_eq!(app.status, "MIDI take recorded");
     }
 
     #[test]
@@ -2263,6 +2512,7 @@ mod tests {
         fn send<T: std::marker::Send>() {}
         send::<DeviceEngine>();
         send::<Recorder>();
+        send::<LiveInput>();
     }
     #[test]
     fn undo_shortcut_works_after_focusing_a_non_text_control() {
@@ -2339,7 +2589,9 @@ mod tests {
         app.record_start = 4.0;
         app.position = 4.0;
         app.record_note(true, 60, 100, 4.5);
+        app.record_control(ondera_engine::plugin::Event::control(0, 1, 64), 4.75);
         app.record_note(true, 64, 90, 5.0);
+        app.record_control(ondera_engine::plugin::Event::pitch_bend(0, -1.0), 5.5);
         app.record_note(false, 60, 0, 6.0);
         app.position = 7.0;
         app.finish_recording();
@@ -2353,9 +2605,17 @@ mod tests {
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0].start_bar, 1.0);
         assert_eq!(clips[0].length_bars, 1.0);
-        let ClipData::Midi { notes } = &clips[0].data else {
+        let ClipData::Midi { notes, controllers } = &clips[0].data else {
             panic!()
         };
+        assert_eq!(
+            controllers
+                .iter()
+                .map(|c| (c.kind.as_str(), c.number, c.time, c.value))
+                .collect::<Vec<_>>(),
+            vec![("cc", Some(1), 0.75, 64), ("bend", None, 1.5, -8192)],
+            "the take keeps controllers relative to the region"
+        );
         assert_eq!(notes.len(), 2);
         assert_eq!(notes[0].start, 0.5);
         assert_eq!(notes[0].length, 1.5);
@@ -2388,7 +2648,7 @@ mod tests {
         app.record_note(false, 60, 0, 4.0);
         app.record_note(true, 64, 90, 4.0);
         app.commit_midi_take();
-        let ClipData::Midi { notes } = &app.store.session().clips[0].data else {
+        let ClipData::Midi { notes, .. } = &app.store.session().clips[0].data else {
             panic!()
         };
         assert_eq!(notes.len(), 2);
@@ -2432,7 +2692,7 @@ mod tests {
         }
         app.position = 6.0;
         app.stop();
-        let ClipData::Midi { notes } = &app.store.session().clips[0].data else {
+        let ClipData::Midi { notes, .. } = &app.store.session().clips[0].data else {
             panic!()
         };
         assert_eq!(
@@ -2446,7 +2706,7 @@ mod tests {
         let path = directory.path().join("sustain.ondera");
         document::save(app.store.session(), &app.library, &path).unwrap();
         let (loaded, _) = document::load(&path).unwrap();
-        let ClipData::Midi { notes } = &loaded.clips[0].data else {
+        let ClipData::Midi { notes, .. } = &loaded.clips[0].data else {
             panic!()
         };
         assert_eq!(notes[0].length, 3.0);

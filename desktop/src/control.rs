@@ -50,7 +50,12 @@ pub(crate) struct ControlJob {
 
 /// Interface work that completes on a later frame: a screenshot, an update check or install.
 pub(crate) enum LiveWait {
-    Screenshot { path: PathBuf, requested: bool },
+    /// Work on another thread (the network, an offline render) that answers when it is done.
+    Worker(mpsc::Receiver<Result<Value>>),
+    Screenshot {
+        path: PathBuf,
+        requested: bool,
+    },
     UpdateCheck,
     UpdateInstall,
 }
@@ -119,9 +124,13 @@ impl Ondera {
     /// Hand a waiting party to the job the last command started. Returns the reply when
     /// nothing is pending so the caller can answer immediately.
     pub(crate) fn attach_reply(&mut self, reply: Reply) -> std::result::Result<(), Reply> {
-        if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
-            job.reply = Some(reply);
-            return Ok(());
+        // Only the job this command started: a file job started earlier (a dropped MIDI file
+        // imports with nobody waiting) must not take the answer of an unrelated command.
+        if std::mem::take(&mut self.attach_control) {
+            if let Some(job) = self.control_job.as_mut().filter(|job| job.reply.is_none()) {
+                job.reply = Some(reply);
+                return Ok(());
+            }
         }
         if let Some(index) = self.attach_live.take() {
             if let Some(job) = self
@@ -148,6 +157,7 @@ impl Ondera {
         let before = self.store.revision;
         let depth_before = self.store.undo_depth();
         self.attach_live = None;
+        self.attach_control = false;
         let result = (|| {
             control::validate_request(method, params)?;
             if method.starts_with("take.") && method != "take.list" && self.agents.runtime.running()
@@ -166,23 +176,26 @@ impl Ondera {
                 {
                     return Err("Agent connections and permissions must be changed by the person in Settings".into());
                 }
-                if let Some(denied) =
-                    control_app::denied_for_agent(method, &self.settings.agent.permissions)
-                {
+                if let Some(denied) = control_app::denied_for_agent_request(
+                    method,
+                    params,
+                    &self.settings.agent.permissions,
+                ) {
                     return Err(denied);
                 }
             }
             if matches!(method, "session.new" | "session.open") {
                 self.can_replace_document()?;
             }
-            if self.control_job.is_some()
-                && control::COMMANDS
+            if let Some(job) = self.control_job.as_ref().filter(|_| {
+                control::COMMANDS
                     .iter()
                     .any(|s| s.name == method && s.mutates)
-            {
-                return Err(
-                    "An agent file operation is in progress; retry when it finishes.".into(),
-                );
+            }) {
+                return Err(format!(
+                    "{} is still running; retry {method} when it finishes.",
+                    job.method
+                ));
             }
             if matches!(
                 method,
@@ -218,6 +231,8 @@ impl Ondera {
                     library: self.library.clone(),
                     path: self.path.clone(),
                     position: self.position,
+                    clipboard: None,
+                    lane_width: self.lane_width,
                 };
                 let revision = self.store.revision;
                 let (method_owned, mut params_owned) = (method.to_string(), params.clone());
@@ -255,6 +270,7 @@ impl Ondera {
                     });
                     let _ = tx.send(outcome);
                 });
+                self.attach_control = true;
                 self.control_job = Some(ControlJob {
                     receiver: rx,
                     reply: None,
@@ -267,6 +283,22 @@ impl Ondera {
                 self.status = format!("Running {method}…");
                 return Ok(json!({"status":"running", "command":method}));
             }
+            if method == "rhythm.preview" {
+                // The render runs on a scratch document that has no file: check the window's.
+                if let Some(path) = params.get("path").and_then(Value::as_str) {
+                    control::protect_session_file(self.path.as_deref(), Path::new(path))?;
+                }
+                // An offline render: seconds of work that must not hold the interface, and that
+                // needs nothing from the open document but its tempo and meter.
+                let mut scratch = Headless::new();
+                scratch.store.dispatch(Command::SetTransport(
+                    self.store.session().transport.clone(),
+                ))?;
+                let params_owned = params.clone();
+                return Ok(self.start_worker(method, params, source, move || {
+                    control::call(&mut scratch, "rhythm.preview", &params_owned, false)
+                }));
+            }
             if source != "Interface" && !self.batching {
                 self.store.set_gesture(false);
             }
@@ -277,7 +309,11 @@ impl Ondera {
             }
             Ok(result)
         })();
-        self.record_agent_activity(method, params, source, before, depth_before, &result);
+        // The entries of a batch share one undo step, so they are one change: `run_batch`
+        // records it. A change per entry would offer Reverts that each undo the whole batch.
+        if !self.batching {
+            self.record_agent_activity(method, params, source, before, depth_before, &result);
+        }
         result
     }
     /// `session.batch` in the window: every entry passes the same permission and busy checks
@@ -287,6 +323,7 @@ impl Ondera {
         control::validate_request("session.batch", params)?;
         let entries = control_edit::batch_entries(params)?;
         let atomic = params["atomic"].as_bool().unwrap_or(true);
+        let (before, depth_before) = (self.store.revision, self.store.undo_depth());
         self.store.set_gesture(true);
         self.batching = true;
         let mut results = Vec::with_capacity(entries.len());
@@ -314,6 +351,14 @@ impl Ondera {
             None => Ok(control_edit::batch_reply(results)),
         };
         self.store.set_gesture(false);
+        self.record_agent_activity(
+            "session.batch",
+            params,
+            source,
+            before,
+            depth_before,
+            &outcome,
+        );
         outcome
     }
     pub(crate) fn poll_control_job(&mut self) {
@@ -421,8 +466,64 @@ impl Ondera {
         self.attach_live = Some(self.live_jobs.len() - 1);
         json!({ "status": "running", "command": method })
     }
+    /// Run `work` off the interface thread as a live job: the caller is told "running" and
+    /// gets the result when it arrives, and the window never waits on the network.
+    fn start_worker(
+        &mut self,
+        method: &str,
+        params: &Value,
+        source: &str,
+        work: impl FnOnce() -> Result<Value> + Send + 'static,
+    ) -> Value {
+        let (tx, rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                .unwrap_or_else(|_| Err("The background job failed".into()));
+            let _ = tx.send(result);
+            if let Some(wake) = CONTROL_WAKE.get() {
+                wake();
+            }
+        });
+        self.start_live(LiveWait::Worker(rx), method, params, source)
+    }
+    /// Answer the worker jobs that have finished.
+    pub(crate) fn poll_workers(&mut self) {
+        let mut index = 0;
+        while index < self.live_jobs.len() {
+            let outcome = match &self.live_jobs[index].wait {
+                LiveWait::Worker(receiver) => match receiver.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        Some(Err("The background job stopped before it finished".into()))
+                    }
+                    Err(mpsc::TryRecvError::Empty) => None,
+                },
+                _ => None,
+            };
+            let Some(result) = outcome else {
+                index += 1;
+                continue;
+            };
+            let job = self.live_jobs.remove(index);
+            if self.attach_live.is_some_and(|waiting| waiting >= index) {
+                self.attach_live = None;
+            }
+            self.record_agent_activity(
+                &job.method,
+                &job.params,
+                &job.source,
+                job.revision,
+                job.undo_depth,
+                &result,
+            );
+            if let Some(reply) = job.reply {
+                reply.respond(result);
+            }
+        }
+    }
     /// Ask the viewport for pending screenshots; time out jobs nobody can finish.
     pub(crate) fn poll_live_jobs(&mut self, ctx: &eframe::egui::Context) {
+        self.poll_workers();
         let mut request_capture = false;
         for job in &mut self.live_jobs {
             if let LiveWait::Screenshot { requested, .. } = &mut job.wait {
@@ -528,6 +629,7 @@ impl Ondera {
         json!({
             "device": self.device.as_ref().map(|d| d.device_name.clone()),
             "sampleRate": self.device.as_ref().map(|d| d.sample_rate),
+            "bufferFrames": self.device.as_ref().map(|d| d.telemetry.output_frames.load(std::sync::atomic::Ordering::Relaxed)),
             "cpuLoad": cpu,
             "masterPeak": [peaks[0], peaks[1]],
             "selectedTrackPeak": [peaks[2], peaks[3]],
@@ -538,7 +640,41 @@ impl Ondera {
             "recording": self.midi_recording || self.recorder.is_some(),
             "recordEnabled": self.record_enabled,
             "musicalTyping": self.musical_typing,
+            "monitoring": self.monitoring_status(),
         })
+    }
+    fn monitoring_status(&self) -> Value {
+        use ondera_engine::device::Monitoring;
+        use std::sync::atomic::Ordering::Relaxed;
+        let (state, input, rate, reason) = match &self.monitoring {
+            Monitoring::Off => ("off", None, None, None),
+            Monitoring::On { input_name, input_rate } => {
+                ("on", Some(input_name.clone()), Some(*input_rate), None)
+            }
+            Monitoring::FeedbackRisk { input_name } => (
+                "blocked",
+                Some(input_name.clone()),
+                None,
+                Some("The built-in microphone would feed back through the built-in speakers. Use headphones, or allow it with audio.allowSpeakerMonitoring.".to_string()),
+            ),
+            Monitoring::Failed(error) => ("failed", None, None, Some(error.clone())),
+        };
+        let mut value = json!({
+            "state": state, "inputDevice": input, "inputRate": rate, "reason": reason,
+            "speakersAllowed": self.monitor_speakers_ok,
+        });
+        if let Some(d) = self.device.as_ref().filter(|_| state == "on") {
+            let t = &d.telemetry;
+            value["inputFrames"] = json!(t.input_frames.load(Relaxed));
+            value["outputFrames"] = json!(t.output_frames.load(Relaxed));
+            value["ringFrames"] = json!(t.monitor_fill.load(Relaxed));
+            value["latencyMs"] = json!(t
+                .monitor_latency_ms(d.sample_rate)
+                .map(|ms| (ms * 10.0).round() / 10.0));
+            value["drops"] = json!(t.monitor_drops.load(Relaxed));
+            value["underruns"] = json!(t.monitor_underruns.load(Relaxed));
+        }
+        value
     }
     fn ui_status(&self) -> Value {
         let session = self.store.session();
@@ -550,6 +686,8 @@ impl Ondera {
             "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)],
             "help": self.show_help,
             "mixer": self.show_mixer,
+            "controllers": self.show_controllers,
+            "palette": self.show_palette,
             "tool": TOOLS[self.tool.min(2)],
             "musicalTyping": self.musical_typing,
             "pluginWindows": self.plugins.windows.keys().cloned().collect::<Vec<_>>(),
@@ -559,7 +697,8 @@ impl Ondera {
             "recordEnabled": self.record_enabled,
             "pixelsPerBar": self.zoom,
             "scrollBar": self.scroll,
-            "browserTab": BROWSER_TABS[self.browser_tab.min(3)],
+            "browserTab": session.view.browser_tab,
+            "browserSelection": session.view.browser_selection,
             "selectedTrackId": session.view.selected_track_id,
             "selectedClipId": session.view.selected_clip_id,
             "busy": self.job.is_some() || self.control_job.is_some(),
@@ -572,6 +711,10 @@ impl Ondera {
                 crate::app::Intent::Relaunch => "relaunch",
             }),
             "recoveredTake": self.unplaced_recording.is_some(),
+            "monitorBlocked": matches!(
+                self.monitoring,
+                ondera_engine::device::Monitoring::FeedbackRisk { .. }
+            ),
             "heldNotes": self.typing_down,
         })
     }
@@ -770,6 +913,22 @@ impl Host for Ondera {
         let view = &self.store.session().view;
         self.zoom = view.pixels_per_bar.clamp(12.0, 480.0);
         self.scroll = view.scroll_bars.max(0.0);
+        self.browser_tab = BROWSER_TABS
+            .iter()
+            .position(|tab| *tab == view.browser_tab)
+            .unwrap_or(0);
+    }
+    fn lane_width(&self) -> f64 {
+        self.lane_width
+    }
+    fn set_lane_width(&mut self, pixels: f64) {
+        self.lane_width = pixels;
+    }
+    fn clipboard(&self) -> Option<&ondera_engine::model::Clip> {
+        self.clipboard.as_ref()
+    }
+    fn set_clipboard(&mut self, clip: Option<ondera_engine::model::Clip>) {
+        self.clipboard = clip;
     }
     fn capture_states(&mut self) -> Result<()> {
         self.guarded(Ondera::capture_plugin_states)
@@ -784,6 +943,11 @@ impl Host for Ondera {
         let source = "live";
         match action {
             "audio.status" => Ok(self.audio_status()),
+            "audio.allowSpeakerMonitoring" => {
+                self.monitor_speakers_ok = params["allow"].as_bool().unwrap_or(false);
+                self.poll_input();
+                Ok(self.audio_status())
+            }
             "audio.setOutput" | "audio.setInput" => {
                 let name = params["name"].as_str().map(str::to_string);
                 if let Some(name) = &name {
@@ -883,15 +1047,16 @@ impl Host for Ondera {
                 if self.record_enabled != enabled {
                     self.record_enabled = enabled;
                     if self.playing {
-                        if enabled {
-                            self.start_recording();
-                        } else {
-                            self.finish_recording();
-                        }
+                        // Only this punch's own failure answers the request: an error the
+                        // window was already showing is not about it.
+                        self.guarded(|app| {
+                            if enabled {
+                                app.start_recording();
+                            } else {
+                                app.finish_recording();
+                            }
+                        })?;
                     }
-                }
-                if let Some(error) = self.error.clone().filter(|_| enabled && self.playing) {
-                    return Err(error);
                 }
                 Ok(
                     json!({ "recordEnabled": self.record_enabled, "playing": self.playing,
@@ -934,6 +1099,15 @@ impl Host for Ondera {
                 }
                 Ok(self.ui_status())
             }
+            "app.openGuide" => match params["guide"].as_str().unwrap_or("") {
+                "plugins" => {
+                    let url =
+                        "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md";
+                    crate::settings::reveal(std::path::Path::new(url));
+                    Ok(json!({ "opened": url }))
+                }
+                other => Err(format!("Unknown guide `{other}`. Guides: plugins.")),
+            },
             "app.relaunch" => {
                 self.request(crate::app::Intent::Relaunch);
                 Ok(json!({ "prompt": self.intent.is_some() }))
@@ -1030,6 +1204,8 @@ impl Host for Ondera {
                     }
                     "help" => self.show_help = visible,
                     "mixer" => self.show_mixer = visible,
+                    "controllers" => self.show_controllers = visible,
+                    "palette" => self.show_palette = visible,
                     "export" => {
                         if visible {
                             self.open_export_dialog();
@@ -1053,7 +1229,7 @@ impl Host for Ondera {
                     }
                     other => {
                         return Err(format!(
-                            "Unknown panel `{other}`. Panels: agent, automation, mixer, settings, help, export, recovery, master, bus-a, bus-b."
+                            "Unknown panel `{other}`. Panels: agent, automation, mixer, controllers, palette, settings, help, export, recovery, master, bus-a, bus-b."
                         ))
                     }
                 }
@@ -1192,6 +1368,20 @@ impl Host for Ondera {
             }
             "agent.status" => Ok(self.agents.status_json(&self.settings)),
             "agent.providers" => Ok(crate::agent::providers_json(&self.settings)),
+            "agent.models" => {
+                let settings = self.settings.clone();
+                Ok(self.start_worker(action, params, source, move || {
+                    serde_json::to_value(crate::agent::catalog::discover(&settings))
+                        .map_err(|e| e.to_string())
+                }))
+            }
+            "agent.connection" => {
+                let settings = self.settings.clone();
+                Ok(self.start_worker(action, params, source, move || {
+                    serde_json::to_value(crate::agent::connection::check(&settings))
+                        .map_err(|e| e.to_string())
+                }))
+            }
             "agent.send" => {
                 let prompt = params["prompt"].as_str().unwrap_or("").trim().to_string();
                 if prompt.is_empty() {
@@ -1235,6 +1425,47 @@ fn release_json(release: &crate::update::Release) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reply_waits_only_on_the_job_its_own_command_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = Ondera::from_session(store::empty(), None);
+        // A save nobody waits on, like a dropped MIDI file importing.
+        let started = app
+            .run_control_command(
+                "session.save",
+                &json!({"path": dir.path().join("song.ondera")}),
+                false,
+                "Interface",
+            )
+            .unwrap();
+        assert_eq!(started["status"], "running");
+        app.run_control_command("session.info", &json!({}), false, "CLI")
+            .unwrap();
+        let (tx, _rx) = mpsc::sync_channel(1);
+        assert!(
+            app.attach_reply(Reply::Channel(tx)).is_err(),
+            "session.info must be answered now, not with the save's result"
+        );
+        while app.control_job.is_some() {
+            app.poll_control_job();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn punch_answers_for_itself_not_for_an_error_already_on_screen() {
+        let mut app = Ondera::from_session(ondera_engine::store::empty(), None);
+        app.error = Some("Audio device disconnected".into());
+        app.playing = true;
+        app.record_enabled = true;
+        let reply = app
+            .run_control_command("transport.punch", &json!({"enabled": true}), false, "CLI")
+            .expect("nothing changed, so nothing failed");
+        assert_eq!(reply["recordEnabled"], true);
+        assert_eq!(app.error.as_deref(), Some("Audio device disconnected"));
+        app.playing = false;
+    }
+
     use super::*;
     use ondera_engine::{audio::AudioBuffer, model::*, store};
     use std::time::{Duration, Instant};
@@ -1455,6 +1686,126 @@ mod tests {
             .is_err());
         assert!(app.control_job.is_none());
         assert!(!app.store.dirty());
+    }
+
+    #[test]
+    fn a_groove_preview_is_a_job_that_answers_later_and_leaves_the_song_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("groove.wav");
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.preparing = false;
+        app.sync_needed = false;
+        let revision = app.store.revision;
+        let tracks = app.store.session().tracks.len();
+        let lanes = json!([{"steps":16,"pulses":4,"rotation":0,"pitch":36,"velocity":110}]);
+        let result = app
+            .run_control_command(
+                "rhythm.preview",
+                &json!({"lanes":lanes,"bars":1,"path":path}),
+                false,
+                "test",
+            )
+            .unwrap();
+        assert_eq!(result["status"], "running");
+        let (tx, rx) = mpsc::sync_channel(1);
+        assert!(app.attach_reply(Reply::Channel(tx)).is_ok());
+        // Unlike a file job, a preview does not lock the document while it renders.
+        app.try_dispatch(Command::Rename("still editable".into()))
+            .unwrap();
+        let answer = loop {
+            app.poll_workers();
+            if let Ok(answer) = rx.try_recv() {
+                break answer.unwrap();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(app.live_jobs.is_empty());
+        assert_eq!(answer["bars"], 1);
+        let decoded = audio::decode(std::fs::read(&path).unwrap(), Some("wav")).unwrap();
+        assert!(
+            decoded.frames.iter().flatten().any(|v| v.abs() > 0.01),
+            "the kick is audible"
+        );
+        assert_eq!(
+            app.store.session().tracks.len(),
+            tracks,
+            "nothing was created"
+        );
+        assert_eq!(app.store.revision, revision + 1, "only the rename happened");
+        // Bad input is refused by the job, not by a panic.
+        app.run_control_command(
+            "rhythm.preview",
+            &json!({"lanes":lanes,"bars":9}),
+            false,
+            "test",
+        )
+        .unwrap();
+        let (tx, rx) = mpsc::sync_channel(1);
+        assert!(app.attach_reply(Reply::Channel(tx)).is_ok());
+        let refused = loop {
+            app.poll_workers();
+            if let Ok(answer) = rx.try_recv() {
+                break answer;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(refused.unwrap_err().contains("1 to 4 bars"));
+    }
+
+    #[test]
+    fn a_batch_is_one_change_because_it_is_one_undo_step() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.preparing = false;
+        app.sync_needed = false;
+        let clips = app.store.session().clips.len();
+        let batch = json!({"commands":[
+            {"command":"clip.create","params":{"trackId":"bass","startBar":40,"lengthBars":1}},
+            {"command":"clip.create","params":{"trackId":"bass","startBar":41,"lengthBars":1}},
+            {"command":"track.setVolume","params":{"trackId":"bass","volume":0.5}},
+        ]});
+        app.run_control_command("session.batch", &batch, true, "MCP / agent")
+            .unwrap();
+        assert_eq!(app.store.session().clips.len(), clips + 2);
+        let changes = app.agents.changes_json(app.store.undo_depth());
+        let list = changes.as_array().unwrap();
+        assert_eq!(list.len(), 1, "{changes}");
+        assert!(list[0]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("Batch · 3 commands · clip.create"));
+        // Reverting that one change takes the whole batch back, which is what it says.
+        let sequence = list[0]["sequence"].clone();
+        app.run_control_command("agent.revert", &json!({"sequence":sequence}), false, "test")
+            .unwrap();
+        assert_eq!(app.store.session().clips.len(), clips);
+        // A batch that fails and rolls back is still one entry, marked as not having succeeded.
+        let bad = json!({"commands":[
+            {"command":"clip.create","params":{"trackId":"bass","startBar":50,"lengthBars":1}},
+            {"command":"clip.remove","params":{"clipId":"no-such-clip"}},
+        ]});
+        assert!(app
+            .run_control_command("session.batch", &bad, true, "MCP / agent")
+            .is_err());
+        assert_eq!(app.store.session().clips.len(), clips);
+        let after = app.agents.changes_json(app.store.undo_depth());
+        let after = after.as_array().unwrap();
+        // The revert above is itself on the list; the failed batch added exactly one more.
+        let failed: Vec<_> = after
+            .iter()
+            .filter(|c| c["title"].as_str().unwrap().starts_with("Batch"))
+            .collect();
+        assert_eq!(failed.len(), 2);
+        let outcomes: Vec<bool> = failed
+            .iter()
+            .map(|c| c["succeeded"].as_bool().unwrap())
+            .collect();
+        assert!(
+            outcomes.contains(&true) && outcomes.contains(&false),
+            "{outcomes:?}"
+        );
+        assert!(after
+            .iter()
+            .all(|c| !c["title"].as_str().unwrap().starts_with("Clip")));
     }
 
     #[test]

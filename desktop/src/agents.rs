@@ -1168,13 +1168,16 @@ impl Ondera {
         ) {
             return;
         }
+        // The window's own requests are the person at the keyboard, not the agent, and a
+        // query changes nothing: neither belongs in the Changes list. Commands the registry
+        // does not know (live-only ones) are kept, as they can act on the window.
+        if source == "Interface" {
+            return;
+        }
+        let recorded = control::spec(method).is_none_or(|spec| spec.mutates);
         let depth_after = self.store.undo_depth();
-        let (title, color) = describe(method, params, self.store.session());
         self.agents.sequence += 1;
         self.agents.last_request = Some(Instant::now());
-        for entry in &mut self.agents.history {
-            entry.expanded = false;
-        }
         let mutated = depth_after > depth_before;
         let running = result
             .as_ref()
@@ -1202,6 +1205,13 @@ impl Ondera {
                 });
                 self.agents.runtime.scroll_to_end = true;
             }
+        }
+        if !recorded {
+            return;
+        }
+        let (title, color) = describe(method, params, self.store.session());
+        for entry in &mut self.agents.history {
+            entry.expanded = false;
         }
         self.agents.history.push_front(Activity {
             sequence,
@@ -1365,6 +1375,28 @@ fn brief(value: &Value) -> String {
 
 /// A one-line human title for a log entry and the swatch of the track it touched.
 fn describe(method: &str, params: &Value, session: &Session) -> (String, Color32) {
+    if method == "session.batch" {
+        // One change, as it is one undo step: say how much it did and what kind of thing.
+        let commands: Vec<&str> = params["commands"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry["command"].as_str())
+            .collect();
+        let mut kinds: Vec<&str> = vec![];
+        for command in &commands {
+            if !kinds.contains(command) {
+                kinds.push(command);
+            }
+        }
+        let shown = kinds.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+        let more = if kinds.len() > 3 { ", …" } else { "" };
+        let plural = if commands.len() == 1 { "" } else { "s" };
+        return (
+            format!("Batch · {} command{plural} · {shown}{more}", commands.len()),
+            NEUTRAL_DOT,
+        );
+    }
     let (object, action) = method.split_once('.').unwrap_or((method, ""));
     let clip = params["clipId"]
         .as_str()
@@ -1628,7 +1660,7 @@ mod tests {
         assert_eq!(app.store.revision, before);
         for _ in 0..HISTORY_LIMIT + 1 {
             app.record_agent_activity(
-                "session.info",
+                "transport.stop",
                 &json!({}),
                 "test",
                 before,
@@ -1684,6 +1716,44 @@ mod tests {
         complete();
         app.agents.runtime.poll();
         assert!(!app.agents.runner_busy());
+    }
+
+    #[test]
+    fn changes_list_skips_the_window_and_queries() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        let complete = app.agents.mock_running_task();
+        let count = app.agents.history.len();
+        // The interface's own reads and edits are the person, not the agent.
+        for method in ["plugin.list", "session.info"] {
+            app.run_control_command(method, &json!({}), false, "Interface")
+                .unwrap();
+        }
+        app.run_control_command(
+            "session.rename",
+            &json!({"name":"Typed by hand"}),
+            false,
+            "Interface",
+        )
+        .unwrap();
+        // A query from the CLI or the agent changes nothing either.
+        app.run_control_command("session.info", &json!({}), false, "CLI")
+            .unwrap();
+        app.run_control_command("track.list", &json!({}), true, "MCP / agent")
+            .unwrap();
+        assert_eq!(app.agents.history.len(), count);
+        // The query still reaches the agent's transcript.
+        assert_eq!(app.agents.runtime.transcript.len(), 1);
+        app.run_control_command(
+            "session.rename",
+            &json!({"name":"By the agent"}),
+            false,
+            "CLI",
+        )
+        .unwrap();
+        assert_eq!(app.agents.history.len(), count + 1);
+        assert!(app.agents.history[0].mutated());
+        complete();
+        app.agents.runtime.poll();
     }
 
     #[test]

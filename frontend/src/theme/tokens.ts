@@ -121,6 +121,13 @@ export const size = {
   keyColumn: 56,
   keyRow: 10,
   keyRows: 25,
+  /** Height of the controller lane under the piano roll. */
+  controllerLane: 96,
+  /** Radius of a controller point, and how near the pointer must come to grab one. */
+  controllerPoint: 3,
+  controllerGrip: 6,
+  /** Space above the highest and below the lowest controller value. */
+  controllerInset: 6,
   agentHeader: 44,
   browser: 220,
   trackHeader: 184,
@@ -159,6 +166,12 @@ export const size = {
   clipEdgeGrip: 7,
   /** Grab zone at each cycle-range edge in the ruler, in px. */
   cycleGrip: 6,
+  /** Fade handle at an audio clip's top corners, and its grab zone, in px. */
+  fadeHandle: 7,
+  fadeGrip: 6,
+  /** Marker flag in the ruler: its top and height, in px. */
+  markerTop: 15,
+  markerH: 12,
   /** Grab zone at a note's right edge for resizing, in px. */
   noteEdgeGrip: 5,
   menuMinW: 200,

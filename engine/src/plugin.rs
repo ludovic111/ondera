@@ -139,9 +139,29 @@ impl ParamInfo {
     }
 }
 
-/// Note events, parameter changes, transport context and the block bound are defined by the
-/// plugin SDK so native plugins and the hosts agree on one layout.
-pub use ondera_plugin::{NoteEvent, ParamChange, ProcessContext, MAX_BLOCK};
+/// Events, transport context and the block bound are defined by the plugin SDK so native
+/// plugins and the hosts agree on one layout. `Event` carries notes, controllers, pitch bend
+/// and pressure; `event` names its kinds.
+pub use ondera_plugin::{event, Event, NoteEvent, ProcessContext, MAX_BLOCK};
+
+/// A parameter value that takes effect at `frame` within the block being processed. `id` is
+/// the plugin's own parameter id (CLAP id, VST3 ParamID, AU parameter, native index).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ParamChange {
+    pub frame: u32,
+    pub id: u32,
+    pub value: f64,
+}
+impl ParamChange {
+    /// A change at the start of the block.
+    pub const fn now(id: u32, value: f64) -> Self {
+        Self {
+            frame: 0,
+            id,
+            value,
+        }
+    }
+}
 
 /// The audio-thread half of a plugin. Nothing here may allocate, block or log.
 pub trait Processor: Send {
@@ -152,16 +172,24 @@ pub trait Processor: Send {
     /// Silence tails and release voices.
     fn reset(&mut self) {}
     /// Process stereo audio in place. Instruments receive silence and add their
-    /// output; effects transform. `notes` and `params` are sorted by frame.
+    /// output; effects transform. `events` (notes, controllers, pitch bend and pressure)
+    /// and `params` are sorted by frame. A processor that does not say
+    /// [`Processor::timed_params`] only ever sees changes at frame 0: the rack splits the
+    /// block at every later change for it.
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     );
     fn latency(&self) -> u32 {
         0
+    }
+    /// The processor applies each change at its `frame` itself (CLAP events, VST3 queues,
+    /// native ABI 2), so the rack passes the whole block at once.
+    fn timed_params(&self) -> bool {
+        false
     }
 }
 
@@ -209,6 +237,10 @@ pub trait Editor {
     fn latency(&self) -> u32 {
         0
     }
+    /// How long the plugin says it sounds after its input stops; 0 when it does not say.
+    fn tail_seconds(&self) -> f64 {
+        0.0
+    }
     /// True after the plugin reported parameter or state changes from its own GUI.
     fn take_dirty(&mut self) -> bool {
         false
@@ -227,11 +259,16 @@ struct Pending {
     len: usize,
 }
 
+/// Notes one sub-block can hold when the rack splits a block for a processor.
+const SPLIT_EVENTS: usize = 512;
+
 /// The audio thread's plugin bank, addressed by slot. Preallocated so mounting
 /// and processing never allocate.
 pub struct Rack {
     slots: Vec<Option<Box<dyn Processor>>>,
     pending: Vec<Pending>,
+    /// Events re-based to a sub-block, for processors that take changes only at its start.
+    split_events: Vec<Event>,
 }
 impl Rack {
     pub fn new(capacity: usize) -> Self {
@@ -245,11 +282,15 @@ impl Rack {
         for _ in 0..capacity {
             slots.push(None);
             pending.push(Pending {
-                changes: vec![ParamChange { id: 0, value: 0.0 }; parameters.max(1)],
+                changes: vec![ParamChange::now(0, 0.0); parameters.max(1)],
                 len: 0,
             });
         }
-        Self { slots, pending }
+        Self {
+            slots,
+            pending,
+            split_events: vec![Event::default(); SPLIT_EVENTS],
+        }
     }
     pub fn capacity(&self) -> usize {
         self.slots.len()
@@ -281,23 +322,40 @@ impl Rack {
         }
         old
     }
+    /// A change at the start of the next block.
     pub fn set_param(&mut self, slot: u32, id: u32, value: f64) {
+        self.set_param_at(slot, 0, id, value);
+    }
+    /// A change at `frame` within the next block. Changes stay sorted by frame; a second
+    /// change to the same parameter on the same frame replaces the first. A full queue drops
+    /// the change (512 per slot and block by default).
+    pub fn set_param_at(&mut self, slot: u32, frame: u32, id: u32, value: f64) {
         let Some(p) = self.pending.get_mut(slot as usize) else {
             return;
         };
-        if let Some(existing) = p.changes[..p.len].iter_mut().find(|c| c.id == id) {
+        let at = p.changes[..p.len].partition_point(|c| c.frame <= frame);
+        if let Some(existing) = p.changes[..at]
+            .iter_mut()
+            .rev()
+            .take_while(|c| c.frame == frame)
+            .find(|c| c.id == id)
+        {
             existing.value = value;
-        } else if p.len < p.changes.len() {
-            p.changes[p.len] = ParamChange { id, value };
-            p.len += 1;
+            return;
         }
+        if p.len == p.changes.len() {
+            return;
+        }
+        p.changes.copy_within(at..p.len, at + 1);
+        p.changes[at] = ParamChange { frame, id, value };
+        p.len += 1;
     }
     /// Returns false when the slot is empty so callers can pass audio through.
     pub fn process(
         &mut self,
         slot: u32,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         ctx: &ProcessContext,
     ) -> bool {
         let index = slot as usize;
@@ -305,7 +363,54 @@ impl Rack {
             return false;
         };
         let pending = &mut self.pending[index];
-        processor.process(audio, notes, &pending.changes[..pending.len], ctx);
+        let changes = &mut pending.changes[..pending.len];
+        let frames = audio.len();
+        if processor.timed_params() || changes.iter().all(|c| c.frame == 0) {
+            processor.process(audio, events, changes, ctx);
+        } else {
+            // Run the stretches between changes, each with the changes on its first frame
+            // (re-based to 0, like the events).
+            let (mut start, mut next_change, mut next_event) = (0usize, 0usize, 0usize);
+            while start < frames {
+                let first = next_change;
+                while changes
+                    .get(next_change)
+                    .is_some_and(|c| (c.frame as usize) <= start)
+                {
+                    next_change += 1;
+                }
+                let end = changes
+                    .get(next_change)
+                    .map_or(frames, |c| (c.frame as usize).min(frames));
+                let mut count = 0;
+                while let Some(event) = events.get(next_event) {
+                    if event.frame as usize >= end && end < frames {
+                        break;
+                    }
+                    if count < self.split_events.len() {
+                        let mut event = *event;
+                        event.frame =
+                            (event.frame as usize).clamp(start, end - 1) as u32 - start as u32;
+                        self.split_events[count] = event;
+                        count += 1;
+                    }
+                    next_event += 1;
+                }
+                // Every change of this stretch lands on its first frame.
+                for change in &mut changes[first..next_change] {
+                    change.frame = 0;
+                }
+                let mut local = *ctx;
+                local.sample_time += start as i64;
+                processor.process(
+                    &mut audio[start..end],
+                    &self.split_events[..count],
+                    &changes[first..next_change],
+                    &local,
+                );
+                start = end;
+            }
+        }
         pending.len = 0;
         true
     }
@@ -377,6 +482,117 @@ mod tests {
         };
         assert_eq!(stepped.denormalize(0.4), 1.0);
         assert_eq!(stepped.text(2.0), "High");
+    }
+    /// Frames, changes, note frames and sample time of one `process` call.
+    type Call = (usize, Vec<ParamChange>, Vec<u32>, i64);
+    /// Records what each `process` call received.
+    struct Recorder {
+        timed: bool,
+        calls: std::sync::Arc<std::sync::Mutex<Vec<Call>>>,
+    }
+    impl Processor for Recorder {
+        fn process(
+            &mut self,
+            audio: &mut [[f32; 2]],
+            events: &[Event],
+            params: &[ParamChange],
+            ctx: &ProcessContext,
+        ) {
+            self.calls.lock().unwrap().push((
+                audio.len(),
+                params.to_vec(),
+                events.iter().map(|n| n.frame).collect(),
+                ctx.sample_time,
+            ));
+        }
+        fn timed_params(&self) -> bool {
+            self.timed
+        }
+    }
+    fn note(frame: u32) -> Event {
+        Event::note_on(frame, 60, 100)
+    }
+    #[test]
+    fn timed_changes_stay_sorted_and_the_same_frame_keeps_the_last_value() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let mut rack = Rack::new(1);
+        rack.mount(
+            0,
+            Box::new(Recorder {
+                timed: true,
+                calls: calls.clone(),
+            }),
+        );
+        rack.set_param_at(0, 64, 1, 0.5);
+        rack.set_param_at(0, 0, 1, 0.1);
+        rack.set_param_at(0, 32, 2, 0.7);
+        rack.set_param_at(0, 64, 1, 0.6);
+        rack.set_param(0, 1, 0.2);
+        let mut audio = [[0.0; 2]; 128];
+        rack.process(0, &mut audio, &[note(5)], &ProcessContext::default());
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "a timed processor gets the whole block");
+        assert_eq!(
+            calls[0].1,
+            vec![
+                ParamChange::now(1, 0.2),
+                ParamChange {
+                    frame: 32,
+                    id: 2,
+                    value: 0.7
+                },
+                ParamChange {
+                    frame: 64,
+                    id: 1,
+                    value: 0.6
+                },
+            ]
+        );
+    }
+    #[test]
+    fn a_processor_without_timed_changes_is_split_at_each_change() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let mut rack = Rack::new(1);
+        rack.mount(
+            0,
+            Box::new(Recorder {
+                timed: false,
+                calls: calls.clone(),
+            }),
+        );
+        rack.set_param(0, 3, 1.0);
+        rack.set_param_at(0, 100, 3, 2.0);
+        rack.set_param_at(0, 200, 3, 3.0);
+        let mut audio = [[0.0; 2]; 256];
+        let ctx = ProcessContext {
+            sample_time: 1000,
+            ..Default::default()
+        };
+        rack.process(0, &mut audio, &[note(0), note(150), note(220)], &ctx);
+        let calls = calls.lock().unwrap();
+        let shape: Vec<_> = calls
+            .iter()
+            .map(|(frames, params, notes, time)| {
+                (
+                    *frames,
+                    params.iter().map(|c| c.value).collect::<Vec<_>>(),
+                    notes.clone(),
+                    *time,
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                (100, vec![1.0], vec![0], 1000),
+                (100, vec![2.0], vec![50], 1100),
+                (56, vec![3.0], vec![20], 1200),
+            ]
+        );
+        // Without changes past frame 0 the block stays whole.
+        drop(calls);
+        rack.set_param(0, 3, 4.0);
+        rack.process(0, &mut audio, &[], &ctx);
     }
     #[test]
     fn format_ids_parse() {

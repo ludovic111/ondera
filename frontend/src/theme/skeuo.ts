@@ -234,6 +234,9 @@ const darkFill: Record<FillKey, string> = {
   dropTarget: ok(0.8, 0.12, 190, 0.12),
   stepCell: white(0.06),
   hover: white(0.05),
+  fadeShade: black(0.38),
+  fadeHandle: white(0.9),
+  markerFlag: "rgba(22,22,21,.78)",
 };
 
 const darkLine: Record<LineKey, string> = {
@@ -270,6 +273,9 @@ const darkLine: Record<LineKey, string> = {
   border: black(0.55),
   borderStrong: black(0.7),
   hairline: white(0.05),
+  fadeCurve: white(0.85),
+  marker: ok(0.8, 0.13, 80),
+  markerLane: ok(0.8, 0.13, 80, 0.3),
 };
 
 /** Shade on aluminium is a warm umber, never neutral black. */
@@ -296,6 +302,9 @@ const lightFill: Record<FillKey, string> = {
   dropTarget: ok(0.52, 0.1, 196, 0.12),
   stepCell: umber(0.07),
   hover: umber(0.06),
+  fadeShade: umber(0.3),
+  fadeHandle: "rgba(40,33,22,.85)",
+  markerFlag: ok(0.96, 0.008, 80, 0.9),
 };
 
 const lightLine: Record<LineKey, string> = {
@@ -332,6 +341,9 @@ const lightLine: Record<LineKey, string> = {
   border: umber(0.32),
   borderStrong: umber(0.48),
   hairline: umber(0.1),
+  fadeCurve: "rgba(40,33,22,.8)",
+  marker: ok(0.55, 0.14, 62),
+  markerLane: ok(0.55, 0.14, 62, 0.35),
 };
 
 const LIGHTS: Record<Mode, Light> = {

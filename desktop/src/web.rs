@@ -7,7 +7,9 @@ use crate::{
     control::{LiveWait, Reply},
 };
 use eframe::egui;
-use ondera_engine::{control, store::Command, Result};
+#[cfg(test)]
+use ondera_engine::store::Command;
+use ondera_engine::{control, Result};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
@@ -34,6 +36,8 @@ async fn daw_pick(kind: String, name: Option<String>) -> Result<Option<String>> 
             "wav" => dialog
                 .add_filter("WAV", &["wav"])
                 .add_filter("AIFF", &["aiff", "aif"])
+                .add_filter("FLAC", &["flac"])
+                .add_filter("Ogg Vorbis", &["ogg"])
                 .save_file(),
             "saveMidi" => dialog.add_filter("MIDI", &["mid"]).save_file(),
             "folder" => dialog.pick_folder(),
@@ -121,73 +125,6 @@ fn daw_agent_help(provider: String) -> Result<()> {
         .spawn()
         .map_err(|e| format!("Could not open your browser: {e}"))?;
     Ok(())
-}
-
-#[tauri::command]
-async fn daw_rhythm_preview(
-    params: Value,
-    tempo: f64,
-    numerator: u8,
-    denominator: u8,
-) -> Result<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        use base64::Engine;
-        if params["bars"]
-            .as_u64()
-            .is_none_or(|bars| !(1..=4).contains(&bars))
-        {
-            return Err("Preview supports 1–4 bars".into());
-        }
-        let mut host = control::Headless::new();
-        let mut transport = host.store.session().transport.clone();
-        transport.tempo = tempo;
-        transport.time_signature.numerator = u32::from(numerator);
-        transport.time_signature.denominator = u32::from(denominator);
-        host.store.dispatch(Command::SetTransport(transport))?;
-        let mut params = params;
-        params["startBar"] = json!(0);
-        control::call(&mut host, "rhythm.create", &params, false)?;
-        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let path = dir.path().join("preview.wav");
-        let bars = params["bars"].as_u64().unwrap_or(1) as f64;
-        let seconds = bars * host.store.session().beats_per_bar() * 60.0 / tempo;
-        if seconds > 30.0 {
-            return Err(
-                "Preview is limited to 30 seconds. Choose fewer bars or a faster tempo.".into(),
-            );
-        }
-        control::call(
-            &mut host,
-            "session.exportAudio",
-            &json!({
-                "path": path, "sampleRate":44100, "format":"pcm16", "startBar":0,
-                "endBar":bars, "tailSeconds":0.5
-            }),
-            false,
-        )?;
-        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn daw_agent_models() -> Result<Vec<crate::agent::catalog::Group>> {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::agent::catalog::discover(&ondera_engine::settings::Settings::load())
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn daw_agent_connection() -> Result<crate::agent::connection::Connection> {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::agent::connection::check(&ondera_engine::settings::Settings::load())
-    })
-    .await
-    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -290,7 +227,8 @@ impl WebHost {
         Ok(
             json!({"snapshotSequence":self.snapshot_sequence.get(),"name":session.name,"tracks":session.tracks,"clips":session.clips,
             "sources":session.sources,"strips":strips,"transport":session.transport,
-            "view":session.view,"masterVolume":session.master_volume,"automation":session.automation}),
+            "view":session.view,"masterVolume":session.master_volume,"automation":session.automation,
+            "markers":session.markers}),
         )
     }
     fn ui(&mut self) -> Result<Value> {
@@ -312,6 +250,12 @@ impl WebHost {
         match method {
             "web.ready" => {
                 self.ready = true;
+                // A reloaded page starts empty: send the agent panel, the audio list, the
+                // meters and the UI state again instead of waiting for them to change.
+                self.last_agent = 0;
+                self.last_library.clear();
+                self.last_telemetry = Value::Null;
+                self.last_ui = Value::Null;
                 Ok(json!({"session":self.document()?,"ui":self.ui()?,
                     "catalog":control::call(&mut self.app,"session.catalog",&json!({}),false)?,
                     "platform":std::env::consts::OS,"version":env!("CARGO_PKG_VERSION")}))
@@ -347,24 +291,6 @@ impl WebHost {
                 }
                 Ok(Value::Null)
             }
-            "web.confirm" => {
-                match params["choice"].as_str().unwrap_or("") {
-                    "cancel" => self.app.intent = None,
-                    "discard" => {
-                        if let Some(intent) = self.app.intent.take() {
-                            self.app.execute(intent);
-                        }
-                    }
-                    "save" => {
-                        if let Some(intent) = self.app.intent.take() {
-                            self.app.after_save = Some(intent);
-                            self.app.save(false);
-                        }
-                    }
-                    _ => return Err("Unknown confirmation choice".into()),
-                }
-                Ok(Value::Null)
-            }
             "web.peaks" => {
                 let id = params["sourceId"].as_str().ok_or("Missing sourceId")?;
                 let buffer = self.app.library.get(id).ok_or("Audio is still loading")?;
@@ -388,40 +314,10 @@ impl WebHost {
                 }
                 Ok(Value::Null)
             }
-            "web.releaseKeys" => {
-                self.app.release_typing();
-                Ok(Value::Null)
-            }
             "web.gesture" => {
                 self.app
                     .store
                     .set_gesture(params["active"].as_bool().unwrap_or(false));
-                Ok(Value::Null)
-            }
-            "web.quantize" => {
-                self.app.quantize_selected();
-                Ok(Value::Null)
-            }
-            "web.transpose" => {
-                let n = params["semitones"]
-                    .as_i64()
-                    .filter(|n| (-127..=127).contains(n))
-                    .ok_or("Invalid transposition")?;
-                self.app.transpose_selected(n as i32);
-                Ok(Value::Null)
-            }
-            "web.typing" => {
-                self.app.toggle_musical_typing();
-                Ok(Value::Null)
-            }
-            "web.reconnect" => {
-                self.app.connect();
-                Ok(Value::Null)
-            }
-            "web.sdk" => {
-                crate::settings::reveal(std::path::Path::new(
-                    "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md",
-                ));
                 Ok(Value::Null)
             }
             "web.capture" => {
@@ -490,6 +386,14 @@ impl WebHost {
             );
         }
         if !audio.is_empty() {
+            // One import runs at a time: say what was left out rather than drop it silently.
+            if !midi.is_empty() {
+                self.app.error = Some(format!(
+                    "Importing the audio. {} MIDI file{} left out: drop MIDI on its own.",
+                    midi.len(),
+                    if midi.len() == 1 { " was" } else { "s were" }
+                ));
+            }
             self.app.import(Some(audio));
         } else if let Some(path) = midi.first() {
             let bar = (self.app.position / self.app.store.session().beats_per_bar()).floor();
@@ -506,6 +410,7 @@ impl WebHost {
     fn serve(&mut self) {
         let _ = self.context.run(egui::RawInput::default(), |_| {
             self.app.poll_control_job();
+            self.app.poll_workers();
             self.app.serve_control(false);
         });
     }
@@ -517,6 +422,7 @@ impl WebHost {
             self.app.poll_control_job();
             self.app.poll_recovery(ctx);
             self.app.poll_agent(ctx);
+            self.app.poll_bridge(ctx);
             self.app.serve_control(false);
             self.app.poll_updates();
         });
@@ -555,7 +461,7 @@ impl WebHost {
                 .map(|p| (p * 1000.).round() / 1000.)
                 .collect()
         });
-        self.app.poll_input_meter();
+        self.app.poll_input();
         let (input_peak, counting_in) = self.app.device.as_ref().map_or((0., false), |d| {
             (
                 (d.telemetry.take_input_peak().min(1.) * 1000.).round() / 1000.,
@@ -657,10 +563,7 @@ pub fn run(
             daw_pick,
             daw_snapshot,
             daw_signin,
-            daw_agent_help,
-            daw_agent_connection,
-            daw_agent_models,
-            daw_rhythm_preview
+            daw_agent_help
         ])
         .setup(move |application| {
             let context = egui::Context::default();
@@ -810,6 +713,32 @@ mod tests {
     }
 
     #[test]
+    fn a_drop_of_audio_and_midi_says_the_midi_was_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("loop.wav");
+        let mid = dir.path().join("riff.mid");
+        std::fs::write(&wav, b"").unwrap();
+        std::fs::write(&mid, b"").unwrap();
+        let mut host = host();
+        host.drop_files(vec![wav, mid]).unwrap();
+        let error = host.app.error.clone().unwrap_or_default();
+        assert!(error.contains("MIDI file was left out"), "{error}");
+    }
+
+    #[test]
+    fn a_reloaded_page_is_sent_everything_again() {
+        let mut host = host();
+        host.last_agent = 42;
+        host.last_library.insert("source".into(), 1);
+        host.last_telemetry = json!({"playing": false});
+        host.last_ui = json!({"status": "Ready"});
+        host.command("web.ready", &json!({})).unwrap();
+        assert_eq!(host.last_agent, 0);
+        assert!(host.last_library.is_empty());
+        assert!(host.last_telemetry.is_null() && host.last_ui.is_null());
+    }
+
+    #[test]
     fn native_quit_waits_for_the_same_unsaved_changes_confirmation() {
         let mut host = host();
         let track = host.app.store.session().tracks[0].id.clone();
@@ -818,11 +747,11 @@ mod tests {
         assert!(!host.request_exit());
         assert!(host.app.intent.is_some());
         assert!(!host.app.closing);
-        host.command("web.confirm", &json!({"choice":"cancel"}))
+        host.command("app.confirm", &json!({"choice":"cancel"}))
             .unwrap();
         assert!(host.app.intent.is_none());
         assert!(!host.request_exit());
-        host.command("web.confirm", &json!({"choice":"discard"}))
+        host.command("app.confirm", &json!({"choice":"discard"}))
             .unwrap();
         assert!(host.request_exit());
     }
@@ -860,6 +789,7 @@ mod tests {
                         agent: false,
                     },
                 ],
+                controllers: vec![],
             },
         };
         host.app
@@ -871,7 +801,7 @@ mod tests {
         )
         .unwrap();
         let trimmed = &host.app.store.session().clips[0];
-        let ClipData::Midi { notes } = &trimmed.data else {
+        let ClipData::Midi { notes, .. } = &trimmed.data else {
             panic!()
         };
         assert_eq!(notes.len(), 1);
@@ -913,16 +843,148 @@ mod tests {
         assert!(!snapshot.to_string().contains("opaque-plugin-state"));
     }
 
+    /// Private handlers the window may keep, each with the reason a script has no use for it
+    /// or the registry command that serves scripts instead. Anything else the window does
+    /// must be a registry command, so the CLI, MCP and the agent can do it too.
+    const PRIVATE_HANDLERS: [(&str, &str); 9] = [
+        (
+            "web.ready",
+            "handshake: first snapshot for a webview that just loaded",
+        ),
+        ("web.rendered", "handshake: the first frame is on screen"),
+        (
+            "web.document",
+            "the full snapshot the renderer mirrors; scripts use session.get",
+        ),
+        (
+            "web.file",
+            "native file pickers; scripts pass paths to session.open, save, import",
+        ),
+        (
+            "web.peaks",
+            "full-resolution waveform transfer; scripts use source.peaks",
+        ),
+        (
+            "web.liveNote",
+            "key-down and key-up of musical typing; scripts use note.hold",
+        ),
+        (
+            "web.gesture",
+            "pointer-drag undo grouping; scripts use session.batch",
+        ),
+        (
+            "web.capture",
+            "the webview hands over pixels for ui.screenshot",
+        ),
+        (
+            "web.captureError",
+            "the webview could not capture for ui.screenshot",
+        ),
+    ];
+    /// Tauri commands beside `daw_command`: things only a desktop window can do.
+    const PRIVATE_TAURI: [(&str, &str); 5] = [
+        (
+            "daw_command",
+            "the one door to the handlers above and to the registry",
+        ),
+        ("daw_pick", "native file and folder pickers"),
+        ("daw_snapshot", "webview capture for ui.screenshot"),
+        (
+            "daw_signin",
+            "opens a terminal for a provider's interactive sign-in",
+        ),
+        (
+            "daw_agent_help",
+            "opens a provider's help page in the browser",
+        ),
+    ];
+
+    #[test]
+    fn every_window_action_is_a_registry_command_or_on_the_short_private_list() {
+        let source = include_str!("web.rs");
+        // Match arms of `command`: a line that starts with a quoted web.* name and an arrow.
+        let handlers: Vec<&str> = source
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("\"web.") && line.contains("\" =>"))
+            .filter_map(|line| line.split('"').nth(1))
+            .collect();
+        assert!(
+            handlers.len() >= 5,
+            "the scan found the handlers: {handlers:?}"
+        );
+        for handler in &handlers {
+            assert!(
+                PRIVATE_HANDLERS.iter().any(|(name, _)| name == handler),
+                "`{handler}` is a private window handler. Add a registry command \
+                 (engine/src/control*.rs, or live-only in desktop/src/control.rs) and call that \
+                 from the frontend, so the CLI, MCP and the agent get it too."
+            );
+        }
+        for (name, _) in PRIVATE_HANDLERS {
+            assert!(
+                handlers.contains(&name),
+                "`{name}` is listed but no longer exists"
+            );
+            assert!(
+                !control::COMMANDS.iter().any(|spec| spec.name == name),
+                "`{name}` is in the registry now; drop the private handler"
+            );
+        }
+        let tauri: Vec<&str> = source
+            .lines()
+            .map(str::trim)
+            .filter_map(|line| {
+                line.strip_prefix("async fn ")
+                    .or_else(|| line.strip_prefix("fn "))
+            })
+            .filter(|rest| rest.starts_with("daw_"))
+            .filter_map(|rest| rest.split('(').next())
+            .collect();
+        for command in &tauri {
+            assert!(
+                PRIVATE_TAURI.iter().any(|(name, _)| name == command),
+                "`{command}` is a new Tauri command: make it a registry command instead, \
+                 as a live job if it takes time (see `start_worker`)"
+            );
+        }
+        assert_eq!(tauri.len(), PRIVATE_TAURI.len());
+        // What this release moved out of the window is reachable by name.
+        for name in [
+            "view.fit",
+            "clip.copy",
+            "clip.cut",
+            "clip.paste",
+            "agent.models",
+            "agent.connection",
+            "rhythm.preview",
+            "clip.quantize",
+            "clip.transpose",
+            "app.confirm",
+            "app.openGuide",
+            "audio.reconnect",
+            "ui.musicalTyping",
+            "note.releaseAll",
+            "track.setMonitor",
+        ] {
+            assert!(
+                control::COMMANDS.iter().any(|spec| spec.name == name),
+                "{name} is missing from the registry"
+            );
+        }
+    }
+
     #[test]
     fn typing_release_drains_every_held_note_and_rejects_invalid_pitches() {
         let mut host = host();
-        host.command("web.typing", &json!({})).unwrap();
+        host.command("ui.musicalTyping", &json!({"enabled":true}))
+            .unwrap();
         host.command("web.liveNote", &json!({"pitch":60,"on":true}))
             .unwrap();
         host.command("web.liveNote", &json!({"pitch":64,"on":true}))
             .unwrap();
         assert_eq!(host.app.typing_down, vec![60, 64]);
-        host.command("web.releaseKeys", &json!({})).unwrap();
+        host.command("note.releaseAll", &json!({})).unwrap();
         assert!(host.app.typing_down.is_empty());
         assert!(host
             .command("web.liveNote", &json!({"pitch":128,"on":true}))

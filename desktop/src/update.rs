@@ -204,8 +204,10 @@ pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
 }
 
 pub fn newer(latest: &str, current: &str) -> bool {
+    // A pre-release comes before its release: 0.9.0-rc.1 updates to 0.9.0.
+    let pre = |v: &str| v.trim().split('+').next().unwrap_or("").contains('-');
     match (parse_version(latest), parse_version(current)) {
-        (Some(l), Some(c)) => l > c,
+        (Some(l), Some(c)) => l > c || (l == c && pre(current) && !pre(latest)),
         _ => false,
     }
 }
@@ -280,9 +282,23 @@ fn hex(digest: &[u8]) -> String {
     out
 }
 
+/// A stalled connection must not keep the window "checking" for ten minutes, and a slow
+/// line must not fail a large download halfway: connecting and the first reply are bounded
+/// tightly, the body of a download gets an hour.
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(600)))
+        .timeout_connect(Some(Duration::from_secs(15)))
+        .timeout_recv_response(Some(Duration::from_secs(30)))
+        .timeout_recv_body(Some(Duration::from_secs(3600)))
+        .user_agent(format!("Ondera/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into()
+}
+/// The release check reads a few kilobytes: a minute is plenty.
+fn check_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(60)))
+        .timeout_connect(Some(Duration::from_secs(15)))
         .user_agent(format!("Ondera/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
@@ -304,7 +320,7 @@ pub fn check() -> Result<Option<Release>> {
     let Some(asset) = asset_name() else {
         return Ok(None);
     };
-    let agent = agent();
+    let agent = check_agent();
     let url = format!("{API}/{REPO}/releases/latest");
     let text = match agent
         .get(&url)
@@ -1016,8 +1032,9 @@ pub fn install(release: &Release) -> Result<PathBuf> {
     }
 }
 
-/// Remove what a previous update left behind. Called once at startup; errors are ignored
-/// because the old copy may still be shutting down.
+/// Remove what a previous update left behind. Called once when the window starts (never from
+/// the scanner's child processes, which run while an old copy may still be open); errors are
+/// ignored because the old copy may still be shutting down.
 pub fn cleanup() {
     let Ok(exe) = current_exe() else {
         return;
@@ -1025,10 +1042,38 @@ pub fn cleanup() {
     #[cfg(target_os = "macos")]
     if let Ok(bundle) = bundle_of(&exe) {
         let _ = fs::remove_dir_all(previous_bundle(&bundle));
+        if let Some(parent) = bundle.parent() {
+            remove_abandoned_staging(parent, std::time::SystemTime::now());
+        }
     }
     #[cfg(not(target_os = "macos"))]
     if let Some(dir) = exe.parent() {
         companions::cleanup_backups(dir, env!("CARGO_PKG_VERSION"));
+    }
+}
+
+/// A download interrupted by quitting leaves its `.ondera-update-<pid>` folder beside the app.
+/// One more than a day old belongs to no install still running. Only macOS stages beside the
+/// app; the other platforms keep companion backups, which `companions::cleanup_backups` owns.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn remove_abandoned_staging(parent: &Path, now: std::time::SystemTime) {
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with(".ondera-update-") {
+            continue;
+        }
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > Duration::from_secs(24 * 3600));
+        if old {
+            let _ = fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -1044,13 +1089,29 @@ pub fn release_value(release: &Release) -> Value {
     })
 }
 
-/// Start the freshly installed copy. The caller closes this one.
+/// What Relaunch starts: the freshly installed copy, or this one again when nothing was
+/// installed (the app bundle on macOS, so it opens as an app and not in a terminal).
+pub fn relaunch_target(installed: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(target) = installed {
+        return Ok(target);
+    }
+    let exe = current_exe()?;
+    #[cfg(target_os = "macos")]
+    if let Ok(bundle) = bundle_of(&exe) {
+        return Ok(bundle);
+    }
+    Ok(exe)
+}
+
+/// Start `target`. The caller closes this copy.
 pub fn relaunch(target: &Path) -> Result<()> {
     #[cfg(target_os = "macos")]
-    let mut cmd = {
+    let mut cmd = if target.extension().is_some_and(|e| e == "app") {
         let mut c = std::process::Command::new("open");
         c.arg("-n").arg(target);
         c
+    } else {
+        std::process::Command::new(target)
     };
     #[cfg(not(target_os = "macos"))]
     let mut cmd = std::process::Command::new(target);
@@ -1255,6 +1316,29 @@ impl Ondera {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn relaunch_without_an_update_starts_this_copy() {
+        let installed = PathBuf::from("/Applications/Ondera.app");
+        assert_eq!(relaunch_target(Some(installed.clone())).unwrap(), installed);
+        let this = relaunch_target(None).unwrap();
+        assert!(this.exists(), "{}", this.display());
+    }
+
+    #[test]
+    fn abandoned_update_folders_are_removed_and_fresh_ones_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = dir.path().join(".ondera-update-4242");
+        let other = dir.path().join("Ondera.app");
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        let now = std::time::SystemTime::now();
+        remove_abandoned_staging(dir.path(), now);
+        assert!(staging.exists(), "a running install keeps its folder");
+        remove_abandoned_staging(dir.path(), now + Duration::from_secs(2 * 24 * 3600));
+        assert!(!staging.exists());
+        assert!(other.exists());
+    }
+
     use super::*;
 
     #[test]
@@ -1267,6 +1351,10 @@ mod tests {
         assert!(newer("v0.10.0", "0.9.0"));
         assert!(!newer("v0.1.0", "0.1.0"));
         assert!(!newer("garbage", "0.1.0"));
+        // A release candidate is followed by its release, never the other way round.
+        assert!(newer("v0.9.0", "0.9.0-rc.1"));
+        assert!(!newer("v0.9.0-rc.2", "0.9.0"));
+        assert!(!newer("v0.9.0-rc.1", "0.9.0-rc.1"));
     }
 
     #[test]

@@ -1,12 +1,15 @@
-//! Block renderer. Sequenced notes become `NoteEvent`s for the instruments in
-//! the rack; audio regions are sampled directly. Effects, buses and the master
+//! Block renderer. Sequenced notes and controller changes become `Event`s for the
+//! instruments in the rack; audio regions are sampled directly. Effects, buses and the master
 //! chain are rack processors too, so their state survives graph rebuilds.
 
 use crate::{
     audio::{AudioBuffer, Library},
     automation::AutomationTarget,
-    model::{fader_gain, is_bus, ClipData, Session, BUS_A, BUS_B, MASTER},
-    plugin::{NoteEvent, ProcessContext, Rack, MAX_BLOCK},
+    model::{
+        fader_gain, is_bus, ClipData, ControllerKind, FadeCurve, Monitor, Session, BUS_A, BUS_B,
+        MASTER,
+    },
+    plugin::{event, Event, ProcessContext, Rack, MAX_BLOCK},
     Result,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -14,9 +17,60 @@ use std::{collections::HashMap, sync::Arc};
 /// Channels with a published meter; later tracks still play but read as silent in the mixer.
 pub const METER_TRACKS: usize = 32;
 const MAX_VOICES: usize = 256;
-const NOTE_CAPACITY: usize = 512;
-const QUEUE_CAPACITY: usize = 2048;
+const NOTE_CAPACITY: usize = 1024;
+const QUEUE_CAPACITY: usize = 4096;
+/// Controller slots per track: 128 control changes, then pitch bend, then channel pressure.
+const CONTROLS: usize = 130;
+const BEND: usize = 128;
+const PRESSURE: usize = 129;
+const SUSTAIN: usize = 64;
+/// No value sent or known.
+const UNSET: i16 = i16::MIN;
+type Controls = [i16; CONTROLS];
+
+/// The controller slot an event sets, if it is a controller event.
+fn control_slot(e: &Event) -> Option<(usize, i16)> {
+    match e.kind {
+        event::CONTROL if e.key < 128 => Some((e.key as usize, e.value.min(127) as i16)),
+        event::PITCH_BEND => Some((BEND, e.bend.clamp(-8192, 8191))),
+        event::CHANNEL_PRESSURE => Some((PRESSURE, e.value.min(127) as i16)),
+        _ => None,
+    }
+}
+/// The event that sets `slot` to `value`.
+fn control_event(slot: usize, value: i16, frame: u32) -> Event {
+    match slot {
+        BEND => Event::new(frame, event::PITCH_BEND, 0, 0, 0, value.clamp(-8192, 8191)),
+        PRESSURE => Event::channel_pressure(frame, value.clamp(0, 127) as u8),
+        cc => Event::control(frame, cc as u8, value.clamp(0, 127) as u8),
+    }
+}
+/// Order within one frame: releases, then controllers, then attacks, so a bend or a pedal
+/// is in place before the note it shapes and a repeated pitch can start again.
+fn event_rank(e: &Event) -> u8 {
+    match e.kind {
+        event::NOTE_OFF => 0,
+        event::NOTE_ON => 2,
+        _ => 1,
+    }
+}
+/// A stable insertion sort by frame and rank: events are nearly sorted already, and a
+/// stable library sort may allocate on the audio thread.
+fn sort_events(events: &mut [Event]) {
+    for i in 1..events.len() {
+        let mut j = i;
+        let key = (events[i].frame, event_rank(&events[i]));
+        while j > 0 && (events[j - 1].frame, event_rank(&events[j - 1])) > key {
+            events.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
 const PREVIEW_SECONDS: f64 = 0.3;
+
+/// Plugin parameter automation sends a value every this many frames while it moves, plus one
+/// on the exact frame of each breakpoint.
+pub const AUTOMATION_GRAIN: usize = 32;
 
 fn automation_beat(beat: f64, cycle: Option<(f64, f64)>) -> f64 {
     if let Some((start, end)) = cycle {
@@ -35,13 +89,50 @@ enum Sound {
     Audio {
         buffer: Arc<AudioBuffer>,
         offset: f64,
+        /// Linear clip gain.
+        gain: f32,
+        /// Fade lengths in seconds; zero for none.
+        fade_in: f64,
+        fade_out: f64,
+        curve: FadeCurve,
     },
 }
-struct Event {
+/// Edge ramp every audio clip gets, fade or not, so a cut never clicks.
+const EDGE_RAMP_SECONDS: f64 = 0.003;
+/// The clip's gain at `age` seconds after its start with `left` seconds before its end.
+#[inline]
+fn clip_envelope(
+    age: f64,
+    left: f64,
+    gain: f32,
+    fade_in: f64,
+    fade_out: f64,
+    curve: FadeCurve,
+) -> f32 {
+    let mut g = (age / EDGE_RAMP_SECONDS)
+        .min(1.0)
+        .min((left / EDGE_RAMP_SECONDS).clamp(0.0, 1.0));
+    if fade_in > 0.0 && age < fade_in {
+        g *= curve.gain(age / fade_in);
+    }
+    if fade_out > 0.0 && left < fade_out {
+        g *= curve.gain(left / fade_out);
+    }
+    g as f32 * gain
+}
+struct Scheduled {
     start: f64,
     end: f64,
     track: usize,
     sound: Sound,
+}
+/// A sequenced controller change.
+#[derive(Clone, Copy)]
+struct Control {
+    beat: f64,
+    track: usize,
+    slot: usize,
+    value: i16,
 }
 #[derive(Default)]
 struct DelayLine {
@@ -84,6 +175,12 @@ struct Channel {
     synth: Option<u32>,
     inserts: Vec<u32>,
     sends: [f32; 2],
+    monitor: Monitor,
+    armed: bool,
+    /// One of this track's audio clips sounded during the current block.
+    clip_sounding: bool,
+    /// 0-1, eased over 5 ms so the input never cuts in or out with a click.
+    monitor_gain: f32,
 }
 #[derive(Clone, Copy)]
 struct Preview {
@@ -104,7 +201,15 @@ struct PluginAutomation {
 pub struct Renderer {
     rate: u32,
     session: Session,
-    events: Vec<Event>,
+    events: Vec<Scheduled>,
+    controls: Vec<Control>,
+    next_control: usize,
+    /// What each track's instrument was last told, per controller slot.
+    applied: Vec<Controls>,
+    /// Scratch for the chase on locate; reserved with the graph.
+    chased: Vec<Controls>,
+    /// Slots a track's clips drive, which a locate may return to rest.
+    sequenced: Vec<[bool; CONTROLS]>,
     channels: Vec<Channel>,
     buses: [Vec<u32>; 2],
     master: Vec<u32>,
@@ -122,8 +227,8 @@ pub struct Renderer {
     held: Vec<Held>,
     expected: Vec<Held>,
     live: Vec<Held>,
-    queued: Vec<(usize, NoteEvent)>,
-    notes: Vec<Vec<NoteEvent>>,
+    queued: Vec<(usize, Event)>,
+    notes: Vec<Vec<Event>>,
     buffers: Vec<Vec<[f32; 2]>>,
     sends: [Vec<[f32; 2]>; 2],
     mix: Vec<[f32; 2]>,
@@ -159,6 +264,7 @@ impl Renderer {
             return Err("Unsupported output sample rate".into());
         }
         let mut events = Vec::new();
+        let mut controls: Vec<(Control, bool)> = Vec::new();
         let mut channels = Vec::new();
         let bpb = session.beats_per_bar();
         let solo = session.tracks.iter().any(|t| t.solo);
@@ -198,6 +304,14 @@ impl Renderer {
                     None
                 },
                 inserts: chain(&strip.inserts),
+                monitor: if track.kind == "audio" {
+                    track.monitor
+                } else {
+                    Monitor::Off
+                },
+                armed: track.armed,
+                clip_sounding: false,
+                monitor_gain: 0.0,
                 sends: std::array::from_fn(|i| {
                     if muted {
                         0.0
@@ -214,12 +328,28 @@ impl Renderer {
                 let start = clip.start_bar * bpb;
                 let end = (clip.start_bar + clip.length_bars) * bpb;
                 match &clip.data {
-                    ClipData::Midi { notes } => {
+                    ClipData::Midi { notes, controllers } => {
+                        for played in crate::controllers::playback(controllers, end - start) {
+                            let slot = match played.kind {
+                                ControllerKind::Cc => played.number.unwrap_or(0).min(127) as usize,
+                                ControllerKind::Bend => BEND,
+                                ControllerKind::Pressure => PRESSURE,
+                            };
+                            controls.push((
+                                Control {
+                                    beat: start + played.time,
+                                    track: index,
+                                    slot,
+                                    value: played.value,
+                                },
+                                played.reset,
+                            ));
+                        }
                         for note in notes {
                             if start + note.start >= end {
                                 continue;
                             }
-                            events.push(Event {
+                            events.push(Scheduled {
                                 start: start + note.start,
                                 end: (start + note.start + note.length).min(end),
                                 track: index,
@@ -233,17 +363,25 @@ impl Renderer {
                     ClipData::Audio {
                         source_id,
                         offset_seconds,
+                        fade_in,
+                        fade_out,
+                        fade_curve,
+                        gain_db,
                     } => {
                         let buffer = library
                             .get(source_id)
                             .ok_or_else(|| format!("Missing decoded source: {source_id}"))?;
-                        events.push(Event {
+                        events.push(Scheduled {
                             start,
                             end,
                             track: index,
                             sound: Sound::Audio {
                                 buffer: Arc::clone(buffer),
                                 offset: *offset_seconds,
+                                gain: 10f32.powf(gain_db / 20.0),
+                                fade_in: *fade_in,
+                                fade_out: *fade_out,
+                                curve: *fade_curve,
                             },
                         });
                     }
@@ -251,6 +389,13 @@ impl Renderer {
             }
         }
         events.sort_by(|a, b| a.start.total_cmp(&b.start));
+        // A clip's closing reset comes before the next clip's first value at the same beat.
+        controls.sort_by(|a, b| a.0.beat.total_cmp(&b.0.beat).then(b.1.cmp(&a.1)));
+        let controls: Vec<Control> = controls.into_iter().map(|(c, _)| c).collect();
+        let mut sequenced = vec![[false; CONTROLS]; channels.len()];
+        for control in &controls {
+            sequenced[control.track][control.slot] = true;
+        }
         let bus = |id: &str| {
             session
                 .strips
@@ -321,6 +466,11 @@ impl Renderer {
             master: bus(MASTER),
             session,
             events,
+            controls,
+            next_control: 0,
+            applied: vec![[UNSET; CONTROLS]; count],
+            chased: vec![[UNSET; CONTROLS]; count],
+            sequenced,
             channels,
             active: [None; MAX_VOICES],
             held: vec![[0; 128]; count],
@@ -497,9 +647,11 @@ impl Renderer {
                 .position(|t| t.id == self.session.tracks[index].id)
             {
                 self.channels[index].delay.adopt(&old.channels[prev].delay);
+                self.channels[index].monitor_gain = old.channels[prev].monitor_gain;
                 let same_instrument = self.channels[index].synth == old.channels[prev].synth;
                 if same_instrument {
                     self.held[index] = old.held[prev];
+                    self.applied[index] = old.applied[prev];
                     for &(track, event) in &old.queued {
                         if track == prev {
                             self.queue(index, event);
@@ -510,16 +662,7 @@ impl Renderer {
                 if !same_instrument {
                     for pitch in 0..128 {
                         for _ in 0..self.live[index][pitch] {
-                            self.queue(
-                                index,
-                                NoteEvent {
-                                    frame: 0,
-                                    on: true,
-                                    pitch: pitch as u8,
-                                    velocity: 96,
-                                    channel: 0,
-                                },
-                            );
+                            self.queue(index, Event::note_on(0, pitch as u8, 96));
                         }
                     }
                 }
@@ -538,18 +681,25 @@ impl Renderer {
         }
         self.resync();
     }
-    fn queue(&mut self, track: usize, mut event: NoteEvent) {
+    fn queue(&mut self, track: usize, mut event: Event) {
         // UI taps and MIDI callbacks can enqueue a complete note before one
         // audio block. Preserve its order and at least one audible sample;
         // sorting a zero-frame release before its attack would leave it stuck.
-        if let Some((_, previous)) = self.queued.iter().rev().find(|(previous_track, previous)| {
-            *previous_track == track
-                && previous.pitch == event.pitch
-                && previous.channel == event.channel
-        }) {
-            event.frame = event
-                .frame
-                .max(previous.frame + u32::from(previous.on && !event.on));
+        if event.is_note() {
+            if let Some((_, previous)) =
+                self.queued.iter().rev().find(|(previous_track, previous)| {
+                    *previous_track == track
+                        && previous.is_note()
+                        && previous.key == event.key
+                        && previous.channel == event.channel
+                })
+            {
+                let attack = previous.kind == event::NOTE_ON;
+                let release = event.kind == event::NOTE_OFF;
+                event.frame = event
+                    .frame
+                    .max(previous.frame + u32::from(attack && release));
+            }
         }
         if self.queued.len() < self.queued.capacity() {
             self.queued.push((track, event));
@@ -583,16 +733,7 @@ impl Renderer {
                 self.expected[track][p] += 1;
                 if self.expected[track][p] > self.held[track][p] {
                     self.held[track][p] += 1;
-                    self.queue(
-                        track,
-                        NoteEvent {
-                            frame: 0,
-                            on: true,
-                            pitch,
-                            velocity,
-                            channel: 0,
-                        },
-                    );
+                    self.queue(track, Event::note_on(0, pitch, velocity));
                 }
             }
         }
@@ -600,16 +741,41 @@ impl Renderer {
             for p in 0..128 {
                 while self.held[track][p] > self.expected[track][p] {
                     self.held[track][p] -= 1;
-                    self.queue(
-                        track,
-                        NoteEvent {
-                            frame: 0,
-                            on: false,
-                            pitch: p as u8,
-                            velocity: 0,
-                            channel: 0,
-                        },
-                    );
+                    self.queue(track, Event::note_off(0, p as u8));
+                }
+            }
+        }
+        self.chase();
+    }
+    /// Send each track the controller values in force at the position: the latest one its
+    /// clips set before it. A lane the clips drive but have not reached yet returns a bend,
+    /// pedal or pressure to rest. Values the instrument already has are not sent again.
+    fn chase(&mut self) {
+        self.next_control = self.controls.partition_point(|c| c.beat < self.position);
+        for chased in &mut self.chased {
+            chased.fill(UNSET);
+        }
+        for control in &self.controls[..self.next_control] {
+            self.chased[control.track][control.slot] = control.value;
+        }
+        for track in 0..self.channels.len() {
+            for slot in 0..CONTROLS {
+                let current = self.applied[track][slot];
+                let target = match self.chased[track][slot] {
+                    UNSET
+                        if self.sequenced[track][slot]
+                            && matches!(slot, SUSTAIN | BEND | PRESSURE)
+                            && current != UNSET
+                            && current != 0 =>
+                    {
+                        0
+                    }
+                    UNSET => continue,
+                    value => value,
+                };
+                if target != current {
+                    self.applied[track][slot] = target;
+                    self.queue(track, control_event(slot, target, 0));
                 }
             }
         }
@@ -627,7 +793,7 @@ impl Renderer {
         self.position = beats.max(0.0);
         self.resync();
     }
-    fn push_note(&mut self, track: usize, event: NoteEvent) {
+    fn push_note(&mut self, track: usize, event: Event) {
         let Some(list) = self.notes.get_mut(track) else {
             return;
         };
@@ -652,16 +818,7 @@ impl Renderer {
             });
             self.live[track][pitch as usize] = self.live[track][pitch as usize].saturating_add(1);
             self.live_total += 1;
-            self.queue(
-                track,
-                NoteEvent {
-                    frame: 0,
-                    on: true,
-                    pitch,
-                    velocity: velocity.clamp(1, 127),
-                    channel: 0,
-                },
-            );
+            self.queue(track, Event::note_on(0, pitch, velocity.clamp(1, 127)));
         }
     }
     /// Live note input (keyboard or MIDI port) routed to a track's instrument.
@@ -693,30 +850,41 @@ impl Renderer {
         }
         self.queue(
             track,
-            NoteEvent {
-                frame: 0,
-                on,
-                pitch,
-                velocity: if on { velocity.clamp(1, 127) } else { 0 },
-                channel: 0,
+            if on {
+                Event::note_on(0, pitch, velocity.clamp(1, 127))
+            } else {
+                Event::note_off(0, pitch)
             },
         );
+    }
+    /// A live controller change (MIDI port) routed to a track's instrument.
+    pub fn routed_control(&mut self, route: usize, event: Event) {
+        if let Some(track) = self
+            .channels
+            .iter()
+            .position(|channel| channel.route == route)
+        {
+            self.control(track, event);
+        }
+    }
+    /// A controller change for a track's instrument now: control change, bend or pressure.
+    pub fn control(&mut self, track: usize, event: Event) {
+        self.idle_frames = 0;
+        if !self.channels.get(track).is_some_and(|c| c.midi) {
+            return;
+        }
+        let Some((slot, value)) = control_slot(&event) else {
+            return;
+        };
+        self.applied[track][slot] = value;
+        self.queue(track, control_event(slot, value, 0));
     }
     fn all_notes_off(&mut self) {
         for track in 0..self.channels.len() {
             for p in 0..128 {
                 let total = self.held[track][p] as u32 + self.live[track][p] as u32;
                 for _ in 0..total {
-                    self.queue(
-                        track,
-                        NoteEvent {
-                            frame: 0,
-                            on: false,
-                            pitch: p as u8,
-                            velocity: 0,
-                            channel: 0,
-                        },
-                    );
+                    self.queue(track, Event::note_off(0, p as u8));
                 }
                 self.held[track][p] = 0;
                 self.live[track][p] = 0;
@@ -732,6 +900,16 @@ impl Renderer {
         self.count_in_left = 0;
         self.active.fill(None);
         self.all_notes_off();
+        // Nothing stays bent or held after stop.
+        for track in 0..self.channels.len() {
+            for slot in [SUSTAIN, BEND, PRESSURE] {
+                let current = self.applied[track][slot];
+                if current != UNSET && current != 0 {
+                    self.applied[track][slot] = 0;
+                    self.queue(track, control_event(slot, 0, 0));
+                }
+            }
+        }
     }
     pub fn set_selected(&mut self, index: Option<usize>) {
         self.selected = index;
@@ -755,6 +933,14 @@ impl Renderer {
         self.channel_peak = [0.0; 2];
         self.track_peaks = [0.0; METER_TRACKS];
     }
+    /// Some track may route the live input, so the caller should supply it.
+    pub fn wants_input(&self) -> bool {
+        self.channels.iter().any(|c| match c.monitor {
+            Monitor::Off => false,
+            Monitor::Auto => c.armed,
+            Monitor::On => true,
+        })
+    }
     /// True while anything may still produce sound; lets the device idle.
     fn busy(&self) -> bool {
         self.playing
@@ -772,6 +958,12 @@ impl Renderer {
     }
     /// Render any number of frames. No locks, allocation, filesystem calls or logging.
     pub fn render(&mut self, rack: &mut Rack, out: &mut [[f32; 2]]) {
+        self.render_monitored(rack, out, &[]);
+    }
+    /// `render`, with the live input (one frame per output frame, or none) mixed into every
+    /// monitoring track ahead of its inserts, so the strip's effects and sends apply to it.
+    pub fn render_monitored(&mut self, rack: &mut Rack, out: &mut [[f32; 2]], input: &[[f32; 2]]) {
+        let input = if input.len() == out.len() { input } else { &[] };
         let mut done = 0;
         while done < out.len() {
             let mut n = (out.len() - done).min(MAX_BLOCK);
@@ -791,13 +983,19 @@ impl Renderer {
                 let frames_left = ((end - self.position) / dpb).ceil().max(1.0) as usize;
                 n = n.min(frames_left);
             }
-            self.block(rack, &mut out[done..done + n]);
+            let live = if input.is_empty() {
+                input
+            } else {
+                &input[done..done + n]
+            };
+            self.block(rack, &mut out[done..done + n], live);
             done += n;
         }
     }
-    fn block(&mut self, rack: &mut Rack, out: &mut [[f32; 2]]) {
+    fn block(&mut self, rack: &mut Rack, out: &mut [[f32; 2]], input: &[[f32; 2]]) {
         let n = out.len();
-        if !self.busy() {
+        let monitoring = !input.is_empty() && self.wants_input();
+        if !self.busy() && !monitoring {
             out.fill([0.0; 2]);
             return;
         }
@@ -815,6 +1013,9 @@ impl Renderer {
         }
         for buffer in &mut self.buffers {
             buffer[..n].fill([0.0; 2]);
+        }
+        for channel in &mut self.channels {
+            channel.clip_sounding = false;
         }
         self.sends[0][..n].fill([0.0; 2]);
         self.sends[1][..n].fill([0.0; 2]);
@@ -843,16 +1044,7 @@ impl Renderer {
                     self.live[p.track][p.pitch as usize] -= 1;
                     self.live_total = self.live_total.saturating_sub(1);
                 }
-                self.push_note(
-                    p.track,
-                    NoteEvent {
-                        frame: p.remaining,
-                        on: false,
-                        pitch: p.pitch,
-                        velocity: 0,
-                        channel: 0,
-                    },
-                );
+                self.push_note(p.track, Event::note_off(p.remaining, p.pitch));
             } else {
                 self.previews[i] = Some(Preview {
                     remaining: p.remaining - n as u32,
@@ -862,6 +1054,17 @@ impl Renderer {
         }
         if self.playing {
             for i in 0..n {
+                while self.next_control < self.controls.len()
+                    && self.controls[self.next_control].beat <= self.position + 1e-9
+                {
+                    let control = self.controls[self.next_control];
+                    self.next_control += 1;
+                    self.applied[control.track][control.slot] = control.value;
+                    self.push_note(
+                        control.track,
+                        control_event(control.slot, control.value, i as u32),
+                    );
+                }
                 while self.next < self.events.len()
                     && self.events[self.next].start <= self.position + 1e-9
                 {
@@ -872,16 +1075,7 @@ impl Renderer {
                             let track = self.events[index].track;
                             self.held[track][pitch as usize] =
                                 self.held[track][pitch as usize].saturating_add(1);
-                            self.push_note(
-                                track,
-                                NoteEvent {
-                                    frame: i as u32,
-                                    on: true,
-                                    pitch,
-                                    velocity,
-                                    channel: 0,
-                                },
-                            );
+                            self.push_note(track, Event::note_on(i as u32, pitch, velocity));
                         }
                     }
                 }
@@ -897,32 +1091,31 @@ impl Renderer {
                             if self.held[track][pitch as usize] > 0 {
                                 self.held[track][pitch as usize] -= 1;
                             }
-                            self.push_note(
-                                track,
-                                NoteEvent {
-                                    frame: i as u32,
-                                    on: false,
-                                    pitch,
-                                    velocity: 0,
-                                    channel: 0,
-                                },
-                            );
+                            self.push_note(track, Event::note_off(i as u32, pitch));
                         }
                         continue;
                     }
-                    if let Sound::Audio { buffer, offset } = &e.sound {
+                    if let Sound::Audio {
+                        buffer,
+                        offset,
+                        gain,
+                        fade_in,
+                        fade_out,
+                        curve,
+                    } = &e.sound
+                    {
                         let age = (self.position - e.start).max(0.0) * spb;
                         let mut v = buffer.sample(age + offset);
-                        // 3 ms boundary ramps avoid discontinuities when trimming or looping clips.
-                        let ramp = (age / 0.003)
-                            .min(1.0)
-                            .min(((e.end - self.position) * spb / 0.003).clamp(0.0, 1.0))
-                            as f32;
+                        // Fades and gain, on the sample; 3 ms boundary ramps keep trims and
+                        // loops free of clicks even without a fade.
+                        let left = (e.end - self.position) * spb;
+                        let ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
                         v[0] *= ramp;
                         v[1] *= ramp;
                         let frame = &mut self.buffers[e.track][i];
                         frame[0] += v[0];
                         frame[1] += v[1];
+                        self.channels[e.track].clip_sounding = true;
                     }
                 }
                 self.position += dpb;
@@ -932,7 +1125,7 @@ impl Renderer {
         // Every host expects chronological events; note-offs win ties so a
         // repeated pitch can start again at the same sample.
         for notes in &mut self.notes {
-            notes.sort_unstable_by_key(|note| (note.frame, note.on));
+            sort_events(notes);
         }
         let ctx = ProcessContext {
             playing: self.playing,
@@ -963,17 +1156,56 @@ impl Renderer {
             rack.set_param(slot, parameter, value);
         }
         self.automation_resets.clear();
+        // Each lane's value on the block's first frame, then at its frame wherever it crosses a
+        // breakpoint and every AUTOMATION_GRAIN frames while it moves.
         for automation in &self.plugin_automation {
-            let beat = automation_beat(
-                block_start - automation.offset as f64 * dpb,
-                automation_cycle,
-            );
-            if let Some(value) = self.session.automation[automation.lane].value_at(beat) {
-                rack.set_param(automation.slot, automation.parameter, value);
+            let start = block_start - automation.offset as f64 * dpb;
+            let first = automation_beat(start, automation_cycle);
+            let mut cursor = self.session.automation[automation.lane].cursor(first);
+            let Some(mut sent) = cursor.value(first) else {
+                continue;
+            };
+            rack.set_param(automation.slot, automation.parameter, sent);
+            if automation_step == 0.0 {
+                continue;
+            }
+            let mut segment = cursor.segment();
+            for frame in 1..n {
+                let beat =
+                    automation_beat(start + frame as f64 * automation_step, automation_cycle);
+                let Some(value) = cursor.value(beat) else {
+                    break;
+                };
+                let crossed = cursor.segment() != segment;
+                segment = cursor.segment();
+                if value != sent && (crossed || frame % AUTOMATION_GRAIN == 0) {
+                    rack.set_param_at(automation.slot, frame as u32, automation.parameter, value);
+                    sent = value;
+                }
             }
         }
         for (index, channel) in self.channels.iter_mut().enumerate() {
             let buffer = &mut self.buffers[index][..n];
+            let listen = monitoring
+                && match channel.monitor {
+                    Monitor::Off => false,
+                    // Hear the input until the track has something of its own to play back;
+                    // while a take is being recorded over it, hear the input again.
+                    Monitor::Auto => channel.armed && (self.recording || !channel.clip_sounding),
+                    Monitor::On => true,
+                };
+            if monitoring && (listen || channel.monitor_gain > 0.0) {
+                let step = 1.0 / (0.005 * self.rate as f32);
+                for (frame, live) in buffer.iter_mut().zip(input) {
+                    channel.monitor_gain = if listen {
+                        (channel.monitor_gain + step).min(1.0)
+                    } else {
+                        (channel.monitor_gain - step).max(0.0)
+                    };
+                    frame[0] += live[0] * channel.monitor_gain;
+                    frame[1] += live[1] * channel.monitor_gain;
+                }
+            }
             if channel.midi {
                 if let Some(slot) = channel.synth {
                     rack.process(slot, buffer, &self.notes[index], &ctx);
@@ -1116,6 +1348,14 @@ impl std::ops::DerefMut for OfflineRack {
     }
 }
 impl OfflineRack {
+    /// The longest tail any plugin in the session reports, and which one reports it.
+    pub fn longest_tail(&self) -> Option<(f64, &str)> {
+        self.editors
+            .iter()
+            .map(|editor| (editor.tail_seconds(), editor.descriptor().name.as_str()))
+            .filter(|(tail, _)| *tail > 0.0)
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+    }
     pub fn idle(&mut self) {
         for editor in &mut self.editors {
             editor.idle();

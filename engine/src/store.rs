@@ -17,6 +17,9 @@ pub enum Command {
     PutClip(Clip),
     RemoveClip(String),
     PutSource(Source),
+    /// Add or replace a marker by id; markers stay in bar order.
+    PutMarker(Marker),
+    RemoveMarker(String),
     SetStrip {
         track: String,
         strip: Strip,
@@ -47,6 +50,9 @@ pub struct Store {
     saved_id: Option<u64>,
     gesture: bool,
     gesture_recorded: bool,
+    /// The redo history a gesture's first edit set aside, restored if the gesture is
+    /// cancelled (a failed atomic batch changes nothing, Redo included).
+    gesture_future: Option<Vec<(Arc<Session>, u64)>>,
 }
 impl Store {
     pub fn new(mut session: Session) -> Result<Self> {
@@ -58,6 +64,7 @@ impl Store {
             saved_id: Some(0),
             gesture: false,
             gesture_recorded: false,
+            gesture_future: None,
             session,
             past: vec![],
             future: vec![],
@@ -104,6 +111,7 @@ impl Store {
         self.document_id = self.revision;
         self.saved_id = Some(self.document_id);
         self.gesture_recorded = false;
+        self.gesture_future = None;
         Ok(())
     }
     /// Update derived data (captured plugin state) without touching history
@@ -116,10 +124,15 @@ impl Store {
         self.revision += 1;
         Ok(())
     }
+    /// Whether edits are being coalesced into one undo step (a drag, a batch).
+    pub fn gesture_active(&self) -> bool {
+        self.gesture
+    }
     /// Coalesce a slider drag or one focused text edit into one undo step.
     pub fn set_gesture(&mut self, active: bool) {
         if !active || !self.gesture {
             self.gesture_recorded = false;
+            self.gesture_future = None;
         }
         self.gesture = active;
     }
@@ -133,9 +146,13 @@ impl Store {
                 self.document_id = id;
                 self.revision += 1;
             }
+            if let Some(future) = self.gesture_future.take() {
+                self.future = future;
+            }
         }
         self.gesture = false;
         self.gesture_recorded = false;
+        self.gesture_future = None;
         recorded
     }
     pub fn dispatch(&mut self, command: Command) -> Result<bool> {
@@ -146,6 +163,7 @@ impl Store {
                 self.session = s;
                 self.document_id = id;
                 self.gesture_recorded = false;
+                self.gesture_future = None;
                 self.revision += 1;
                 return Ok(true);
             }
@@ -157,6 +175,7 @@ impl Store {
                 self.session = s;
                 self.document_id = id;
                 self.gesture_recorded = false;
+                self.gesture_future = None;
                 self.revision += 1;
                 return Ok(true);
             }
@@ -171,6 +190,9 @@ impl Store {
             if !self.gesture || !self.gesture_recorded {
                 self.past.push((self.session.clone(), self.document_id));
                 self.gesture_recorded = self.gesture;
+                if self.gesture {
+                    self.gesture_future = Some(std::mem::take(&mut self.future));
+                }
             }
             if self.past.len() > 200 {
                 self.past.remove(0);
@@ -224,12 +246,22 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             let t = s.tracks.remove(from);
             s.tracks.insert(index.min(s.tracks.len()), t);
         }
-        Command::PutClip(clip) => {
+        Command::PutClip(mut clip) => {
+            // Trims, resizes and tempo-free edits all land here: keep fades inside the clip.
+            let seconds = clip.length_bars * s.beats_per_bar() * 60.0 / s.transport.tempo;
+            if let ClipData::Audio {
+                fade_in, fade_out, ..
+            } = &mut clip.data
+            {
+                (*fade_in, *fade_out) = clamp_fades(*fade_in, *fade_out, seconds);
+            }
             if let Some(c) = s.clips.iter_mut().find(|c| c.id == clip.id) {
                 *c = clip;
             } else {
                 s.clips.push(clip);
             }
+            // clip.setNotes and note.remove can take the selected note with them.
+            sanitize_selection(s);
         }
         Command::RemoveClip(id) => {
             s.clips.retain(|c| c.id != id);
@@ -254,6 +286,21 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             }
         }
         Command::RemoveAutomation(id) => s.automation.retain(|lane| lane.id != id),
+        Command::PutMarker(marker) => {
+            if let Some(m) = s.markers.iter_mut().find(|m| m.id == marker.id) {
+                *m = marker;
+            } else {
+                s.markers.push(marker);
+            }
+            s.markers.sort_by(|a, b| a.bar.total_cmp(&b.bar));
+        }
+        Command::RemoveMarker(id) => {
+            let before = s.markers.len();
+            s.markers.retain(|m| m.id != id);
+            if s.markers.len() == before {
+                return Err("Marker not found".into());
+            }
+        }
         Command::SetTransport(t) => s.transport = t,
         Command::SetMasterVolume(v) => s.master_volume = v,
         Command::Select { track, clip, note } => {
@@ -297,6 +344,19 @@ fn sanitize_selection(s: &mut Session) {
     {
         s.view.editor_clip_id = None;
     }
+    if let Some(note) = &s.view.selected_note_id {
+        let present = s
+            .clips
+            .iter()
+            .find(|c| Some(&c.id) == s.view.selected_clip_id.as_ref())
+            .is_some_and(|c| match &c.data {
+                crate::model::ClipData::Midi { notes, .. } => notes.iter().any(|n| &n.id == note),
+                _ => false,
+            });
+        if !present {
+            s.view.selected_note_id = None;
+        }
+    }
 }
 
 pub fn demo() -> Session {
@@ -334,7 +394,8 @@ pub fn empty() -> Session {
     s
 }
 
-/// Clip splitting keeps offsets and notes aligned, including notes crossing the cut.
+/// Clip splitting keeps offsets and notes aligned, including notes crossing the cut. The
+/// right half starts with each controller's value at the cut.
 pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<(Clip, Clip)> {
     let relative = bar - clip.start_bar;
     if relative <= 0.0 || relative >= clip.length_bars {
@@ -349,14 +410,32 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
     match &clip.data {
         ClipData::Audio {
             offset_seconds,
-            source_id,
+            fade_in,
+            fade_out,
+            ..
         } => {
-            right.data = ClipData::Audio {
-                source_id: source_id.clone(),
-                offset_seconds: offset_seconds + relative * bpb * 60.0 / tempo,
+            // The cut is a hard edge: the left part keeps the fade-in, the right the fade-out.
+            let seconds = |bars: f64| bars * bpb * 60.0 / tempo;
+            if let ClipData::Audio {
+                fade_in: left_in,
+                fade_out: left_out,
+                ..
+            } = &mut left.data
+            {
+                (*left_in, *left_out) = clamp_fades(*fade_in, 0.0, seconds(left.length_bars));
+            }
+            if let ClipData::Audio {
+                offset_seconds: right_offset,
+                fade_in: right_in,
+                fade_out: right_out,
+                ..
+            } = &mut right.data
+            {
+                *right_offset = offset_seconds + seconds(relative);
+                (*right_in, *right_out) = clamp_fades(0.0, *fade_out, seconds(right.length_bars));
             }
         }
-        ClipData::Midi { notes } => {
+        ClipData::Midi { notes, controllers } => {
             let cut = relative * bpb;
             left.data = ClipData::Midi {
                 notes: notes
@@ -368,6 +447,9 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
                         n
                     })
                     .collect(),
+                controllers: crate::controllers::window(controllers, 0.0, cut, || {
+                    crate::control::new_id("ctl")
+                }),
             };
             right.data = ClipData::Midi {
                 notes: notes
@@ -381,6 +463,12 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
                         n
                     })
                     .collect(),
+                controllers: crate::controllers::window(
+                    controllers,
+                    cut,
+                    (clip.length_bars - relative) * bpb,
+                    || crate::control::new_id("ctl"),
+                ),
             };
         }
     }

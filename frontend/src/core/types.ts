@@ -9,6 +9,9 @@ export type ClipId = string;
 
 export type TrackKind = "audio" | "midi";
 
+/** auto: while armed and not playing back the track's own clip. */
+export type Monitor = "off" | "auto" | "on";
+
 export interface Track {
   id: TrackId;
   name: string;
@@ -22,6 +25,8 @@ export interface Track {
   mute: boolean;
   solo: boolean;
   armed: boolean;
+  /** Hear the live input through this audio track; absent means off. */
+  monitor?: Monitor;
   /** True while an agent is actively editing this track. */
   agentActive: boolean;
 }
@@ -60,16 +65,47 @@ export interface AudioSource {
   fileName?: string;
 }
 
+/** equalPower keeps loudness through a crossfade; exponential starts slow. */
+export type FadeCurve = "equalPower" | "linear" | "exponential";
+
 export interface AudioClipData {
   kind: "audio";
   sourceId: string;
   /** Where in the source this clip starts, in seconds. */
   offsetSeconds: number;
+  /** Fade lengths in seconds of audio; absent means none. */
+  fadeInSeconds?: number;
+  fadeOutSeconds?: number;
+  /** Absent means equalPower. */
+  fadeCurve?: FadeCurve;
+  /** Clip gain in dB, -60 to +24; absent means 0. */
+  gainDb?: number;
+}
+
+export type ControllerKind = "cc" | "bend" | "pressure";
+
+/**
+ * A controller point in a MIDI clip. The value holds until the next point of
+ * the same lane (kind and number), as MIDI does.
+ */
+export interface Controller {
+  id: string;
+  kind: ControllerKind;
+  /** Controller number, for `cc` only. */
+  number?: number;
+  /** Beats from the clip start. */
+  time: number;
+  /** 0..127 for cc and pressure; -8192..8191 for bend. */
+  value: number;
+  /** True when the point was written by an agent. */
+  agent?: boolean;
 }
 
 export interface MidiClipData {
   kind: "midi";
   notes: Note[];
+  /** Absent when the clip has none. */
+  controllers?: Controller[];
 }
 
 export interface Clip {
@@ -83,6 +119,16 @@ export interface Clip {
   data: AudioClipData | MidiClipData;
   /** True when the clip is currently being edited by an agent. */
   agent: boolean;
+}
+
+/** A named position on the ruler: where a song section starts. */
+export interface Marker {
+  id: string;
+  /** Zero-based bar. */
+  bar: number;
+  name: string;
+  /** CSS colour; absent uses the theme's marker colour. */
+  color?: string | null;
 }
 
 export interface TimeSignature {
@@ -226,6 +272,8 @@ export interface Session {
   audio: AudioSettings;
   tracks: Track[];
   clips: Clip[];
+  /** Song sections in bar order. */
+  markers: Marker[];
   /** Audio sources referenced by audio clips, keyed by id. */
   sources: Record<string, AudioSource>;
   transport: Transport;

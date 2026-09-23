@@ -1,10 +1,10 @@
 [workspace]
-members = ["sdk", "engine", "desktop", "tools", "plugins/gain"]
+members = ["sdk", "engine", "desktop", "tools", "plugins/gain", "plugins/abi1-fixture"]
 default-members = ["desktop"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"

@@ -880,3 +880,428 @@ fn plugin_library_files_plugins_in_sound_folders() {
         );
     }
 }
+
+#[test]
+fn monitoring_is_a_track_setting_that_saves_undoes_and_stays_out_of_old_files() {
+    fn monitor_of(host: &mut Headless, id: &Value) -> Value {
+        call(host, "track.list", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| &t["id"] == id)
+            .unwrap()["monitor"]
+            .clone()
+    }
+    let mut host = Headless::new();
+    let audio = call(&mut host, "track.add", json!({"kind":"audio"}))["id"].clone();
+    let midi = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    assert_eq!(monitor_of(&mut host, &audio), "off");
+    let saved_off = serde_json::to_value(host.store().session()).unwrap();
+    assert!(
+        saved_off["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t.get("monitor").is_none()),
+        "off is the absence of the field, so files without monitoring are unchanged"
+    );
+    for mode in ["auto", "on", "off"] {
+        let track = call(
+            &mut host,
+            "track.setMonitor",
+            json!({"trackId":audio,"monitor":mode}),
+        );
+        assert_eq!(track["monitor"], mode);
+    }
+    call(
+        &mut host,
+        "track.setMonitor",
+        json!({"trackId":audio,"monitor":"auto"}),
+    );
+    let text = serde_json::to_string(host.store().session()).unwrap();
+    let reloaded: ondera_engine::model::Session = serde_json::from_str(&text).unwrap();
+    let id = audio.as_str().unwrap();
+    assert_eq!(
+        reloaded.tracks.iter().find(|t| t.id == id).unwrap().monitor,
+        ondera_engine::model::Monitor::Auto
+    );
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(monitor_of(&mut host, &audio), "off");
+    assert!(fail(
+        &mut host,
+        "track.setMonitor",
+        json!({"trackId":audio,"monitor":"loud"})
+    )
+    .contains("off, auto or on"));
+    assert!(fail(
+        &mut host,
+        "track.setMonitor",
+        json!({"trackId":midi,"monitor":"on"})
+    )
+    .contains("Only audio tracks"));
+}
+
+#[test]
+fn the_browser_the_piano_roll_and_zoom_to_fit_are_view_commands() {
+    let mut host = Headless::new();
+    let view = call(&mut host, "view.get", json!({}));
+    assert_eq!(view["browserTab"], "instruments");
+    assert_eq!(view["browserSelection"], "E-Piano Mk I");
+    assert_eq!(
+        view["editorLowPitch"],
+        Value::Null,
+        "the piano roll frames the clip itself"
+    );
+    assert!(view["laneWidth"].as_f64().unwrap() > 0.0);
+    let saved = serde_json::to_value(host.store().session()).unwrap();
+    assert!(
+        saved["view"].get("editorLowPitch").is_none(),
+        "automatic stays out of the file"
+    );
+    let view = call(
+        &mut host,
+        "view.set",
+        json!({"browserTab":"plugins","browserSelection":"Channel EQ","editorLowPitch":36,"laneWidth":1000}),
+    );
+    assert_eq!(view["browserTab"], "plugins");
+    assert_eq!(view["browserSelection"], "Channel EQ");
+    assert_eq!(view["editorLowPitch"], 36);
+    assert_eq!(view["laneWidth"], 1000.0);
+    let cleared = call(
+        &mut host,
+        "view.set",
+        json!({"browserSelection":"","editorLowPitch":-1}),
+    );
+    assert_eq!(cleared["browserSelection"], Value::Null);
+    assert_eq!(cleared["editorLowPitch"], Value::Null);
+    assert!(fail(&mut host, "view.set", json!({"browserTab":"presets"})).contains("instruments"));
+    assert!(fail(&mut host, "view.set", json!({"editorLowPitch":120})).contains("0 and 108"));
+    assert!(fail(&mut host, "view.set", json!({"laneWidth":5})).contains("laneWidth"));
+    // The view is not document history.
+    assert_eq!(call(&mut host, "history.info", json!({}))["canUndo"], false);
+
+    // Fit: the song plus one bar across the lane, from the first bar; never beyond the zoom range.
+    let track = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":20,"lengthBars":4}),
+    );
+    call(&mut host, "view.set", json!({"scrollBar":7}));
+    let fit = call(&mut host, "view.fit", json!({}));
+    assert_eq!(fit["scrollBar"], 0.0);
+    assert_eq!(
+        fit["pixelsPerBar"], 40.0,
+        "1000 px over 24 bars and one spare"
+    );
+    call(&mut host, "view.set", json!({"laneWidth":20000}));
+    assert_eq!(
+        call(&mut host, "view.fit", json!({}))["pixelsPerBar"],
+        480.0
+    );
+}
+
+#[test]
+fn the_clipboard_lives_in_the_host_so_any_client_can_paste() {
+    let mut host = Headless::new();
+    let midi = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let other = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let audio = call(&mut host, "track.add", json!({"kind":"audio"}))["id"].clone();
+    assert!(fail(&mut host, "clip.paste", json!({})).contains("Nothing has been copied"));
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":midi,"startBar":2,"lengthBars":2,"name":"Riff",
+               "notes":[{"start":0,"length":1,"pitch":60},{"start":1,"length":1,"pitch":64}]}),
+    );
+    let id = clip["id"].clone();
+    // Copy: by id, or the selected clip.
+    assert!(fail(&mut host, "clip.copy", json!({})).contains("Select a clip"));
+    let copied = call(&mut host, "clip.copy", json!({"clipId":id}));
+    assert_eq!(copied["copied"]["name"], "Riff");
+    // Paste with nothing said: the selected track when its kind fits, at the playhead.
+    call(&mut host, "track.select", json!({"trackId":other}));
+    call(&mut host, "transport.locate", json!({"bar":8}));
+    let pasted = call(&mut host, "clip.paste", json!({}));
+    assert_eq!(pasted["trackId"], other);
+    assert_eq!(pasted["startBar"], 8.0);
+    assert_eq!(pasted["noteCount"], 2);
+    assert_ne!(pasted["id"], id);
+    // Pasting twice gives two independent clips with their own note ids.
+    let again = call(&mut host, "clip.paste", json!({"trackId":midi,"bar":12}));
+    let notes = |host: &mut Headless, id: &Value| {
+        call(host, "clip.get", json!({"clipId":id}))["data"]["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let (a, b) = (
+        notes(&mut host, &pasted["id"]),
+        notes(&mut host, &again["id"]),
+    );
+    assert!(a.iter().all(|n| !b.contains(n)));
+    // A MIDI clip does not go on an audio track; with an audio track selected it goes home.
+    assert!(fail(&mut host, "clip.paste", json!({"trackId":audio})).contains("MIDI"));
+    call(&mut host, "track.select", json!({"trackId":audio}));
+    assert_eq!(
+        call(&mut host, "clip.paste", json!({"bar":30}))["trackId"],
+        midi
+    );
+    // Cut removes the clip in one undo step and keeps it on the clipboard.
+    let before = call(&mut host, "clip.list", json!({}))
+        .as_array()
+        .unwrap()
+        .len();
+    call(&mut host, "clip.cut", json!({"clipId":id}));
+    assert_eq!(
+        call(&mut host, "clip.list", json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        before - 1
+    );
+    assert_eq!(
+        call(&mut host, "clip.paste", json!({"bar":40}))["name"],
+        "Riff"
+    );
+    call(&mut host, "history.undo", json!({}));
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(
+        call(&mut host, "clip.list", json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        before
+    );
+}
+
+#[test]
+fn controller_points_are_edited_like_notes_and_follow_every_clip_edit() {
+    let mut host = Headless::new();
+    let track = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":2}),
+    )["id"]
+        .clone();
+    let plain = serde_json::to_value(host.store().session()).unwrap();
+    let data = &plain["clips"].as_array().unwrap()[0]["data"];
+    assert!(
+        data.get("controllers").is_none(),
+        "A clip without controllers is written exactly as before"
+    );
+
+    let mod_low = call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"cc","number":1,"time":0,"value":20}),
+    );
+    assert_eq!(mod_low["controllerCount"], 1);
+    let mod_id = mod_low["controller"]["id"].clone();
+    call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"cc","number":1,"time":6,"value":90}),
+    );
+    call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"bend","time":2,"value":4096}),
+    );
+    // Same lane, same time: the value changes, no second point.
+    let again = call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"bend","time":2,"value":-4096}),
+    );
+    assert_eq!(again["controllerCount"], 3);
+    let pedal = call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"cc","number":64,"time":1,"value":127}),
+    )["controller"]["id"]
+        .clone();
+    let listed = call(&mut host, "controller.list", json!({"clipId":clip}));
+    assert_eq!(listed["controllers"].as_array().unwrap().len(), 4);
+    assert_eq!(listed["lanes"].as_array().unwrap().len(), 3);
+    let times: Vec<f64> = listed["controllers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["time"].as_f64().unwrap())
+        .collect();
+    assert!(times.windows(2).all(|w| w[0] <= w[1]), "{times:?}");
+    let bends = call(
+        &mut host,
+        "controller.list",
+        json!({"clipId":clip,"kind":"bend"}),
+    );
+    assert_eq!(bends["controllers"][0]["value"], -4096);
+
+    call(
+        &mut host,
+        "controller.update",
+        json!({"clipId":clip,"controllerId":mod_id,"value":30,"time":0.5}),
+    );
+    call(
+        &mut host,
+        "controller.remove",
+        json!({"clipId":clip,"controllerId":pedal}),
+    );
+    let before_draw = host.store().undo_depth();
+    let drawn = call(
+        &mut host,
+        "controller.setPoints",
+        json!({"clipId":clip,"kind":"cc","number":11,"from":2,"to":4,
+            "points":[{"time":2,"value":10},{"time":3,"value":60},{"time":3,"value":70}]}),
+    );
+    assert_eq!(drawn["controller"]["count"], 2);
+    assert_eq!(
+        host.store().undo_depth(),
+        before_draw + 1,
+        "One drawn curve is one undo step"
+    );
+    call(&mut host, "history.undo", json!({}));
+    assert!(call(
+        &mut host,
+        "controller.list",
+        json!({"clipId":clip,"kind":"cc","number":11})
+    )["controllers"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    call(&mut host, "history.redo", json!({}));
+
+    // Validation leaves the clip alone.
+    for (params, message) in [
+        (
+            json!({"clipId":clip,"kind":"cc","time":0,"value":1}),
+            "needs `number`",
+        ),
+        (
+            json!({"clipId":clip,"kind":"cc","number":1,"time":0,"value":128}),
+            "0 to 127",
+        ),
+        (
+            json!({"clipId":clip,"kind":"bend","time":0,"value":9000}),
+            "-8192 to 8191",
+        ),
+        (
+            json!({"clipId":clip,"kind":"bend","number":3,"time":0,"value":0}),
+            "takes no `number`",
+        ),
+        (
+            json!({"clipId":clip,"kind":"cc","number":1,"time":8,"value":1}),
+            "before the clip's end",
+        ),
+        (
+            json!({"clipId":clip,"kind":"cc","number":123,"time":0,"value":1}),
+            "0-119",
+        ),
+        (
+            json!({"clipId":clip,"kind":"wheel","time":0,"value":1}),
+            "cc, bend or pressure",
+        ),
+    ] {
+        let error = fail(&mut host, "controller.add", params.clone());
+        assert!(error.contains(message), "{params}: {error}");
+    }
+
+    // Agents' points are marked, as their notes are.
+    let by_agent = control::call(
+        &mut host,
+        "controller.add",
+        &json!({"clipId":clip,"kind":"pressure","time":7,"value":50}),
+        true,
+    )
+    .unwrap();
+    assert_eq!(by_agent["controller"]["agent"], true);
+
+    // The file carries them and reads them back.
+    let text = serde_json::to_string(host.store().session()).unwrap();
+    let reloaded: ondera_engine::model::Session = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reloaded).unwrap()["clips"],
+        serde_json::to_value(host.store().session()).unwrap()["clips"]
+    );
+
+    // Split at bar 1 (beat 4): the right half starts with the mod wheel at 30 and the bend
+    // at -4096, the values in force at the cut, and keeps its own later points.
+    let halves = call(&mut host, "clip.split", json!({"clipId":clip,"bar":1}));
+    let right = halves["right"]["id"].clone();
+    let points = call(&mut host, "controller.list", json!({"clipId":right}))["controllers"].clone();
+    let summary: Vec<(String, f64, i64)> = points
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                format!("{}{}", p["kind"].as_str().unwrap(), p["number"]),
+                p["time"].as_f64().unwrap(),
+                p["value"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert!(summary.contains(&("cc1".into(), 0.0, 30)), "{summary:?}");
+    assert!(
+        summary.contains(&("bendnull".into(), 0.0, -4096)),
+        "{summary:?}"
+    );
+    assert!(summary.contains(&("cc1".into(), 2.0, 90)), "{summary:?}");
+    assert!(
+        summary.contains(&("pressurenull".into(), 3.0, 50)),
+        "{summary:?}"
+    );
+    let left = halves["left"]["id"].clone();
+    let left_points =
+        call(&mut host, "controller.list", json!({"clipId":left}))["controllers"].clone();
+    assert!(left_points
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["time"].as_f64().unwrap() < 4.0));
+
+    // Trimming the right half's left edge by two beats keeps positions and chases again.
+    call(
+        &mut host,
+        "clip.trim",
+        json!({"clipId":right,"startBar":1.5}),
+    );
+    let trimmed =
+        call(&mut host, "controller.list", json!({"clipId":right}))["controllers"].clone();
+    let mod_wheel: Vec<(f64, i64)> = trimmed
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["number"] == 1)
+        .map(|p| (p["time"].as_f64().unwrap(), p["value"].as_i64().unwrap()))
+        .collect();
+    assert_eq!(mod_wheel, vec![(0.0, 90)]);
+
+    // Duplicates get their own ids; transpose leaves controllers alone.
+    let copy = call(&mut host, "clip.duplicate", json!({"clipId":right}))["id"].clone();
+    let original_ids: HashSet<String> = trimmed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap().to_string())
+        .collect();
+    let copied = call(&mut host, "controller.list", json!({"clipId":copy}))["controllers"].clone();
+    assert_eq!(copied.as_array().unwrap().len(), original_ids.len());
+    assert!(copied
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| !original_ids.contains(p["id"].as_str().unwrap())));
+    call(
+        &mut host,
+        "clip.transpose",
+        json!({"clipId":copy,"semitones":5}),
+    );
+    let after = call(&mut host, "controller.list", json!({"clipId":copy}))["controllers"].clone();
+    assert_eq!(after, copied);
+    assert!(fail(&mut host, "controller.list", json!({"clipId":"nope"})).contains("Unknown clip"));
+}

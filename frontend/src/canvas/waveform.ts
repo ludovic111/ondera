@@ -33,6 +33,8 @@ export function drawWaveform(
   h: number,
   first: number,
   last: number,
+  /** Gain per column (0 = first column), e.g. a clip's gain and fades. */
+  gainAt?: (px: number) => number,
 ): void {
   if (w <= 0 || h <= 0 || peaks.length === 0) return;
   const mid = y + h / 2;
@@ -60,7 +62,8 @@ export function drawWaveform(
       const v = data[i]!;
       if (v > peak) peak = v;
     }
-    const a = Math.max(0.8, peak * half * 0.95);
+    if (gainAt) peak *= gainAt(px);
+    const a = Math.max(0.8, Math.min(half, peak * half * 0.95));
     ctx.rect(x + px, mid - a, 1, a * 2);
   }
   ctx.fill();

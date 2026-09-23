@@ -14,6 +14,7 @@ import { Knob } from "../primitives/Knob";
 import { LedStrip } from "../primitives/LedStrip";
 import { Button } from "../primitives/Button";
 import { RecordSmallIcon } from "../primitives/Icons";
+import { MonitorButton } from "../primitives/MonitorButton";
 import { size } from "../../theme/tokens";
 import styles from "./Mixer.module.css";
 
@@ -150,6 +151,7 @@ function Strip({ track, index }: { track: Track; index: number }) {
         >
           <RecordSmallIcon />
         </Button>
+        {track.kind === "audio" && <MonitorButton track={track} />}
       </div>
       <div className={styles.name} title={track.name}>
         <span className={styles.swatch} style={{ background: track.color }} />

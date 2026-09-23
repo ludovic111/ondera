@@ -71,6 +71,17 @@ describe.each(variants)("%s %s", (theme, mode) => {
     expect(contrast(c.wellInkFaint, c.wellDeep)).toBeGreaterThanOrEqual(3.6);
   });
 
+  it("keeps markers visible on the ruler and their names readable", () => {
+    expect(contrast(spec.line.marker, c.ruler)).toBeGreaterThanOrEqual(3);
+    const flag = parseColor(spec.fill.markerFlag);
+    const chip = mix(
+      `rgb(${flag.r * 255},${flag.g * 255},${flag.b * 255})`,
+      c.ruler,
+      flag.a * 100,
+    );
+    expect(contrast(c.inkBright, chip)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("keeps the accent visible and its label readable", () => {
     expect(contrast(c.accent, c.panel)).toBeGreaterThanOrEqual(3);
     expect(contrast(c.accentInk, c.accentLo)).toBeGreaterThanOrEqual(3);

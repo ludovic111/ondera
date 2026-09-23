@@ -22,9 +22,9 @@ beforeEach(() => {
   store.agent.status.provider = "codex";
   Element.prototype.scrollIntoView = vi.fn();
   mock.invoke.mockReset().mockImplementation(async (method, args) => {
-    if (method === "daw_agent_connection")
+    if (args?.method === "agent.connection")
       return { provider: "codex", state: "signedIn", message: "Connected" };
-    if (method === "daw_agent_models")
+    if (args?.method === "agent.models")
       return [
         {
           provider: "codex",
@@ -116,7 +116,14 @@ it("supports slash keyboard selection without sending an inference request", asy
   expect((input as HTMLTextAreaElement).value).toContain(
     "Diagnose this problem",
   );
-  expect(mock.invoke.mock.calls.some(([m]) => m === "daw_command")).toBe(false);
+  // Looking up models and the connection is not talking to the agent.
+  expect(
+    mock.invoke.mock.calls.some(
+      ([m, args]) =>
+        m === "daw_command" &&
+        !["agent.models", "agent.connection"].includes(args?.method),
+    ),
+  ).toBe(false);
   fireEvent.change(input, { target: { value: "/rhythm" } });
   fireEvent.keyDown(input, { key: "Enter" });
   expect(screen.getByRole("region", { name: "Rhythm Lab" })).toBeTruthy();

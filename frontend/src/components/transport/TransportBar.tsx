@@ -39,6 +39,7 @@ export function TransportBar() {
     setMenu({
       x: r.left,
       y: r.bottom + 4,
+      anchor: e.currentTarget,
       items: SNAP_DIVISIONS.map((d) => ({
         label: d === 1 ? "Bar" : `1/${d}`,
         checked: snap === d,
@@ -191,6 +192,7 @@ export function TransportBar() {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
+          anchor={menu.anchor}
         />
       )}
     </div>

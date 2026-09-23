@@ -252,7 +252,10 @@ export type FillKey =
   | "cycleHandle"
   | "dropTarget"
   | "stepCell"
-  | "hover";
+  | "hover"
+  | "fadeShade"
+  | "fadeHandle"
+  | "markerFlag";
 
 export type LineKey =
   | "barLine"
@@ -287,7 +290,10 @@ export type LineKey =
   | "noteHead"
   | "border"
   | "borderStrong"
-  | "hairline";
+  | "hairline"
+  | "fadeCurve"
+  | "marker"
+  | "markerLane";
 
 export type BlurKey = "glass" | "glassAgent" | "glassCard";
 export type RadiusKey =

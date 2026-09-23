@@ -4,7 +4,7 @@ use ondera_engine::{
     dsp::{EFFECTS, INSTRUMENTS},
     host::scan,
     model::*,
-    plugin::{NoteEvent, ProcessContext, Rack},
+    plugin::{Event, NoteEvent, ProcessContext, Rack},
     render::{self, Renderer},
     stock,
     store::{self, Command, Store},
@@ -60,6 +60,7 @@ fn midi_session() -> Session {
                 velocity: 100,
                 agent: false,
             }],
+            controllers: vec![],
         },
     });
     s
@@ -97,10 +98,7 @@ fn audio_session() -> (Session, Library) {
         track_id: s.tracks[0].id.clone(),
         start_bar: 0.0,
         length_bars: 0.25,
-        data: ClipData::Audio {
-            source_id: "src".into(),
-            offset_seconds: 0.0,
-        },
+        data: ClipData::audio("src", 0.0),
     });
     (s, Library::from([("src".into(), buffer)]))
 }
@@ -263,10 +261,10 @@ fn saving_old_revision_cannot_mark_new_edits_clean() {
 fn split_retains_crossing_notes() {
     let s = midi_session();
     let (l, r) = store::split(&s.clips[0], 0.25, "right".into(), 4.0, 120.0).unwrap();
-    let ClipData::Midi { notes: a } = l.data else {
+    let ClipData::Midi { notes: a, .. } = l.data else {
         panic!()
     };
-    let ClipData::Midi { notes: b } = r.data else {
+    let ClipData::Midi { notes: b, .. } = r.data else {
         panic!()
     };
     assert_eq!(a[0].length, 1.0);
@@ -525,10 +523,7 @@ fn stock_parameters_change_the_sound_and_persist() {
                 let v = noise(&mut seed);
                 *f = [v, v];
             }
-            let change = [ondera_engine::plugin::ParamChange {
-                id: 1,
-                value: cutoff,
-            }];
+            let change = [ondera_engine::plugin::ParamChange::now(1, cutoff)];
             processor.process(&mut block, &[], if i == 0 { &change } else { &[] }, &ctx);
             if i > 20 {
                 total += block.iter().map(|f| (f[0] * f[0]) as f64).sum::<f64>();
@@ -555,13 +550,13 @@ fn instrument_processor_handles_note_on_and_off() {
     let mut processor = instance.processor.take().unwrap();
     let ctx = ProcessContext::default();
     let mut block = [[0.0f32; 2]; 64];
-    let on = [NoteEvent {
+    let on = [Event::from(NoteEvent {
         frame: 0,
         on: true,
         pitch: 60,
         velocity: 100,
         channel: 0,
-    }];
+    })];
     processor.process(&mut block, &on, &[], &ctx);
     let mut held = 0.0;
     for _ in 0..50 {
@@ -570,13 +565,13 @@ fn instrument_processor_handles_note_on_and_off() {
         held += block.iter().map(|f| (f[0] * f[0]) as f64).sum::<f64>();
     }
     assert!(held > 0.1);
-    let off = [NoteEvent {
+    let off = [Event::from(NoteEvent {
         frame: 0,
         on: false,
         pitch: 60,
         velocity: 0,
         channel: 0,
-    }];
+    })];
     block.fill([0.0; 2]);
     processor.process(&mut block, &off, &[], &ctx);
     for _ in 0..1500 {
@@ -647,6 +642,29 @@ fn newer_session_version_is_rejected() {
 #[test]
 fn realtime_render_seek_and_preview_allocate_nothing() {
     let mut s = midi_session();
+    // Controllers are sequenced, chased on locate and reset at stop without allocating.
+    if let ClipData::Midi { controllers, .. } = &mut s.clips[0].data {
+        use ondera_engine::model::{Controller, ControllerKind};
+        for (i, (kind, number, time, value)) in [
+            (ControllerKind::Cc, Some(1), 0.0, 10),
+            (ControllerKind::Cc, Some(64), 0.1, 127),
+            (ControllerKind::Bend, None, 0.2, 3000),
+            (ControllerKind::Pressure, None, 0.3, 90),
+            (ControllerKind::Cc, Some(1), 0.6, 120),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            controllers.push(Controller {
+                id: format!("ctl{i}"),
+                kind,
+                number,
+                time,
+                value,
+                agent: false,
+            });
+        }
+    }
     let mut strip = Strip::default();
     for (i, name) in ["Channel EQ", "Space", "Echo", "Limiter"]
         .iter()
@@ -761,6 +779,8 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
     for i in 0..64 {
         if i == 20 {
             r.locate(0.5);
+            r.control(0, ondera_engine::plugin::Event::pitch_bend(0, -0.5));
+            std::hint::black_box(ondera_engine::midi::controller(&[0xb0, 1, 64]));
             r.preview(0, 64, 100);
             r.note(0, true, 67, 90);
             rack.set_param(0, 0, 0.5);
@@ -881,4 +901,381 @@ fn count_in_clicks_with_the_song_parked_then_starts_on_the_sample() {
     );
     r.stop();
     assert!(!r.counting_in());
+}
+
+fn monitored_session(monitor: Monitor, armed: bool) -> (Session, Library) {
+    let (mut s, library) = audio_session();
+    s.tracks[0].monitor = monitor;
+    s.tracks[0].armed = armed;
+    s.tracks[0].volume = 0.75;
+    s.master_volume = 0.75;
+    let mut invert = Insert::new("flip".into(), "stock:Utility", "Utility");
+    invert.params.insert(2, 1.0);
+    invert.params.insert(3, 1.0);
+    s.strips.insert(
+        s.tracks[0].id.clone(),
+        Strip {
+            inserts: vec![invert],
+            ..Default::default()
+        },
+    );
+    (s, library)
+}
+
+#[test]
+fn a_block_pushed_into_the_monitor_ring_comes_out_of_render_through_the_inserts() {
+    use ondera_engine::device::{monitor_ring, Telemetry};
+    let (mut s, _) = monitored_session(Monitor::On, false);
+    s.clips.clear();
+    let (mut r, mut rack) = offline(s, &Library::new(), 48000);
+    let telemetry = Telemetry::default();
+    let (mut feed, mut tap) = monitor_ring(48000, 48000).unwrap();
+    let input: Vec<[f32; 2]> = (0..256)
+        .map(|i| [0.25 + i as f32 / 1024.0, -0.125])
+        .collect();
+    // Two device blocks: the tap waits for one block before it starts, so latency is bounded
+    // but a late input callback does not underrun at once.
+    for _ in 0..2 {
+        for frame in &input {
+            assert!(feed.push(*frame, &telemetry));
+        }
+    }
+    let mut live = vec![[0.0f32; 2]; 256];
+    let mut out = vec![[0.0f32; 2]; 256];
+    let mut heard = Vec::new();
+    for _ in 0..3 {
+        tap.fill(&mut live, &telemetry);
+        r.render_monitored(&mut rack, &mut out, &live);
+        heard.extend_from_slice(&out);
+    }
+    let gain = fader_gain(0.75) * fader_gain(0.75);
+    let start = heard
+        .iter()
+        .position(|f| f[0] != 0.0)
+        .expect("the input is audible");
+    for (got, sent) in heard[start..start + 256].iter().zip(&input) {
+        // The Utility insert inverts both channels: the input went through the strip.
+        assert!(
+            (got[0] + sent[0] * gain).abs() < 1e-5,
+            "{got:?} vs {sent:?}"
+        );
+        assert!((got[1] + sent[1] * gain).abs() < 1e-5);
+    }
+    assert_eq!(
+        telemetry
+            .monitor_drops
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+}
+
+#[test]
+fn monitoring_never_allocates_on_the_audio_thread() {
+    use ondera_engine::device::{monitor_ring, Telemetry};
+    let (s, library) = monitored_session(Monitor::On, true);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    let telemetry = Telemetry::default();
+    let (mut feed, mut tap) = monitor_ring(44100, 48000).unwrap();
+    let mut live = vec![[0.0f32; 2]; 256];
+    let mut out = vec![[0.0f32; 2]; 256];
+    r.playing = true;
+    ALLOCATIONS.with(|n| n.set(0));
+    DEALLOCATIONS.with(|n| n.set(0));
+    COUNTING.with(|v| v.set(true));
+    for i in 0..200 {
+        // Starve it now and then, and flood it once, so every branch of the tap runs.
+        let pushes = if i == 100 {
+            40_000
+        } else if i % 7 == 0 {
+            0
+        } else {
+            240
+        };
+        for _ in 0..pushes {
+            feed.push([0.25, -0.25], &telemetry);
+        }
+        tap.fill(&mut live, &telemetry);
+        r.render_monitored(&mut rack, &mut out, &live);
+        std::hint::black_box(&out);
+    }
+    COUNTING.with(|v| v.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(DEALLOCATIONS.with(Cell::get), 0);
+    use std::sync::atomic::Ordering;
+    assert!(telemetry.monitor_underruns.load(Ordering::Relaxed) > 0);
+    assert!(telemetry.monitor_drops.load(Ordering::Relaxed) > 0);
+}
+
+#[test]
+fn auto_monitoring_follows_arm_and_yields_to_the_tracks_own_clip() {
+    let live = vec![[0.5f32; 2]; 64];
+    let mut out = vec![[0.0f32; 2]; 64];
+    // Not armed: silent.
+    let (s, library) = monitored_session(Monitor::Auto, false);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.render_monitored(&mut rack, &mut out, &live);
+    assert!(out.iter().all(|f| *f == [0.0; 2]));
+    // Armed and stopped: the input is heard.
+    let (s, library) = monitored_session(Monitor::Auto, true);
+    let (mut r, mut rack) = offline(s.clone(), &library, 48000);
+    // The input eases in over 5 ms (240 frames here) rather than clicking on.
+    for _ in 0..5 {
+        r.render_monitored(&mut rack, &mut out, &live);
+    }
+    let gain = fader_gain(0.75) * fader_gain(0.75);
+    assert!((out[10][0] + 0.5 * gain).abs() < 1e-5);
+    // Playing over the track's own clip: only the clip is heard.
+    let mut clip_only = vec![[0.0f32; 2]; 64];
+    let (mut reference, mut reference_rack) = offline(s.clone(), &library, 48000);
+    reference.playing = true;
+    reference.render(&mut reference_rack, &mut clip_only);
+    r.locate(0.0);
+    r.playing = true;
+    for _ in 0..5 {
+        r.render_monitored(&mut rack, &mut out, &live);
+    }
+    for _ in 0..4 {
+        reference.render(&mut reference_rack, &mut clip_only);
+    }
+    assert_eq!(out, clip_only);
+    // Recording over it: the input returns.
+    r.recording = true;
+    r.render_monitored(&mut rack, &mut out, &live);
+    reference.render(&mut reference_rack, &mut clip_only);
+    assert_ne!(out, clip_only);
+    // Off never monitors, armed or not.
+    let (s, library) = monitored_session(Monitor::Off, true);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.render_monitored(&mut rack, &mut out, &live);
+    assert!(out.iter().all(|f| *f == [0.0; 2]));
+}
+
+#[test]
+fn the_monitor_tap_resamples_bounds_latency_and_counts_what_it_drops() {
+    use ondera_engine::device::{monitor_ring, Telemetry};
+    use std::sync::atomic::Ordering;
+    assert!(monitor_ring(1000, 48000).is_err());
+    // 44.1 kHz microphone into a 48 kHz output: a 441 Hz sine stays a 441 Hz sine.
+    let telemetry = Telemetry::default();
+    let (mut feed, mut tap) = monitor_ring(44100, 48000).unwrap();
+    let mut phase = 0usize;
+    let mut out = vec![[0.0f32; 2]; 480];
+    let mut heard = Vec::new();
+    for _ in 0..40 {
+        for _ in 0..441 {
+            let v = (phase as f32 * std::f32::consts::TAU * 441.0 / 44100.0).sin();
+            feed.push([v, v], &telemetry);
+            phase += 1;
+        }
+        tap.fill(&mut out, &telemetry);
+        heard.extend_from_slice(&out);
+    }
+    let body = &heard[4800..];
+    let crossings = body
+        .windows(2)
+        .filter(|w| w[0][0] <= 0.0 && w[1][0] > 0.0)
+        .count();
+    let expected = body.len() as f32 * 441.0 / 48000.0;
+    assert!(
+        (crossings as f32 - expected).abs() <= 2.0,
+        "{crossings} vs {expected}"
+    );
+    assert!(body.iter().any(|f| f[0].abs() > 0.9));
+    // A stalled output lets the ring fill: the feed drops instead of blocking, and counts.
+    let (mut feed, mut tap) = monitor_ring(48000, 48000).unwrap();
+    let telemetry = Telemetry::default();
+    let mut refused = 0u64;
+    for _ in 0..200_000 {
+        if !feed.push([0.1; 2], &telemetry) {
+            refused += 1;
+        }
+    }
+    assert!(refused > 0);
+    assert_eq!(telemetry.monitor_drops.load(Ordering::Relaxed), refused);
+    // When output resumes, the backlog is skipped so the singer is not a second behind.
+    telemetry.input_frames.store(256, Ordering::Relaxed);
+    let mut out = vec![[0.0f32; 2]; 256];
+    tap.fill(&mut out, &telemetry);
+    assert!(telemetry.monitor_drops.load(Ordering::Relaxed) > refused);
+    assert!(tap.buffered() <= 256 * 4);
+}
+
+/// One second of a constant 0.5 on an audio track at unity, 120 BPM in 4/4 (two seconds a bar).
+fn dc_session(fade_in: f64, fade_out: f64, curve: FadeCurve, gain_db: f32) -> (Session, Library) {
+    let (mut s, _) = audio_session();
+    s.transport.tempo = 120.0;
+    s.transport.time_signature = TimeSignature {
+        numerator: 4,
+        denominator: 4,
+    };
+    s.master_volume = 0.75;
+    s.tracks[0].volume = 0.75;
+    s.tracks[0].pan = 0.0;
+    let buffer = Arc::new(AudioBuffer::new(48000, vec![[0.5, 0.5]; 48000]).unwrap());
+    s.sources.get_mut("src").unwrap().duration_seconds = buffer.duration();
+    s.clips[0].length_bars = 0.5;
+    s.clips[0].data = ClipData::Audio {
+        source_id: "src".into(),
+        offset_seconds: 0.0,
+        fade_in,
+        fade_out,
+        fade_curve: curve,
+        gain_db,
+    };
+    (s, Library::from([("src".into(), buffer)]))
+}
+fn render_frames(s: Session, library: &Library, frames: usize) -> Vec<[f32; 2]> {
+    let (mut r, mut rack) = offline(s, library, 48000);
+    r.playing = true;
+    r.locate(0.0);
+    let mut out = vec![[0.0f32; 2]; frames];
+    for chunk in out.chunks_mut(100) {
+        r.render(&mut rack, chunk);
+    }
+    out
+}
+
+#[test]
+fn audio_clip_fades_and_gain_shape_the_output_on_the_sample() {
+    let (s, library) = dc_session(0.25, 0.25, FadeCurve::Linear, -6.0);
+    let out = render_frames(s, &library, 48000);
+    let gain = 10f32.powf(-6.0 / 20.0);
+    let at = |seconds: f64| out[(seconds * 48000.0).round() as usize][0];
+    // Linear fade-in: halfway through it, half the gain.
+    assert!((at(0.125) - 0.5 * gain * 0.5).abs() < 1e-4, "{}", at(0.125));
+    assert!((at(0.0625) - 0.5 * gain * 0.25).abs() < 1e-4);
+    // Between the fades: the clip gain alone.
+    assert!((at(0.5) - 0.5 * gain).abs() < 1e-4);
+    // Linear fade-out, three quarters of the way through it.
+    assert!((at(0.9375) - 0.5 * gain * 0.25).abs() < 1e-4);
+    // Rising monotonically through the fade-in, falling through the fade-out.
+    for n in 1..12000 {
+        assert!(out[n][0] >= out[n - 1][0] - 1e-6);
+    }
+    for n in 36001..48000 {
+        assert!(out[n][0] <= out[n - 1][0] + 1e-6);
+    }
+    // After the clip: silence.
+    assert!(out[47999][0].abs() < 1e-3);
+}
+
+#[test]
+fn fade_curves_differ_as_documented() {
+    let quarter = |curve| {
+        let (s, library) = dc_session(0.5, 0.0, curve, 0.0);
+        render_frames(s, &library, 13000)[12000][0] / 0.5
+    };
+    // A quarter-second into a half-second fade.
+    let linear = quarter(FadeCurve::Linear);
+    let power = quarter(FadeCurve::EqualPower);
+    let exp = quarter(FadeCurve::Exponential);
+    assert!((linear - 0.5).abs() < 1e-3);
+    assert!((power - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3);
+    assert!(exp < 0.2, "exponential starts slow: {exp}");
+    for curve in FadeCurve::ALL {
+        assert_eq!(curve.gain(0.0), 0.0);
+        assert!((curve.gain(1.0) - 1.0).abs() < 1e-12);
+        assert_eq!(FadeCurve::parse(curve.as_str()), Ok(curve));
+    }
+}
+
+#[test]
+fn clips_without_fades_keep_the_short_edge_ramp_only() {
+    let (s, library) = dc_session(0.0, 0.0, FadeCurve::EqualPower, 0.0);
+    let out = render_frames(s, &library, 48000);
+    // A 3 ms ramp at 48 kHz is 144 samples: no click, and full level right after it.
+    assert!(out[0][0].abs() < 0.01);
+    assert!((out[200][0] - 0.5).abs() < 1e-4);
+    assert!((out[47000][0] - 0.5).abs() < 1e-4);
+}
+
+#[test]
+fn bounce_applies_clip_fades_and_gain() {
+    let (s, library) = dc_session(0.25, 0.0, FadeCurve::Linear, -12.0);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fades.wav");
+    render::bounce(&s, &library, &path, 48000).unwrap();
+    let samples: Vec<i32> = hound::WavReader::open(path)
+        .unwrap()
+        .samples::<i32>()
+        .map(Result::unwrap)
+        .collect();
+    let at = |frame: usize| samples[frame * 2] as f32 / 8_388_607.0;
+    let gain = 10f32.powf(-12.0 / 20.0);
+    assert!((at(6000) - 0.5 * gain * 0.5).abs() < 1e-4);
+    assert!((at(24000) - 0.5 * gain).abs() < 1e-4);
+}
+
+#[test]
+fn fades_allocate_nothing_on_the_audio_thread() {
+    let (s, library) = dc_session(0.3, 0.3, FadeCurve::Exponential, 3.0);
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    ALLOCATIONS.with(|n| n.set(0));
+    DEALLOCATIONS.with(|n| n.set(0));
+    COUNTING.with(|v| v.set(true));
+    for i in 0..200 {
+        if i == 100 {
+            r.locate(0.3);
+        }
+        r.render(&mut rack, &mut block);
+        std::hint::black_box(&block);
+    }
+    COUNTING.with(|v| v.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(DEALLOCATIONS.with(Cell::get), 0);
+}
+
+#[test]
+fn fades_gain_and_markers_round_trip_and_old_files_gain_no_keys() {
+    let original: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/nightfall.json")).unwrap();
+    let s: Session = serde_json::from_value(original.clone()).unwrap();
+    assert!(s.markers.is_empty());
+    let text = serde_json::to_string(&s).unwrap();
+    for key in ["markers", "fadeInSeconds", "fadeCurve", "gainDb"] {
+        assert!(!text.contains(key), "{key}");
+    }
+    let (mut s, _) = dc_session(0.1, 0.2, FadeCurve::Exponential, -3.5);
+    s.markers.push(Marker {
+        id: "m1".into(),
+        bar: 4.0,
+        name: "Chorus".into(),
+        color: Some("#e0af3b".into()),
+    });
+    s.validate().unwrap();
+    let json = serde_json::to_value(&s).unwrap();
+    assert_eq!(json["clips"][0]["data"]["fadeCurve"], "exponential");
+    assert_eq!(json["clips"][0]["data"]["gainDb"], -3.5);
+    assert_eq!(json["markers"][0]["name"], "Chorus");
+    let back: Session = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&back).unwrap(), json);
+    // Out-of-range envelopes and duplicate markers are refused.
+    let mut bad = back.clone();
+    if let ClipData::Audio { gain_db, .. } = &mut bad.clips[0].data {
+        *gain_db = 40.0;
+    }
+    assert!(bad.validate().is_err());
+    let mut bad = back;
+    bad.markers.push(bad.markers[0].clone());
+    assert!(bad.validate().is_err());
+}
+
+#[test]
+fn split_gives_the_left_part_the_fade_in_and_the_right_the_fade_out() {
+    let (s, _) = dc_session(0.2, 0.3, FadeCurve::Linear, 2.0);
+    let (left, right) = store::split(&s.clips[0], 0.25, "right".into(), 4.0, 120.0).unwrap();
+    let envelope = |c: &Clip| match &c.data {
+        ClipData::Audio {
+            fade_in,
+            fade_out,
+            gain_db,
+            offset_seconds,
+            ..
+        } => (*fade_in, *fade_out, *gain_db, *offset_seconds),
+        _ => unreachable!(),
+    };
+    assert_eq!(envelope(&left), (0.2, 0.0, 2.0, 0.0));
+    assert_eq!(envelope(&right), (0.0, 0.3, 2.0, 0.5));
 }

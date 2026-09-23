@@ -228,6 +228,8 @@ impl ExportDialog {
                 Mode::Audio => rfd::FileDialog::new()
                     .add_filter("WAV audio", &["wav"])
                     .add_filter("AIFF audio", &["aiff", "aif"])
+                    .add_filter("FLAC audio", &["flac"])
+                    .add_filter("Ogg Vorbis audio", &["ogg"])
                     .set_file_name(format!("{name}.wav"))
                     .save_file()
                     .map(|mut path| {

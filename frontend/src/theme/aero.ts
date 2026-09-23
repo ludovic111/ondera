@@ -239,6 +239,9 @@ const lightFill: Record<FillKey, string> = {
   dropTarget: ok(0.5, 0.125, 240, 0.1),
   stepCell: water(0.08),
   hover: "rgba(33,123,168,.09)",
+  fadeShade: water(0.22),
+  fadeHandle: "#123a55",
+  markerFlag: "rgba(255,255,255,.86)",
 };
 
 const darkFill: Record<FillKey, string> = {
@@ -262,6 +265,9 @@ const darkFill: Record<FillKey, string> = {
   dropTarget: ok(0.82, 0.12, 215, 0.12),
   stepCell: glowLine(0.07),
   hover: glowLine(0.08),
+  fadeShade: black(0.38),
+  fadeHandle: white(0.92),
+  markerFlag: "rgba(2,14,28,.72)",
 };
 
 const lightLine: Record<LineKey, string> = {
@@ -298,6 +304,9 @@ const lightLine: Record<LineKey, string> = {
   border: sky(0.76, 0.04),
   borderStrong: sky(0.64, 0.05),
   hairline: water(0.1),
+  fadeCurve: "rgba(16,50,74,.8)",
+  marker: ok(0.56, 0.14, 60),
+  markerLane: ok(0.56, 0.14, 60, 0.35),
 };
 
 const darkLine: Record<LineKey, string> = {
@@ -334,6 +343,9 @@ const darkLine: Record<LineKey, string> = {
   border: "rgba(2,12,26,.75)",
   borderStrong: "rgba(130,200,255,.3)",
   hairline: glowLine(0.07),
+  fadeCurve: white(0.85),
+  marker: ok(0.84, 0.13, 80),
+  markerLane: ok(0.84, 0.13, 80, 0.3),
 };
 
 const LIGHTS: Record<Mode, Light> = {

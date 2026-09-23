@@ -124,7 +124,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     query("session.get", "Return the complete session document as JSON (tracks, clips with notes, sources, strips, transport, view).", &[]),
     query("session.inspect", "Inspect the arrangement, mixer and automation without opaque plugin state. Clips are summaries by default; use clip.get for individual notes.", &[opt("includeNotes",Kind::Boolean,"Include all MIDI notes instead of clip summaries (default false).")]),
     query("session.catalog", "List built-in instruments, effects and bundled MIDI loops.", &[]),
-    query("plugin.list", "Search a page of installed plugins from the scanner cache. Use query/kind/format to avoid returning a large library; follow nextOffset for more.", &[
+    query("plugin.list", "Search a page of installed plugins from the scanner cache. Use query/kind/format to avoid returning a large library; follow nextOffset for more. Channel layouts that a vendor registers as separate plugins (\"C1 comp (m)\", \"(s)\", \"(m->s)\") are one row: its id is the layout a stereo track wants and `layouts` lists the others.", &[
+        opt("everyLayout", Kind::Boolean, "List each channel layout as its own row instead (default false)."),
         opt("query",Kind::String,"Case-insensitive name, vendor or plugin ID search."),
         opt("format",Kind::String,"stock, native, clap, vst3 or au."),
         opt("kind",Kind::String,"instrument or effect."),
@@ -157,9 +158,10 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("transport.play", "Start playback from the playhead. Needs the Ondera app (live mode).", &[]),
     edit("transport.record", "Record armed audio and MIDI tracks in the running app. Disable cycle before recording.", &[]),
     edit("transport.stop", "Stop playback and recording.", &[]),
-    edit("transport.locate", "Move the playhead. Give either bar or beats.", &[
+    edit("transport.locate", "Move the playhead. Give one of bar, beats or markerId.", &[
         opt("bar", Kind::Number, "Zero-based bar position."),
         opt("beats", Kind::Number, "Zero-based beat position."),
+        opt("markerId", Kind::String, "A marker from marker.list: go to its bar."),
     ]),
     edit("transport.returnToStart", "Move the playhead to the beginning.", &[]),
     edit("transport.setTempo", "Set the tempo.", &[req("bpm", Kind::Number, "Beats per minute, 20-400.")]),
@@ -187,6 +189,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("track.setMute", "Mute or unmute a track.", &[TRACK_ID, req("muted", Kind::Boolean, "Muted or not.")]),
     edit("track.setSolo", "Solo or unsolo a track.", &[TRACK_ID, req("solo", Kind::Boolean, "Soloed or not.")]),
     edit("track.setArmed", "Arm or disarm an audio or MIDI track for recording.", &[TRACK_ID, req("armed", Kind::Boolean, "Armed or not.")]),
+    edit("track.setMonitor", "Hear the live input through an audio track's inserts, sends and fader. auto monitors while the track is armed and not playing back its own clip (and again while recording); on always; off never. audio.status reports whether the input is routed, the measured latency, and `blocked` when the built-in microphone would feed back through the built-in speakers.", &[TRACK_ID, req("monitor", Kind::String, "off, auto or on.")]),
     edit("track.setVolume", "Set the fader.", &[TRACK_ID, req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity.")]),
     edit("track.setPan", "Set stereo pan.", &[TRACK_ID, req("pan", Kind::Number, "-100 (left) to 100 (right).")]),
     edit("track.setColor", "Set the track colour.", &[TRACK_ID, req("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h).")]),
@@ -217,6 +220,12 @@ pub const BASE_COMMANDS: &[Spec] = &[
         req("bar", Kind::Number, "Absolute bar inside the clip."),
     ]),
     edit("clip.duplicate", "Duplicate a clip immediately after itself.", &[CLIP_ID]),
+    edit("clip.copy", "Copy a clip to the clipboard the window, the CLI and agents share. The session does not change.", &[opt("clipId", Kind::String, "Clip to copy; defaults to the selected clip.")]),
+    edit("clip.cut", "Copy a clip to the shared clipboard and remove it, in one undo step.", &[opt("clipId", Kind::String, "Clip to cut; defaults to the selected clip.")]),
+    edit("clip.paste", "Paste the clipboard as a new clip. MIDI goes on instrument tracks and audio on audio tracks.", &[
+        opt("trackId", Kind::String, "Destination track. Defaults to the selected track when its kind fits, else the track the clip came from."),
+        opt("bar", Kind::Number, "Zero-based start bar; defaults to the bar the playhead is in."),
+    ]),
     edit("clip.remove", "Delete a clip.", &[CLIP_ID]),
     edit("clip.setNotes", "Replace every note of a MIDI clip in one undo step.", &[
         CLIP_ID,
@@ -253,8 +262,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("strip.setInsert", "Load, bypass or clear an insert effect slot.", &[
         TRACK_ID,
         req("slot", Kind::Integer, "Insert slot 0-7."),
-        opt("effect", Kind::String, "Effect name from session.catalog. Omit or null to empty the slot."),
-        opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false)."),
+        opt("effect", Kind::String, "Effect name from session.catalog. Omit it, and bypassed, to empty the slot."),
+        opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false). Without effect, bypasses or enables the effect already in the slot."),
     ]),
     edit("strip.setSendLevel", "Set a send level to the reverb (A) or delay (B) bus.", &[
         TRACK_ID,
@@ -302,8 +311,10 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .iter()
         .chain(crate::control_media::SPECS)
         .chain(crate::control_edit::SPECS)
+        .chain(crate::control_arrange::SPECS)
         .chain(crate::control_plugins::SPECS)
         .chain(crate::control_automation::SPECS)
+        .chain(crate::control_controllers::SPECS)
         .chain(crate::control_app::SPECS)
         .copied()
         .collect()
@@ -447,6 +458,18 @@ pub trait Host {
     }
     /// Called after `view.set` so the window can adopt zoom and scroll.
     fn view_changed(&mut self) {}
+    /// Width of the arrangement lanes in pixels, as the window last reported it; a headless
+    /// host assumes a common one. `view.fit` needs it.
+    fn lane_width(&self) -> f64 {
+        960.0
+    }
+    fn set_lane_width(&mut self, _pixels: f64) {}
+    /// The copied clip. It belongs to the host, so a copy in the window can be pasted from the
+    /// CLI and the other way round.
+    fn clipboard(&self) -> Option<&Clip> {
+        None
+    }
+    fn set_clipboard(&mut self, _clip: Option<Clip>) {}
     /// Capture live plugin state into the document before it is read (presets, state).
     fn capture_states(&mut self) -> Result<()> {
         Ok(())
@@ -461,14 +484,24 @@ pub trait Host {
 }
 
 /// Decode an audio file with the same limits the desktop import applies.
+/// Errors name the file: an import of several files must say which one failed.
 pub fn decode_file(path: &Path) -> Result<AudioBuffer> {
-    if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > audio::MAX_AUDIO_BYTES as u64 {
-        return Err("Audio file exceeds 512 MiB".into());
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let named = |e: String| format!("{name}: {e}");
+    let size = std::fs::metadata(path)
+        .map_err(|e| named(e.to_string()))?
+        .len();
+    if size > audio::MAX_AUDIO_BYTES as u64 {
+        return Err(named("Audio file exceeds 512 MiB".into()));
     }
     audio::decode(
-        std::fs::read(path).map_err(|e| e.to_string())?,
+        std::fs::read(path).map_err(|e| named(e.to_string()))?,
         path.extension().and_then(|s| s.to_str()),
     )
+    .map_err(named)
 }
 
 /// File-backed host without a window or audio device.
@@ -477,6 +510,8 @@ pub struct Headless {
     pub library: Library,
     pub path: Option<PathBuf>,
     pub position: f64,
+    pub clipboard: Option<Box<Clip>>,
+    pub lane_width: f64,
 }
 impl Default for Headless {
     fn default() -> Self {
@@ -490,6 +525,8 @@ impl Headless {
             library: Library::new(),
             path: None,
             position: 0.0,
+            clipboard: None,
+            lane_width: 960.0,
         }
     }
     pub fn open(path: &Path) -> Result<Self> {
@@ -499,6 +536,18 @@ impl Headless {
     }
 }
 impl Host for Headless {
+    fn lane_width(&self) -> f64 {
+        self.lane_width
+    }
+    fn set_lane_width(&mut self, pixels: f64) {
+        self.lane_width = pixels;
+    }
+    fn clipboard(&self) -> Option<&Clip> {
+        self.clipboard.as_deref()
+    }
+    fn set_clipboard(&mut self, clip: Option<Clip>) {
+        self.clipboard = clip.map(Box::new);
+    }
     fn store(&self) -> &Store {
         &self.store
     }
@@ -706,14 +755,25 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     ) {
         protect_session_file(host.path(), Path::new(a.str("path")?))?;
     }
+    if name == "rhythm.preview" {
+        if let Some(path) = a.opt_str("path") {
+            protect_session_file(host.path(), Path::new(path))?;
+        }
+    }
     if name.starts_with("automation.") {
         return crate::control_automation::call(host, name, params, agent);
+    }
+    if name.starts_with("controller.") {
+        return crate::control_controllers::call(host, name, &a, agent);
     }
     if crate::control_plugins::SPECS.iter().any(|s| s.name == name) {
         return crate::control_plugins::call(host, name, &a);
     }
     if crate::control_edit::SPECS.iter().any(|s| s.name == name) {
         return crate::control_edit::call(host, name, params, agent);
+    }
+    if crate::control_arrange::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_arrange::call(host, name, &a);
     }
     if crate::control_media::SPECS.iter().any(|s| s.name == name) {
         return crate::control_media::call(host, name, params, agent);
@@ -778,11 +838,21 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         }
         "transport.locate" => {
             let bpb = host.store().session().beats_per_bar();
-            let beats = match (a.opt_f64("bar"), a.opt_f64("beats")) {
-                (Some(_), Some(_)) => return Err("Give either `bar` or `beats`, not both".into()),
-                (Some(bar), None) => bar * bpb,
-                (None, Some(beats)) => beats,
-                (None, None) => return Err("transport.locate needs `bar` or `beats`".into()),
+            let given = ["bar", "beats", "markerId"]
+                .iter()
+                .filter(|key| a.get(key).is_some())
+                .count();
+            if given > 1 {
+                return Err("Give one of `bar`, `beats` or `markerId`, not several".into());
+            }
+            let beats = if let Some(bar) = a.opt_f64("bar") {
+                bar * bpb
+            } else if let Some(beats) = a.opt_f64("beats") {
+                beats
+            } else if let Some(id) = a.opt_str("markerId") {
+                crate::control_arrange::marker_bar(host.store().session(), id)? * bpb
+            } else {
+                return Err("transport.locate needs `bar`, `beats` or `markerId`".into());
             };
             if !valid_time(beats) {
                 return Err("Position must be between 0 and 1,000,000".into());
@@ -822,7 +892,28 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "transport.setMetronome" => t.metronome = a.bool("enabled")?,
                 _ => t.snap_division = whole(a.int("division")?, "division")?,
             }
-            host.dispatch(Command::SetTransport(t))?;
+            // Clips sit on bars and automation on beats: a new meter moves every clip, so
+            // the automation moves with them (by bar position), in the same undo step.
+            let session = host.store().session();
+            let (old, new) = (
+                session.beats_per_bar(),
+                t.time_signature.numerator as f64 * 4.0 / t.time_signature.denominator as f64,
+            );
+            let mut commands = vec![Command::SetTransport(t)];
+            if old != new && old > 0.0 {
+                for lane in &session.automation {
+                    let mut lane = lane.clone();
+                    for point in &mut lane.points {
+                        point.beat *= new / old;
+                    }
+                    commands.push(Command::PutAutomation(lane));
+                }
+            }
+            host.dispatch(if commands.len() == 1 {
+                commands.remove(0)
+            } else {
+                Command::Batch(commands)
+            })?;
             Ok(transport(host))
         }
         "track.list" => {
@@ -880,13 +971,19 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             Ok(json!({ "removed": id }))
         }
         "track.rename" | "track.setMute" | "track.setSolo" | "track.setArmed"
-        | "track.setVolume" | "track.setPan" | "track.setColor" => {
+        | "track.setMonitor" | "track.setVolume" | "track.setPan" | "track.setColor" => {
             let mut track = find_track(host.store().session(), a.str("trackId")?)?.clone();
             match name {
                 "track.rename" => track.name = a.str("name")?.into(),
                 "track.setMute" => track.mute = a.bool("muted")?,
                 "track.setSolo" => track.solo = a.bool("solo")?,
                 "track.setArmed" => track.armed = a.bool("armed")?,
+                "track.setMonitor" => {
+                    if track.kind != "audio" {
+                        return Err("Only audio tracks monitor the input; an instrument track already plays what you play".into());
+                    }
+                    track.monitor = crate::model::Monitor::parse(a.str("monitor")?)?
+                }
                 "track.setVolume" => {
                     let v = a.f64("volume")?;
                     if !(0.0..=1.0).contains(&v) {
@@ -964,10 +1061,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 if a.get("notes").is_some() {
                     return Err("Audio clips cannot hold notes".into());
                 }
-                ClipData::Audio {
-                    source_id: source_id.into(),
-                    offset_seconds: a.opt_f64("offsetSeconds").unwrap_or(0.0),
-                }
+                ClipData::audio(source_id, a.opt_f64("offsetSeconds").unwrap_or(0.0))
             } else {
                 if a.get("sourceId").is_some() || a.get("offsetSeconds").is_some() {
                     return Err("MIDI clips do not reference an audio source".into());
@@ -977,6 +1071,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                         Some(v) => parse_notes(v, agent)?,
                         None => vec![],
                     },
+                    controllers: vec![],
                 }
             };
             let count = s.clips.iter().filter(|c| c.track_id == track.id).count();
@@ -1050,10 +1145,92 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             clip.id = new_id("clip");
             clip.start_bar += clip.length_bars;
             clip.agent = agent;
-            if let ClipData::Midi { notes } = &mut clip.data {
+            if let ClipData::Midi { notes, controllers } = &mut clip.data {
                 for n in notes {
                     n.id = new_id("note");
                 }
+                crate::controllers::renew_ids(controllers, agent, || new_id("ctl"));
+            }
+            let id = clip.id.clone();
+            host.dispatch(Command::PutClip(clip))?;
+            Ok(clip_summary(find_clip(host.store().session(), &id)?))
+        }
+        "clip.copy" | "clip.cut" => {
+            let s = host.store().session();
+            let id = match a.opt_str("clipId") {
+                Some(id) => id.to_string(),
+                None => s
+                    .view
+                    .selected_clip_id
+                    .clone()
+                    .ok_or("Select a clip or pass clipId")?,
+            };
+            let clip = find_clip(s, &id)?.clone();
+            let summary = clip_summary(&clip);
+            host.set_clipboard(Some(clip));
+            if name == "clip.cut" {
+                host.dispatch(Command::RemoveClip(id))?;
+                return Ok(json!({ "cut": summary }));
+            }
+            Ok(json!({ "copied": summary }))
+        }
+        "clip.paste" => {
+            let mut clip = host
+                .clipboard()
+                .cloned()
+                .ok_or("Nothing has been copied yet; use clip.copy or clip.cut first")?;
+            let s = host.store().session();
+            let kind = if matches!(clip.data, ClipData::Midi { .. }) {
+                "midi"
+            } else {
+                "audio"
+            };
+            let label = if kind == "midi" { "MIDI" } else { "audio" };
+            let fits = |id: &str| s.tracks.iter().any(|t| t.id == id && t.kind == kind);
+            let track = match a.opt_str("trackId") {
+                Some(id) => {
+                    find_track(s, id)?;
+                    if !fits(id) {
+                        return Err(format!(
+                            "The clipboard holds {label}; paste it on {} track",
+                            if kind == "midi" {
+                                "an instrument"
+                            } else {
+                                "an audio"
+                            }
+                        ));
+                    }
+                    id.to_string()
+                }
+                None => s
+                    .view
+                    .selected_track_id
+                    .clone()
+                    .filter(|id| fits(id))
+                    .or_else(|| Some(clip.track_id.clone()).filter(|id| fits(id)))
+                    .ok_or_else(|| {
+                        format!("Select a track for the copied {label} clip, or pass trackId")
+                    })?,
+            };
+            if let ClipData::Audio { source_id, .. } = &clip.data {
+                if !s.sources.contains_key(source_id) {
+                    return Err("The copied audio belongs to another session".into());
+                }
+            }
+            let bar = match a.opt_f64("bar") {
+                Some(bar) if valid_time(bar) => bar,
+                Some(_) => return Err("bar must be between 0 and 1,000,000".into()),
+                None => (host.position() / s.beats_per_bar()).floor(),
+            };
+            clip.id = new_id("clip");
+            clip.track_id = track;
+            clip.start_bar = bar;
+            clip.agent = agent;
+            if let ClipData::Midi { notes, controllers } = &mut clip.data {
+                for n in notes {
+                    n.id = new_id("note");
+                }
+                crate::controllers::renew_ids(controllers, agent, || new_id("ctl"));
             }
             let id = clip.id.clone();
             host.dispatch(Command::PutClip(clip))?;
@@ -1067,12 +1244,10 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         }
         "clip.setNotes" => {
             let mut clip = find_clip(host.store().session(), a.str("clipId")?)?.clone();
-            if !matches!(clip.data, ClipData::Midi { .. }) {
+            let ClipData::Midi { notes, .. } = &mut clip.data else {
                 return Err("Only MIDI clips hold notes".into());
-            }
-            clip.data = ClipData::Midi {
-                notes: parse_notes(a.get("notes").ok_or_else(|| a.missing("notes"))?, agent)?,
             };
+            *notes = parse_notes(a.get("notes").ok_or_else(|| a.missing("notes"))?, agent)?;
             let id = clip.id.clone();
             host.dispatch(Command::PutClip(clip))?;
             Ok(clip_summary(find_clip(host.store().session(), &id)?))
@@ -1104,7 +1279,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         "note.add" | "note.update" | "note.remove" => {
             let mut clip = find_clip(host.store().session(), a.str("clipId")?)?.clone();
             let notes = match &mut clip.data {
-                ClipData::Midi { notes } => notes,
+                ClipData::Midi { notes, .. } => notes,
                 ClipData::Audio { .. } => return Err("Only MIDI clips hold notes".into()),
             };
             let touched = match name {
@@ -1320,6 +1495,22 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "strip.setInsert" => {
                     let slot = plugin_slot(&a)?.ok_or("Insert slot required")?;
                     strip.inserts[slot] = match a.opt_str("effect") {
+                        // `bypassed` alone bypasses what is there: emptying the slot would
+                        // throw away the effect and its settings.
+                        None if a.opt_bool("bypassed").is_some() => {
+                            let mut insert = strip.inserts[slot].clone();
+                            if insert.is_empty() {
+                                return Err(format!(
+                                    "Insert slot {slot} is empty; pass `effect` to load one"
+                                ));
+                            }
+                            insert.state = if a.opt_bool("bypassed") == Some(true) {
+                                "bypassed".into()
+                            } else {
+                                "active".into()
+                            };
+                            insert
+                        }
                         None => Insert::empty_slot(),
                         Some(effect) => {
                             if !EFFECTS.contains(&effect) {
@@ -1403,7 +1594,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
 
 /// Exports must not replace the document that the host is currently editing,
 /// including through a relative path or a symlink alias.
-fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
+pub fn protect_session_file(session_path: Option<&Path>, output: &Path) -> Result<()> {
     fn identity(path: &Path) -> Result<PathBuf> {
         if path.exists() {
             return std::fs::canonicalize(path).map_err(|e| e.to_string());
@@ -1449,7 +1640,7 @@ fn check_instrument(name: &str) -> Result<()> {
         ))
     }
 }
-fn check_color(css: &str) -> Result<&str> {
+pub(crate) fn check_color(css: &str) -> Result<&str> {
     let hex = css
         .strip_prefix('#')
         .is_some_and(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()));
@@ -1488,7 +1679,7 @@ pub(crate) fn find_clip<'a>(s: &'a Session, id: &str) -> Result<&'a Clip> {
 }
 pub(crate) fn midi_notes(clip: &Clip) -> Result<&Vec<Note>> {
     match &clip.data {
-        ClipData::Midi { notes } => Ok(notes),
+        ClipData::Midi { notes, .. } => Ok(notes),
         ClipData::Audio { .. } => Err("Only MIDI clips hold notes".into()),
     }
 }
@@ -1565,6 +1756,7 @@ pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: St
         }),
         color,
         armed: false,
+        monitor: Default::default(),
         extra: Default::default(),
         kind: kind.into(),
         volume: 0.75,
@@ -1648,10 +1840,7 @@ fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
         track_id: track,
         start_bar,
         length_bars: buffer.duration() * s.transport.tempo / 60.0 / bpb,
-        data: ClipData::Audio {
-            source_id: source.id.clone(),
-            offset_seconds: 0.0,
-        },
+        data: ClipData::audio(source.id.clone(), 0.0),
     };
     let (source_id, clip_id) = (source.id.clone(), clip.id.clone());
     commands.push(Command::PutSource(source));
@@ -1730,7 +1919,10 @@ fn add_loop(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
             .opt_f64("startBar")
             .unwrap_or_else(|| (host.position() / bpb).floor()),
         length_bars: pattern["bars"].as_f64().unwrap_or(1.0) * 4.0 / bpb,
-        data: ClipData::Midi { notes },
+        data: ClipData::Midi {
+            notes,
+            controllers: vec![],
+        },
     };
     let id = clip.id.clone();
     commands.push(Command::PutClip(clip));
@@ -1784,6 +1976,7 @@ fn inspect(host: &dyn Host, include_notes: bool) -> Value {
     json!({
         "info":info(host),"tracks":session.tracks.iter().map(|t| track_json(session, t)).collect::<Vec<_>>(),"clips":clips,"sources":session.sources,
         "strips":strips,"automation":session.automation,"masterVolume":session.master_volume,
+        "markers":session.markers,
         "includesNotes":include_notes,"includesPluginState":false
     })
 }
@@ -1832,6 +2025,7 @@ pub(crate) fn info(host: &dyn Host) -> Value {
         "trackCount": s.tracks.len(),
         "clipCount": s.clips.len(),
         "sourceCount": s.sources.len(),
+        "markerCount": s.markers.len(),
         "endBar": s.end_bar(),
         "selection": selection(host),
         "history": history(host),
@@ -1848,6 +2042,7 @@ pub(crate) fn track_json(s: &Session, t: &Track) -> Value {
         "mute": t.mute,
         "solo": t.solo,
         "armed": t.armed,
+        "monitor": t.monitor.as_str(),
         "audibility": {
             "muted": t.mute,
             "excludedBySolo": !t.solo && s.tracks.iter().any(|track| track.solo),
@@ -1871,17 +2066,28 @@ pub(crate) fn clip_summary(c: &Clip) -> Value {
         "agent": c.agent,
     });
     match &c.data {
-        ClipData::Midi { notes } => {
+        ClipData::Midi { notes, controllers } => {
             v["kind"] = json!("midi");
             v["noteCount"] = json!(notes.len());
+            if !controllers.is_empty() {
+                v["controllerCount"] = json!(controllers.len());
+            }
         }
         ClipData::Audio {
             source_id,
             offset_seconds,
+            fade_in,
+            fade_out,
+            fade_curve,
+            gain_db,
         } => {
             v["kind"] = json!("audio");
             v["sourceId"] = json!(source_id);
             v["offsetSeconds"] = json!(offset_seconds);
+            v["fadeInSeconds"] = json!(fade_in);
+            v["fadeOutSeconds"] = json!(fade_out);
+            v["fadeCurve"] = json!(fade_curve.as_str());
+            v["gainDb"] = json!(gain_db);
         }
     }
     v

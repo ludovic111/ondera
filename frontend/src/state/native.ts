@@ -11,6 +11,7 @@ import type {
   BrowserTab,
 } from "@ondera/core";
 import { library } from "../audio/library";
+import { beatsPerBar } from "../core/time";
 
 export type Params = Record<string, unknown>;
 export interface UiState {
@@ -23,6 +24,9 @@ export interface UiState {
   settingsSection: string;
   help: boolean;
   mixer?: boolean;
+  /** The controller lane under the piano roll. */
+  controllers?: boolean;
+  palette?: boolean;
   export: boolean;
   recovery: boolean;
   tool: View["arrangeTool"];
@@ -32,6 +36,8 @@ export interface UiState {
   error: string | null;
   busy: boolean;
   prompt: string | null;
+  /** Monitoring is muted: built-in microphone into built-in speakers would feed back. */
+  monitorBlocked?: boolean;
   scale: number;
   /** Theme id; "graphite" and unknown values fall back to skeuo. */
   appearance?: string;
@@ -94,8 +100,10 @@ interface NativeStrip extends ChannelStrip {
     plugin?: string;
   })[];
 }
-export interface DocumentData extends Omit<Session, "strips"> {
+export interface DocumentData extends Omit<Session, "strips" | "markers"> {
   snapshotSequence?: number;
+  /** Absent in documents from hosts that predate markers. */
+  markers?: Session["markers"];
   strips: Record<string, NativeStrip>;
   masterVolume: number;
   automation: AutomationLane[];
@@ -169,15 +177,17 @@ const CONTINUOUS = new Set([
   "transport.setTempo",
 ]);
 const continuousKey = (name: string, params: Params): string | null =>
-  CONTINUOUS.has(name)
-    ? [
-        name,
-        params.trackId,
-        params.slot,
-        params.sendIndex ?? params.send,
-        params.parameterId,
-      ].join("|")
-    : null;
+  name === "view.set" && "editorLowPitch" in params
+    ? "view.set|editorLowPitch"
+    : CONTINUOUS.has(name)
+      ? [
+          name,
+          params.trackId,
+          params.slot,
+          params.sendIndex ?? params.send,
+          params.parameterId,
+        ].join("|")
+      : null;
 /** Loops have no sound family yet; they cycle through the families for variety. */
 const LOOP_SWATCHES = [
   "Drums",
@@ -213,6 +223,7 @@ const empty: Session = {
   name: "Ondera",
   tracks: [],
   clips: [],
+  markers: [],
   sources: {},
   strips: {},
   view: defaultView,
@@ -272,6 +283,8 @@ export class NativeStore {
   getOverlays = () => this.overlays;
   setOverlay = (name: keyof Overlays, open: boolean) => {
     if (this.overlays[name] === open) return;
+    // The host keeps it too, so ui.showPanel and ui.status cover the palette.
+    this.fire("ui.showPanel", { panel: name, visible: open });
     this.overlays = { ...this.overlays, [name]: open };
     this.notifyMeta();
   };
@@ -365,13 +378,20 @@ export class NativeStore {
   private notifyMeta = () => {
     for (const listener of this.metadataListeners) listener();
   };
+  /**
+   * An error the window found itself ("All eight inserts are occupied", a failed chooser).
+   * The host's UI state knows nothing of it, so it outlives the host's next update.
+   */
+  private localError: string | null = null;
   dismissError = () => {
+    this.localError = null;
     this.ui = { ...this.ui, error: null };
     this.notifyMeta();
     this.fire("ui.dismissError");
   };
   reportError = (error: unknown) => {
-    this.ui = { ...this.ui, error: String(error) };
+    this.localError = String(error);
+    this.ui = { ...this.ui, error: this.localError };
     this.notifyMeta();
   };
   async connect() {
@@ -438,8 +458,13 @@ export class NativeStore {
   disconnect() {
     this.unlisten.forEach((fn) => fn());
   }
-  private receiveUi(ui: UiState) {
-    this.ui = ui;
+  receiveUi(ui: UiState) {
+    // Follow the host when it changes the palette (a CLI or agent request), not on every
+    // unrelated update, which could still carry the value from before a local toggle.
+    if (ui.palette !== undefined && ui.palette !== this.ui.palette)
+      this.overlays = { ...this.overlays, palette: ui.palette };
+    this.ui =
+      !ui.error && this.localError ? { ...ui, error: this.localError } : ui;
     this.state = {
       ...this.state,
       view: {
@@ -458,6 +483,18 @@ export class NativeStore {
     }
     if (doc.view.editorClipId !== this.state.view.editorClipId)
       delete this.localView.editorLowPitch;
+    // A local value is an optimistic echo of a view.set in flight. Drop it once the host
+    // agrees, or once the host's value changes under it (the CLI or an agent set it).
+    for (const key of [
+      "browserTab",
+      "browserSelection",
+      "editorLowPitch",
+    ] as const) {
+      const hosted = doc.view[key] ?? null;
+      const before = this.document?.view[key] ?? null;
+      if (hosted === (this.localView[key] ?? null) || hosted !== before)
+        delete this.localView[key];
+    }
     this.document = doc;
     const strips: Record<string, ChannelStrip> = {};
     for (const [id, strip] of Object.entries(doc.strips)) {
@@ -487,6 +524,7 @@ export class NativeStore {
     this.state = {
       ...this.state,
       ...doc,
+      markers: doc.markers ?? [],
       strips,
       browser: {
         ...this.state.browser,
@@ -617,9 +655,43 @@ export class NativeStore {
     };
     this.notify();
   }
+  /**
+   * File > Import MIDI…: choose a file, then `session.importMidi` places it at the playhead's
+   * bar. The window's own dialog belongs to the egui interface, which Tauri does not draw.
+   */
+  async importMidiFile(): Promise<void> {
+    const path = await invoke<string | null>("daw_pick", { kind: "midi" });
+    if (!path) return;
+    const { positionBeats, timeSignature } = this.state.transport;
+    const bars = positionBeats / beatsPerBar(timeSignature);
+    await this.run("session.importMidi", {
+      path,
+      startBar: Number.isFinite(bars) ? Math.max(0, Math.floor(bars)) : 0,
+    });
+  }
+  /** File > Export MIDI…: choose where, then `session.exportMidi` writes every track. */
+  async exportMidiFile(): Promise<void> {
+    const path = await invoke<string | null>("daw_pick", {
+      kind: "saveMidi",
+      name: `${this.state.name.replace(/\.ondera$/i, "")}.mid`,
+    });
+    if (!path) return;
+    await this.run("session.exportMidi", {
+      path: /\.midi?$/i.test(path) ? path : `${path}.mid`,
+    });
+  }
   run<T = unknown>(method: string, params: Params = {}): Promise<T> {
     const task = this.queue.then(() => native<T>(method, params));
     this.queue = task.catch(this.reportError);
+    return task;
+  }
+  /**
+   * `run` for a caller that shows its own error (a form's inline message): the window's
+   * error dialog stays closed. Queued in the same order as every other command.
+   */
+  request<T = unknown>(method: string, params: Params = {}): Promise<T> {
+    const task = this.queue.then(() => native<T>(method, params));
+    this.queue = task.catch(() => {});
     return task;
   }
   /**
@@ -656,7 +728,9 @@ export class NativeStore {
     this.queue = task.catch(this.reportError);
   };
   setEditorPitch(low: number) {
-    this.local({ editorLowPitch: low });
+    const pitch = Math.max(0, Math.min(108, Math.round(low)));
+    this.local({ editorLowPitch: pitch });
+    this.fire("view.set", { editorLowPitch: pitch });
   }
   private local(patch: Partial<View>) {
     this.localView = { ...this.localView, ...patch };
@@ -673,10 +747,10 @@ export class NativeStore {
     switch (name) {
       case "view.setBrowserTab":
         this.local({ browserTab: p.tab as View["browserTab"] });
-        return;
+        return native("view.set", { browserTab: p.tab });
       case "view.setBrowserSelection":
         this.local({ browserSelection: (p.name as string) ?? null });
-        return;
+        return native("view.set", { browserSelection: p.name ?? "" });
       case "agent.setDraft":
         this.state = {
           ...s,
@@ -686,6 +760,15 @@ export class NativeStore {
         return;
       case "transport.togglePlay":
         method = s.transport.playing ? "transport.stop" : "transport.play";
+        // Telemetry reports the change a tick later: a second press queued behind this one
+        // must see it, or two quick presses both start playback.
+        this.state = {
+          ...s,
+          transport: {
+            ...s.transport,
+            playing: method === "transport.play",
+          },
+        };
         break;
       case "transport.setPosition":
         method = "transport.locate";

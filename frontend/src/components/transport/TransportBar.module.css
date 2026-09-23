@@ -74,9 +74,19 @@
   }
 }
 
+/* A container query styles what is inside the container, never the container itself: the
+   tighter spacing goes on the groups within the bar. */
 @container (max-width: 1320px) {
-  .bar {
+  .right,
+  .meter {
     gap: 10px;
+  }
+}
+
+/* The narrowest window, with the agent panel open: the meter speaks for itself. */
+@container (max-width: 1200px) {
+  .meter > :first-child {
+    display: none;
   }
 }
 

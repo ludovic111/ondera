@@ -33,14 +33,20 @@ pub const SPECS: &[Spec] = &[
     edit("take.create", "Save the current music as a named creative take. Create Original then Variation before experimenting; edits follow the active take. Up to eight takes travel with the saved project.", &[req("name", Kind::String, "Take name, 1-120 characters.")]),
     edit("take.select", "Switch to a creative take, preserving edits in the current take. Stops playback; one Undo restores the previous arrangement.", &[req("id", Kind::String, "Take ID from take.list.")]),
     edit("take.remove", "Remove an inactive creative take. The active arrangement is preserved; undoable.", &[req("id", Kind::String, "Inactive take ID from take.list.")]),
-    query("view.get", "Read the view: zoom in pixels per bar, first visible bar, follow mode, editor mode and the clip open in the editor.", &[]),
+    query("view.get", "Read the view: zoom in pixels per bar, first visible bar, the lane width in pixels, follow mode, editor mode, the clip open in the editor, the piano roll's lowest pitch, and the browser's tab and selected row.", &[]),
+    edit("view.fit", "Zoom the arrangement so the whole song, plus one bar, spans the lanes, and scroll to the first bar. Uses the lane width from view.get.", &[]),
     edit("view.set", "Change the arrangement view and the editor. Omitted fields keep their values. Not an undo step.", &[
         opt("pixelsPerBar", Kind::Number, "Arrangement zoom, 12-480 pixels per bar."),
         opt("scrollBar", Kind::Number, "First visible bar, zero-based."),
         opt("followPlayhead", Kind::Boolean, "Scroll with the playhead while playing."),
         opt("editorMode", Kind::String, "pianoRoll, score or step."),
         opt("editorClipId", Kind::String, "Clip to open in the editor; an empty string closes it."),
+        opt("editorLowPitch", Kind::Integer, "Lowest MIDI pitch the piano roll shows, 0-108: its vertical scroll. -1 lets it frame the open clip again."),
+        opt("browserTab", Kind::String, "instruments, loops, plugins or files."),
+        opt("browserSelection", Kind::String, "Name of the browser row to select; an empty string clears it."),
+        opt("laneWidth", Kind::Number, "Width of the arrangement lanes in pixels, 50-20000. The window reports it as it resizes; scripts rarely need to."),
     ]),
+    edit("rhythm.preview", "Render a Euclidean groove to a WAV at the session's tempo and meter without creating anything: hear it before rhythm.create. In the app it runs as a job and answers when the file is written.", &[req("lanes", Kind::Array, "As for rhythm.create."), req("bars", Kind::Integer, "1-4 bars, at most 30 seconds."), opt("path", Kind::String, "Destination .wav; defaults to one preview file in the data folder that each preview replaces."), opt("inline", Kind::Boolean, "Also return the file as wavBase64 (default false).")]),
     edit("clip.quantize", "Snap every note start in a MIDI clip to the grid, in one undo step.", &[
         CLIP_ID,
         opt("division", Kind::Integer, "Notes per bar: 1, 2, 4, 8, 16, 32 or 64. Defaults to the transport snap."),
@@ -89,7 +95,10 @@ pub const SPECS: &[Spec] = &[
         opt("path", Kind::String, "Dotted path or section name. Omit to reset everything."),
     ]),
     query("audio.devices", "List output devices, input devices and MIDI input ports, with the configured and, in live mode, the active selection.", &[]),
-    query("audio.status", "The audio engine: device, sample rate, CPU load, master and selected-track peaks, MIDI port and live notes.", &[]),
+    query("audio.status", "The audio engine: device, sample rate, CPU load, master and selected-track peaks, MIDI port and live notes. `monitoring` reports input monitoring: state (off, on, blocked, failed), the input device and rate, the measured input and output buffer sizes, frames waiting in the ring, latencyMs computed from them, and frames dropped or underrun.", &[]),
+    edit("audio.allowSpeakerMonitoring", "Answer the feedback warning: monitoring the built-in microphone through the built-in speakers howls, so it stays muted (audio.status monitoring.state = blocked) until this is called with allow=true. Lasts until the app closes.", &[
+        req("allow", Kind::Boolean, "true to monitor anyway, false to mute it again."),
+    ]),
     edit("audio.setOutput", "Switch the output device and reconnect. Omit name for the system default.", &[
         opt("name", Kind::String, "Output device name from audio.devices."),
     ]),
@@ -117,8 +126,8 @@ pub const SPECS: &[Spec] = &[
     edit("ui.screenshot", "Capture the window to a PNG so an agent can see the interface. Returns the file path and size.", &[
         opt("path", Kind::String, "Destination .png. Defaults to a timestamped file in the app data directory."),
     ]),
-    edit("ui.showPanel", "Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
-        req("panel", Kind::String, "agent, automation, mixer, settings, help, export, recovery, master, bus-a or bus-b."),
+    edit("ui.showPanel", "Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
+        req("panel", Kind::String, "agent, automation, mixer, controllers, settings, help, export, recovery, master, bus-a or bus-b."),
         opt("visible", Kind::Boolean, "Show (default) or hide."),
         opt("section", Kind::String, "Settings section: general, audio, interface, agent, plugins, control, updates or about."),
     ]),
@@ -147,6 +156,9 @@ pub const SPECS: &[Spec] = &[
     edit("app.confirm", "Answer the unsaved-changes prompt the window shows before New, Open, Quit or Relaunch. ui.status reports it as `prompt`.", &[
         req("choice", Kind::String, "save, discard or cancel."),
     ]),
+    edit("app.openGuide", "Open one of Ondera's guides in the web browser.", &[
+        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK."),
+    ]),
     edit("app.relaunch", "Relaunch the app, for example after an update was installed. Unsaved changes prompt first.", &[]),
     edit("session.saveRecoveredTake", "Write a recording that could not be placed on a track to a WAV file, which frees the window to open other sessions. ui.status reports it as `recoveredTake`.", &[
         req("path", Kind::String, "Destination .wav."),
@@ -162,6 +174,8 @@ pub const SPECS: &[Spec] = &[
         req("reasoningEffort", Kind::String, "Provider effort level; empty uses its default."),
     ]),
     query("agent.providers", "Available agent providers and whether each is configured.", &[]),
+    query("agent.models", "Discover the models each connected provider offers, grouped by provider. Asks the providers over the network, so it runs as a job and answers when they have.", &[]),
+    query("agent.connection", "Check that the configured agent provider can be reached and is signed in: provider, state and a message. Runs as a job, like agent.models.", &[]),
     edit("agent.send", "Send a prompt to the built-in agent panel, like typing in the window.", &[
         req("prompt", Kind::String, "The request, in plain language."),
     ]),
@@ -183,6 +197,7 @@ pub fn is_live_only(name: &str) -> bool {
         || matches!(
             name,
             "audio.status"
+                | "audio.allowSpeakerMonitoring"
                 | "audio.setOutput"
                 | "audio.setInput"
                 | "audio.setMidiInput"
@@ -192,6 +207,7 @@ pub fn is_live_only(name: &str) -> bool {
                 | "note.releaseAll"
                 | "transport.punch"
                 | "app.confirm"
+                | "app.openGuide"
                 | "app.relaunch"
                 | "session.saveRecoveredTake"
                 | "app.checkUpdates"
@@ -202,6 +218,24 @@ pub fn is_live_only(name: &str) -> bool {
 }
 
 /// Agent permission check from Settings > Agent. `None` when a command is allowed.
+/// `denied_for_agent` for a whole request: commands that write only to Ondera's own data
+/// folder by default count as file operations when they are given a `path`.
+pub fn denied_for_agent_request(
+    name: &str,
+    params: &serde_json::Value,
+    permissions: &settings::Permissions,
+) -> Option<String> {
+    if matches!(name, "rhythm.preview" | "ui.screenshot")
+        && params.get("path").is_some_and(|p| !p.is_null())
+        && !permissions.file_operations
+    {
+        return Some(format!(
+            "{name} with a path is not allowed for agents: file operations is off in Settings > Agent (fileOperations). Omit path to use the default location."
+        ));
+    }
+    denied_for_agent(name, permissions)
+}
+
 pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Option<String> {
     let deny = |what: &str, setting: &str| {
         Some(format!(
@@ -236,6 +270,9 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         | "transport.stop"
         | "transport.locate"
         | "transport.returnToStart"
+        | "marker.goto"
+        | "marker.next"
+        | "marker.previous"
         | "note.preview"
         | "note.hold"
         | "transport.punch"
@@ -243,8 +280,12 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         {
             deny("transport control", "transport")
         }
-        "settings.set" | "settings.reset" | "audio.setOutput" | "audio.setInput"
+        "settings.set"
+        | "settings.reset"
+        | "audio.setOutput"
+        | "audio.setInput"
         | "audio.setMidiInput"
+        | "audio.allowSpeakerMonitoring"
             if !permissions.settings =>
         {
             deny("changing settings", "settings")
@@ -264,6 +305,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
     }
     match name {
         "rhythm.create" => crate::rhythm::call(host, a, agent),
+        "rhythm.preview" => crate::rhythm::preview(host, &args_value(a)),
         "clip.humanize" | "clip.velocityRamp" | "clip.fitScale" | "clip.reverseMidi"
         | "clip.legato" | "clip.repeat" => crate::midi_tools::call(host, name, a, agent),
         "take.list" | "take.create" | "take.select" | "take.remove" => {
@@ -293,6 +335,35 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
                 }
                 view.editor_mode = mode.into();
             }
+            if let Some(low) = a.opt_int("editorLowPitch") {
+                if !(-1..=108).contains(&low) {
+                    return Err(
+                        "editorLowPitch must be between 0 and 108, or -1 for automatic".into(),
+                    );
+                }
+                view.editor_low_pitch = u8::try_from(low).ok();
+            }
+            if let Some(tab) = a.opt_str("browserTab") {
+                if !crate::model::BROWSER_TABS.contains(&tab) {
+                    return Err("browserTab must be instruments, loops, plugins or files".into());
+                }
+                if view.browser_tab != tab {
+                    view.browser_selection = None;
+                }
+                view.browser_tab = tab.into();
+            }
+            if let Some(row) = a.opt_str("browserSelection") {
+                if row.chars().count() > 200 {
+                    return Err("browserSelection is at most 200 characters".into());
+                }
+                view.browser_selection = (!row.is_empty()).then(|| row.to_string());
+            }
+            if let Some(width) = a.opt_f64("laneWidth") {
+                if !(50.0..=20000.0).contains(&width) {
+                    return Err("laneWidth must be between 50 and 20000 pixels".into());
+                }
+                host.set_lane_width(width);
+            }
             if let Some(clip) = a.opt_str("editorClipId") {
                 if clip.is_empty() {
                     view.editor_clip_id = None;
@@ -308,13 +379,30 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
             host.view_changed();
             Ok(view_json(host))
         }
+        "view.fit" => {
+            let mut view = host.store().session().view.clone();
+            let end = host
+                .store()
+                .session()
+                .clips
+                .iter()
+                .map(|c| c.start_bar + c.length_bars)
+                .fold(8.0, f64::max)
+                + 1.0;
+            view.pixels_per_bar = (host.lane_width() / end).clamp(12.0, 480.0) as f32;
+            view.scroll_bars = 0.0;
+            host.dispatch(Command::SetView(view))?;
+            host.view_changed();
+            Ok(view_json(host))
+        }
         "clip.quantize" | "clip.transpose" => {
             let s = host.store().session();
             let mut clip = control::find_clip(s, a.str("clipId")?)?.clone();
             let bpb = s.beats_per_bar();
             let length = clip.length_bars * bpb;
             let snap = s.transport.snap_division;
-            let ClipData::Midi { notes } = &mut clip.data else {
+            // Controllers stay where they are: quantize and transpose are about notes.
+            let ClipData::Midi { notes, .. } = &mut clip.data else {
                 return Err("Only MIDI clips hold notes".into());
             };
             let mut moved = 0;
@@ -399,10 +487,11 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
                 copy.id = control::new_id("clip");
                 copy.track_id = track.id.clone();
                 copy.agent = agent;
-                if let ClipData::Midi { notes } = &mut copy.data {
+                if let ClipData::Midi { notes, controllers } = &mut copy.data {
                     for n in notes {
                         n.id = control::new_id("note");
                     }
+                    crate::controllers::renew_ids(controllers, agent, || control::new_id("ctl"));
                 }
                 commands.push(Command::PutClip(copy));
             }
@@ -609,6 +698,10 @@ fn view_json(host: &dyn Host) -> Value {
     value["followPlayhead"] = json!(v.follow_playhead);
     value["editorMode"] = json!(v.editor_mode);
     value["editorClipId"] = json!(v.editor_clip_id);
+    value["editorLowPitch"] = json!(v.editor_low_pitch);
+    value["browserTab"] = json!(v.browser_tab);
+    value["browserSelection"] = json!(v.browser_selection);
+    value["laneWidth"] = json!(host.lane_width());
     value
 }
 

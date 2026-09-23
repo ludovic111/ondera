@@ -16,6 +16,11 @@ export interface PopupMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  /**
+   * The control that opened the menu. Pressing it again closes the menu, and the click that
+   * follows is swallowed so it does not open the menu straight back up.
+   */
+  anchor?: Element | null;
 }
 
 /**
@@ -23,7 +28,7 @@ export interface PopupMenuProps {
  * context menus and value pickers. Closes on outside click, Escape, blur or
  * after a selection.
  */
-export function PopupMenu({ items, x, y, onClose }: PopupMenuProps) {
+export function PopupMenu({ items, x, y, onClose, anchor }: PopupMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(
     items.findIndex((i) => !i.separator && !i.disabled),
@@ -51,7 +56,9 @@ export function PopupMenu({ items, x, y, onClose }: PopupMenuProps) {
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      if (!ref.current || ref.current.contains(e.target as Node)) return;
+      if (anchor?.contains(e.target as Node)) swallowNextClick(anchor);
+      onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -64,7 +71,7 @@ export function PopupMenu({ items, x, y, onClose }: PopupMenuProps) {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   const stop = (e: MouseEvent) => e.stopPropagation();
 
@@ -140,10 +147,31 @@ export interface MenuState {
   x: number;
   y: number;
   items: MenuEntry[];
+  anchor?: Element | null;
 }
 
 /** Anchor a menu to the bottom-left of an element. */
-export function anchorBelow(el: HTMLElement): { x: number; y: number } {
+export function anchorBelow(el: HTMLElement): {
+  x: number;
+  y: number;
+  anchor: HTMLElement;
+} {
   const r = el.getBoundingClientRect();
-  return { x: r.left, y: r.bottom + 2 };
+  return { x: r.left, y: r.bottom + 2, anchor: el };
+}
+
+/** Drop the click that completes a press on `anchor`, if it comes soon. */
+function swallowNextClick(anchor: Element) {
+  const swallow = (e: Event) => {
+    window.removeEventListener("click", swallow, true);
+    if (anchor.contains(e.target as Node)) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  };
+  window.addEventListener("click", swallow, true);
+  window.setTimeout(
+    () => window.removeEventListener("click", swallow, true),
+    1000,
+  );
 }

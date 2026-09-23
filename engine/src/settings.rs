@@ -48,6 +48,9 @@ pub struct Audio {
     pub count_in_bars: u8,
     /// Open the input while an audio track is armed so its level shows before the take.
     pub meter_input_when_armed: bool,
+    /// Frames per device buffer for output and input, clamped to what the device accepts;
+    /// `None` leaves the system default. Smaller is lower monitoring latency and more CPU.
+    pub buffer_frames: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -209,6 +212,7 @@ impl Default for Audio {
             connect_midi_on_start: true,
             count_in_bars: 1,
             meter_input_when_armed: true,
+            buffer_frames: None,
         }
     }
 }
@@ -284,6 +288,13 @@ impl Default for Control {
     }
 }
 
+/// Where an unreadable settings file is copied before defaults replace it.
+pub fn invalid_copy(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".invalid");
+    path.with_file_name(name)
+}
+
 /// Dotted paths of fields that hold secrets.
 pub const SECRET_PATHS: [&str; 3] = [
     "agent.anthropicApiKey",
@@ -301,7 +312,32 @@ impl Settings {
     }
     /// The stored settings, or defaults when the file is absent or unreadable.
     pub fn load() -> Self {
-        Self::read(&Self::path()).unwrap_or_default()
+        Self::load_from(&Self::path())
+    }
+    /// Defaults stand in for a file that cannot be read, and the next change saves them over
+    /// it: keep a copy first (`settings.json.invalid`, owner-only), so API keys and the rest
+    /// survive a hand edit gone wrong or a downgrade that does not know a newer value.
+    pub fn load_from(path: &Path) -> Self {
+        match Self::read(path) {
+            Ok(settings) => settings,
+            Err(error) => {
+                let backup = invalid_copy(path);
+                if std::fs::copy(path, &backup).is_ok() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(
+                            &backup,
+                            std::fs::Permissions::from_mode(0o600),
+                        );
+                    }
+                    eprintln!("{error}; kept a copy at {}", backup.display());
+                } else {
+                    eprintln!("{error}");
+                }
+                Self::default()
+            }
+        }
     }
     /// The stored settings, reporting an unreadable file instead of hiding it.
     pub fn read(path: &Path) -> Result<Self> {
@@ -403,6 +439,13 @@ impl Settings {
         if self.audio.count_in_bars > 4 {
             return Err("Count-in is 0 to 4 bars".into());
         }
+        if self
+            .audio
+            .buffer_frames
+            .is_some_and(|frames| !(32..=4096).contains(&frames) || !frames.is_power_of_two())
+        {
+            return Err("Buffer size is a power of two from 32 to 4096 frames, or empty for the system default".into());
+        }
         if self.plugins.favorites.len() > 4096
             || self.plugins.folders.len() > 4096
             || self.plugins.recent.len() > 64
@@ -427,18 +470,20 @@ impl Settings {
         .collect()
     }
     /// The API key for a provider: settings first, then the conventional environment variable.
+    /// A compatible endpoint is whatever server the person typed in: it gets only the key
+    /// stored for it, never the OpenAI key from the environment.
     pub fn api_key(&self, provider: Provider) -> Option<String> {
         let (stored, env) = match provider {
-            Provider::Anthropic => (&self.agent.anthropic_api_key, "ANTHROPIC_API_KEY"),
-            Provider::OpenAi => (&self.agent.openai_api_key, "OPENAI_API_KEY"),
-            Provider::Compatible => (&self.agent.compatible_api_key, "OPENAI_API_KEY"),
+            Provider::Anthropic => (&self.agent.anthropic_api_key, Some("ANTHROPIC_API_KEY")),
+            Provider::OpenAi => (&self.agent.openai_api_key, Some("OPENAI_API_KEY")),
+            Provider::Compatible => (&self.agent.compatible_api_key, None),
             _ => return None,
         };
         let stored = stored.trim();
         if !stored.is_empty() {
             return Some(stored.to_string());
         }
-        std::env::var(env)
+        std::env::var(env?)
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
@@ -707,5 +752,51 @@ mod tests {
         assert!(Settings::read(&dir.path().join("absent.json")).unwrap() == Settings::default());
         std::fs::write(&path, "{broken").unwrap();
         assert!(Settings::read(&path).is_err());
+    }
+
+    #[test]
+    fn a_compatible_endpoint_never_receives_the_openai_key_from_the_environment() {
+        let settings = Settings::default();
+        // A compatible server without a stored key gets no key at all, even with one in the
+        // environment. (Only this test reads OPENAI_API_KEY in this crate.)
+        std::env::set_var("OPENAI_API_KEY", "sk-from-the-environment");
+        assert_eq!(settings.api_key(Provider::Compatible), None);
+        assert_eq!(
+            settings.api_key(Provider::OpenAi).as_deref(),
+            Some("sk-from-the-environment")
+        );
+        std::env::remove_var("OPENAI_API_KEY");
+        let mut stored = Settings::default();
+        stored.agent.compatible_api_key = " local-key ".into();
+        assert_eq!(
+            stored.api_key(Provider::Compatible).as_deref(),
+            Some("local-key")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_kept_before_defaults_replace_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut settings = Settings::default();
+        settings.agent.anthropic_api_key = "sk-ant-keep-me".into();
+        settings.save_to(&path).unwrap();
+        // A value this version does not accept makes the whole file unreadable.
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"scale\": 1.0", "\"scale\": 9.0");
+        std::fs::write(&path, &text).unwrap();
+        assert_eq!(Settings::load_from(&path), Settings::default());
+        let kept = std::fs::read_to_string(invalid_copy(&path)).unwrap();
+        assert!(kept.contains("sk-ant-keep-me"));
+        // Saving the defaults afterwards leaves the copy alone.
+        Settings::default().save_to(&path).unwrap();
+        assert!(std::fs::read_to_string(invalid_copy(&path))
+            .unwrap()
+            .contains("sk-ant-keep-me"));
+        // An absent file is not an error and leaves nothing behind.
+        let absent = dir.path().join("absent.json");
+        assert_eq!(Settings::load_from(&absent), Settings::default());
+        assert!(!invalid_copy(&absent).exists());
     }
 }

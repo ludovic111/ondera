@@ -543,7 +543,7 @@ impl Ondera {
                             rect.max - vec2(3.0, 4.0),
                         );
                         match &c.data {
-                            ClipData::Midi { notes } => {
+                            ClipData::Midi { notes, .. } => {
                                 for n in notes {
                                     let x = rect.left() + (n.start / bpb) as f32 * self.zoom;
                                     let w = (n.length / bpb) as f32 * self.zoom;
@@ -567,6 +567,7 @@ impl Ondera {
                             ClipData::Audio {
                                 source_id,
                                 offset_seconds,
+                                ..
                             } => {
                                 if let Some(buffer) = self.library.get(source_id) {
                                     let visible = body.intersect(lane).intersect(ui.clip_rect());

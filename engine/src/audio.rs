@@ -82,13 +82,34 @@ pub fn is_importable(path: &std::path::Path) -> bool {
 }
 
 /// Fold one interleaved frame of any channel count to stereo. Mono goes to both sides;
-/// 5.1 and 7.1 follow the ITU-R BS.775 downmix (centre and surrounds at -3 dB, LFE dropped);
-/// any other layout alternates channels left and right.
+/// 3.0, 5.0, 5.1, 7.0 and 7.1 follow the ITU-R BS.775 downmix (centre and surrounds at -3 dB,
+/// LFE dropped); any other layout alternates channels left and right.
 fn to_stereo(frame: &[f32]) -> [f32; 2] {
     const H: f32 = std::f32::consts::FRAC_1_SQRT_2;
     match frame.len() {
         1 => [frame[0], frame[0]],
         2 => [frame[0], frame[1]],
+        // L R C: the centre belongs to both sides, not to the left.
+        3 => {
+            let n = 1.0 / (1.0 + H);
+            [(frame[0] + H * frame[2]) * n, (frame[1] + H * frame[2]) * n]
+        }
+        // L R C Ls Rs
+        5 => {
+            let n = 1.0 / (1.0 + 2.0 * H);
+            [
+                (frame[0] + H * frame[2] + H * frame[3]) * n,
+                (frame[1] + H * frame[2] + H * frame[4]) * n,
+            ]
+        }
+        // L R C Lb Rb Ls Rs
+        7 => {
+            let n = 1.0 / (1.0 + 3.0 * H);
+            [
+                (frame[0] + H * (frame[2] + frame[3] + frame[5])) * n,
+                (frame[1] + H * (frame[2] + frame[4] + frame[6])) * n,
+            ]
+        }
         // L R C LFE Ls Rs (and Lb Rb for 7.1), scaled so full-scale input cannot clip.
         6 => {
             let n = 1.0 / (1.0 + 2.0 * H);
@@ -127,38 +148,63 @@ pub fn decode(data: Vec<u8>, extension: Option<&str>) -> Result<AudioBuffer> {
         hint.with_extension(ext);
     }
     let stream = MediaSourceStream::new(Box::new(Cursor::new(data)), Default::default());
+    use symphonia::core::{codecs::CODEC_TYPE_NULL, errors::Error};
     let mut format = symphonia::default::get_probe()
         .format(
             &hint,
             stream,
-            &FormatOptions::default(),
+            // Without gapless, MP3 and AAC keep the encoder's priming samples and a loop
+            // starts some 25-50 ms late.
+            &FormatOptions {
+                enable_gapless: true,
+                ..Default::default()
+            },
             &MetadataOptions::default(),
         )
-        .map_err(|e| e.to_string())?
+        .map_err(|e| match e {
+            Error::Unsupported(_) => {
+                "Not an audio file Ondera can read (WAV, AIFF, FLAC, MP3, Ogg, AAC/M4A, CAF)"
+                    .to_string()
+            }
+            other => other.to_string(),
+        })?
         .format;
+    // A video file lists its picture track too, often first: take the first one with sound.
     let track = format
-        .default_track()
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .or_else(|| format.default_track())
         .ok_or("No audio track in this file")?;
     let track_id = track.id;
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e {
+            Error::Unsupported(_) => "This file's audio codec is not supported".to_string(),
+            other => other.to_string(),
+        })?;
     let mut rate = track.codec_params.sample_rate.unwrap_or(48000);
     let mut frames = Vec::new();
+    // A damaged frame in a downloaded MP3 is skipped, as players do; a file that is mostly
+    // damage is refused.
+    let mut damaged = 0usize;
     loop {
         let packet = match format.next_packet() {
             Ok(p) => p,
-            Err(symphonia::core::errors::Error::IoError(e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break
-            }
+            Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(e) => return Err(e.to_string()),
         };
         if packet.track_id() != track_id {
             continue;
         }
-        let decoded = decoder.decode(&packet).map_err(|e| e.to_string())?;
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(Error::DecodeError(_)) | Err(Error::IoError(_)) if damaged < 100 => {
+                damaged += 1;
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        };
         if !frames.is_empty() && rate != decoded.spec().rate {
             return Err("Changing sample rate within a file is unsupported".into());
         }
@@ -310,6 +356,53 @@ pub fn prepare_sources(session: &crate::model::Session, library: &mut Library) -
 }
 
 #[cfg(test)]
+mod decode_tests {
+    use super::decode;
+
+    // One second of a 440 Hz tone at 44.1 kHz, made with `ffmpeg -f lavfi -i sine=… -c:a
+    // libmp3lame`; the MP4 holds a video stream before its AAC audio.
+    const TONE_MP3: &[u8] = include_bytes!("../tests/fixtures/tone.mp3");
+    const VIDEO_FIRST_MP4: &[u8] = include_bytes!("../tests/fixtures/video-first.mp4");
+
+    #[test]
+    fn mp3_priming_and_padding_are_trimmed() {
+        let decoded = decode(TONE_MP3.to_vec(), Some("mp3")).unwrap();
+        assert_eq!(decoded.sample_rate, 44100);
+        assert!(
+            decoded.frames.len().abs_diff(44100) < 64,
+            "a one-second file decodes to {} frames",
+            decoded.frames.len()
+        );
+    }
+
+    #[test]
+    fn one_damaged_frame_does_not_refuse_the_whole_file() {
+        let mut bytes = TONE_MP3.to_vec();
+        // Four bytes of one frame header: the decoder rejects that packet.
+        for b in &mut bytes[1925..1929] {
+            *b ^= 0x5a;
+        }
+        let decoded = decode(bytes, Some("mp3")).expect("the rest of the file decodes");
+        assert!(decoded.frames.len() > 30000, "{}", decoded.frames.len());
+    }
+
+    #[test]
+    fn a_video_file_imports_its_sound() {
+        let decoded = decode(VIDEO_FIRST_MP4.to_vec(), Some("mp4")).unwrap();
+        assert!(decoded.frames.len() > 40000, "{}", decoded.frames.len());
+    }
+
+    #[test]
+    fn a_file_that_is_not_audio_says_so_plainly() {
+        let error = decode(b"just some text, not audio".to_vec(), Some("wav")).unwrap_err();
+        assert!(
+            error.starts_with("Not an audio file Ondera can read"),
+            "{error}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod downmix_tests {
     use super::to_stereo;
 
@@ -322,6 +415,21 @@ mod downmix_tests {
         assert_eq!(to_stereo(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]), [0.0, 0.0]);
         let ls = to_stereo(&[0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
         assert!(ls[0] > 0.2 && ls[1] == 0.0);
-        assert_eq!(to_stereo(&[0.6, 0.2, 0.2]), [0.4, 0.2]);
+        // 3.0 and 5.0 put the centre in the middle and each surround on its own side; they
+        // used to deal channels alternately, sending the centre and Rs to the left only.
+        let centre = to_stereo(&[0.0, 0.0, 1.0]);
+        assert!(centre[0] > 0.3 && centre[0] == centre[1]);
+        let rs = to_stereo(&[0.0, 0.0, 0.0, 0.0, 1.0]);
+        assert!(rs[0] == 0.0 && rs[1] > 0.2);
+        for frame in [&[1.0f32; 3][..], &[1.0; 5], &[1.0; 7]] {
+            let [l, r] = to_stereo(frame);
+            assert!(
+                l <= 1.0 + 1e-6 && r <= 1.0 + 1e-6,
+                "{} channels clip",
+                frame.len()
+            );
+        }
+        // Quad still alternates, which is its layout: L R Ls Rs.
+        assert_eq!(to_stereo(&[0.6, 0.2, 0.2, 0.0]), [0.4, 0.1]);
     }
 }

@@ -38,20 +38,26 @@ pub mod testing;
 
 pub use plugin::*;
 
-/// The ABI version exported by [`export_plugins!`]. Ondera refuses libraries built for
-/// another version instead of guessing at their layout.
-pub const ABI_VERSION: u32 = 1;
+/// The newest ABI this SDK speaks and [`export_plugins!`] exports, behind
+/// [`ENTRY_SYMBOL_V2`]. Ondera refuses versions it does not know instead of guessing at
+/// their layout.
+pub const ABI_VERSION: u32 = 2;
+/// The first ABI, still exported beside the newest so older hosts load newer plugins, and
+/// still loaded by newer hosts so older plugins keep working.
+pub const BASE_ABI_VERSION: u32 = 1;
 /// Largest block handed to `process`. Hosts split longer buffers.
 pub const MAX_BLOCK: usize = 256;
 /// The symbol Ondera looks up in a plugin library.
 pub const ENTRY_SYMBOL: &str = "ondera_plugin_entry";
+/// The ABI 2 entry. A host looks for it first and falls back to [`ENTRY_SYMBOL`].
+pub const ENTRY_SYMBOL_V2: &str = "ondera_plugin_entry_v2";
 
 /// Everything a plugin usually needs.
 pub mod prelude {
     pub use crate::dsp::{coef, db, db_to_gain, Biquad, Delay, Smoother, Svf};
     pub use crate::{
-        choice, hz, param, switch, Info, Kind, NoteEvent, ParamChange, ParamSpec, Plugin,
-        ProcessContext, MAX_BLOCK,
+        choice, event, hz, param, switch, Event, Info, Kind, NoteEvent, ParamChange, ParamSpec,
+        Plugin, ProcessContext, TimedParam, MAX_BLOCK,
     };
 }
 
@@ -87,14 +93,31 @@ macro_rules! export_plugins {
                     .map_or(::std::ptr::null(), |table| table as *const _)
             }
             pub static ENTRY: $crate::ffi::Entry = $crate::ffi::Entry {
-                abi_version: $crate::ABI_VERSION,
+                abi_version: $crate::BASE_ABI_VERSION,
                 plugin_count: TABLES.len() as u32,
                 plugin,
             };
+            pub static TABLES_V2: [$crate::ffi::PluginVTable2; $crate::count!($($plugin),+)] =
+                [$($crate::ffi::vtable2::<$plugin>()),+];
+            pub unsafe extern "C" fn plugin_v2(index: u32) -> *const $crate::ffi::PluginVTable2 {
+                TABLES_V2
+                    .get(index as usize)
+                    .map_or(::std::ptr::null(), |table| table as *const _)
+            }
+            pub static ENTRY_V2: $crate::ffi::Entry2 = $crate::ffi::Entry2 {
+                abi_version: $crate::ABI_VERSION,
+                plugin_count: TABLES_V2.len() as u32,
+                plugin: plugin_v2,
+            };
         }
+        /// ABI 1, for hosts that predate ABI 2.
         #[no_mangle]
         pub extern "C" fn ondera_plugin_entry() -> *const $crate::ffi::Entry {
             &__ondera_export::ENTRY
+        }
+        #[no_mangle]
+        pub extern "C" fn ondera_plugin_entry_v2() -> *const $crate::ffi::Entry2 {
+            &__ondera_export::ENTRY_V2
         }
     };
 }

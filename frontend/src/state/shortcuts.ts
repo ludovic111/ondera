@@ -34,7 +34,14 @@ export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
   if (s.key === "Space")
     return e.code === "Space" || e.key === " " || e.key === "Spacebar";
   if (s.key === "Enter") return isEnterKey(e);
-  return e.key.toLowerCase() === s.key.toLowerCase();
+  if (e.key.toLowerCase() === s.key.toLowerCase()) return true;
+  // With Option held, macOS reports the composed character (⌥A is "å"): fall back to the
+  // key's position for letters and digits.
+  return (
+    Boolean(s.alt) &&
+    /^[a-z0-9]$/i.test(s.key) &&
+    e.code === (/\d/.test(s.key) ? "Digit" : "Key") + s.key.toUpperCase()
+  );
 }
 
 /** Enter as reported by different hosts and keypads. */

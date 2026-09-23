@@ -102,6 +102,11 @@ export function Modal({
 export function Dialogs() {
   const store = useStore();
   const ui = useSyncExternalStore(store.subscribeMeta, store.getUi);
+  // Dismissing keeps monitoring muted; the warning returns the next time it is blocked.
+  const [monitorDismissed, setMonitorDismissed] = useState(false);
+  useEffect(() => {
+    if (!ui.monitorBlocked) setMonitorDismissed(false);
+  }, [ui.monitorBlocked]);
   const name = useSession((s) => s.name);
   const close = (panel: string) =>
     store.fire("ui.showPanel", { panel, visible: false });
@@ -147,7 +152,7 @@ export function Dialogs() {
         <Modal
           blocking
           title={`Save changes to ${name}?`}
-          onClose={() => store.fire("web.confirm", { choice: "cancel" })}
+          onClose={() => store.fire("app.confirm", { choice: "cancel" })}
         >
           <p>
             Your session has unsaved changes, or confirmation before quitting is
@@ -155,20 +160,45 @@ export function Dialogs() {
           </p>
           <footer>
             <button
-              onClick={() => store.fire("web.confirm", { choice: "cancel" })}
+              onClick={() => store.fire("app.confirm", { choice: "cancel" })}
             >
               Cancel
             </button>
             <button
-              onClick={() => store.fire("web.confirm", { choice: "discard" })}
+              onClick={() => store.fire("app.confirm", { choice: "discard" })}
             >
               Don't save
             </button>
             <button
               className="primary"
-              onClick={() => store.fire("web.confirm", { choice: "save" })}
+              onClick={() => store.fire("app.confirm", { choice: "save" })}
             >
               Save
+            </button>
+          </footer>
+        </Modal>
+      )}
+      {ui.monitorBlocked && !monitorDismissed && (
+        <Modal
+          blocking
+          title="Monitoring would feed back"
+          onClose={() => setMonitorDismissed(true)}
+        >
+          <p>
+            The built-in microphone is playing through the built-in speakers.
+            Monitoring it makes a loud howl, so it is muted. Plug in headphones
+            to hear yourself safely.
+          </p>
+          <footer>
+            <button onClick={() => setMonitorDismissed(true)}>
+              Keep Muted
+            </button>
+            <button
+              onClick={() =>
+                store.fire("audio.allowSpeakerMonitoring", { allow: true })
+              }
+            >
+              Monitor Anyway
             </button>
           </footer>
         </Modal>
@@ -269,7 +299,7 @@ function Settings({ onClose }: { onClose: () => void }) {
             <>
               <h2>Ondera {store.version}</h2>
               <p>Digital audio workstation for macOS, Linux and Windows.</p>
-              <button onClick={() => store.fire("web.sdk")}>
+              <button onClick={() => store.fire("app.openGuide", { guide: "plugins" })}>
                 Native plugin SDK…
               </button>
             </>
@@ -330,7 +360,9 @@ function Settings({ onClose }: { onClose: () => void }) {
                         ? devices.inputs
                         : key === "midiInput"
                           ? devices.midiInputs
-                          : null;
+                          : key === "bufferFrames"
+                            ? ["64", "128", "256", "512", "1024", "2048"]
+                            : null;
                 if (value && typeof value === "object" && !Array.isArray(value))
                   return (
                     <fieldset key={key}>
@@ -356,7 +388,12 @@ function Settings({ onClose }: { onClose: () => void }) {
                       <select
                         value={String(value ?? "")}
                         onChange={(e) =>
-                          void save(path, e.target.value || null)
+                          void save(
+                            path,
+                            key === "bufferFrames" && e.target.value
+                              ? Number(e.target.value)
+                              : e.target.value || null,
+                          )
                         }
                       >
                         <option value="">System default</option>
@@ -440,11 +477,22 @@ function Settings({ onClose }: { onClose: () => void }) {
     </Modal>
   );
 }
+/** Vorbis quality steps and the stereo bitrate each comes to, roughly. */
+const OGG_QUALITIES: [number, string][] = [
+  [0.2, "Small (about 96 kbit/s)"],
+  [0.4, "Good (about 128 kbit/s)"],
+  [0.6, "High (about 192 kbit/s)"],
+  [0.8, "Very high (about 256 kbit/s)"],
+  [1, "Maximum (about 500 kbit/s)"],
+];
 function Export({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const session = useSession((s) => s);
   const [rate, setRate] = useState(48000);
   const [format, setFormat] = useState("pcm24");
+  const [container, setContainer] = useState("wav");
+  const [quality, setQuality] = useState(0.6);
+  const lossy = container === "ogg";
   const [tail, setTail] = useState(3);
   const [dither, setDither] = useState(true);
   const [range, setRange] = useState(false);
@@ -478,14 +526,16 @@ function Export({ onClose }: { onClose: () => void }) {
     try {
       const path = await invoke<string | null>("daw_pick", {
         kind: stems ? "folder" : "wav",
-        name: `${session.name}.wav`,
+        name: `${session.name}.${container}`,
       });
       if (!path) return;
       const params: Params = {
         sampleRate: rate,
-        format,
         tailSeconds: tail,
-        dither: format !== "float32" && dither,
+        ...(lossy
+          ? { quality }
+          : { format, dither: format !== "float32" && dither }),
+        ...(stems ? { container } : {}),
         ...(range ? { startBar: start - 1, endBar: end - 1 } : {}),
       };
       if (stems) {
@@ -493,7 +543,10 @@ function Export({ onClose }: { onClose: () => void }) {
         params.trackIds = liveSelected;
         params.includeEffects = includeEffects;
         params.includeMaster = includeMaster;
-      } else params.path = path;
+      } else
+        params.path = /\.(wav|aiff?|flac|ogg)$/i.test(path)
+          ? path
+          : `${path}.${container}`;
       const result = await store.run<AudioExportReport>(
         stems ? "session.exportStems" : "session.exportAudio",
         params,
@@ -528,22 +581,64 @@ function Export({ onClose }: { onClose: () => void }) {
           </select>
         </label>
         <label>
-          Format
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
-            <option value="pcm16">16-bit PCM</option>
-            <option value="pcm24">24-bit PCM</option>
-            <option value="float32">32-bit float</option>
+          File type
+          <select
+            value={container}
+            onChange={(e) => {
+              setContainer(e.target.value);
+              if (
+                !["wav", "ogg"].includes(e.target.value) &&
+                format === "float32"
+              )
+                setFormat("pcm24");
+            }}
+          >
+            <option value="wav">WAV</option>
+            <option value="aiff">AIFF</option>
+            <option value="flac">FLAC (lossless, smaller)</option>
+            <option value="ogg">Ogg Vorbis (compressed)</option>
           </select>
         </label>
-        <label>
-          Dither (PCM only)
-          <input
-            type="checkbox"
-            disabled={format === "float32"}
-            checked={format !== "float32" && dither}
-            onChange={(e) => setDither(e.target.checked)}
-          />
-        </label>
+        {lossy ? (
+          <label>
+            Quality
+            <select
+              value={quality}
+              onChange={(e) => setQuality(Number(e.target.value))}
+            >
+              {OGG_QUALITIES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <>
+            <label>
+              Format
+              <select
+                value={format}
+                onChange={(e) => setFormat(e.target.value)}
+              >
+                <option value="pcm16">16-bit PCM</option>
+                <option value="pcm24">24-bit PCM</option>
+                <option value="float32" disabled={container !== "wav"}>
+                  32-bit float{container !== "wav" ? " (WAV only)" : ""}
+                </option>
+              </select>
+            </label>
+            <label>
+              Dither (PCM only)
+              <input
+                type="checkbox"
+                disabled={format === "float32"}
+                checked={format !== "float32" && dither}
+                onChange={(e) => setDither(e.target.checked)}
+              />
+            </label>
+          </>
+        )}
         <label>
           Release tail (seconds)
           <input

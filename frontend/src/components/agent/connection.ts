@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { native } from "../../state/native";
 
 export const providers = {
   codex: {
@@ -73,7 +73,7 @@ export function useAgentConnection(refreshKey: unknown) {
     setError("");
     setConnection(null);
     try {
-      const result = await invoke<Connection>("daw_agent_connection");
+      const result = await native<Connection>("agent.connection");
       if (request === sequence.current) setConnection(result);
     } catch (reason) {
       if (request === sequence.current) setError(String(reason));

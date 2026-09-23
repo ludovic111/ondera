@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Dialogs";
 import { useStore } from "../state/session";
 import { native } from "../state/native";
@@ -25,12 +25,16 @@ export function PluginPanel({
   const [presetName, setPresetName] = useState("");
   const [error, setError] = useState("");
   const target = { trackId, ...(slot === undefined ? {} : { slot }) };
+  // The refresh below is set up once per plugin: read where the plugin sits now, not where
+  // it sat when the window opened (Move up/down, or a slot removed above it).
+  const where = useRef(target);
+  where.current = target;
   const refresh = async () => {
     try {
       const result = await native<{
         pluginId: string;
         parameters: Parameter[];
-      }>("strip.parameters", target);
+      }>("strip.parameters", where.current);
       setPluginId(result.pluginId);
       setParameters(result.parameters);
       const list = await native<{ presets: typeof presets }>("preset.list", {
@@ -160,15 +164,7 @@ export function PluginPanel({
                   onChange={(e) => change(p, Number(e.target.value))}
                   onDoubleClick={() => change(p, p.default)}
                 />
-                <input
-                  aria-label={`${p.name} value`}
-                  type="number"
-                  min={p.min}
-                  max={p.max}
-                  step="any"
-                  value={Number(p.value.toFixed(4))}
-                  onChange={(e) => change(p, Number(e.target.value))}
-                />
+                <ValueField parameter={p} onCommit={(v) => change(p, v)} />
                 <small>{p.unit}</small>
                 <button
                   title={`Automate ${p.name}`}
@@ -182,5 +178,45 @@ export function PluginPanel({
         </>
       )}
     </Modal>
+  );
+}
+
+/**
+ * A parameter typed as a number. It commits on Enter or when it loses focus, clamped to the
+ * parameter's range: committing each keystroke sent 0 for an emptied field and out-of-range
+ * values halfway through typing ("5" on the way to "50").
+ */
+export function ValueField({
+  parameter: p,
+  onCommit,
+}: {
+  parameter: Parameter;
+  onCommit: (value: number) => void;
+}) {
+  const shown = String(Number(p.value.toFixed(4)));
+  const [text, setText] = useState<string | null>(null);
+  const commit = () => {
+    if (text === null) return;
+    setText(null);
+    const value = Number(text);
+    if (text.trim() === "" || !Number.isFinite(value)) return;
+    const clamped = Math.min(p.max, Math.max(p.min, value));
+    if (clamped !== p.value) onCommit(clamped);
+  };
+  return (
+    <input
+      aria-label={`${p.name} value`}
+      type="number"
+      min={p.min}
+      max={p.max}
+      step="any"
+      value={text ?? shown}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setText(null);
+      }}
+    />
   );
 }

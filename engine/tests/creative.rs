@@ -84,7 +84,7 @@ fn repeats_use_unique_ids_and_undo_as_one_edit() {
     let mut ids = std::collections::HashSet::new();
     for c in &s.clips {
         assert!(ids.insert(c.id.clone()));
-        if let ClipData::Midi { notes } = &c.data {
+        if let ClipData::Midi { notes, .. } = &c.data {
             for n in notes {
                 assert!(ids.insert(n.id.clone()));
             }

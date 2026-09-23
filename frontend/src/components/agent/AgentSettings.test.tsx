@@ -17,8 +17,8 @@ import type { Params } from "../../state/native";
 const show = (settings: Params) => {
   const store = new NativeStore();
   const refresh = vi.fn(async () => {});
-  mock.invoke.mockReset().mockImplementation(async (method) =>
-    method === "daw_agent_models"
+  mock.invoke.mockReset().mockImplementation(async (_method, args) =>
+    args?.method === "agent.models"
       ? []
       : {
           provider: settings.provider,
@@ -54,7 +54,12 @@ describe("agent setup", () => {
       target: { value: " test-key " },
     });
     expect(
-      mock.invoke.mock.calls.some(([method]) => method === "daw_command"),
+      mock.invoke.mock.calls.some(
+        ([method, args]) =>
+          method === "daw_command" &&
+          // Looking up models and the connection is not talking to the agent.
+          !["agent.models", "agent.connection"].includes(args?.method),
+      ),
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
     await waitFor(() =>

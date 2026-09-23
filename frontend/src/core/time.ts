@@ -18,6 +18,20 @@ export function beatsPerBar(sig: TimeSignature): number {
   return sig.numerator * (4 / sig.denominator);
 }
 
+/**
+ * Where the beat lines of one bar fall, in pixels from the bar line: the meter's own beats
+ * (three in 3/4, seven in 7/8), none when they would crowd closer than six pixels.
+ */
+export function beatLineOffsets(
+  pixelsPerBar: number,
+  sig: TimeSignature,
+): number[] {
+  const beats = Math.max(1, Math.round(sig.numerator));
+  const step = pixelsPerBar / beats;
+  if (!(pixelsPerBar >= 24) || step < 6) return [];
+  return Array.from({ length: beats - 1 }, (_, i) => (i + 1) * step);
+}
+
 export function beatsToBars(beats: number, sig: TimeSignature): number {
   return beats / beatsPerBar(sig);
 }

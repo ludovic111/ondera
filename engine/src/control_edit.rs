@@ -85,6 +85,9 @@ pub fn batchable(name: &str) -> bool {
             | "session.restoreSnapshot"
             | "plugin.scan"
             | "ui.screenshot"
+            // Capturing a plugin's state is an undo step of its own in the window, which
+            // would end the batch's step and break its rollback.
+            | "strip.getState"
     ))
 }
 
@@ -127,13 +130,19 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool)
             let bpb = session.beats_per_bar();
             let delta = start - clip.start_bar;
             match &mut clip.data {
-                ClipData::Midi { notes } => {
+                ClipData::Midi { notes, controllers } => {
                     for note in notes.iter_mut() {
                         let end = note.start + note.length - delta * bpb;
                         note.start = (note.start - delta * bpb).max(0.);
                         note.length = (end.min(length * bpb) - note.start).max(0.);
                     }
                     notes.retain(|n| n.length > 0.);
+                    // Controllers keep their bar positions; the new start carries the value
+                    // each one had there.
+                    *controllers =
+                        crate::controllers::window(controllers, delta * bpb, length * bpb, || {
+                            control::new_id("ctl")
+                        });
                 }
                 ClipData::Audio { offset_seconds, .. } => {
                     let offset = *offset_seconds + delta * bpb * 60. / session.transport.tempo;

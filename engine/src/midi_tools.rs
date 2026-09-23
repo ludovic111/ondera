@@ -22,11 +22,12 @@ pub(crate) fn call(host: &mut dyn Host, method: &str, a: &Args<'_>, agent: bool)
             copy.id = control::new_id("clip");
             copy.start_bar += index as f64 * clip.length_bars;
             copy.agent = agent;
-            if let ClipData::Midi { notes } = &mut copy.data {
+            if let ClipData::Midi { notes, controllers } = &mut copy.data {
                 for note in notes {
                     note.id = control::new_id("note");
                     note.agent = agent;
                 }
+                crate::controllers::renew_ids(controllers, agent, || control::new_id("ctl"));
             }
             ids.push(copy.id.clone());
             commands.push(Command::PutClip(copy));
@@ -34,7 +35,7 @@ pub(crate) fn call(host: &mut dyn Host, method: &str, a: &Args<'_>, agent: bool)
         host.dispatch(Command::Batch(commands))?;
         return Ok(json!({"created":ids,"count":count}));
     }
-    let ClipData::Midi { notes } = &mut clip.data else {
+    let ClipData::Midi { notes, controllers } = &mut clip.data else {
         return Err("This operation needs a MIDI region".into());
     };
     match method {
@@ -120,12 +121,19 @@ pub(crate) fn call(host: &mut dyn Host, method: &str, a: &Args<'_>, agent: bool)
             for n in notes.iter_mut() {
                 n.start = (length - n.start - n.length).max(0.0);
             }
+            *controllers = crate::controllers::reverse(controllers, length);
         }
         "clip.legato" => {
-            let mut starts: Vec<_> = notes.iter().map(|n| n.start).collect();
+            let mut starts: Vec<_> = notes
+                .iter()
+                .map(|n| n.start)
+                .filter(|&start| start < length)
+                .collect();
             starts.sort_by(f64::total_cmp);
             starts.dedup();
-            for n in notes.iter_mut() {
+            // Notes left past the end by a shorter region are not heard: leave them be, or
+            // their length would come out zero or negative and fail the whole edit.
+            for n in notes.iter_mut().filter(|n| n.start < length) {
                 let index = starts.partition_point(|&start| start <= n.start);
                 n.length = starts.get(index).copied().unwrap_or(length) - n.start;
             }

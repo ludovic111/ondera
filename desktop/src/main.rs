@@ -17,7 +17,6 @@ mod update;
 mod web;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    update::cleanup();
     let mut args = std::env::args().skip(1);
     let mut path = None;
     let mut screenshot = None;
@@ -157,6 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    update::cleanup();
     web::run(path, screenshot, control, check_updates, show_agents)?;
     Ok(())
 }

@@ -1,5 +1,6 @@
-//! Standard MIDI File interchange. Quarter-note timing is preserved; instrument
-//! patches and live controller data are reported rather than silently approximated.
+//! Standard MIDI File interchange. Quarter-note timing is preserved. Notes, control changes,
+//! pitch bend and channel pressure travel both ways; instrument patches, polyphonic pressure
+//! and SysEx are reported rather than silently approximated.
 use crate::{control::new_id, document, model::*, store::Command, Result};
 use midly::{
     num::{u15, u24, u28, u4, u7},
@@ -26,6 +27,7 @@ pub struct ImportReport {
     pub track_ids: Vec<String>,
     pub clip_ids: Vec<String>,
     pub notes: usize,
+    pub controllers: usize,
     pub file_tempo: f64,
     pub tempo_imported: bool,
     pub warnings: Vec<String>,
@@ -81,7 +83,10 @@ pub fn import_bytes(
     }
     let mut tempo_events = vec![];
     let mut meters = vec![];
-    let mut lanes: Vec<(String, u8, Vec<Note>, f64)> = vec![];
+    // Name, channel, notes, controllers and end beat of each clip to create.
+    type Lane = (String, u8, Vec<Note>, Vec<Controller>, f64);
+    let mut lanes: Vec<Lane> = vec![];
+    let mut controller_total = 0usize;
     let mut ignored = 0usize;
     let mut unmatched = 0usize;
     let mut total = 0usize;
@@ -90,6 +95,7 @@ pub fn import_bytes(
         let mut name = format!("MIDI {}", track_index + 1);
         let mut open: BTreeMap<(u8, u8), VecDeque<(u64, u8)>> = BTreeMap::new();
         let mut notes: BTreeMap<u8, Vec<Note>> = BTreeMap::new();
+        let mut controls: BTreeMap<u8, Vec<Controller>> = BTreeMap::new();
         for event in events {
             tick = tick
                 .checked_add(event.delta.as_int() as u64)
@@ -136,7 +142,42 @@ pub fn import_bytes(
                                 unmatched += 1;
                             }
                         }
+                        MidiMessage::Controller { controller, value }
+                            if controller.as_int() < 120 =>
+                        {
+                            controls.entry(channel).or_default().push(Controller {
+                                id: new_id("ctl"),
+                                kind: ControllerKind::Cc,
+                                number: Some(controller.as_int()),
+                                time: tick as f64 / ppq,
+                                value: value.as_int() as i16,
+                                agent,
+                            });
+                        }
+                        MidiMessage::PitchBend { bend } => {
+                            controls.entry(channel).or_default().push(Controller {
+                                id: new_id("ctl"),
+                                kind: ControllerKind::Bend,
+                                number: None,
+                                time: tick as f64 / ppq,
+                                value: bend.as_int(),
+                                agent,
+                            });
+                        }
+                        MidiMessage::ChannelAftertouch { vel } => {
+                            controls.entry(channel).or_default().push(Controller {
+                                id: new_id("ctl"),
+                                kind: ControllerKind::Pressure,
+                                number: None,
+                                time: tick as f64 / ppq,
+                                value: vel.as_int() as i16,
+                                agent,
+                            });
+                        }
                         _ => ignored += 1,
+                    }
+                    if total + controls.values().map(Vec::len).sum::<usize>() > 200_000 {
+                        return Err("MIDI file exceeds 200,000 notes and controller changes".into());
                     }
                 }
                 TrackEventKind::SysEx(_) | TrackEventKind::Escape(_) => ignored += 1,
@@ -157,7 +198,26 @@ pub fn import_bytes(
             }
         }
         let split = notes.len() > 1;
+        // Controllers on a channel without notes belong to the track's only note channel;
+        // with several note channels there is no telling which one they meant.
+        let mut orphans = vec![];
+        for (channel, list) in std::mem::take(&mut controls) {
+            if notes.contains_key(&channel) {
+                controls.insert(channel, list);
+            } else {
+                orphans.extend(list);
+            }
+        }
+        if !orphans.is_empty() {
+            match notes.keys().next().copied().filter(|_| !split) {
+                Some(only) => controls.entry(only).or_default().extend(orphans),
+                None => ignored += orphans.len(),
+            }
+        }
         for (channel, mut notes) in notes {
+            let mut controllers = controls.remove(&channel).unwrap_or_default();
+            crate::controllers::sort(&mut controllers);
+            controller_total += controllers.len();
             notes.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
             let end = notes
                 .iter()
@@ -168,7 +228,7 @@ pub fn import_bytes(
             } else {
                 name.clone()
             };
-            lanes.push((label, channel, notes, end));
+            lanes.push((label, channel, notes, controllers, end));
         }
     }
     if lanes.is_empty() {
@@ -186,7 +246,9 @@ pub fn import_bytes(
     if micros == 0 {
         return Err("MIDI tempo cannot be zero".into());
     }
-    let tempo = 60_000_000.0 / micros as f64;
+    // A file stores whole microseconds per quarter, so 90 BPM comes back as 89.99995:
+    // thousandths of a BPM are all a tempo shows, and a round trip lands where it started.
+    let tempo = (60_000_000.0 / micros as f64 * 1000.0).round() / 1000.0;
     let mut warnings = vec![];
     if tempo_events
         .iter()
@@ -201,7 +263,7 @@ pub fn import_bytes(
         warnings.push("Later time-signature changes are not imported.".into());
     }
     if ignored > 0 {
-        warnings.push(format!("{ignored} controller, program, pitch-bend or SysEx events were not imported. Choose instruments in Ondera."));
+        warnings.push(format!("{ignored} program change, channel mode, polyphonic pressure or SysEx events were not imported. Choose instruments in Ondera."));
     }
     if unmatched > 0 {
         warnings.push(format!("{unmatched} unmatched note events were repaired or ignored; open notes end at their source track's end."));
@@ -247,11 +309,12 @@ pub fn import_bytes(
         track_ids: vec![],
         clip_ids: vec![],
         notes: total,
+        controllers: controller_total,
         file_tempo: tempo,
         tempo_imported: options.import_tempo,
         warnings,
     };
-    for (index, (name, channel, notes, end)) in lanes.into_iter().enumerate() {
+    for (index, (name, channel, notes, controllers, end)) in lanes.into_iter().enumerate() {
         let track_id = new_id("track");
         let clip_id = new_id("clip");
         let mut extra = std::collections::HashMap::new();
@@ -262,6 +325,7 @@ pub fn import_bytes(
             kind: "midi".into(),
             color: crate::control::TRACK_PALETTE[(session.tracks.len() + index) % 8].into(),
             armed: false,
+            monitor: Default::default(),
             volume: 0.75,
             pan: 0.0,
             mute: false,
@@ -279,7 +343,7 @@ pub fn import_bytes(
             track_id: track_id.clone(),
             start_bar: options.start_bar,
             length_bars: (end / beats_per_bar).max(1.0 / PPQ as f64),
-            data: ClipData::Midi { notes },
+            data: ClipData::Midi { notes, controllers },
         }));
         report.track_ids.push(track_id);
         report.clip_ids.push(clip_id);
@@ -297,6 +361,7 @@ pub struct MidiExportReport {
     pub path: std::path::PathBuf,
     pub track_count: usize,
     pub note_count: usize,
+    pub controller_count: usize,
     pub ticks_per_quarter: u16,
     pub warnings: Vec<String>,
 }
@@ -343,6 +408,7 @@ pub fn export(
         },
     ]);
     let mut count = 0;
+    let mut controller_count = 0;
     for (index, track) in tracks.iter().enumerate() {
         let channel = track
             .extra
@@ -350,11 +416,14 @@ pub fn export(
             .and_then(serde_json::Value::as_u64)
             .filter(|v| *v < 16)
             .unwrap_or((index % 16) as u64) as u8;
-        let mut events = vec![];
+        // (tick, rank, message): at one tick note-offs go first, then controllers, then
+        // note-ons, so a bend or pedal is in place before the note it shapes.
+        let mut events: Vec<(u64, u8, MidiMessage)> = vec![];
         for clip in session.clips.iter().filter(|c| c.track_id == track.id) {
-            if let ClipData::Midi { notes } = &clip.data {
+            if let ClipData::Midi { notes, controllers } = &clip.data {
                 let offset = clip.start_bar * session.beats_per_bar();
-                let end = (clip.start_bar + clip.length_bars) * session.beats_per_bar();
+                let length = clip.length_bars * session.beats_per_bar();
+                let end = offset + length;
                 for note in notes {
                     let start = offset + note.start;
                     if start >= end {
@@ -363,19 +432,51 @@ pub fn export(
                     let note_end = (start + note.length).min(end);
                     let on = (start * PPQ as f64).round() as u64;
                     let off = ((note_end * PPQ as f64).round() as u64).max(on + 1);
-                    events.push((on, true, note.pitch, note.velocity));
-                    events.push((off, false, note.pitch, 0));
+                    events.push((
+                        on,
+                        2,
+                        MidiMessage::NoteOn {
+                            key: u7::new(note.pitch),
+                            vel: u7::new(note.velocity),
+                        },
+                    ));
+                    events.push((
+                        off,
+                        0,
+                        MidiMessage::NoteOff {
+                            key: u7::new(note.pitch),
+                            vel: u7::new(0),
+                        },
+                    ));
                     count += 1;
+                }
+                for played in crate::controllers::playback(controllers, length) {
+                    let tick = ((offset + played.time) * PPQ as f64).round() as u64;
+                    let message = match played.kind {
+                        ControllerKind::Cc => MidiMessage::Controller {
+                            controller: u7::new(played.number.unwrap_or(0).min(127)),
+                            value: u7::new(played.value.clamp(0, 127) as u8),
+                        },
+                        ControllerKind::Bend => MidiMessage::PitchBend {
+                            bend: midly::PitchBend::from_int(played.value),
+                        },
+                        ControllerKind::Pressure => MidiMessage::ChannelAftertouch {
+                            vel: u7::new(played.value.clamp(0, 127) as u8),
+                        },
+                    };
+                    // A reset shares its tick with the next clip's first value; it goes first.
+                    events.push((tick, if played.reset { 0 } else { 1 }, message));
+                    controller_count += 1;
                 }
             }
         }
-        events.sort_unstable_by_key(|(tick, on, pitch, _)| (*tick, *on, *pitch));
+        events.sort_by_key(|(tick, rank, _)| (*tick, *rank));
         let mut sequence = vec![TrackEvent {
             delta: u28::new(0),
             kind: TrackEventKind::Meta(MetaMessage::TrackName(track.name.as_bytes())),
         }];
         let mut previous = 0;
-        for (tick, on, pitch, velocity) in events {
+        for (tick, _, message) in events {
             let delta = tick - previous;
             if delta > 0x0fff_ffff {
                 return Err("MIDI gap exceeds the Standard MIDI File delta-time limit".into());
@@ -384,17 +485,7 @@ pub fn export(
                 delta: u28::new(delta as u32),
                 kind: TrackEventKind::Midi {
                     channel: u4::new(channel),
-                    message: if on {
-                        MidiMessage::NoteOn {
-                            key: u7::new(pitch),
-                            vel: u7::new(velocity),
-                        }
-                    } else {
-                        MidiMessage::NoteOff {
-                            key: u7::new(pitch),
-                            vel: u7::new(0),
-                        }
-                    },
+                    message,
                 },
             });
             previous = tick;
@@ -406,6 +497,6 @@ pub fn export(
         smf.tracks.push(sequence);
     }
     document::atomic_write(path, |file| smf.write_std(file).map_err(|e| e.to_string()))?;
-    Ok(MidiExportReport{path:path.into(),track_count:tracks.len(),note_count:count,ticks_per_quarter:PPQ,
-        warnings:vec!["MIDI contains notes, track names and the session's initial tempo/meter. Audio, plugins, mixer settings and automation are not embedded.".into()]})
+    Ok(MidiExportReport{path:path.into(),track_count:tracks.len(),note_count:count,controller_count,ticks_per_quarter:PPQ,
+        warnings:vec!["MIDI contains notes, controllers, pitch bend, pressure, track names and the session's initial tempo/meter. Audio, plugins, mixer settings and automation are not embedded.".into()]})
 }

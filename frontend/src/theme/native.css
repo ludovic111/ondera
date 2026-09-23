@@ -390,6 +390,7 @@ textarea:focus-visible {
   padding: 4px 6px;
   color: var(--color-ink500);
   font-size: 12px;
+  white-space: nowrap;
 }
 .region-values input {
   width: 100%;
@@ -399,6 +400,33 @@ textarea:focus-visible {
   color: var(--color-ink100);
   text-align: right;
   font: 12px var(--font-mono);
+}
+.region-values label span {
+  margin-left: 3px;
+}
+.region-values .region-wide {
+  width: 100%;
+  gap: 6px;
+}
+.region-values label:has(select) {
+  flex: 1 1 0;
+}
+.region-values label:has(input[aria-label="Region gain in dB"]) {
+  flex: 0 0 auto;
+  width: 40%;
+}
+.region-values input[aria-label="Region gain in dB"]::-webkit-inner-spin-button,
+.region-values input[aria-label="Region gain in dB"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.region-values select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink100);
+  font: 12px var(--font-ui);
 }
 
 .native-dialog > header {

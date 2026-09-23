@@ -133,3 +133,48 @@
   font-size: var(--fs-secondary);
   color: var(--color-ink300);
 }
+
+/* The controller lane adds its height to the pane instead of taking the piano roll's. */
+.withLane {
+  height: calc(var(--size-editor) + var(--size-controller-lane));
+}
+
+.lane {
+  height: var(--size-controller-lane);
+  flex: none;
+  display: flex;
+  box-shadow: var(--shadow-divider);
+}
+
+.laneHead {
+  width: var(--size-key-column);
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-xs);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-key-column);
+}
+
+.laneButton {
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--color-ink300);
+}
+
+.laneInput {
+  width: calc(var(--size-key-column) - 8px);
+  height: 20px;
+  font-size: var(--fs-micro);
+}
+
+.laneGrid {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+  background: var(--color-timeline-empty);
+}

@@ -3,32 +3,71 @@
 //! vtables, so the ABI adapter below runs in every session, not only when a third-party
 //! library is installed.
 //!
+//! Two ABI versions are served. A library is asked for `ondera_plugin_entry_v2` first; one
+//! built before ABI 2 only has `ondera_plugin_entry` and runs through its ABI 1 table exactly
+//! as it always did: notes only, parameters at block starts, state made of parameter values.
+//! An ABI 2 plugin also gets controllers, pitch bend and pressure, parameter changes at
+//! their frames, an opaque state blob, a tail length and latency-change notices.
+//!
 //! Loading keeps a library resident for the life of the process (like the CLAP host), so
 //! vtable references are `'static`. Instances are opaque pointers: the editor half owns the
 //! parameter values and the processor half owns the instance on the audio thread. State
 //! restores go through a lock-free handoff that the processor applies before its next block.
 
 use crate::{
-    plugin::{Descriptor, Editor, Format, Instance, ParamInfo, Processor},
+    plugin::{Descriptor, Editor, Format, Instance, ParamChange, ParamInfo, Processor},
     Result,
 };
+use base64::Engine as _;
 use ondera_plugin::{
-    ffi::{self, Entry, EntryFn, Manifest, PluginVTable, RawContext},
-    Kind, NoteEvent, ParamChange, ProcessContext, ENTRY_SYMBOL,
+    ffi::{
+        self, Entry, Entry2, Entry2Fn, EntryFn, Manifest, PluginVTable, PluginVTable2, RawContext,
+    },
+    Event, Kind, NoteEvent, ProcessContext, TimedParam, ENTRY_SYMBOL, ENTRY_SYMBOL_V2,
 };
 use std::{
     collections::HashMap,
     ffi::c_void,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex, OnceLock,
     },
 };
 
+/// One plugin type as its library exports it: always the ABI 1 table, and the ABI 2 table
+/// around it when the library has one.
+#[derive(Clone, Copy)]
+pub struct Table {
+    pub base: &'static PluginVTable,
+    pub v2: Option<&'static PluginVTable2>,
+}
+impl Table {
+    pub fn abi(&self) -> u32 {
+        if self.v2.is_some() {
+            2
+        } else {
+            1
+        }
+    }
+}
+impl From<&'static PluginVTable> for Table {
+    fn from(base: &'static PluginVTable) -> Self {
+        Self { base, v2: None }
+    }
+}
+impl From<&'static PluginVTable2> for Table {
+    fn from(table: &'static PluginVTable2) -> Self {
+        Self {
+            base: &table.base,
+            v2: Some(table),
+        }
+    }
+}
+
 struct Loaded {
     _library: libloading::Library,
-    tables: Vec<&'static PluginVTable>,
+    tables: Vec<Table>,
 }
 // Vtables are immutable function tables and the library is never unloaded.
 unsafe impl Send for Loaded {}
@@ -92,10 +131,11 @@ unsafe fn tables_of(entry: *const Entry) -> Result<Vec<&'static PluginVTable>> {
         return Err("Plugin entry is null".into());
     }
     let entry = &*entry;
-    if entry.abi_version != ondera_plugin::ABI_VERSION {
+    if entry.abi_version != ondera_plugin::BASE_ABI_VERSION {
         return Err(format!(
-            "Plugin ABI {} is not supported by this Ondera (ABI {})",
+            "Plugin ABI {} is not supported by this Ondera (ABI {} to {})",
             entry.abi_version,
+            ondera_plugin::BASE_ABI_VERSION,
             ondera_plugin::ABI_VERSION
         ));
     }
@@ -112,6 +152,33 @@ unsafe fn tables_of(entry: *const Entry) -> Result<Vec<&'static PluginVTable>> {
     }
     Ok(tables)
 }
+/// The same for an ABI 2 entry. A later ABI is refused here and the caller falls back to
+/// the library's ABI 1 entry, which every library keeps exporting.
+///
+/// # Safety
+/// `entry` must point at an `Entry2` produced by the SDK's export macro.
+unsafe fn tables_of_v2(entry: *const Entry2) -> Result<Vec<Table>> {
+    if entry.is_null() {
+        return Err("Plugin entry is null".into());
+    }
+    let entry = &*entry;
+    if entry.abi_version != 2 {
+        return Err(format!(
+            "Plugin ABI {} is newer than this Ondera",
+            entry.abi_version
+        ));
+    }
+    if entry.plugin_count == 0 || entry.plugin_count > 256 {
+        return Err("Plugin library exports no plugins or too many".into());
+    }
+    (0..entry.plugin_count)
+        .map(|index| {
+            ffi::checked_v2((entry.plugin)(index))
+                .map(Table::from)
+                .ok_or_else(|| format!("Plugin {index} has no usable ABI 2 vtable"))
+        })
+        .collect()
+}
 fn load(bundle: &Path) -> Result<Arc<Loaded>> {
     let mut guard = cache().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(loaded) = guard.get(bundle) {
@@ -122,10 +189,19 @@ fn load(bundle: &Path) -> Result<Arc<Loaded>> {
     let library = unsafe { libloading::Library::new(&binary) }
         .map_err(|e| format!("Cannot load {}: {e}", binary.display()))?;
     let tables = unsafe {
-        let entry: libloading::Symbol<EntryFn> = library
-            .get(format!("{ENTRY_SYMBOL}\0").as_bytes())
-            .map_err(|e| format!("Not an Ondera plugin ({e})"))?;
-        tables_of(entry())?
+        let newer = library
+            .get::<Entry2Fn>(format!("{ENTRY_SYMBOL_V2}\0").as_bytes())
+            .ok()
+            .and_then(|entry| tables_of_v2(entry()).ok());
+        match newer {
+            Some(tables) => tables,
+            None => {
+                let entry: libloading::Symbol<EntryFn> = library
+                    .get(format!("{ENTRY_SYMBOL}\0").as_bytes())
+                    .map_err(|e| format!("Not an Ondera plugin ({e})"))?;
+                tables_of(entry())?.into_iter().map(Table::from).collect()
+            }
+        }
     };
     let loaded = Arc::new(Loaded {
         _library: library,
@@ -152,7 +228,7 @@ pub fn scan(bundle: &Path) -> Result<Vec<Descriptor>> {
     let loaded = load(bundle)?;
     let mut out = vec![];
     for table in &loaded.tables {
-        let manifest = unsafe { ffi::read_manifest(table)? };
+        let manifest = unsafe { ffi::read_manifest(table.base)? };
         out.push(descriptor_of(&manifest, bundle));
     }
     Ok(out)
@@ -190,9 +266,9 @@ pub fn instantiate(plugin_id: &str, rate: u32) -> Result<Instance> {
     let bundle = PathBuf::from(&descriptor.path);
     let loaded = load(&bundle)?;
     for table in &loaded.tables {
-        let manifest = unsafe { ffi::read_manifest(table)? };
+        let manifest = unsafe { ffi::read_manifest(table.base)? };
         if format!("native:{}", manifest.id) == plugin_id {
-            return instance_from(table, &manifest, descriptor_of(&manifest, &bundle), rate);
+            return instance_from(*table, &manifest, descriptor_of(&manifest, &bundle), rate);
         }
     }
     Err(format!(
@@ -201,46 +277,102 @@ pub fn instantiate(plugin_id: &str, rate: u32) -> Result<Instance> {
     ))
 }
 
-/// Parameter values waiting for the audio thread after a state restore.
+/// What the two halves share. Parameter values wait here for the audio thread after a state
+/// restore; an ABI 2 restore also sends a whole new instance, already loaded on the main
+/// thread, and gets the old one back to destroy there.
 struct Shared {
+    table: Table,
     values: Vec<AtomicU64>,
     pending: AtomicBool,
+    latency: AtomicU32,
+    incoming: AtomicPtr<c_void>,
+    outgoing: AtomicPtr<c_void>,
+}
+impl Shared {
+    fn destroy(&self, instance: *mut c_void) {
+        if !instance.is_null() {
+            unsafe { (self.table.base.destroy)(instance) };
+        }
+    }
+}
+impl Drop for Shared {
+    fn drop(&mut self) {
+        self.destroy(self.incoming.swap(std::ptr::null_mut(), Ordering::AcqRel));
+        self.destroy(self.outgoing.swap(std::ptr::null_mut(), Ordering::AcqRel));
+    }
 }
 
-/// Build an editor/processor pair around one vtable.
+/// Events and parameter changes one block can carry to an ABI 2 plugin.
+const EVENT_CAPACITY: usize = 1024;
+
+/// Build an editor/processor pair around one plugin type.
 pub fn instance_from(
-    table: &'static PluginVTable,
+    table: impl Into<Table>,
     manifest: &Manifest,
     descriptor: Descriptor,
     rate: u32,
 ) -> Result<Instance> {
+    let table = table.into();
     let params = param_infos(manifest);
-    // SAFETY: the vtable comes from the SDK export macro or a static table built with it.
-    let instance = unsafe { (table.create)(rate as f64) };
-    if instance.is_null() {
-        return Err(format!("{} could not be created", descriptor.name));
-    }
     let values: Vec<f64> = params.iter().map(|p| p.default).collect();
+    let create = || -> Result<*mut c_void> {
+        // SAFETY: the vtable comes from the SDK export macro or a static table built with it.
+        let instance = unsafe { (table.base.create)(rate as f64) };
+        if instance.is_null() {
+            return Err(format!("{} could not be created", descriptor.name));
+        }
+        Ok(instance)
+    };
+    let instance = create()?;
     for (i, value) in values.iter().enumerate() {
-        unsafe { (table.set_param)(instance, i as u32, *value) };
+        unsafe { (table.base.set_param)(instance, i as u32, *value) };
     }
-    let latency = unsafe { (table.latency)(instance) };
+    let latency = unsafe { (table.base.latency)(instance) };
+    // ABI 2 state is saved from, and first loaded into, an instance of its own that never
+    // leaves this thread: the one in the rack belongs to the audio thread.
+    let model = match table.v2 {
+        Some(_) => match create() {
+            Ok(model) => model,
+            Err(error) => {
+                unsafe { (table.base.destroy)(instance) };
+                return Err(error);
+            }
+        },
+        None => std::ptr::null_mut(),
+    };
+    let tail_seconds = table
+        .v2
+        .map_or(0.0, |v2| unsafe { (v2.tail_seconds)(instance) });
     let shared = Arc::new(Shared {
+        table,
         values: values.iter().map(|v| AtomicU64::new(v.to_bits())).collect(),
         pending: AtomicBool::new(false),
+        latency: AtomicU32::new(latency),
+        incoming: AtomicPtr::new(std::ptr::null_mut()),
+        outgoing: AtomicPtr::new(std::ptr::null_mut()),
     });
     Ok(Instance {
         editor: Box::new(NativeEditor {
             descriptor,
             params,
             values,
-            latency,
+            rate,
+            model,
+            state: Vec::new(),
+            tail_seconds,
             shared: shared.clone(),
         }),
         processor: Some(Box::new(NativeProcessor {
             table,
             instance,
             shared,
+            events: Vec::with_capacity(EVENT_CAPACITY),
+            notes: Vec::with_capacity(if table.v2.is_some() {
+                0
+            } else {
+                EVENT_CAPACITY
+            }),
+            changes: Vec::with_capacity(EVENT_CAPACITY),
         })),
     })
 }
@@ -249,8 +381,48 @@ struct NativeEditor {
     descriptor: Descriptor,
     params: Vec<ParamInfo>,
     values: Vec<f64>,
-    latency: u32,
+    rate: u32,
+    /// ABI 2 only: the main-thread instance state is saved from. Null for ABI 1.
+    model: *mut c_void,
+    /// The opaque state last loaded, kept so a save without a model change is lossless.
+    state: Vec<u8>,
+    tail_seconds: f64,
     shared: Arc<Shared>,
+}
+impl NativeEditor {
+    fn retire(&self) {
+        self.shared.destroy(
+            self.shared
+                .outgoing
+                .swap(std::ptr::null_mut(), Ordering::AcqRel),
+        );
+    }
+    /// The plugin's own state, from the model instance with the current parameter values.
+    fn opaque_state(&self) -> Option<Vec<u8>> {
+        let v2 = self.shared.table.v2?;
+        for (index, value) in self.values.iter().enumerate() {
+            unsafe { (v2.base.set_param)(self.model, index as u32, *value) };
+        }
+        let mut ptr: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        let code = unsafe { (v2.save)(self.model, &mut ptr, &mut len) };
+        if code != 0 {
+            // A plugin that cannot save keeps what it was given rather than losing it.
+            return (!self.state.is_empty()).then(|| self.state.clone());
+        }
+        if ptr.is_null() {
+            return None;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() };
+        unsafe { (v2.base.free_bytes)(ptr, len) };
+        Some(bytes)
+    }
+}
+impl Drop for NativeEditor {
+    fn drop(&mut self) {
+        self.shared.destroy(self.model);
+        self.retire();
+    }
 }
 impl Editor for NativeEditor {
     fn descriptor(&self) -> &Descriptor {
@@ -268,12 +440,26 @@ impl Editor for NativeEditor {
         }
     }
     fn latency(&self) -> u32 {
-        self.latency
+        self.shared.latency.load(Ordering::Relaxed)
     }
-    /// State is the parameter value list; the same JSON array the stock library has
-    /// always written, so older sessions load unchanged.
+    fn tail_seconds(&self) -> f64 {
+        self.tail_seconds
+    }
+    fn idle(&mut self) {
+        self.retire();
+    }
+    /// State is the parameter value list: the same JSON array the stock library has always
+    /// written, so older sessions load unchanged. An ABI 2 plugin with state of its own gets
+    /// `{"values": [...], "state": "<base64>"}` instead.
     fn save(&mut self) -> Option<Vec<u8>> {
-        serde_json::to_vec(&self.values).ok()
+        match self.opaque_state() {
+            Some(state) => serde_json::to_vec(&serde_json::json!({
+                "values": self.values,
+                "state": base64::engine::general_purpose::STANDARD.encode(state),
+            }))
+            .ok(),
+            None => serde_json::to_vec(&self.values).ok(),
+        }
     }
     fn load(&mut self, bytes: &[u8]) -> Result<()> {
         let parsed: serde_json::Value =
@@ -282,13 +468,48 @@ impl Editor for NativeEditor {
             .as_array()
             .or_else(|| parsed.get("values").and_then(|v| v.as_array()))
             .ok_or("Plugin state must be a list of parameter values")?;
+        let state = match parsed.get("state").and_then(|s| s.as_str()) {
+            Some(text) => base64::engine::general_purpose::STANDARD
+                .decode(text)
+                .map_err(|e| format!("Invalid plugin state: {e}"))?,
+            None => Vec::new(),
+        };
+        let mut next = self.values.clone();
         for (i, v) in values.iter().enumerate() {
-            if let (Some(slot), Some(v)) = (self.values.get_mut(i), v.as_f64()) {
+            if let (Some(slot), Some(v)) = (next.get_mut(i), v.as_f64()) {
                 if v.is_finite() {
                     *slot = v.clamp(self.params[i].min, self.params[i].max);
                 }
             }
         }
+        if let Some(v2) = self.shared.table.v2.filter(|_| !state.is_empty()) {
+            // Load into a new instance here, where allocating is fine, and swap it in on the
+            // audio thread. Nothing changes if the plugin refuses the state.
+            let fresh = unsafe { (v2.base.create)(self.rate as f64) };
+            if fresh.is_null() {
+                return Err(format!("{} could not be created", self.descriptor.name));
+            }
+            for target in [fresh, self.model] {
+                for (index, value) in next.iter().enumerate() {
+                    unsafe { (v2.base.set_param)(target, index as u32, *value) };
+                }
+            }
+            let code = unsafe { (v2.load)(fresh, state.as_ptr(), state.len()) };
+            if code != 0 {
+                self.shared.destroy(fresh);
+                return Err(format!(
+                    "{} could not read its saved state (code {code})",
+                    self.descriptor.name
+                ));
+            }
+            unsafe { (v2.load)(self.model, state.as_ptr(), state.len()) };
+            self.retire();
+            // A restore the audio thread has not picked up yet is superseded.
+            self.shared
+                .destroy(self.shared.incoming.swap(fresh, Ordering::AcqRel));
+        }
+        self.state = state;
+        self.values = next;
         for (value, shared) in self.values.iter().zip(&self.shared.values) {
             shared.store(value.to_bits(), Ordering::Relaxed);
         }
@@ -298,27 +519,48 @@ impl Editor for NativeEditor {
 }
 
 struct NativeProcessor {
-    table: &'static PluginVTable,
+    table: Table,
     instance: *mut c_void,
     shared: Arc<Shared>,
+    events: Vec<Event>,
+    notes: Vec<NoteEvent>,
+    changes: Vec<TimedParam>,
 }
 // The SDK requires `Plugin: Send`; the instance pointer is owned by exactly one processor.
 unsafe impl Send for NativeProcessor {}
+impl NativeProcessor {
+    /// Take a restored instance from the main thread, once the previous one has been
+    /// collected. Neither side allocates or frees here.
+    fn adopt_restored(&mut self) {
+        if !self.shared.outgoing.load(Ordering::Acquire).is_null() {
+            return;
+        }
+        let fresh = self
+            .shared
+            .incoming
+            .swap(std::ptr::null_mut(), Ordering::AcqRel);
+        if !fresh.is_null() {
+            self.shared.outgoing.store(self.instance, Ordering::Release);
+            self.instance = fresh;
+        }
+    }
+}
 impl Processor for NativeProcessor {
     fn reset(&mut self) {
-        unsafe { (self.table.reset)(self.instance) };
+        unsafe { (self.table.base.reset)(self.instance) };
     }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     ) {
+        self.adopt_restored();
         if self.shared.pending.swap(false, Ordering::Acquire) {
             for (index, value) in self.shared.values.iter().enumerate() {
                 unsafe {
-                    (self.table.set_param)(
+                    (self.table.base.set_param)(
                         self.instance,
                         index as u32,
                         f64::from_bits(value.load(Ordering::Relaxed)),
@@ -326,28 +568,71 @@ impl Processor for NativeProcessor {
                 };
             }
         }
-        for change in params {
-            unsafe { (self.table.set_param)(self.instance, change.id, change.value) };
-        }
         let raw = RawContext::from(ctx);
-        unsafe {
-            (self.table.process)(
+        let Some(v2) = self.table.v2 else {
+            // ABI 1 applies values between blocks; the rack splits the block at each change.
+            for change in params {
+                unsafe { (self.table.base.set_param)(self.instance, change.id, change.value) };
+            }
+            // ABI 1 knows notes only; controllers, bend and pressure stop here.
+            self.notes.clear();
+            self.notes.extend(
+                events
+                    .iter()
+                    .filter_map(Event::as_note)
+                    .take(EVENT_CAPACITY),
+            );
+            unsafe {
+                (self.table.base.process)(
+                    self.instance,
+                    audio.as_mut_ptr(),
+                    audio.len() as u32,
+                    self.notes.as_ptr(),
+                    self.notes.len() as u32,
+                    &raw,
+                )
+            };
+            return;
+        };
+        self.events.clear();
+        self.events
+            .extend(events.iter().take(EVENT_CAPACITY).copied());
+        self.changes.clear();
+        let last = audio.len().saturating_sub(1) as u32;
+        self.changes
+            .extend(params.iter().take(EVENT_CAPACITY).map(|change| TimedParam {
+                frame: change.frame.min(last),
+                index: change.id,
+                value: change.value,
+            }));
+        let flags = unsafe {
+            (v2.process_events)(
                 self.instance,
                 audio.as_mut_ptr(),
                 audio.len() as u32,
-                notes.as_ptr(),
-                notes.len() as u32,
+                self.events.as_ptr(),
+                self.events.len() as u32,
+                self.changes.as_ptr(),
+                self.changes.len() as u32,
                 &raw,
             )
         };
+        if flags & ffi::FLAG_LATENCY_CHANGED != 0 {
+            let latency = unsafe { (v2.base.latency)(self.instance) };
+            self.shared.latency.store(latency, Ordering::Relaxed);
+        }
     }
     fn latency(&self) -> u32 {
-        unsafe { (self.table.latency)(self.instance) }
+        unsafe { (self.table.base.latency)(self.instance) }
+    }
+    /// ABI 2 carries each change's frame to the plugin.
+    fn timed_params(&self) -> bool {
+        self.table.v2.is_some()
     }
 }
 impl Drop for NativeProcessor {
     fn drop(&mut self) {
-        unsafe { (self.table.destroy)(self.instance) };
+        unsafe { (self.table.base.destroy)(self.instance) };
     }
 }
 
@@ -357,4 +642,15 @@ impl Drop for NativeProcessor {
 /// `entry` must come from the SDK's `ondera_plugin_entry`.
 pub unsafe fn tables_from_entry(entry: *const Entry) -> Result<Vec<&'static PluginVTable>> {
     tables_of(entry)
+}
+/// The ABI 2 counterpart of [`tables_from_entry`].
+///
+/// # Safety
+/// `entry` must come from the SDK's `ondera_plugin_entry_v2`.
+pub unsafe fn tables_from_entry_v2(entry: *const Entry2) -> Result<Vec<Table>> {
+    tables_of_v2(entry)
+}
+/// Which ABI a bundle on disk is served through: 2, or 1 for a library built before it.
+pub fn abi_of(bundle: &Path) -> Result<u32> {
+    Ok(load(bundle)?.tables.first().map_or(1, Table::abi))
 }

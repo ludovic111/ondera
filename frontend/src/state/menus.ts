@@ -15,14 +15,18 @@ export type MenuEntry = MenuItem | { separator: true };
 
 export const separator: MenuEntry = { separator: true };
 
-/** A menu row for an action, resolving enabled/checked against current state. */
+/**
+ * A menu row for an action, resolving enabled/checked against current state, or against
+ * `state` when the caller knows better: a context menu selects what was clicked, but that
+ * selection reaches the store only after the menu is built.
+ */
 export function actionItem(
   store: SessionStore,
   id: ActionId,
   label?: string,
+  state: Session = store.getState(),
 ): MenuEntry {
   const def = actions[id];
-  const state = store.getState();
   return {
     label: label ?? def.label,
     ...(def.shortcut ? { shortcut: formatShortcut(def.shortcut) } : {}),
@@ -63,9 +67,15 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         file("Save", "save"),
         call("Save as…", "web.file", { action: "save", saveAs: true }),
         file("Import audio…", "import"),
-        file("Import MIDI…", "importMidi"),
+        {
+          label: "Import MIDI…",
+          onSelect: () => void store.importMidiFile().catch(() => {}),
+        },
         file("Export audio…", "export"),
-        file("Export MIDI…", "exportMidi"),
+        {
+          label: "Export MIDI…",
+          onSelect: () => void store.exportMidiFile().catch(() => {}),
+        },
         separator,
         panel("Recover session…", "recovery"),
         separator,
@@ -85,7 +95,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("splitAtPlayhead"),
         a("deleteSelection"),
         separator,
-        call("Quantize region notes", "web.quantize"),
+        a("quantizeRegion", "Quantize region notes"),
         ...[
           [
             "Humanize timing & velocity",
@@ -124,6 +134,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("muteSelectedTrack"),
         a("soloSelectedTrack"),
         a("armSelectedTrack"),
+        a("cycleMonitorSelectedTrack"),
         separator,
         ...[
           ["Show master strip", "master"],
@@ -136,12 +147,14 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
     case "Mix":
       return [
         file("Save recovered take…", "recoverTake"),
-        call("Reconnect output", "web.reconnect"),
+        call("Reconnect output", "audio.reconnect"),
         panel("Output device…", "settings"),
         panel("Input device…", "settings"),
         panel("MIDI input…", "settings"),
         {
-          ...call("Musical typing", "web.typing"),
+          ...call("Musical typing", "ui.musicalTyping", {
+            enabled: !store.ui.musicalTyping,
+          }),
           checked: store.ui.musicalTyping,
         },
         separator,
@@ -166,18 +179,24 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
       return [
         a("commandPalette"),
         a("toggleMixer"),
+        a("toggleControllerLane"),
         panel("Automation", "automation"),
         separator,
         a("followPlayhead"),
         a("zoomToFit", "Fit session"),
         a("zoomIn"),
         a("zoomOut"),
+        separator,
+        a("addMarker"),
+        a("previousMarker"),
+        a("nextMarker"),
+        a("cycleSection"),
       ];
     case "Help":
       return [
         a("showShortcuts"),
         call("Check for updates…", "app.checkUpdates"),
-        call("Native plugin SDK…", "web.sdk"),
+        call("Native plugin SDK…", "app.openGuide", { guide: "plugins" }),
         separator,
         { label: `Ondera ${store.version}`, disabled: true },
       ];

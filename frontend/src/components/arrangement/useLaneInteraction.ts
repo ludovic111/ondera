@@ -1,22 +1,28 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  barsToSeconds,
+  clipEnvelope,
   commands,
   snapBars,
   snapStepBars,
   type Clip,
   type Session,
 } from "@ondera/core";
-import { useStore } from "../../state/session";
+import { useSession, useStore } from "../../state/session";
 import { newId } from "../../state/ids";
 import {
+  barToX,
   clipEdgeAt,
+  fadeHandleAt,
   hitTestClip,
   laneGeometry,
+  pixelsPerSecond,
   xToBar,
   type LaneOverlay,
 } from "../../canvas/timeline";
@@ -43,6 +49,13 @@ type Drag =
       lengthBars: number;
     }
   | {
+      kind: "fade";
+      clip: Clip;
+      handle: "in" | "out";
+      fadeIn: number;
+      fadeOut: number;
+    }
+  | {
       kind: "pencil";
       trackIndex: number;
       anchorBar: number;
@@ -65,6 +78,10 @@ export function useLaneInteraction() {
   const [overlay, setOverlay] = useState<LaneOverlay>({});
   const drag = useRef<Drag | null>(null);
   const suppressClick = useRef(false);
+  const clips = useSession((s) => s.clips);
+  useEffect(() => {
+    if (!drag.current) setOverlay((o) => (o.fade ? {} : o));
+  }, [clips]);
 
   const point = (e: ReactPointerEvent<HTMLElement>): Point => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -86,6 +103,7 @@ export function useLaneInteraction() {
     const clip = hitTestClip(state, p.x, p.y);
     if (tool === "scissors") return clip ? "col-resize" : "default";
     if (tool === "pencil") return clip ? "default" : "crosshair";
+    if (clip && fadeHandleAt(state, clip, p.x, p.y)) return "ew-resize";
     if (clip && clipEdgeAt(state, clip, p.x)) return "ew-resize";
     return "default";
   };
@@ -135,8 +153,18 @@ export function useLaneInteraction() {
 
       if (clip) {
         store.dispatch(commands.clip.select({ clipId: clip.id }));
+        const handle = fadeHandleAt(state, clip, p.x, p.y);
         const edge = clipEdgeAt(state, clip, p.x);
-        if (edge) {
+        if (handle && clip.data.kind === "audio") {
+          const env = clipEnvelope(clip.data);
+          drag.current = {
+            kind: "fade",
+            clip,
+            handle,
+            fadeIn: env.fadeIn,
+            fadeOut: env.fadeOut,
+          };
+        } else if (edge) {
           drag.current = {
             kind: "resize",
             clip,
@@ -249,6 +277,26 @@ export function useLaneInteraction() {
             lengthBars: d.lengthBars,
           },
         });
+      } else if (d.kind === "fade") {
+        // Fades are seconds of audio: free, not on the bar grid, and never past the other fade.
+        const { tempo, timeSignature } = state.transport;
+        const length = barsToSeconds(d.clip.lengthBars, tempo, timeSignature);
+        const pps = pixelsPerSecond(state);
+        const x0 = barToX(d.clip.startBar, geo);
+        const x1 = barToX(d.clip.startBar + d.clip.lengthBars, geo);
+        const ms = (v: number) => Math.round(v * 1000) / 1000;
+        if (d.handle === "in")
+          d.fadeIn = ms(
+            Math.max(0, Math.min(length - d.fadeOut, (p.x - x0) / pps)),
+          );
+        else
+          d.fadeOut = ms(
+            Math.max(0, Math.min(length - d.fadeIn, (x1 - p.x) / pps)),
+          );
+        e.currentTarget.style.cursor = "ew-resize";
+        setOverlay({
+          fade: { clipId: d.clip.id, fadeIn: d.fadeIn, fadeOut: d.fadeOut },
+        });
       } else {
         const b = Math.max(0, snap(state, bar, e.altKey));
         d.startBar = Math.min(d.anchorBar, b);
@@ -269,7 +317,8 @@ export function useLaneInteraction() {
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const d = drag.current;
       drag.current = null;
-      setOverlay({});
+      // A fade stays where it was dropped until the host's document has it.
+      if (d?.kind !== "fade") setOverlay({});
       e.currentTarget.style.cursor = "default";
       if (!d) return;
       const state = store.getState();
@@ -301,6 +350,22 @@ export function useLaneInteraction() {
             }),
           );
         }
+      } else if (d.kind === "fade") {
+        if (d.clip.data.kind !== "audio") return;
+        const env = clipEnvelope(d.clip.data);
+        if (d.fadeIn === env.fadeIn && d.fadeOut === env.fadeOut)
+          setOverlay({});
+        else
+          store.dispatch(
+            commands.clip.setFades({
+              clipId: d.clip.id,
+              fadeInSeconds: d.fadeIn,
+              fadeOutSeconds: d.fadeOut,
+            }),
+          );
+        setTimeout(() => {
+          if (!drag.current) setOverlay((o) => (o.fade ? {} : o));
+        }, 1000);
       } else {
         const track = state.tracks[d.trackIndex];
         if (!track) return;
@@ -324,6 +389,20 @@ export function useLaneInteraction() {
       }
     },
     [store],
+  );
+
+  /**
+   * The system took the pointer (a gesture, a dialog, a lost capture): drop the drag and its
+   * ghost. Left alone, the next release would commit a move nobody made.
+   */
+  const onPointerCancel = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!drag.current) return;
+      drag.current = null;
+      setOverlay({});
+      e.currentTarget.style.cursor = "default";
+    },
+    [],
   );
 
   /** Plain click on empty lane: clear clip selection and select the track. */
@@ -364,6 +443,7 @@ export function useLaneInteraction() {
     onPointerDown,
     onPointerMove,
     onPointerUp,
+    onPointerCancel,
     onClick,
     onDoubleClick,
   };

@@ -15,7 +15,7 @@ const PHRASES: Record<string, (a: Args) => string> = {
   "track.setVolume": () => "Set a track's volume",
   "track.setPan": () => "Set a track's pan",
   "track.setMute": (a) =>
-    a.mute === false ? "Unmuted a track" : "Muted a track",
+    a.muted === false ? "Unmuted a track" : "Muted a track",
   "track.setSolo": (a) =>
     a.solo === false ? "Unsoloed a track" : "Soloed a track",
   "track.duplicate": () => "Duplicated a track",
@@ -32,6 +32,14 @@ const PHRASES: Record<string, (a: Args) => string> = {
   "clip.transpose": (a) => `Transposed by ${a.semitones} semitones`,
   "clip.humanize": () => "Humanized the timing",
   "clip.fitScale": () => "Fitted the notes to the scale",
+  "clip.setFades": () => "Shaped a region's fades",
+  "clip.setGain": (a) => `Set a region's gain to ${a.gainDb} dB`,
+  "marker.add": (a) => `Marked a section${q(a.name)}`,
+  "marker.rename": (a) => `Renamed a section to${q(a.name)}`,
+  "marker.move": () => "Moved a section marker",
+  "marker.remove": () => "Removed a section marker",
+  "marker.goto": (a) => `Went to${q(a.name) || " a marker"}`,
+  "marker.cycleSection": () => "Looped a section",
   "note.add": () => "Added a note",
   "note.update": () => "Changed a note",
   "note.remove": () => "Removed a note",
@@ -40,7 +48,13 @@ const PHRASES: Record<string, (a: Args) => string> = {
     `Loaded ${String(a.pluginId ?? "a plugin").replace(/^[a-z0-9]+:/, "")}`,
   "strip.setInstrument": (a) => `Chose the instrument${q(a.instrument)}`,
   "strip.setInsert": (a) =>
-    a.effect ? `Inserted${q(a.effect)}` : "Cleared an insert",
+    a.effect
+      ? `Inserted${q(a.effect)}`
+      : typeof a.bypassed === "boolean"
+        ? a.bypassed
+          ? "Bypassed an effect"
+          : "Enabled an effect"
+        : "Cleared an insert",
   "strip.setParameter": () => "Turned a dial",
   "strip.setParameters": () => "Dialled in a sound",
   "strip.setSendLevel": () => "Set a send level",
@@ -96,6 +110,7 @@ export function describeTool(tool: ToolCall): string {
       view: "the view",
       source: "the audio",
       history: "the undo history",
+      marker: "the song sections",
     };
     return `Looked at ${SUBJECTS[subject] ?? subject}`;
   }

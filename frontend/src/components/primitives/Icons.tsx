@@ -49,6 +49,20 @@ export const RecordSmallIcon = () => (
   </svg>
 );
 
+/** A small loudspeaker: hear the input. */
+export const MonitorSmallIcon = () => (
+  <svg width="9" height="8" viewBox="0 0 9 8" fill="currentColor">
+    <path d="M0 2.6h2L4.6 0.4v7.2L2 5.4H0z" />
+    <path
+      d="M6 2a2.8 2.8 0 0 1 0 4M7.2 0.9a4.4 4.4 0 0 1 0 6.2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="0.9"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 export const CycleIcon = () => (
   <svg
     width="14"

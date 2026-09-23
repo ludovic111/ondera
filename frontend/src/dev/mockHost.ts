@@ -2,7 +2,7 @@
  * Development-only stand-in for the Rust host. `npm run dev` in a plain browser
  * has no Tauri bridge, so this answers the handful of commands the renderer
  * needs with a fixed song. It exists to check themes and layouts quickly:
- * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|plugin:<name>`.
+ * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|export|plugin:<name>&clip=<id>`.
  * Never imported by a production build.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -60,6 +60,28 @@ const clips = [
     notes: notes(seed as number, lengthBars as number, low as number),
   },
 }));
+/** A mod-wheel swell, a pedal and a bend on "Chords", for the controller lane. */
+function controllers(bars: number) {
+  const out: Params[] = [];
+  for (let i = 0; i < bars * 4; i++)
+    out.push({
+      id: `mod-${i}`,
+      kind: "cc",
+      number: 1,
+      time: i,
+      value: Math.round(64 + 60 * Math.sin((i / (bars * 4)) * Math.PI * 2)),
+    });
+  out.push(
+    { id: "sus-0", kind: "cc", number: 64, time: 0, value: 127 },
+    { id: "sus-1", kind: "cc", number: 64, time: 7.5, value: 0 },
+    { id: "bend-0", kind: "bend", time: 4, value: 4096 },
+    { id: "bend-1", kind: "bend", time: 6, value: 0 },
+  );
+  return out;
+}
+(clips[3]!.data as Params).controllers = controllers(
+  clips[3]!.lengthBars as number,
+);
 clips.push({
   id: "cv",
   trackId: "vox",
@@ -67,8 +89,21 @@ clips.push({
   startBar: 4,
   lengthBars: 6,
   agent: false,
-  data: { kind: "audio", sourceId: "src1", offsetSeconds: 0 } as never,
+  data: {
+    kind: "audio",
+    sourceId: "src1",
+    offsetSeconds: 0,
+    fadeInSeconds: 0.8,
+    fadeOutSeconds: 2.5,
+    gainDb: -3,
+  } as never,
 });
+
+const markers: { id: string; bar: number; name: string; color?: string }[] = [
+  { id: "m1", bar: 0, name: "Intro" },
+  { id: "m2", bar: 4, name: "Verse 1" },
+  { id: "m3", bar: 8, name: "Chorus", color: "oklch(0.72 0.14 40)" },
+];
 
 const strips = Object.fromEntries(
   TRACKS.map(([id, , kind, , instrument], i) => [
@@ -118,9 +153,11 @@ const session = {
     mute: i === 5,
     solo: false,
     armed: i === 4,
+    monitor: (i === 4 ? "auto" : "off") as "off" | "auto" | "on",
     agentActive: i === 2,
   })),
   clips,
+  markers,
   sources: {
     src1: {
       id: "src1",
@@ -149,8 +186,9 @@ const session = {
     pixelsPerBar: 64,
     scrollBars: 0,
     agentPanelOpen: true,
-    selectedTrackId: "keys",
-    selectedClipId: "c3",
+    // `?clip=cv` selects the vocal region to show the audio inspector.
+    selectedTrackId: query.get("clip") === "cv" ? "vox" : "keys",
+    selectedClipId: query.get("clip") ?? "c3",
     editorClipId: "c3",
     selectedNoteId: null,
     editorMode: "pianoRoll",
@@ -173,7 +211,8 @@ const ui = {
   settingsSection: "interface",
   help: false,
   mixer: panel === "mixer",
-  export: false,
+  controllers: panel === "controllers",
+  export: panel === "export",
   recovery: false,
   tool: "pointer",
   musicalTyping: false,
@@ -486,6 +525,126 @@ const pluginAt = (params: Params) => {
   );
 };
 const values = new Map<string, number>();
+/** Playhead in beats; telemetry reports it, locate and the marker commands move it. */
+let position = 13;
+const beatsPerBar = () =>
+  (session.transport.timeSignature.numerator * 4) /
+  session.transport.timeSignature.denominator;
+const secondsPerBar = () => (beatsPerBar() * 60) / session.transport.tempo;
+const publish = () => {
+  session.snapshotSequence++;
+  void emit("daw:document", { ...session, markers: [...markers] });
+};
+const sortMarkers = () => markers.sort((a, b) => a.bar - b.bar);
+const endBar = () =>
+  Math.max(1, ...clips.map((c) => Number(c.startBar) + Number(c.lengthBars)));
+const sectionEnd = (bar: number) =>
+  markers.find((m) => m.bar > bar + 1e-6)?.bar ??
+  Math.max(Math.ceil(endBar()), Math.floor(bar) + 1);
+/** Mirrors engine/src/control_arrange.rs for the commands the arrangement sends. */
+function arrange(method: string, params: Params): unknown {
+  const clip = clips.find((c) => c.id === params.clipId);
+  const data = clip?.data as Params | undefined;
+  switch (method) {
+    case "clip.setFades": {
+      if (!clip || data?.kind !== "audio") throw "Only audio clips have fades";
+      const length = Number(clip.lengthBars) * secondsPerBar();
+      let fin = Number(params.fadeInSeconds ?? data.fadeInSeconds ?? 0);
+      let fout = Number(params.fadeOutSeconds ?? data.fadeOutSeconds ?? 0);
+      fin = Math.min(length, Math.max(0, fin));
+      fout = Math.min(length, Math.max(0, fout));
+      if (fin + fout > length) {
+        const k = length / (fin + fout);
+        fin *= k;
+        fout *= k;
+      }
+      Object.assign(data, { fadeInSeconds: fin, fadeOutSeconds: fout });
+      if (params.curve) data.fadeCurve = params.curve;
+      break;
+    }
+    case "clip.setGain":
+      if (!clip || data?.kind !== "audio") throw "Only audio clips have gain";
+      data.gainDb = Number(params.gainDb);
+      break;
+    case "marker.add": {
+      const bar = Number(
+        params.bar ?? Math.round((position / beatsPerBar()) * 4) / 4,
+      );
+      if (markers.some((m) => Math.abs(m.bar - bar) < 1e-6))
+        throw "A marker is already there";
+      let n = markers.length + 1;
+      while (markers.some((m) => m.name === `Marker ${n}`)) n++;
+      markers.push({
+        id: `m${Date.now()}`,
+        bar,
+        name: String(params.name ?? `Marker ${n}`),
+      });
+      sortMarkers();
+      break;
+    }
+    case "marker.rename":
+    case "marker.move":
+    case "marker.remove": {
+      const i = markers.findIndex((m) => m.id === params.markerId);
+      if (i < 0) throw "Unknown marker";
+      if (method === "marker.remove") markers.splice(i, 1);
+      else if (method === "marker.rename")
+        markers[i]!.name = String(params.name);
+      else markers[i]!.bar = Number(params.bar);
+      sortMarkers();
+      break;
+    }
+    case "marker.goto":
+    case "marker.next":
+    case "marker.previous": {
+      const bar = position / beatsPerBar();
+      const target =
+        method === "marker.goto"
+          ? markers.find((m) => m.id === params.markerId)
+          : method === "marker.next"
+            ? markers.find((m) => m.bar > bar + 1e-6)
+            : [...markers].reverse().find((m) => m.bar < bar - 1e-6);
+      if (target) position = target.bar * beatsPerBar();
+      return { marker: target ?? null };
+    }
+    case "marker.cycleSection": {
+      const bar = position / beatsPerBar();
+      const start =
+        markers.find((m) => m.id === params.markerId)?.bar ??
+        [...markers].reverse().find((m) => m.bar <= bar + 1e-6)?.bar;
+      if (start === undefined) throw "The playhead is before the first marker";
+      Object.assign(session.transport, {
+        cycle: true,
+        cycleStartBar: start,
+        cycleEndBar: sectionEnd(start),
+      });
+      break;
+    }
+    case "transport.locate":
+      position = Math.max(
+        0,
+        params.beats !== undefined
+          ? Number(params.beats)
+          : Number(params.bar ?? 0) * beatsPerBar(),
+      );
+      return {};
+    case "transport.setCycle":
+      Object.assign(session.transport, {
+        cycle: Boolean(params.enabled),
+        ...(params.startBar !== undefined
+          ? { cycleStartBar: Number(params.startBar) }
+          : {}),
+        ...(params.endBar !== undefined
+          ? { cycleEndBar: Number(params.endBar) }
+          : {}),
+      });
+      break;
+    default:
+      return undefined;
+  }
+  publish();
+  return {};
+}
 
 function peaks() {
   const out: number[] = [];
@@ -498,8 +657,212 @@ function peaks() {
   return out;
 }
 
-function command(method: string, params: Params): unknown {
+/**
+ * A conversation with every kind of step the panel draws: a read, single edits, a batch, a
+ * failure, and a reply still streaming. `?agent=empty` starts with none; `?agent=busy` leaves
+ * the last step running.
+ */
+const busy = query.get("agent") === "busy";
+const step = (name: string, args: Params, result: unknown = {}, ok = true) => ({
+  role: "tool",
+  text: "",
+  tool: { name, args, ok, result },
+});
+const agentFixture = {
+  status: {
+    provider: "claude",
+    model: "claude-sonnet-5",
+    reasoningEffort: "medium",
+    running: busy,
+    status: busy ? "Running strip.setParameters…" : "Done",
+    error: null,
+    elapsedSeconds: busy ? 14 : 0,
+  },
+  transcript: {
+    entries:
+      query.get("agent") === "empty"
+        ? []
+        : [
+            {
+              role: "user",
+              text: "Give the second verse a busier bass line and glue the drums a little.",
+            },
+            step("session.inspect", {}, { tracks: 6, clips: 9 }),
+            {
+              role: "assistant",
+              text: "I'll write a sixteenth-note variation on **Bass verse** and add gentle bus compression to the drums.",
+            },
+            step("clip.duplicate", { clipId: "bass-2" }, { id: "bass-3" }),
+            step(
+              "clip.setNotes",
+              {
+                clipId: "bass-3",
+                notes: Array.from({ length: 24 }, (_, i) => ({
+                  start: i / 4,
+                  length: 0.25,
+                  pitch: 36 + (i % 5),
+                })),
+              },
+              { noteCount: 24 },
+            ),
+            step(
+              "session.batch",
+              {
+                commands: [
+                  {
+                    command: "strip.setInsert",
+                    params: {
+                      trackId: "drums",
+                      slot: 0,
+                      effect: "Ondera Comp",
+                    },
+                  },
+                  {
+                    command: "strip.setParameters",
+                    params: { trackId: "drums", slot: 0 },
+                  },
+                  {
+                    command: "strip.setSendLevel",
+                    params: { trackId: "drums", send: 0, levelDb: -18 },
+                  },
+                ],
+              },
+              { results: 3 },
+            ),
+            step(
+              "preset.load",
+              { trackId: "drums", slot: 0, name: "Drum glue" },
+              "No preset named “Drum glue”",
+              false,
+            ),
+            {
+              role: "assistant",
+              text: "The bass variation is on bars 13–20 and the drums have 2–3 dB of glue. There was no “Drum glue” preset, so I set the compressor by hand",
+              streaming: busy,
+            },
+          ],
+  },
+  changes:
+    query.get("agent") === "empty"
+      ? []
+      : [
+          {
+            sequence: 1,
+            title: "Clip duplicate · Bass verse",
+            detail: "ondera-cli clip.duplicate --clipId bass-2",
+            output: '{"id":"bass-3"}',
+            succeeded: true,
+            running: false,
+            mutated: true,
+            applied: true,
+          },
+          {
+            sequence: 2,
+            title: "Clip set notes · Bass verse",
+            detail: "ondera-cli clip.setNotes --clipId bass-3 --params '{…}'",
+            output: '{"noteCount":24}',
+            succeeded: true,
+            running: false,
+            mutated: true,
+            applied: true,
+          },
+          {
+            sequence: 3,
+            title:
+              "Batch · 3 commands · strip.setInsert, strip.setParameters, strip.setSendLevel",
+            detail: "ondera-cli session.batch --params '{…}'",
+            output: '{"results":3}',
+            succeeded: true,
+            running: busy,
+            mutated: true,
+            applied: true,
+          },
+          {
+            sequence: 4,
+            title: "Preset load · Drums · “Drum glue”",
+            detail:
+              "ondera-cli preset.load --trackId drums --slot 0 --name 'Drum glue'",
+            output: "No preset named “Drum glue”",
+            succeeded: false,
+            running: false,
+            mutated: false,
+            applied: false,
+          },
+        ],
+};
+
+let serial = 0;
+/** The controller commands, enough to draw and edit the lane in a browser. */
+function controllerCommand(method: string, params: Params): unknown {
+  const clip = session.clips.find((c) => c.id === params.clipId);
+  if (!clip || clip.data.kind !== "midi")
+    throw new Error("Only MIDI clips hold controllers");
+  const data = clip.data as Params & { controllers?: Params[] };
+  const points = (data.controllers ??= []);
+  const inLane = (p: Params) =>
+    p.kind === params.kind && (p.kind !== "cc" || p.number === params.number);
+  const lane =
+    params.kind === "cc"
+      ? { kind: "cc", number: params.number }
+      : { kind: params.kind };
   switch (method) {
+    case "controller.add": {
+      const existing = points.find((p) => inLane(p) && p.time === params.time);
+      if (existing) existing.value = params.value;
+      else
+        points.push({
+          id: `mock-ctl-${++serial}`,
+          ...lane,
+          time: params.time,
+          value: params.value,
+        });
+      break;
+    }
+    case "controller.update": {
+      const point = points.find((p) => p.id === params.controllerId);
+      if (point) {
+        if (params.time !== undefined) point.time = params.time;
+        if (params.value !== undefined) point.value = params.value;
+      }
+      break;
+    }
+    case "controller.remove":
+      data.controllers = points.filter((p) => p.id !== params.controllerId);
+      break;
+    case "controller.setPoints": {
+      const from = Number(params.from ?? 0);
+      const to = Number(params.to ?? Infinity);
+      data.controllers = points
+        .filter(
+          (p) => !inLane(p) || Number(p.time) < from || Number(p.time) >= to,
+        )
+        .concat(
+          (params.points as Params[]).map((p) => ({
+            id: `mock-ctl-${++serial}`,
+            ...lane,
+            time: p.time,
+            value: p.value,
+          })),
+        );
+      break;
+    }
+  }
+  (data.controllers as Params[]).sort(
+    (a, b) => Number(a.time) - Number(b.time),
+  );
+  session.snapshotSequence++;
+  return { id: clip.id, controllerCount: data.controllers.length };
+}
+
+function command(method: string, params: Params): unknown {
+  if (method.startsWith("controller."))
+    return controllerCommand(method, params);
+  const arranged = arrange(method, params);
+  if (arranged !== undefined) return arranged;
+  switch (method) {
+    case "web.document":
+      session.snapshotSequence++;
+      return structuredClone({ ...session, markers: [...markers] });
     case "web.ready":
       return {
         session,
@@ -593,12 +956,60 @@ function command(method: string, params: Params): unknown {
       return {};
     case "preset.list":
       return { presets: [{ name: "Vocal glue", factory: true }] };
+    case "track.setArmed":
+    case "track.setMonitor": {
+      const track = session.tracks.find((t) => t.id === params.trackId);
+      if (track) {
+        if (method === "track.setArmed") track.armed = Boolean(params.armed);
+        else track.monitor = params.monitor as typeof track.monitor;
+        void emit("daw:document", { ...session, tracks: [...session.tracks] });
+      }
+      return {};
+    }
+    case "agent.transcript":
+      return agentFixture.transcript;
+    case "agent.changes":
+      return agentFixture.changes;
+    case "agent.status":
+      return agentFixture.status;
+    case "agent.models":
+      return [];
+    case "agent.connection":
+      return { provider: "claude", state: "configured", message: "" };
     case "ui.showPanel": {
       const name = String(params.panel);
       if (name in ui)
         (ui as Params)[name] = params.open ?? !(ui as Params)[name];
       void emit("daw:ui", { ...ui });
       return {};
+    }
+    case "session.exportAudio":
+    case "session.exportStems": {
+      const container = String(
+        params.container ??
+          /\.(\w+)$/.exec(String(params.path ?? ""))?.[1] ??
+          "wav",
+      ).toLowerCase();
+      const quality = Number(params.quality ?? 0.6);
+      const file = (path: string) => ({
+        path,
+        container,
+        seconds: 32,
+        clippedSamples: 0,
+        warnings: [],
+        ...(container === "ogg"
+          ? { quality, kbps: Math.round(64 + quality * 230) }
+          : { format: params.format ?? "pcm24" }),
+      });
+      if (method === "session.exportAudio") return file(String(params.path));
+      const directory = String(params.directory);
+      return {
+        directory,
+        files: TRACKS.map(([, name], i) =>
+          file(`${directory}/0${i + 1}-${name}.${container}`),
+        ),
+        warnings: [],
+      };
     }
     default:
       return {};
@@ -612,19 +1023,25 @@ export function install(): void {
       const args = (payload ?? {}) as { method?: string; params?: Params };
       if (cmd === "daw_command")
         return command(args.method ?? "", args.params ?? {});
-      if (cmd === "daw_agent_models") return [];
-      if (cmd === "daw_agent_connection")
-        return { provider: "claude", state: "configured", message: "" };
+      // Export choosers answer with a demo location instead of opening a dialog.
+      if (cmd === "daw_pick") {
+        const pick = (payload ?? {}) as { kind?: string; name?: string };
+        if (pick.kind === "folder") return "/Users/demo/Music";
+        if (pick.kind === "wav")
+          return `/Users/demo/Music/${pick.name ?? "Export.wav"}`;
+      }
       return null;
     },
     { shouldMockEvents: true },
   );
+  // After the window has subscribed; the real host sends this whenever the agent changes.
+  setTimeout(() => void emit("daw:agent", agentFixture), 300);
   let phase = 0;
   setInterval(() => {
     phase += 0.13;
     const level = (o: number) => 0.35 + 0.3 * Math.abs(Math.sin(phase + o));
     void emit("daw:telemetry", {
-      position: 13,
+      position,
       playing: false,
       recording: false,
       peaks: [level(0), level(0.4), level(1), level(1.3)],
