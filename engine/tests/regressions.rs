@@ -250,3 +250,36 @@ fn legato_ignores_notes_past_the_region_and_names_count_characters() {
         json!({ "lanes": lanes, "bars": 1, "name": "ドラム".repeat(40) }),
     );
 }
+
+/// Every save and export went through a temporary file created owner-only, so a re-saved
+/// song or an exported mix became unreadable to other accounts (0600), and a symlinked
+/// destination was replaced by a plain file.
+#[cfg(unix)]
+#[test]
+fn saved_and_exported_files_keep_ordinary_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let mut host = Headless::new();
+    let song = dir.path().join("song.ondera");
+    call(&mut host, "session.save", json!({ "path": song }));
+    assert_eq!(mode(&song), 0o644);
+    std::fs::set_permissions(&song, std::fs::Permissions::from_mode(0o640)).unwrap();
+    call(&mut host, "session.rename", json!({"name":"Again"}));
+    call(&mut host, "session.save", json!({}));
+    assert_eq!(mode(&song), 0o640, "a re-save keeps the file's permissions");
+    let midi = dir.path().join("song.mid");
+    call(&mut host, "session.exportMidi", json!({ "path": midi }));
+    assert_eq!(mode(&midi), 0o644);
+    let target = dir.path().join("real.ondera");
+    let link = dir.path().join("link.ondera");
+    std::fs::write(&target, "").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    ondera_engine::document::atomic_write(&link, |f| {
+        use std::io::Write;
+        f.write_all(b"new").map_err(|e| e.to_string())
+    })
+    .unwrap();
+    assert!(link.is_symlink(), "the link stays a link");
+    assert_eq!(std::fs::read(&target).unwrap(), b"new");
+}
