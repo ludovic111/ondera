@@ -60,6 +60,28 @@ const clips = [
     notes: notes(seed as number, lengthBars as number, low as number),
   },
 }));
+/** A mod-wheel swell, a pedal and a bend on "Chords", for the controller lane. */
+function controllers(bars: number) {
+  const out: Params[] = [];
+  for (let i = 0; i < bars * 4; i++)
+    out.push({
+      id: `mod-${i}`,
+      kind: "cc",
+      number: 1,
+      time: i,
+      value: Math.round(64 + 60 * Math.sin((i / (bars * 4)) * Math.PI * 2)),
+    });
+  out.push(
+    { id: "sus-0", kind: "cc", number: 64, time: 0, value: 127 },
+    { id: "sus-1", kind: "cc", number: 64, time: 7.5, value: 0 },
+    { id: "bend-0", kind: "bend", time: 4, value: 4096 },
+    { id: "bend-1", kind: "bend", time: 6, value: 0 },
+  );
+  return out;
+}
+(clips[3]!.data as Params).controllers = controllers(
+  clips[3]!.lengthBars as number,
+);
 clips.push({
   id: "cv",
   trackId: "vox",
@@ -174,6 +196,7 @@ const ui = {
   settingsSection: "interface",
   help: false,
   mixer: panel === "mixer",
+  controllers: panel === "controllers",
   export: false,
   recovery: false,
   tool: "pointer",
@@ -633,8 +656,75 @@ const agentFixture = {
         ],
 };
 
-function command(method: string, params: Params): unknown {
+let serial = 0;
+/** The controller commands, enough to draw and edit the lane in a browser. */
+function controllerCommand(method: string, params: Params): unknown {
+  const clip = session.clips.find((c) => c.id === params.clipId);
+  if (!clip || clip.data.kind !== "midi")
+    throw new Error("Only MIDI clips hold controllers");
+  const data = clip.data as Params & { controllers?: Params[] };
+  const points = (data.controllers ??= []);
+  const inLane = (p: Params) =>
+    p.kind === params.kind && (p.kind !== "cc" || p.number === params.number);
+  const lane =
+    params.kind === "cc"
+      ? { kind: "cc", number: params.number }
+      : { kind: params.kind };
   switch (method) {
+    case "controller.add": {
+      const existing = points.find((p) => inLane(p) && p.time === params.time);
+      if (existing) existing.value = params.value;
+      else
+        points.push({
+          id: `mock-ctl-${++serial}`,
+          ...lane,
+          time: params.time,
+          value: params.value,
+        });
+      break;
+    }
+    case "controller.update": {
+      const point = points.find((p) => p.id === params.controllerId);
+      if (point) {
+        if (params.time !== undefined) point.time = params.time;
+        if (params.value !== undefined) point.value = params.value;
+      }
+      break;
+    }
+    case "controller.remove":
+      data.controllers = points.filter((p) => p.id !== params.controllerId);
+      break;
+    case "controller.setPoints": {
+      const from = Number(params.from ?? 0);
+      const to = Number(params.to ?? Infinity);
+      data.controllers = points
+        .filter(
+          (p) => !inLane(p) || Number(p.time) < from || Number(p.time) >= to,
+        )
+        .concat(
+          (params.points as Params[]).map((p) => ({
+            id: `mock-ctl-${++serial}`,
+            ...lane,
+            time: p.time,
+            value: p.value,
+          })),
+        );
+      break;
+    }
+  }
+  (data.controllers as Params[]).sort(
+    (a, b) => Number(a.time) - Number(b.time),
+  );
+  session.snapshotSequence++;
+  return { id: clip.id, controllerCount: data.controllers.length };
+}
+
+function command(method: string, params: Params): unknown {
+  if (method.startsWith("controller."))
+    return controllerCommand(method, params);
+  switch (method) {
+    case "web.document":
+      return structuredClone(session);
     case "web.ready":
       return {
         session,

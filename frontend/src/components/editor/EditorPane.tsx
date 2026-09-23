@@ -2,6 +2,7 @@ import {
   useCallback,
   useRef,
   useState,
+  useSyncExternalStore,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -25,6 +26,7 @@ import { SegmentedControl } from "../primitives/SegmentedControl";
 import { Button } from "../primitives/Button";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { size } from "../../theme/tokens";
+import { ControllerLane } from "./ControllerLane";
 import styles from "./EditorPane.module.css";
 
 const MODES: { id: EditorMode; label: string; title?: string }[] = [
@@ -97,6 +99,12 @@ export function EditorPane() {
       [store, overlay],
     ),
   );
+
+  const laneOpen = useSyncExternalStore(
+    store.subscribeMeta,
+    () => store.ui.controllers ?? false,
+  );
+  const showLane = laneOpen && mode !== "score" && clip?.data.kind === "midi";
 
   const pitchOffset = useSession((s) => s.view.editorLowPitch);
   const low = pitchOffset ?? editorLowPitch(clip);
@@ -365,7 +373,7 @@ export function EditorPane() {
   };
 
   return (
-    <div className={styles.pane}>
+    <div className={`${styles.pane} ${showLane ? styles.withLane : ""}`}>
       <div className={styles.header} data-surface="editor-header">
         <SegmentedControl
           items={MODES}
@@ -452,6 +460,7 @@ export function EditorPane() {
           <canvas ref={canvasRef} className={styles.canvas} />
         </div>
       </div>
+      {showLane && <ControllerLane />}
       {menu && (
         <PopupMenu
           items={menu.items}

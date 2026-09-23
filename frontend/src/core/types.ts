@@ -72,9 +72,30 @@ export interface AudioClipData {
   offsetSeconds: number;
 }
 
+export type ControllerKind = "cc" | "bend" | "pressure";
+
+/**
+ * A controller point in a MIDI clip. The value holds until the next point of
+ * the same lane (kind and number), as MIDI does.
+ */
+export interface Controller {
+  id: string;
+  kind: ControllerKind;
+  /** Controller number, for `cc` only. */
+  number?: number;
+  /** Beats from the clip start. */
+  time: number;
+  /** 0..127 for cc and pressure; -8192..8191 for bend. */
+  value: number;
+  /** True when the point was written by an agent. */
+  agent?: boolean;
+}
+
 export interface MidiClipData {
   kind: "midi";
   notes: Note[];
+  /** Absent when the clip has none. */
+  controllers?: Controller[];
 }
 
 export interface Clip {

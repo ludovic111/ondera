@@ -69,6 +69,7 @@ export type ActionId =
   | "transposeOctaveUp"
   | "transposeOctaveDown"
   | "toggleMixer"
+  | "toggleControllerLane"
   | "commandPalette"
   | "showShortcuts";
 
@@ -561,6 +562,18 @@ function editingActions(): ActionDef[] {
         store.fire("ui.showPanel", {
           panel: "mixer",
           visible: !store.ui.mixer,
+        }),
+    },
+    {
+      // Mod wheel, sustain, pitch bend and other controllers of the open MIDI region.
+      id: "toggleControllerLane",
+      label: "Controller Lane",
+      shortcut: { key: "l" },
+      checked: (_s, store) => store.ui.controllers ?? false,
+      run: (store) =>
+        store.fire("ui.showPanel", {
+          panel: "controllers",
+          visible: !store.ui.controllers,
         }),
     },
     {
