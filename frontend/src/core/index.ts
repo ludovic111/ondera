@@ -28,6 +28,12 @@ export const commands = {
     remove: command("note.remove"),
     select: command("note.select"),
   },
+  controller: {
+    add: command("controller.add"),
+    update: command("controller.update"),
+    remove: command("controller.remove"),
+    setPoints: command("controller.setPoints"),
+  },
   clip: {
     select: command("clip.select"),
     clearSelection: command("clip.clearSelection"),

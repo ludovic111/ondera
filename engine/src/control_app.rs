@@ -126,8 +126,8 @@ pub const SPECS: &[Spec] = &[
     edit("ui.screenshot", "Capture the window to a PNG so an agent can see the interface. Returns the file path and size.", &[
         opt("path", Kind::String, "Destination .png. Defaults to a timestamped file in the app data directory."),
     ]),
-    edit("ui.showPanel", "Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
-        req("panel", Kind::String, "agent, automation, mixer, settings, help, export, recovery, master, bus-a or bus-b."),
+    edit("ui.showPanel", "Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
+        req("panel", Kind::String, "agent, automation, mixer, controllers, settings, help, export, recovery, master, bus-a or bus-b."),
         opt("visible", Kind::Boolean, "Show (default) or hide."),
         opt("section", Kind::String, "Settings section: general, audio, interface, agent, plugins, control, updates or about."),
     ]),
@@ -383,7 +383,8 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
             let bpb = s.beats_per_bar();
             let length = clip.length_bars * bpb;
             let snap = s.transport.snap_division;
-            let ClipData::Midi { notes } = &mut clip.data else {
+            // Controllers stay where they are: quantize and transpose are about notes.
+            let ClipData::Midi { notes, .. } = &mut clip.data else {
                 return Err("Only MIDI clips hold notes".into());
             };
             let mut moved = 0;
@@ -468,10 +469,11 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
                 copy.id = control::new_id("clip");
                 copy.track_id = track.id.clone();
                 copy.agent = agent;
-                if let ClipData::Midi { notes } = &mut copy.data {
+                if let ClipData::Midi { notes, controllers } = &mut copy.data {
                     for n in notes {
                         n.id = control::new_id("note");
                     }
+                    crate::controllers::renew_ids(controllers, agent, || control::new_id("ctl"));
                 }
                 commands.push(Command::PutClip(copy));
             }

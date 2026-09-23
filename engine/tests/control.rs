@@ -1076,3 +1076,232 @@ fn the_clipboard_lives_in_the_host_so_any_client_can_paste() {
         before
     );
 }
+
+#[test]
+fn controller_points_are_edited_like_notes_and_follow_every_clip_edit() {
+    let mut host = Headless::new();
+    let track = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":2}),
+    )["id"]
+        .clone();
+    let plain = serde_json::to_value(host.store().session()).unwrap();
+    let data = &plain["clips"].as_array().unwrap()[0]["data"];
+    assert!(
+        data.get("controllers").is_none(),
+        "A clip without controllers is written exactly as before"
+    );
+
+    let mod_low = call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"cc","number":1,"time":0,"value":20}),
+    );
+    assert_eq!(mod_low["controllerCount"], 1);
+    let mod_id = mod_low["controller"]["id"].clone();
+    call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"cc","number":1,"time":6,"value":90}),
+    );
+    call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"bend","time":2,"value":4096}),
+    );
+    // Same lane, same time: the value changes, no second point.
+    let again = call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"bend","time":2,"value":-4096}),
+    );
+    assert_eq!(again["controllerCount"], 3);
+    let pedal = call(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"cc","number":64,"time":1,"value":127}),
+    )["controller"]["id"]
+        .clone();
+    let listed = call(&mut host, "controller.list", json!({"clipId":clip}));
+    assert_eq!(listed["controllers"].as_array().unwrap().len(), 4);
+    assert_eq!(listed["lanes"].as_array().unwrap().len(), 3);
+    let times: Vec<f64> = listed["controllers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["time"].as_f64().unwrap())
+        .collect();
+    assert!(times.windows(2).all(|w| w[0] <= w[1]), "{times:?}");
+    let bends = call(
+        &mut host,
+        "controller.list",
+        json!({"clipId":clip,"kind":"bend"}),
+    );
+    assert_eq!(bends["controllers"][0]["value"], -4096);
+
+    call(
+        &mut host,
+        "controller.update",
+        json!({"clipId":clip,"controllerId":mod_id,"value":30,"time":0.5}),
+    );
+    call(
+        &mut host,
+        "controller.remove",
+        json!({"clipId":clip,"controllerId":pedal}),
+    );
+    let before_draw = host.store().undo_depth();
+    let drawn = call(
+        &mut host,
+        "controller.setPoints",
+        json!({"clipId":clip,"kind":"cc","number":11,"from":2,"to":4,
+            "points":[{"time":2,"value":10},{"time":3,"value":60},{"time":3,"value":70}]}),
+    );
+    assert_eq!(drawn["controller"]["count"], 2);
+    assert_eq!(
+        host.store().undo_depth(),
+        before_draw + 1,
+        "One drawn curve is one undo step"
+    );
+    call(&mut host, "history.undo", json!({}));
+    assert!(call(
+        &mut host,
+        "controller.list",
+        json!({"clipId":clip,"kind":"cc","number":11})
+    )["controllers"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    call(&mut host, "history.redo", json!({}));
+
+    // Validation leaves the clip alone.
+    for (params, message) in [
+        (
+            json!({"clipId":clip,"kind":"cc","time":0,"value":1}),
+            "needs `number`",
+        ),
+        (
+            json!({"clipId":clip,"kind":"cc","number":1,"time":0,"value":128}),
+            "0 to 127",
+        ),
+        (
+            json!({"clipId":clip,"kind":"bend","time":0,"value":9000}),
+            "-8192 to 8191",
+        ),
+        (
+            json!({"clipId":clip,"kind":"bend","number":3,"time":0,"value":0}),
+            "takes no `number`",
+        ),
+        (
+            json!({"clipId":clip,"kind":"cc","number":1,"time":8,"value":1}),
+            "before the clip's end",
+        ),
+        (
+            json!({"clipId":clip,"kind":"cc","number":123,"time":0,"value":1}),
+            "0-119",
+        ),
+        (
+            json!({"clipId":clip,"kind":"wheel","time":0,"value":1}),
+            "cc, bend or pressure",
+        ),
+    ] {
+        let error = fail(&mut host, "controller.add", params.clone());
+        assert!(error.contains(message), "{params}: {error}");
+    }
+
+    // Agents' points are marked, as their notes are.
+    let by_agent = control::call(
+        &mut host,
+        "controller.add",
+        &json!({"clipId":clip,"kind":"pressure","time":7,"value":50}),
+        true,
+    )
+    .unwrap();
+    assert_eq!(by_agent["controller"]["agent"], true);
+
+    // The file carries them and reads them back.
+    let text = serde_json::to_string(host.store().session()).unwrap();
+    let reloaded: ondera_engine::model::Session = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reloaded).unwrap()["clips"],
+        serde_json::to_value(host.store().session()).unwrap()["clips"]
+    );
+
+    // Split at bar 1 (beat 4): the right half starts with the mod wheel at 30 and the bend
+    // at -4096, the values in force at the cut, and keeps its own later points.
+    let halves = call(&mut host, "clip.split", json!({"clipId":clip,"bar":1}));
+    let right = halves["right"]["id"].clone();
+    let points = call(&mut host, "controller.list", json!({"clipId":right}))["controllers"].clone();
+    let summary: Vec<(String, f64, i64)> = points
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                format!("{}{}", p["kind"].as_str().unwrap(), p["number"]),
+                p["time"].as_f64().unwrap(),
+                p["value"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert!(summary.contains(&("cc1".into(), 0.0, 30)), "{summary:?}");
+    assert!(
+        summary.contains(&("bendnull".into(), 0.0, -4096)),
+        "{summary:?}"
+    );
+    assert!(summary.contains(&("cc1".into(), 2.0, 90)), "{summary:?}");
+    assert!(
+        summary.contains(&("pressurenull".into(), 3.0, 50)),
+        "{summary:?}"
+    );
+    let left = halves["left"]["id"].clone();
+    let left_points =
+        call(&mut host, "controller.list", json!({"clipId":left}))["controllers"].clone();
+    assert!(left_points
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["time"].as_f64().unwrap() < 4.0));
+
+    // Trimming the right half's left edge by two beats keeps positions and chases again.
+    call(
+        &mut host,
+        "clip.trim",
+        json!({"clipId":right,"startBar":1.5}),
+    );
+    let trimmed =
+        call(&mut host, "controller.list", json!({"clipId":right}))["controllers"].clone();
+    let mod_wheel: Vec<(f64, i64)> = trimmed
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["number"] == 1)
+        .map(|p| (p["time"].as_f64().unwrap(), p["value"].as_i64().unwrap()))
+        .collect();
+    assert_eq!(mod_wheel, vec![(0.0, 90)]);
+
+    // Duplicates get their own ids; transpose leaves controllers alone.
+    let copy = call(&mut host, "clip.duplicate", json!({"clipId":right}))["id"].clone();
+    let original_ids: HashSet<String> = trimmed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap().to_string())
+        .collect();
+    let copied = call(&mut host, "controller.list", json!({"clipId":copy}))["controllers"].clone();
+    assert_eq!(copied.as_array().unwrap().len(), original_ids.len());
+    assert!(copied
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| !original_ids.contains(p["id"].as_str().unwrap())));
+    call(
+        &mut host,
+        "clip.transpose",
+        json!({"clipId":copy,"semitones":5}),
+    );
+    let after = call(&mut host, "controller.list", json!({"clipId":copy}))["controllers"].clone();
+    assert_eq!(after, copied);
+    assert!(fail(&mut host, "controller.list", json!({"clipId":"nope"})).contains("Unknown clip"));
+}

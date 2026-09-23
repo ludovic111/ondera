@@ -121,6 +121,13 @@ export const size = {
   keyColumn: 56,
   keyRow: 10,
   keyRows: 25,
+  /** Height of the controller lane under the piano roll. */
+  controllerLane: 96,
+  /** Radius of a controller point, and how near the pointer must come to grab one. */
+  controllerPoint: 3,
+  controllerGrip: 6,
+  /** Space above the highest and below the lowest controller value. */
+  controllerInset: 6,
   agentHeader: 44,
   browser: 220,
   trackHeader: 184,

@@ -748,6 +748,7 @@ mod tests {
                         agent: false,
                     },
                 ],
+                controllers: vec![],
             },
         };
         host.app
@@ -759,7 +760,7 @@ mod tests {
         )
         .unwrap();
         let trimmed = &host.app.store.session().clips[0];
-        let ClipData::Midi { notes } = &trimmed.data else {
+        let ClipData::Midi { notes, .. } = &trimmed.data else {
             panic!()
         };
         assert_eq!(notes.len(), 1);

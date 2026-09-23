@@ -369,6 +369,9 @@ struct PortLayout {
     inputs: Vec<u32>,
     outputs: Vec<u32>,
     note_input: Option<(u16, clap_note_dialect)>,
+    /// The note port also takes the MIDI dialect, so controllers, pitch bend and pressure
+    /// can reach it as `CLAP_EVENT_MIDI`. A port that only speaks CLAP notes gets notes only.
+    midi_controllers: bool,
 }
 struct Shared {
     _loaded: Arc<Loaded>,
@@ -457,6 +460,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             inputs: vec![],
             outputs: vec![],
             note_input: None,
+            midi_controllers: false,
         };
         if !audio_ports.is_null() {
             let ap = &*audio_ports;
@@ -500,6 +504,9 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
                         note_dialect(info.supported_dialects, info.preferred_dialect)
                     {
                         layout.note_input = Some((index as u16, dialect));
+                        layout.midi_controllers = info.supported_dialects
+                            & (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE)
+                            != 0;
                         break;
                     }
                 }
@@ -1016,7 +1023,7 @@ impl Processor for ClapProcessor {
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     ) {
@@ -1031,13 +1038,14 @@ impl Processor for ClapProcessor {
             return;
         }
         self.events.clear();
-        // CLAP wants one list sorted by time: parameter values and notes are merged, a
+        // CLAP wants one list sorted by time: parameter values and events are merged, a
         // value first when both land on the same frame.
         let note_input = self.shared.layout.note_input;
-        let notes = if note_input.is_some() { notes } else { &[] };
+        let midi_controllers = self.shared.layout.midi_controllers;
+        let events = if note_input.is_some() { events } else { &[] };
         let mut changes = params.iter().peekable();
-        for note in notes.iter().map(Some).chain(std::iter::once(None)) {
-            let until = note.map_or(u32::MAX, |note| note.frame);
+        for event in events.iter().map(Some).chain(std::iter::once(None)) {
+            let until = event.map_or(u32::MAX, |event| event.frame);
             while let Some(change) = changes.next_if(|change| change.frame <= until) {
                 self.push(ClapEvent {
                     param: clap_event_param_value {
@@ -1058,34 +1066,41 @@ impl Processor for ClapProcessor {
                     },
                 });
             }
-            let (Some(note), Some((port, dialect))) = (note, note_input) else {
+            let (Some(event), Some((port, dialect))) = (event, note_input) else {
                 continue;
             };
-            if dialect != CLAP_NOTE_DIALECT_CLAP {
+            let time = (event.frame as usize).min(n - 1) as u32;
+            let note = event.as_note();
+            let midi = match note {
+                Some(_) if dialect == CLAP_NOTE_DIALECT_CLAP => None,
+                Some(_) => event.to_midi(),
+                None if midi_controllers => event.to_midi(),
+                None => continue,
+            };
+            if let Some(data) = midi {
                 self.push(ClapEvent {
                     midi: clap_event_midi {
                         header: clap_event_header {
                             size: std::mem::size_of::<clap_event_midi>() as u32,
-                            time: (note.frame as usize).min(n - 1) as u32,
+                            time,
                             space_id: CLAP_CORE_EVENT_SPACE_ID,
                             type_: CLAP_EVENT_MIDI,
                             flags: 0,
                         },
                         port_index: port,
-                        data: [
-                            (if note.on { 0x90 } else { 0x80 }) | (note.channel & 0x0f),
-                            note.pitch.min(127),
-                            note.velocity.min(127),
-                        ],
+                        data,
                     },
                 });
                 continue;
             }
+            let Some(note) = note else {
+                continue;
+            };
             self.push(ClapEvent {
                 note: clap_event_note {
                     header: clap_event_header {
                         size: std::mem::size_of::<clap_event_note>() as u32,
-                        time: (note.frame as usize).min(n - 1) as u32,
+                        time,
                         space_id: CLAP_CORE_EVENT_SPACE_ID,
                         type_: if note.on {
                             CLAP_EVENT_NOTE_ON

@@ -367,6 +367,11 @@ pub fn instance_from(
             instance,
             shared,
             events: Vec::with_capacity(EVENT_CAPACITY),
+            notes: Vec::with_capacity(if table.v2.is_some() {
+                0
+            } else {
+                EVENT_CAPACITY
+            }),
             changes: Vec::with_capacity(EVENT_CAPACITY),
         })),
     })
@@ -518,6 +523,7 @@ struct NativeProcessor {
     instance: *mut c_void,
     shared: Arc<Shared>,
     events: Vec<Event>,
+    notes: Vec<NoteEvent>,
     changes: Vec<TimedParam>,
 }
 // The SDK requires `Plugin: Send`; the instance pointer is owned by exactly one processor.
@@ -546,7 +552,7 @@ impl Processor for NativeProcessor {
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     ) {
@@ -568,13 +574,21 @@ impl Processor for NativeProcessor {
             for change in params {
                 unsafe { (self.table.base.set_param)(self.instance, change.id, change.value) };
             }
+            // ABI 1 knows notes only; controllers, bend and pressure stop here.
+            self.notes.clear();
+            self.notes.extend(
+                events
+                    .iter()
+                    .filter_map(Event::as_note)
+                    .take(EVENT_CAPACITY),
+            );
             unsafe {
                 (self.table.base.process)(
                     self.instance,
                     audio.as_mut_ptr(),
                     audio.len() as u32,
-                    notes.as_ptr(),
-                    notes.len() as u32,
+                    self.notes.as_ptr(),
+                    self.notes.len() as u32,
                     &raw,
                 )
             };
@@ -582,7 +596,7 @@ impl Processor for NativeProcessor {
         };
         self.events.clear();
         self.events
-            .extend(notes.iter().take(EVENT_CAPACITY).map(|n| Event::from(*n)));
+            .extend(events.iter().take(EVENT_CAPACITY).copied());
         self.changes.clear();
         let last = audio.len().saturating_sub(1) as u32;
         self.changes

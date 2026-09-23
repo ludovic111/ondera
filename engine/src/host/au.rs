@@ -807,7 +807,7 @@ impl Processor for AuProcessor {
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     ) {
@@ -853,15 +853,17 @@ impl Processor for AuProcessor {
                 kAudioUnitType_MusicDevice | kAudioUnitType_MusicEffect
             );
             if accepts_notes {
-                for note in notes {
-                    let status = if note.on { 0x90 } else { 0x80 } | (note.channel & 0x0f) as u32;
-                    MusicDeviceMIDIEvent(
-                        unit,
-                        status,
-                        note.pitch as u32,
-                        note.velocity as u32,
-                        (note.frame as usize).min(n - 1) as u32,
-                    );
+                // Notes, controllers, pitch bend and pressure all travel as MIDI 1.0 bytes.
+                for event in events {
+                    if let Some([status, first, second]) = event.to_midi() {
+                        MusicDeviceMIDIEvent(
+                            unit,
+                            status as u32,
+                            first as u32,
+                            second as u32,
+                            (event.frame as usize).min(n - 1) as u32,
+                        );
+                    }
                 }
             }
             // The input callback reads the block through this shared state.

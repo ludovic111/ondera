@@ -139,9 +139,10 @@ impl ParamInfo {
     }
 }
 
-/// Note events, transport context and the block bound are defined by the plugin SDK so
-/// native plugins and the hosts agree on one layout.
-pub use ondera_plugin::{NoteEvent, ProcessContext, MAX_BLOCK};
+/// Events, transport context and the block bound are defined by the plugin SDK so native
+/// plugins and the hosts agree on one layout. `Event` carries notes, controllers, pitch bend
+/// and pressure; `event` names its kinds.
+pub use ondera_plugin::{event, Event, NoteEvent, ProcessContext, MAX_BLOCK};
 
 /// A parameter value that takes effect at `frame` within the block being processed. `id` is
 /// the plugin's own parameter id (CLAP id, VST3 ParamID, AU parameter, native index).
@@ -171,13 +172,14 @@ pub trait Processor: Send {
     /// Silence tails and release voices.
     fn reset(&mut self) {}
     /// Process stereo audio in place. Instruments receive silence and add their
-    /// output; effects transform. `notes` and `params` are sorted by frame. A processor that
-    /// does not say [`Processor::timed_params`] only ever sees changes at frame 0: the rack
-    /// splits the block at every later change for it.
+    /// output; effects transform. `events` (notes, controllers, pitch bend and pressure)
+    /// and `params` are sorted by frame. A processor that does not say
+    /// [`Processor::timed_params`] only ever sees changes at frame 0: the rack splits the
+    /// block at every later change for it.
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         params: &[ParamChange],
         ctx: &ProcessContext,
     );
@@ -258,15 +260,15 @@ struct Pending {
 }
 
 /// Notes one sub-block can hold when the rack splits a block for a processor.
-const SPLIT_NOTES: usize = 512;
+const SPLIT_EVENTS: usize = 512;
 
 /// The audio thread's plugin bank, addressed by slot. Preallocated so mounting
 /// and processing never allocate.
 pub struct Rack {
     slots: Vec<Option<Box<dyn Processor>>>,
     pending: Vec<Pending>,
-    /// Notes re-based to a sub-block, for processors that take changes only at its start.
-    split_notes: Vec<NoteEvent>,
+    /// Events re-based to a sub-block, for processors that take changes only at its start.
+    split_events: Vec<Event>,
 }
 impl Rack {
     pub fn new(capacity: usize) -> Self {
@@ -287,16 +289,7 @@ impl Rack {
         Self {
             slots,
             pending,
-            split_notes: vec![
-                NoteEvent {
-                    frame: 0,
-                    on: false,
-                    pitch: 0,
-                    velocity: 0,
-                    channel: 0,
-                };
-                SPLIT_NOTES
-            ],
+            split_events: vec![Event::default(); SPLIT_EVENTS],
         }
     }
     pub fn capacity(&self) -> usize {
@@ -362,7 +355,7 @@ impl Rack {
         &mut self,
         slot: u32,
         audio: &mut [[f32; 2]],
-        notes: &[NoteEvent],
+        events: &[Event],
         ctx: &ProcessContext,
     ) -> bool {
         let index = slot as usize;
@@ -373,11 +366,11 @@ impl Rack {
         let changes = &mut pending.changes[..pending.len];
         let frames = audio.len();
         if processor.timed_params() || changes.iter().all(|c| c.frame == 0) {
-            processor.process(audio, notes, changes, ctx);
+            processor.process(audio, events, changes, ctx);
         } else {
             // Run the stretches between changes, each with the changes on its first frame
-            // (re-based to 0, like the notes).
-            let (mut start, mut next_change, mut next_note) = (0usize, 0usize, 0usize);
+            // (re-based to 0, like the events).
+            let (mut start, mut next_change, mut next_event) = (0usize, 0usize, 0usize);
             while start < frames {
                 let first = next_change;
                 while changes
@@ -390,18 +383,18 @@ impl Rack {
                     .get(next_change)
                     .map_or(frames, |c| (c.frame as usize).min(frames));
                 let mut count = 0;
-                while let Some(note) = notes.get(next_note) {
-                    if note.frame as usize >= end && end < frames {
+                while let Some(event) = events.get(next_event) {
+                    if event.frame as usize >= end && end < frames {
                         break;
                     }
-                    if count < self.split_notes.len() {
-                        let mut note = *note;
-                        note.frame =
-                            (note.frame as usize).clamp(start, end - 1) as u32 - start as u32;
-                        self.split_notes[count] = note;
+                    if count < self.split_events.len() {
+                        let mut event = *event;
+                        event.frame =
+                            (event.frame as usize).clamp(start, end - 1) as u32 - start as u32;
+                        self.split_events[count] = event;
                         count += 1;
                     }
-                    next_note += 1;
+                    next_event += 1;
                 }
                 // Every change of this stretch lands on its first frame.
                 for change in &mut changes[first..next_change] {
@@ -411,7 +404,7 @@ impl Rack {
                 local.sample_time += start as i64;
                 processor.process(
                     &mut audio[start..end],
-                    &self.split_notes[..count],
+                    &self.split_events[..count],
                     &changes[first..next_change],
                     &local,
                 );
@@ -501,14 +494,14 @@ mod tests {
         fn process(
             &mut self,
             audio: &mut [[f32; 2]],
-            notes: &[NoteEvent],
+            events: &[Event],
             params: &[ParamChange],
             ctx: &ProcessContext,
         ) {
             self.calls.lock().unwrap().push((
                 audio.len(),
                 params.to_vec(),
-                notes.iter().map(|n| n.frame).collect(),
+                events.iter().map(|n| n.frame).collect(),
                 ctx.sample_time,
             ));
         }
@@ -516,14 +509,8 @@ mod tests {
             self.timed
         }
     }
-    fn note(frame: u32) -> NoteEvent {
-        NoteEvent {
-            frame,
-            on: true,
-            pitch: 60,
-            velocity: 100,
-            channel: 0,
-        }
+    fn note(frame: u32) -> Event {
+        Event::note_on(frame, 60, 100)
     }
     #[test]
     fn timed_changes_stay_sorted_and_the_same_frame_keeps_the_last_value() {

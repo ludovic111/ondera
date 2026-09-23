@@ -23,6 +23,8 @@ export interface UiState {
   settingsSection: string;
   help: boolean;
   mixer?: boolean;
+  /** The controller lane under the piano roll. */
+  controllers?: boolean;
   palette?: boolean;
   export: boolean;
   recovery: boolean;

@@ -5,7 +5,7 @@ use ondera_engine::{
     audio::{AudioBuffer, Library},
     document, host,
     model::{Clip, ClipData, Insert, Note, Source, Strip},
-    plugin::{NoteEvent, ProcessContext, Rack, MAX_BLOCK},
+    plugin::{Event, NoteEvent, ProcessContext, Rack, MAX_BLOCK},
     render, store,
 };
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
@@ -43,13 +43,13 @@ fn capture(id: &str, key: &str) -> Insert {
         denominator: 4,
         ..Default::default()
     };
-    let note = [NoteEvent {
+    let note = [Event::from(NoteEvent {
         frame: 0,
         on: true,
         pitch: 60,
         velocity: 96,
         channel: 0,
-    }];
+    })];
     let mut energy = 0.0f64;
     for index in 0..188 {
         let mut block = [[0.0; 2]; MAX_BLOCK];
@@ -155,6 +155,7 @@ fn main() {
                     agent: false,
                 })
                 .collect(),
+            controllers: vec![],
         },
     });
     let buffer = Arc::new(

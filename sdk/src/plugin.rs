@@ -219,6 +219,50 @@ impl Event {
     pub fn bend_amount(&self) -> f32 {
         (self.bend as f32 / 8192.0).clamp(-1.0, 1.0)
     }
+    /// True for note on and note off.
+    pub const fn is_note(&self) -> bool {
+        self.kind == event::NOTE_ON || self.kind == event::NOTE_OFF
+    }
+    /// The three bytes of the MIDI 1.0 message this event is. Pitch bend is 14 bits, least
+    /// significant seven first, as the wire carries it. Channel pressure has one data byte;
+    /// the third is zero.
+    pub fn to_midi(&self) -> Option<[u8; 3]> {
+        let channel = self.channel & 0x0f;
+        let (status, first, second) = match self.kind {
+            event::NOTE_ON => (0x90, self.key, self.value),
+            event::NOTE_OFF => (0x80, self.key, self.value),
+            event::CONTROL => (0xb0, self.key, self.value),
+            event::PITCH_BEND => {
+                let raw = (self.bend.clamp(-8192, 8191) + 8192) as u16;
+                (0xe0, (raw & 0x7f) as u8, (raw >> 7) as u8)
+            }
+            event::CHANNEL_PRESSURE => (0xd0, self.value, 0),
+            event::POLY_PRESSURE => (0xa0, self.key, self.value),
+            _ => return None,
+        };
+        Some([status | channel, first.min(127), second.min(127)])
+    }
+    /// Read a MIDI 1.0 channel message. A note on with velocity zero is a note off, as the
+    /// specification says. System messages and program changes give `None`.
+    pub fn from_midi(frame: u32, bytes: &[u8]) -> Option<Self> {
+        let status = *bytes.first()?;
+        let data = |i: usize| bytes.get(i).copied().filter(|b| *b < 0x80);
+        let channel = status & 0x0f;
+        let event = match status & 0xf0 {
+            0x80 => Self::new(frame, event::NOTE_OFF, channel, data(1)?, data(2)?, 0),
+            0x90 if data(2)? == 0 => Self::new(frame, event::NOTE_OFF, channel, data(1)?, 0, 0),
+            0x90 => Self::new(frame, event::NOTE_ON, channel, data(1)?, data(2)?, 0),
+            0xa0 => Self::new(frame, event::POLY_PRESSURE, channel, data(1)?, data(2)?, 0),
+            0xb0 => Self::new(frame, event::CONTROL, channel, data(1)?, data(2)?, 0),
+            0xd0 => Self::new(frame, event::CHANNEL_PRESSURE, channel, 0, data(1)?, 0),
+            0xe0 => {
+                let raw = data(1)? as i16 | (data(2)? as i16) << 7;
+                Self::new(frame, event::PITCH_BEND, channel, 0, 0, raw - 8192)
+            }
+            _ => return None,
+        };
+        Some(event)
+    }
     /// The note this event is, if it is one.
     pub fn as_note(&self) -> Option<NoteEvent> {
         (self.kind == event::NOTE_ON || self.kind == event::NOTE_OFF).then_some(NoteEvent {
@@ -384,5 +428,37 @@ pub fn split_at_params<P: Plugin + ?Sized>(
         }
         plugin.process(&mut audio[start..end], &notes[..count], &local);
         start = end;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn events_round_trip_through_midi_bytes() {
+        for event in [
+            Event::note_on(0, 60, 100).on_channel(2),
+            Event::note_off(0, 60),
+            Event::control(0, 64, 127).on_channel(15),
+            Event::pitch_bend(0, -1.0),
+            Event::pitch_bend(0, 1.0),
+            Event::pitch_bend(0, 0.0),
+            Event::channel_pressure(0, 33),
+            Event::poly_pressure(0, 61, 12),
+        ] {
+            let bytes = event.to_midi().unwrap();
+            assert_eq!(Event::from_midi(0, &bytes), Some(event), "{bytes:?}");
+        }
+        assert_eq!(
+            Event::pitch_bend(0, 0.0).to_midi(),
+            Some([0xe0, 0x00, 0x40])
+        );
+        assert_eq!(
+            Event::from_midi(7, &[0x93, 60, 0]),
+            Some(Event::note_off(7, 60).on_channel(3)),
+            "Velocity zero is a release"
+        );
+        assert_eq!(Event::from_midi(0, &[0xc0, 5]), None);
+        assert_eq!(Event::from_midi(0, &[0xb0, 200, 1]), None);
     }
 }

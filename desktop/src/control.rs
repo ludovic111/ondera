@@ -673,6 +673,7 @@ impl Ondera {
             "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)],
             "help": self.show_help,
             "mixer": self.show_mixer,
+            "controllers": self.show_controllers,
             "palette": self.show_palette,
             "tool": TOOLS[self.tool.min(2)],
             "musicalTyping": self.musical_typing,
@@ -1189,6 +1190,7 @@ impl Host for Ondera {
                     }
                     "help" => self.show_help = visible,
                     "mixer" => self.show_mixer = visible,
+                    "controllers" => self.show_controllers = visible,
                     "palette" => self.show_palette = visible,
                     "export" => {
                         if visible {
@@ -1213,7 +1215,7 @@ impl Host for Ondera {
                     }
                     other => {
                         return Err(format!(
-                            "Unknown panel `{other}`. Panels: agent, automation, mixer, palette, settings, help, export, recovery, master, bus-a, bus-b."
+                            "Unknown panel `{other}`. Panels: agent, automation, mixer, controllers, palette, settings, help, export, recovery, master, bus-a, bus-b."
                         ))
                     }
                 }
