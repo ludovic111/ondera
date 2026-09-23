@@ -109,3 +109,27 @@ fn strip_get_state_is_not_batchable() {
     );
     assert!(error.contains("strip.getState"), "{error}");
 }
+
+/// A failed atomic `session.batch` rolled the document back but emptied Redo: its first edit
+/// had cleared the redo history, and the rollback did not bring it back.
+#[test]
+fn a_failed_atomic_batch_keeps_redo() {
+    let mut host = Headless::new();
+    call(&mut host, "session.rename", json!({"name":"One"}));
+    call(&mut host, "session.rename", json!({"name":"Two"}));
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(call(&mut host, "history.info", json!({}))["canRedo"], true);
+    let error = fail(
+        &mut host,
+        "session.batch",
+        json!({"commands":[
+            {"command":"session.rename","params":{"name":"Batch"}},
+            {"command":"track.remove","params":{"trackId":"missing"}}
+        ]}),
+    );
+    assert!(error.contains("rolled back"), "{error}");
+    assert_eq!(call(&mut host, "session.info", json!({}))["name"], "One");
+    assert_eq!(call(&mut host, "history.info", json!({}))["canRedo"], true);
+    call(&mut host, "history.redo", json!({}));
+    assert_eq!(call(&mut host, "session.info", json!({}))["name"], "Two");
+}

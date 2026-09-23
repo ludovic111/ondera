@@ -47,6 +47,9 @@ pub struct Store {
     saved_id: Option<u64>,
     gesture: bool,
     gesture_recorded: bool,
+    /// The redo history a gesture's first edit set aside, restored if the gesture is
+    /// cancelled (a failed atomic batch changes nothing, Redo included).
+    gesture_future: Option<Vec<(Arc<Session>, u64)>>,
 }
 impl Store {
     pub fn new(mut session: Session) -> Result<Self> {
@@ -58,6 +61,7 @@ impl Store {
             saved_id: Some(0),
             gesture: false,
             gesture_recorded: false,
+            gesture_future: None,
             session,
             past: vec![],
             future: vec![],
@@ -104,6 +108,7 @@ impl Store {
         self.document_id = self.revision;
         self.saved_id = Some(self.document_id);
         self.gesture_recorded = false;
+        self.gesture_future = None;
         Ok(())
     }
     /// Update derived data (captured plugin state) without touching history
@@ -124,6 +129,7 @@ impl Store {
     pub fn set_gesture(&mut self, active: bool) {
         if !active || !self.gesture {
             self.gesture_recorded = false;
+            self.gesture_future = None;
         }
         self.gesture = active;
     }
@@ -137,9 +143,13 @@ impl Store {
                 self.document_id = id;
                 self.revision += 1;
             }
+            if let Some(future) = self.gesture_future.take() {
+                self.future = future;
+            }
         }
         self.gesture = false;
         self.gesture_recorded = false;
+        self.gesture_future = None;
         recorded
     }
     pub fn dispatch(&mut self, command: Command) -> Result<bool> {
@@ -150,6 +160,7 @@ impl Store {
                 self.session = s;
                 self.document_id = id;
                 self.gesture_recorded = false;
+                self.gesture_future = None;
                 self.revision += 1;
                 return Ok(true);
             }
@@ -161,6 +172,7 @@ impl Store {
                 self.session = s;
                 self.document_id = id;
                 self.gesture_recorded = false;
+                self.gesture_future = None;
                 self.revision += 1;
                 return Ok(true);
             }
@@ -175,6 +187,9 @@ impl Store {
             if !self.gesture || !self.gesture_recorded {
                 self.past.push((self.session.clone(), self.document_id));
                 self.gesture_recorded = self.gesture;
+                if self.gesture {
+                    self.gesture_future = Some(std::mem::take(&mut self.future));
+                }
             }
             if self.past.len() > 200 {
                 self.past.remove(0);
