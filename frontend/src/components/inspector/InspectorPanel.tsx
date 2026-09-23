@@ -660,9 +660,17 @@ function Region() {
             step=".0625"
             defaultValue={clip.startBar + 1}
             onBlur={(e) => {
+              // Tabbing through must not add an undo step that changes nothing.
               const startBar = e.currentTarget.valueAsNumber - 1;
-              if (Number.isFinite(startBar) && startBar >= 0)
+              if (
+                Number.isFinite(startBar) &&
+                startBar >= 0 &&
+                startBar !== clip.startBar
+              )
                 store.fire("clip.move", { clipId: clip.id, startBar });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
           />
         </label>
@@ -676,8 +684,15 @@ function Region() {
             defaultValue={clip.lengthBars}
             onBlur={(e) => {
               const lengthBars = e.currentTarget.valueAsNumber;
-              if (Number.isFinite(lengthBars) && lengthBars > 0)
+              if (
+                Number.isFinite(lengthBars) &&
+                lengthBars > 0 &&
+                lengthBars !== clip.lengthBars
+              )
                 store.fire("clip.resize", { clipId: clip.id, lengthBars });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
           />
         </label>

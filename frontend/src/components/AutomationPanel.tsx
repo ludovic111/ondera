@@ -163,6 +163,17 @@ export function AutomationPanel({ onClose }: { onClose: () => void }) {
               if (drag) setDrag({ ...drag, ...point(e) });
             }}
             onPointerUp={() => {
+              const before = drag && lane.points.find((p) => p.id === drag.id);
+              // A click on a point without moving it is not an edit.
+              if (
+                drag &&
+                before &&
+                before.beat === drag.beat &&
+                before.value === drag.value
+              ) {
+                setDrag(null);
+                return;
+              }
               if (drag) {
                 void store
                   .run("automation.setPoint", {
@@ -235,12 +246,17 @@ export function AutomationPanel({ onClose }: { onClose: () => void }) {
                     step="any"
                     defaultValue={p.beat}
                     key={`b${p.beat}`}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
                     onBlur={(e) => {
+                      const beat = e.target.valueAsNumber;
+                      if (!Number.isFinite(beat) || beat === p.beat) return;
                       void store
                         .run("automation.setPoint", {
                           laneId: lane.id,
                           pointId: p.id,
-                          beat: Number(e.target.value),
+                          beat,
                           value: p.value,
                         })
                         .then(refresh)
@@ -257,13 +273,18 @@ export function AutomationPanel({ onClose }: { onClose: () => void }) {
                     step="any"
                     defaultValue={p.value}
                     key={`v${p.value}`}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
                     onBlur={(e) => {
+                      const value = e.target.valueAsNumber;
+                      if (!Number.isFinite(value) || value === p.value) return;
                       void store
                         .run("automation.setPoint", {
                           laneId: lane.id,
                           pointId: p.id,
                           beat: p.beat,
-                          value: Number(e.target.value),
+                          value,
                         })
                         .then(refresh)
                         .catch(store.reportError);
