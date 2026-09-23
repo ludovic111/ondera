@@ -106,14 +106,22 @@ impl Ondera {
         Ok(())
     }
 
+    /// Start the local bridge once it is wanted again (Settings > Control turned back on, or
+    /// a CLI agent provider that needs it). Runs every tick, whichever interface is drawn.
+    pub(crate) fn poll_bridge(&mut self, ctx: &egui::Context) {
+        if self.bridge_wanted && self.control.is_none() {
+            self.bridge_wanted = false;
+            if self.settings.control.enable_bridge {
+                self.start_control(ctx);
+            }
+        }
+    }
+
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context) {
         if let Some(scale) = self.settings_ui.pending_scale.take() {
             ctx.set_zoom_factor(scale);
         }
-        if self.bridge_wanted && self.control.is_none() {
-            self.bridge_wanted = false;
-            self.start_control(ctx);
-        }
+        self.poll_bridge(ctx);
         self.poll_settings_job();
         if !self.settings_ui.open {
             return;
@@ -1126,6 +1134,29 @@ fn row_note(ui: &mut egui::Ui, note: String) {
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+
+    #[test]
+    fn a_wanted_bridge_starts_from_the_tick_and_only_when_enabled() {
+        // Never touch the person's own discovery file from a test.
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("ONDERA_CONTROL", dir.path().join("control.json"));
+        let ctx = egui::Context::default();
+        let mut app = crate::app::Ondera::from_session(ondera_engine::store::empty(), None);
+        app.control = None;
+        app.settings.control.enable_bridge = false;
+        app.bridge_wanted = true;
+        app.poll_bridge(&ctx);
+        assert!(app.control.is_none(), "a disabled bridge stays off");
+        assert!(!app.bridge_wanted);
+        app.settings.control.enable_bridge = true;
+        app.bridge_wanted = true;
+        app.poll_bridge(&ctx);
+        assert!(
+            app.control.is_some(),
+            "turning the bridge back on starts it"
+        );
+        app.control = None;
+    }
 
     #[test]
     fn cli_output_capture_is_bounded_but_drains_the_pipe() {

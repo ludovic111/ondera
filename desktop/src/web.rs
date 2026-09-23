@@ -406,6 +406,7 @@ impl WebHost {
             self.app.poll_control_job();
             self.app.poll_recovery(ctx);
             self.app.poll_agent(ctx);
+            self.app.poll_bridge(ctx);
             self.app.serve_control(false);
             self.app.poll_updates();
         });
