@@ -45,10 +45,7 @@ fn example_bundle_exports_its_plugins_through_the_abi() {
     let mut processor = instance.processor.take().unwrap();
     let mut audio = [[0.5f32, -0.5]; 256];
     // A -6 dB trim with the polarity inverted, after the smoother settles.
-    let changes = [
-        ParamChange { id: 0, value: -6.0 },
-        ParamChange { id: 2, value: 1.0 },
-    ];
+    let changes = [ParamChange::now(0, -6.0), ParamChange::now(2, 1.0)];
     for _ in 0..40 {
         audio = [[0.5, -0.5]; 256];
         processor.process(&mut audio, &[], &changes, &ProcessContext::default());
@@ -235,8 +232,8 @@ fn a_latency_change_reaches_the_editor_after_the_block_it_happened_in() {
     let mut instance = bend_sine(48000);
     let mut processor = instance.processor.take().unwrap();
     assert_eq!(instance.editor.latency(), 0);
-    render(&mut processor, 1, &[], &[ParamChange { id: 1, value: 1.0 }]);
+    render(&mut processor, 1, &[], &[ParamChange::now(1, 1.0)]);
     assert_eq!(instance.editor.latency(), 64);
-    render(&mut processor, 1, &[], &[ParamChange { id: 1, value: 0.0 }]);
+    render(&mut processor, 1, &[], &[ParamChange::now(1, 0.0)]);
     assert_eq!(instance.editor.latency(), 0);
 }

@@ -127,6 +127,11 @@ pub struct Cursor<'a> {
     last_beat: f64,
 }
 impl Cursor<'_> {
+    /// The point the cursor stands on; it changes when a breakpoint is crossed (or musical
+    /// time wraps round a cycle).
+    pub fn segment(&self) -> usize {
+        self.index
+    }
     pub fn value(&mut self, beat: f64) -> Option<f64> {
         let lane = self.lane;
         if !lane.enabled || lane.points.is_empty() {

@@ -18,6 +18,10 @@ const NOTE_CAPACITY: usize = 512;
 const QUEUE_CAPACITY: usize = 2048;
 const PREVIEW_SECONDS: f64 = 0.3;
 
+/// Plugin parameter automation sends a value every this many frames while it moves, plus one
+/// on the exact frame of each breakpoint.
+pub const AUTOMATION_GRAIN: usize = 32;
+
 fn automation_beat(beat: f64, cycle: Option<(f64, f64)>) -> f64 {
     if let Some((start, end)) = cycle {
         if beat < start {
@@ -1002,13 +1006,32 @@ impl Renderer {
             rack.set_param(slot, parameter, value);
         }
         self.automation_resets.clear();
+        // Each lane's value on the block's first frame, then at its frame wherever it crosses a
+        // breakpoint and every AUTOMATION_GRAIN frames while it moves.
         for automation in &self.plugin_automation {
-            let beat = automation_beat(
-                block_start - automation.offset as f64 * dpb,
-                automation_cycle,
-            );
-            if let Some(value) = self.session.automation[automation.lane].value_at(beat) {
-                rack.set_param(automation.slot, automation.parameter, value);
+            let start = block_start - automation.offset as f64 * dpb;
+            let first = automation_beat(start, automation_cycle);
+            let mut cursor = self.session.automation[automation.lane].cursor(first);
+            let Some(mut sent) = cursor.value(first) else {
+                continue;
+            };
+            rack.set_param(automation.slot, automation.parameter, sent);
+            if automation_step == 0.0 {
+                continue;
+            }
+            let mut segment = cursor.segment();
+            for frame in 1..n {
+                let beat =
+                    automation_beat(start + frame as f64 * automation_step, automation_cycle);
+                let Some(value) = cursor.value(beat) else {
+                    break;
+                };
+                let crossed = cursor.segment() != segment;
+                segment = cursor.segment();
+                if value != sent && (crossed || frame % AUTOMATION_GRAIN == 0) {
+                    rack.set_param_at(automation.slot, frame as u32, automation.parameter, value);
+                    sent = value;
+                }
             }
         }
         for (index, channel) in self.channels.iter_mut().enumerate() {
