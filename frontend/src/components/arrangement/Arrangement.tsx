@@ -25,7 +25,11 @@ import { Button } from "../primitives/Button";
 import { InlineEdit } from "../primitives/InlineEdit";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { actionItem, separator, type MenuEntry } from "../../state/menus";
-import { runAction, reportLaneViewportWidth } from "../../state/actions";
+import {
+  runAction,
+  reportLaneViewportWidth,
+  type ActionId,
+} from "../../state/actions";
 import { size } from "../../theme/tokens";
 import styles from "./Arrangement.module.css";
 
@@ -192,18 +196,31 @@ function TrackList() {
     const clip = hitTestClip(state, x, y);
     if (clip) {
       dispatch(commands.clip.select({ clipId: clip.id }));
+      // What the menu offers depends on the clicked clip being selected; the select above
+      // reaches the store later.
+      const picked = {
+        ...state,
+        view: {
+          ...state.view,
+          selectedTrackId: clip.trackId,
+          selectedClipId: clip.id,
+          selectedNoteId: null,
+        },
+      };
+      const item = (id: ActionId, label?: string) =>
+        actionItem(store, id, label, picked);
       const items: MenuEntry[] = [
-        actionItem(store, "openInEditor"),
+        item("openInEditor"),
         { label: "Rename…", onSelect: () => setRenaming(clip.id) },
         separator,
-        actionItem(store, "cut"),
-        actionItem(store, "copy"),
-        actionItem(store, "duplicateClip"),
-        actionItem(store, "splitAtPlayhead"),
+        item("cut"),
+        item("copy"),
+        item("duplicateClip"),
+        item("splitAtPlayhead"),
         separator,
-        actionItem(store, "deleteSelection", "Delete Clip"),
+        item("deleteSelection", "Delete Clip"),
         separator,
-        actionItem(store, "askAgent", "Ask Agent About This Region…"),
+        item("askAgent", "Ask Agent About This Region…"),
       ];
       setMenu({ x: e.clientX, y: e.clientY, items });
       return;
