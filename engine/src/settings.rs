@@ -470,18 +470,20 @@ impl Settings {
         .collect()
     }
     /// The API key for a provider: settings first, then the conventional environment variable.
+    /// A compatible endpoint is whatever server the person typed in: it gets only the key
+    /// stored for it, never the OpenAI key from the environment.
     pub fn api_key(&self, provider: Provider) -> Option<String> {
         let (stored, env) = match provider {
-            Provider::Anthropic => (&self.agent.anthropic_api_key, "ANTHROPIC_API_KEY"),
-            Provider::OpenAi => (&self.agent.openai_api_key, "OPENAI_API_KEY"),
-            Provider::Compatible => (&self.agent.compatible_api_key, "OPENAI_API_KEY"),
+            Provider::Anthropic => (&self.agent.anthropic_api_key, Some("ANTHROPIC_API_KEY")),
+            Provider::OpenAi => (&self.agent.openai_api_key, Some("OPENAI_API_KEY")),
+            Provider::Compatible => (&self.agent.compatible_api_key, None),
             _ => return None,
         };
         let stored = stored.trim();
         if !stored.is_empty() {
             return Some(stored.to_string());
         }
-        std::env::var(env)
+        std::env::var(env?)
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
@@ -750,6 +752,26 @@ mod tests {
         assert!(Settings::read(&dir.path().join("absent.json")).unwrap() == Settings::default());
         std::fs::write(&path, "{broken").unwrap();
         assert!(Settings::read(&path).is_err());
+    }
+
+    #[test]
+    fn a_compatible_endpoint_never_receives_the_openai_key_from_the_environment() {
+        let settings = Settings::default();
+        // A compatible server without a stored key gets no key at all, even with one in the
+        // environment. (Only this test reads OPENAI_API_KEY in this crate.)
+        std::env::set_var("OPENAI_API_KEY", "sk-from-the-environment");
+        assert_eq!(settings.api_key(Provider::Compatible), None);
+        assert_eq!(
+            settings.api_key(Provider::OpenAi).as_deref(),
+            Some("sk-from-the-environment")
+        );
+        std::env::remove_var("OPENAI_API_KEY");
+        let mut stored = Settings::default();
+        stored.agent.compatible_api_key = " local-key ".into();
+        assert_eq!(
+            stored.api_key(Provider::Compatible).as_deref(),
+            Some("local-key")
+        );
     }
 
     #[test]
