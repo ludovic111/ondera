@@ -56,6 +56,22 @@ impl Container {
             _ => Self::Wav,
         }
     }
+    /// The container for a mix written to `path`, refusing an extension Ondera does not write
+    /// (a `.mp3` must not quietly hold WAV). No extension means WAV.
+    pub fn for_path(path: &Path) -> Result<Self> {
+        match path.extension().and_then(|e| e.to_str()) {
+            None => Ok(Self::Wav),
+            Some(ext) if ext.eq_ignore_ascii_case("wav") || ext.eq_ignore_ascii_case("wave") => {
+                Ok(Self::Wav)
+            }
+            Some(ext) => match Self::of(path) {
+                Self::Wav => Err(format!(
+                    "Ondera exports .wav, .aiff, .flac or .ogg files, not .{ext}"
+                )),
+                container => Ok(container),
+            },
+        }
+    }
     pub fn parse(text: &str) -> Result<Self> {
         match text.to_ascii_lowercase().as_str() {
             "wav" => Ok(Self::Wav),
@@ -185,6 +201,7 @@ pub fn mix(
     options: &ExportOptions,
 ) -> Result<ExportReport> {
     session.validate()?;
+    Container::for_path(path)?;
     let (start, end) = options.range(session)?;
     let mut song = session.clone();
     song.transport.cycle = false;
@@ -744,6 +761,28 @@ fn publish_directory(source: &Path, destination: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_mix_path_names_a_container_ondera_writes() {
+        let of = |p: &str| Container::for_path(Path::new(p));
+        assert_eq!(of("song").unwrap(), Container::Wav);
+        assert_eq!(of("song.WAV").unwrap(), Container::Wav);
+        assert_eq!(of("song.flac").unwrap(), Container::Flac);
+        assert_eq!(of("song.ogg").unwrap(), Container::Ogg);
+        assert_eq!(of("song.aif").unwrap(), Container::Aiff);
+        let refused = of("song.mp3").unwrap_err().to_string();
+        assert!(refused.contains(".mp3"), "{refused}");
+        let session = crate::store::empty();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.mp3");
+        assert!(mix(
+            &session,
+            &Library::default(),
+            &path,
+            &ExportOptions::default()
+        )
+        .is_err());
+        assert!(!path.exists());
+    }
     #[test]
     fn exclusive_stem_publish_preserves_a_concurrent_destination() {
         let dir = tempfile::tempdir().unwrap();
