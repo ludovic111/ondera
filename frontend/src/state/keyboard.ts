@@ -61,24 +61,26 @@ export function useKeyboardShortcuts(): void {
   useEffect(() => {
     let octave = 0;
     const held = new Map<string, number>();
+    // Physical keys (KeyboardEvent.code), so the piano keeps its shape on AZERTY, QWERTZ
+    // or Dvorak: the home row plays white keys, the row above the black ones.
     const offsets: Record<string, number> = {
-      a: 0,
-      w: 1,
-      s: 2,
-      e: 3,
-      d: 4,
-      f: 5,
-      t: 6,
-      g: 7,
-      y: 8,
-      h: 9,
-      u: 10,
-      j: 11,
-      k: 12,
-      o: 13,
-      l: 14,
-      p: 15,
-      ";": 16,
+      KeyA: 0,
+      KeyW: 1,
+      KeyS: 2,
+      KeyE: 3,
+      KeyD: 4,
+      KeyF: 5,
+      KeyT: 6,
+      KeyG: 7,
+      KeyY: 8,
+      KeyH: 9,
+      KeyU: 10,
+      KeyJ: 11,
+      KeyK: 12,
+      KeyO: 13,
+      KeyL: 14,
+      KeyP: 15,
+      Semicolon: 16,
     };
     const release = () => {
       held.clear();
@@ -117,17 +119,21 @@ export function useKeyboardShortcuts(): void {
         }
       }
       if (store.ui.musicalTyping && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        const key = e.key.toLowerCase();
-        if (key === "z" || key === "x") {
+        const key = e.code;
+        if (key === "KeyZ" || key === "KeyX") {
           e.preventDefault();
           if (!e.repeat)
-            octave = Math.max(-3, Math.min(3, octave + (key === "z" ? -1 : 1)));
+            octave = Math.max(
+              -3,
+              Math.min(3, octave + (key === "KeyZ" ? -1 : 1)),
+            );
           return;
         }
-        if (key in offsets) {
+        const offset = offsets[key];
+        if (offset !== undefined) {
           e.preventDefault();
           if (!e.repeat && !held.has(e.code)) {
-            const pitch = 60 + octave * 12 + offsets[key];
+            const pitch = 60 + octave * 12 + offset;
             held.set(e.code, pitch);
             store.fire("web.liveNote", { pitch, on: true });
           }
