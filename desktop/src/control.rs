@@ -931,7 +931,7 @@ impl Host for Ondera {
             "audio.status" => Ok(self.audio_status()),
             "audio.allowSpeakerMonitoring" => {
                 self.monitor_speakers_ok = params["allow"].as_bool().unwrap_or(false);
-                self.poll_input_meter();
+                self.poll_input();
                 Ok(self.audio_status())
             }
             "audio.setOutput" | "audio.setInput" => {

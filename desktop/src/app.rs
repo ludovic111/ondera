@@ -5,7 +5,7 @@ use crate::{
 use eframe::egui;
 use ondera_engine::{
     audio::{self, Library},
-    device::{DeviceEngine, Message, RecordedAudio, Recorder},
+    device::{DeviceEngine, LiveInput, Message, RecordedAudio, Recorder},
     document, host, midi,
     model::*,
     plugin::Descriptor,
@@ -102,7 +102,8 @@ pub struct Ondera {
     pub(crate) synced_revision: Option<u64>,
     pub(crate) recorder: Option<Recorder>,
     pub(crate) device_pending: Option<mpsc::Receiver<Result<DeviceEngine>>>,
-    pub(crate) record_pending: Option<mpsc::Receiver<Result<Recorder>>>,
+    /// A take waiting for the input to open, with its byte limit.
+    pub(crate) record_pending: Option<usize>,
     pub(crate) record_finishing: Option<mpsc::Receiver<Result<RecordedAudio>>>,
     pub(crate) after_take: Option<AfterTake>,
     pub(crate) recording_tracks: Vec<String>,
@@ -154,15 +155,17 @@ pub struct Ondera {
     pub(crate) attach_live: Option<usize>,
     /// A `session.batch` is running: its commands share one undo step.
     pub(crate) batching: bool,
-    /// Input stream kept open for the level meter while an audio track is armed.
-    input_meter: Option<ondera_engine::device::InputMeter>,
-    input_meter_pending: Option<mpsc::Receiver<Result<ondera_engine::device::InputMeter>>>,
-    /// The device the meter was opened on; a change reopens it.
-    input_meter_device: Option<String>,
-    /// The meter failed for this device; do not retry until something changes.
-    input_meter_failed: bool,
-    /// What the open input stream was asked for: (monitoring wanted, speakers allowed).
-    input_meter_key: (bool, bool),
+    /// The one input stream: level meter, monitoring and takes. Open while an audio track is
+    /// armed (and the meter setting allows it), a track monitors the input, or a take runs.
+    input: Option<LiveInput>,
+    input_pending: Option<mpsc::Receiver<Result<LiveInput>>>,
+    /// The device and buffer size the input was opened with; a change reopens it between takes.
+    input_key: (Option<String>, Option<u32>),
+    /// The input failed to open for this key; do not retry until something changes.
+    input_failed: bool,
+    /// What the open input was last told about monitoring: (monitoring wanted, speakers
+    /// allowed). `None` after the input or the output changed, so the tap is made again.
+    monitor_key: Option<(bool, bool)>,
     /// How the open input stream answered the request to monitor.
     pub(crate) monitoring: ondera_engine::device::Monitoring,
     /// The user accepted built-in microphone to built-in speakers, until the app closes.
@@ -317,11 +320,11 @@ impl Ondera {
             live_jobs: vec![],
             attach_live: None,
             batching: false,
-            input_meter: None,
-            input_meter_pending: None,
-            input_meter_device: None,
-            input_meter_failed: false,
-            input_meter_key: (false, false),
+            input: None,
+            input_pending: None,
+            input_key: (None, None),
+            input_failed: false,
+            monitor_key: None,
             monitoring: ondera_engine::device::Monitoring::Off,
             monitor_speakers_ok: false,
             bridge_wanted: false,
@@ -653,10 +656,9 @@ impl Ondera {
             match result {
                 Ok(device) => {
                     self.device = Some(device);
-                    // A monitor tap was handed to the previous output callback.
-                    self.input_meter = None;
-                    self.input_meter_pending = None;
-                    self.input_meter_failed = false;
+                    // The monitor tap belonged to the previous output callback: make a new
+                    // one; the input stream itself stays open.
+                    self.monitor_key = None;
                     self.sync_needed = true;
                     self.synced_revision = None;
                     self.connect_midi(self.midi_port.clone());
@@ -671,32 +673,8 @@ impl Ondera {
         self.update_midi_route();
         self.reconcile_plugins();
         self.idle_plugins();
-        if let Some(result) = self
-            .record_pending
-            .as_ref()
-            .and_then(|rx| match rx.try_recv() {
-                Ok(v) => Some(v),
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    Some(Err("Microphone worker stopped".into()))
-                }
-                Err(_) => None,
-            })
-        {
-            self.record_pending = None;
-            match result {
-                Ok(recorder) if self.playing && self.record_enabled => {
-                    self.monitoring = recorder.monitoring.clone();
-                    self.recorder = Some(recorder);
-                    self.status = "Recording…".into();
-                }
-                Ok(recorder) => {
-                    std::thread::spawn(move || drop(recorder));
-                }
-                Err(e) => {
-                    self.error = Some(e);
-                    self.record_enabled = false;
-                }
-            }
+        if self.record_pending.is_some() {
+            self.poll_input();
         }
         let result = self.job.as_ref().and_then(|rx| match rx.try_recv() {
             Ok(v) => Some(v),
@@ -890,11 +868,7 @@ impl Ondera {
                 self.error=Some("Audio device disconnected. Use Audio > Reconnect output after reconnecting it.".into());
             }
         }
-        if self
-            .recorder
-            .as_ref()
-            .is_some_and(|r| r.failed.load(Ordering::Relaxed))
-        {
+        if self.recorder.as_ref().is_some_and(|r| r.failed()) {
             self.stop();
         }
     }
@@ -969,34 +943,62 @@ impl Ondera {
                 allow_speakers: self.monitor_speakers_ok,
             })
     }
-    /// Keep the input open exactly while it is useful: an audio track is armed and the
-    /// setting allows the meter, or a track monitors the input, and no take owns the microphone.
-    pub(crate) fn poll_input_meter(&mut self) {
+    /// Keep the one input stream open exactly while it is useful: an audio track is armed and
+    /// the setting allows the meter, a track monitors the input, or a take runs. Monitoring and
+    /// takes attach to the open stream, so neither reopens the device.
+    pub(crate) fn poll_input(&mut self) {
+        use ondera_engine::device::Monitoring;
         if let Some(result) = self
-            .input_meter_pending
+            .input_pending
             .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
+            .and_then(|rx| match rx.try_recv() {
+                Ok(v) => Some(v),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("Microphone worker stopped".into()))
+                }
+                Err(_) => None,
+            })
         {
-            self.input_meter_pending = None;
+            self.input_pending = None;
             match result {
-                Ok(meter) => {
-                    self.monitoring = meter.monitoring.clone();
-                    self.input_meter = Some(meter);
+                Ok(input) => {
+                    self.input = Some(input);
+                    self.monitor_key = None;
                 }
                 Err(error) => {
-                    self.input_meter_failed = true;
-                    self.monitoring = if self.input_meter_key.0 {
-                        ondera_engine::device::Monitoring::Failed(error)
+                    self.input_failed = true;
+                    if self.record_pending.take().is_some() {
+                        self.error = Some(error.clone());
+                        self.record_enabled = false;
+                    }
+                    self.monitoring = if self.monitor_wanted() {
+                        Monitoring::Failed(error)
                     } else {
-                        ondera_engine::device::Monitoring::Off
+                        Monitoring::Off
                     };
                 }
             }
         }
-        let recording = self.recorder.is_some()
-            || self.record_pending.is_some()
-            || self.record_finishing.is_some();
-        let key = (self.monitor_wanted(), self.monitor_speakers_ok);
+        let taking = self.recorder.is_some() || self.record_pending.is_some();
+        // A new device or buffer size reopens the input, but never under a running take.
+        let key = (self.input_device.clone(), self.settings.audio.buffer_frames);
+        if self.input_key != key && !taking {
+            self.input = None;
+            self.input_pending = None;
+            self.input_failed = false;
+            self.input_key = key;
+        }
+        if !taking && self.input.as_ref().is_some_and(|input| input.failed()) {
+            self.input = None;
+            self.input_failed = true;
+            if self.monitor_wanted() {
+                self.monitoring = Monitoring::Failed(
+                    "The input device stopped; reconnect it or choose another in Settings > Audio"
+                        .into(),
+                );
+            }
+        }
+        let monitor = self.monitor_wanted();
         let metering = self.settings.audio.meter_input_when_armed
             && self
                 .store
@@ -1004,43 +1006,50 @@ impl Ondera {
                 .tracks
                 .iter()
                 .any(|t| t.kind == "audio" && t.armed);
-        let wanted = (metering || key.0) && !recording && self.device.is_some();
-        // The tap belongs to one output callback and one answer about the speakers: reopen
-        // the input when the device, the wish to monitor or that answer changes.
-        if self.input_meter_device != self.input_device || self.input_meter_key != key {
-            self.input_meter = None;
-            self.input_meter_pending = None;
-            self.input_meter_failed = false;
-            self.input_meter_device = self.input_device.clone();
-            self.input_meter_key = key;
-        }
+        let wanted = (metering || monitor || taking) && self.device.is_some();
         if !wanted {
-            // Dropping the handle closes the stream, so a take never competes for the device.
-            self.input_meter = None;
-            if !recording {
-                self.input_meter_failed = false;
-                self.monitoring = ondera_engine::device::Monitoring::Off;
+            self.input = None;
+            self.input_pending = None;
+            self.input_failed = false;
+            self.monitor_key = None;
+            self.monitoring = Monitoring::Off;
+            return;
+        }
+        if self.input.is_some() {
+            let monitor_key = (monitor, self.monitor_speakers_ok);
+            if self.monitor_key != Some(monitor_key) {
+                let link = self.monitor_link();
+                if let Some(input) = self.input.as_mut() {
+                    self.monitoring = input.monitor(link.as_ref());
+                }
+                self.monitor_key = Some(monitor_key);
+            }
+            if let (Some(limit), Some(input)) = (self.record_pending.take(), self.input.as_mut()) {
+                match input.record(limit) {
+                    Ok(recorder) => {
+                        self.recorder = Some(recorder);
+                        self.status = "Recording…".into();
+                    }
+                    Err(error) => {
+                        self.error = Some(error);
+                        self.record_enabled = false;
+                    }
+                }
             }
             return;
         }
-        if self.input_meter.is_some()
-            || self.input_meter_pending.is_some()
-            || self.input_meter_failed
-        {
+        if self.input_pending.is_some() || self.input_failed {
             return;
         }
         let Some(telemetry) = self.device.as_ref().map(|d| d.telemetry.clone()) else {
             return;
         };
         let input = self.input_device.clone();
-        let link = self.monitor_link();
         let buffer = self.settings.audio.buffer_frames;
         let (tx, rx) = mpsc::sync_channel(1);
-        self.input_meter_pending = Some(rx);
+        self.input_pending = Some(rx);
         std::thread::spawn(move || {
-            let _ = tx.send(ondera_engine::device::InputMeter::start(
-                telemetry, input, link, buffer,
-            ));
+            let _ = tx.send(LiveInput::open(telemetry, input, buffer));
         });
     }
     /// What the status line says while a take runs; `None` leaves it alone (the microphone
@@ -1147,18 +1156,11 @@ impl Ondera {
         if self.recording_tracks.is_empty() {
             return;
         }
-        let telemetry = d.telemetry.clone();
-        let input = self.input_device.clone();
-        let link = self.monitor_link();
-        let buffer = self.settings.audio.buffer_frames;
-        self.input_meter = None;
-        self.input_meter_pending = None;
-        let (tx, rx) = mpsc::sync_channel(1);
-        self.record_pending = Some(rx);
+        // The take joins the open input stream (opening it first if needed), so what a
+        // monitoring singer hears does not drop out when the take starts.
+        self.record_pending = Some(byte_limit);
         self.status = "Opening microphone — check system permission…".into();
-        std::thread::spawn(move || {
-            let _ = tx.send(Recorder::start(telemetry, input, byte_limit, link, buffer));
-        });
+        self.poll_input();
     }
     pub fn stop(&mut self) {
         let events = self
@@ -1194,13 +1196,10 @@ impl Ondera {
         if let Some(d) = &mut self.device {
             let _ = d.send(Message::SetRecording(false));
         }
+        self.record_pending = None;
         if let Some(r) = self.recorder.take() {
-            let first = f64::from_bits(r.first_beat.load(Ordering::Relaxed));
-            self.record_start = if first.is_finite() {
-                first
-            } else {
-                self.record_start
-            };
+            r.end();
+            self.record_start = r.first_beat().unwrap_or(self.record_start);
             let (tx, rx) = mpsc::sync_channel(1);
             self.record_finishing = Some(rx);
             self.status = "Finishing take…".into();
@@ -2409,6 +2408,7 @@ mod tests {
         fn send<T: std::marker::Send>() {}
         send::<DeviceEngine>();
         send::<Recorder>();
+        send::<LiveInput>();
     }
     #[test]
     fn undo_shortcut_works_after_focusing_a_non_text_control() {

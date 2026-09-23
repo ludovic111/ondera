@@ -444,7 +444,7 @@ impl WebHost {
                 .map(|p| (p * 1000.).round() / 1000.)
                 .collect()
         });
-        self.app.poll_input_meter();
+        self.app.poll_input();
         let (input_peak, counting_in) = self.app.device.as_ref().map_or((0., false), |d| {
             (
                 (d.telemetry.take_input_peak().min(1.) * 1000.).round() / 1000.,
