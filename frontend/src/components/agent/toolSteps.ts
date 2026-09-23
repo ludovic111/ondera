@@ -15,7 +15,7 @@ const PHRASES: Record<string, (a: Args) => string> = {
   "track.setVolume": () => "Set a track's volume",
   "track.setPan": () => "Set a track's pan",
   "track.setMute": (a) =>
-    a.mute === false ? "Unmuted a track" : "Muted a track",
+    a.muted === false ? "Unmuted a track" : "Muted a track",
   "track.setSolo": (a) =>
     a.solo === false ? "Unsoloed a track" : "Soloed a track",
   "track.duplicate": () => "Duplicated a track",
@@ -40,7 +40,13 @@ const PHRASES: Record<string, (a: Args) => string> = {
     `Loaded ${String(a.pluginId ?? "a plugin").replace(/^[a-z0-9]+:/, "")}`,
   "strip.setInstrument": (a) => `Chose the instrument${q(a.instrument)}`,
   "strip.setInsert": (a) =>
-    a.effect ? `Inserted${q(a.effect)}` : "Cleared an insert",
+    a.effect
+      ? `Inserted${q(a.effect)}`
+      : typeof a.bypassed === "boolean"
+        ? a.bypassed
+          ? "Bypassed an effect"
+          : "Enabled an effect"
+        : "Cleared an insert",
   "strip.setParameter": () => "Turned a dial",
   "strip.setParameters": () => "Dialled in a sound",
   "strip.setSendLevel": () => "Set a send level",

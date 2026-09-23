@@ -261,8 +261,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("strip.setInsert", "Load, bypass or clear an insert effect slot.", &[
         TRACK_ID,
         req("slot", Kind::Integer, "Insert slot 0-7."),
-        opt("effect", Kind::String, "Effect name from session.catalog. Omit or null to empty the slot."),
-        opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false)."),
+        opt("effect", Kind::String, "Effect name from session.catalog. Omit it, and bypassed, to empty the slot."),
+        opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false). Without effect, bypasses or enables the effect already in the slot."),
     ]),
     edit("strip.setSendLevel", "Set a send level to the reverb (A) or delay (B) bus.", &[
         TRACK_ID,
@@ -1442,6 +1442,22 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "strip.setInsert" => {
                     let slot = plugin_slot(&a)?.ok_or("Insert slot required")?;
                     strip.inserts[slot] = match a.opt_str("effect") {
+                        // `bypassed` alone bypasses what is there: emptying the slot would
+                        // throw away the effect and its settings.
+                        None if a.opt_bool("bypassed").is_some() => {
+                            let mut insert = strip.inserts[slot].clone();
+                            if insert.is_empty() {
+                                return Err(format!(
+                                    "Insert slot {slot} is empty; pass `effect` to load one"
+                                ));
+                            }
+                            insert.state = if a.opt_bool("bypassed") == Some(true) {
+                                "bypassed".into()
+                            } else {
+                                "active".into()
+                            };
+                            insert
+                        }
                         None => Insert::empty_slot(),
                         Some(effect) => {
                             if !EFFECTS.contains(&effect) {
