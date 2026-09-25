@@ -2,7 +2,7 @@
 
 <!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `ONDERA_BLESS=1 cargo test -p ondera-tools --test command_docs`. -->
 
-Ondera has 177 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
+Ondera has 182 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
 
 Conventions: bars and beats are zero-based; note `start` and `length` are beats relative to their clip; pitch 60 is C4; velocity is 1–127; a fader value of 0.75 is unity gain. Strip commands accept a track id or `master`, `bus-a`, `bus-b`; insert slots are 0–7.
 
@@ -10,13 +10,13 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 
 ## Families
 
-- [session](#session) — `session.info`, `session.get`, `session.inspect`, `session.catalog`, `session.commands`, `session.new`, `session.open`, `session.save`, `session.rename`, `session.bounce`, `session.importAudio`, `session.importMidi`, `session.exportMidi`, `session.exportAudio`, `session.exportStems`, `session.batch`, `session.saveRecoveredTake`, `session.snapshots`, `session.restoreSnapshot`
+- [session](#session) — `session.info`, `session.get`, `session.inspect`, `session.catalog`, `session.commands`, `session.new`, `session.open`, `session.save`, `session.rename`, `session.bounce`, `session.importAudio`, `session.importMidi`, `session.exportMidi`, `session.exportAudio`, `session.exportStems`, `session.batch`, `session.saveRecoveredTake`, `session.snapshots`, `session.restoreSnapshot`, `session.overview`
 - [plugin](#plugin) — `plugin.list`, `plugin.scan`, `plugin.folders`, `plugin.setFavorite`, `plugin.setFolder`, `plugin.scaffold`, `plugin.install`, `plugin.describe`
 - [transport](#transport) — `transport.play`, `transport.record`, `transport.stop`, `transport.locate`, `transport.returnToStart`, `transport.setTempo`, `transport.setTimeSignature`, `transport.setKey`, `transport.setCycle`, `transport.setMetronome`, `transport.setSnap`, `transport.punch`
 - [track](#track) — `track.list`, `track.add`, `track.remove`, `track.rename`, `track.setMute`, `track.setSolo`, `track.setArmed`, `track.setMonitor`, `track.setVolume`, `track.setPan`, `track.setColor`, `track.move`, `track.select`, `track.duplicate`
 - [clip](#clip) — `clip.list`, `clip.get`, `clip.create`, `clip.move`, `clip.resize`, `clip.rename`, `clip.split`, `clip.duplicate`, `clip.copy`, `clip.cut`, `clip.paste`, `clip.remove`, `clip.setNotes`, `clip.addLoop`, `clip.select`, `clip.trim`, `clip.deselect`, `clip.setFades`, `clip.setGain`, `clip.humanize`, `clip.velocityRamp`, `clip.fitScale`, `clip.reverseMidi`, `clip.legato`, `clip.repeat`, `clip.quantize`, `clip.transpose`
 - [note](#note) — `note.list`, `note.add`, `note.update`, `note.remove`, `note.preview`, `note.hold`, `note.releaseAll`
-- [strip](#strip) — `strip.get`, `strip.setInstrument`, `strip.setInsert`, `strip.setSendLevel`, `strip.setPlugin`, `strip.parameters`, `strip.setParameter`, `strip.setParameters`, `strip.setBypass`, `strip.getState`, `strip.setState`, `strip.moveInsert`
+- [strip](#strip) — `strip.get`, `strip.setInstrument`, `strip.setInsert`, `strip.setSendLevel`, `strip.setPlugin`, `strip.setBypass`, `strip.getState`, `strip.setState`, `strip.moveInsert`, `strip.parameters`, `strip.setParameter`, `strip.setParameters`, `strip.programs`, `strip.setProgram`, `strip.removeInsert`
 - [master](#master) — `master.setVolume`
 - [history](#history) — `history.undo`, `history.redo`, `history.info`
 - [source](#source) — `source.peaks`
@@ -29,7 +29,7 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 - [preset](#preset) — `preset.list`, `preset.save`, `preset.load`, `preset.delete`
 - [settings](#settings) — `settings.get`, `settings.set`, `settings.reset`
 - [audio](#audio) — `audio.devices`, `audio.status`, `audio.allowSpeakerMonitoring`, `audio.setOutput`, `audio.setInput`, `audio.setMidiInput`, `audio.reconnect`
-- [ui](#ui) — `ui.screenshot`, `ui.showPanel`, `ui.openPluginWindow`, `ui.closePluginWindow`, `ui.dismissError`, `ui.closePluginWindows`, `ui.musicalTyping`, `ui.setTool`, `ui.status`
+- [ui](#ui) — `ui.screenshot`, `ui.showPanel`, `ui.openPluginWindow`, `ui.closePluginWindow`, `ui.dismissError`, `ui.closePluginWindows`, `ui.musicalTyping`, `ui.setTool`, `ui.status`, `ui.state`
 - [app](#app) — `app.info`, `app.checkUpdates`, `app.installUpdate`, `app.quit`, `app.confirm`, `app.openGuide`, `app.relaunch`
 - [agent](#agent) — `agent.status`, `agent.configure`, `agent.providers`, `agent.models`, `agent.connection`, `agent.send`, `agent.stop`, `agent.transcript`, `agent.changes`, `agent.revert`, `agent.clear`
 
@@ -93,7 +93,7 @@ Save the session as a .ondera file. Writes atomically; the old file survives a f
 
 *Edits*
 
-Set the session name.
+Set the session name shown in the title bar and used for exports. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -221,6 +221,16 @@ Open a recovery snapshot in the window as an unsaved copy.
 |---|---|---|---|
 | `path` | string | yes | Snapshot path from session.snapshots. |
 
+### `session.overview`
+
+Everything about the song in one compact answer; call it first. Song (tempo, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string |  | Only this track (id or name), with every clip. |
+| `maxClips` | integer |  | Clips listed per track, 0-200. Default: 12, fewer in songs with many tracks (about 48 in all); the rest are counted and their bars shown in covers. |
+| `parameters` | boolean |  | List changed plugin parameters (default true, at most 6 per plugin). |
+
 ## plugin
 
 ### `plugin.list`
@@ -296,11 +306,13 @@ Copy a built native plugin library (.dylib, .so, .dll or .onplug) into Ondera's 
 
 ### `plugin.describe`
 
-Describe a plugin without placing it: format, vendor, category and every parameter with ids, ranges, units and defaults.
+Describe an installed plugin without placing it: format, vendor, category, latency, whether it has its own window, its factory programs and Ondera presets, and its parameters with ids, ranges, units, defaults as displayed and whether they can be automated.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `pluginId` | string | yes | Descriptor ID from plugin.list, for example stock:Space. |
+| `pluginId` | string | yes | Descriptor ID from plugin.list (stock:Space, vst3:…), or the plugin's name. |
+| `query` | string |  | Only parameters whose name matches these words. |
+| `limit` | integer |  | Parameters to return, 1-10000, default 200. |
 
 ## transport
 
@@ -320,7 +332,7 @@ Record armed audio and MIDI tracks in the running app. Disable cycle before reco
 
 *Edits*
 
-Stop playback and recording.
+Stop playback and recording, like the Stop button.
 
 ### `transport.locate`
 
@@ -344,7 +356,7 @@ Move the playhead to the beginning.
 
 *Edits*
 
-Set the tempo.
+Set the song tempo in beats per minute, like dragging the tempo display. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -354,7 +366,7 @@ Set the tempo.
 
 *Edits*
 
-Set the time signature.
+Set the meter. Clips keep their bar positions and automation moves with them, in one undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -365,7 +377,7 @@ Set the time signature.
 
 *Edits*
 
-Set the displayed song key.
+Set the song key shown in the transport (a label; it does not transpose anything).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -387,7 +399,7 @@ Enable or disable cycle (loop) playback and optionally set its range.
 
 *Edits*
 
-Enable or disable the click.
+Turn the metronome click on or off for playback and recording.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -397,7 +409,7 @@ Enable or disable the click.
 
 *Edits*
 
-Set the grid snap division.
+Set the grid that drags, the playhead and clip.quantize snap to, in notes per bar.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -446,7 +458,7 @@ Delete a track and every clip on it.
 
 *Edits*
 
-Rename a track.
+Rename a track (names can then be used instead of its id). One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -457,7 +469,7 @@ Rename a track.
 
 *Edits*
 
-Mute or unmute a track.
+Mute or unmute a track, like its M button. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -468,7 +480,7 @@ Mute or unmute a track.
 
 *Edits*
 
-Solo or unsolo a track.
+Solo or unsolo a track, like its S button: while any track is soloed, the others are silent. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -501,7 +513,7 @@ Hear the live input through an audio track's inserts, sends and fader. auto moni
 
 *Edits*
 
-Set the fader.
+Set a track fader. The scale is the mixer's: 0.75 is 0 dB, 1.0 is +6 dB, 0 is silent. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -512,7 +524,7 @@ Set the fader.
 
 *Edits*
 
-Set stereo pan.
+Set a track's stereo pan, -100 (left) to 100 (right). One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -523,7 +535,7 @@ Set stereo pan.
 
 *Edits*
 
-Set the track colour.
+Set a track's colour in the arrangement and mixer. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -612,7 +624,7 @@ Move a clip to another bar and/or track of the same kind.
 
 *Edits*
 
-Change a clip's length.
+Change a clip's length in bars, keeping its start, like dragging its right edge. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -623,7 +635,7 @@ Change a clip's length.
 
 *Edits*
 
-Rename a clip.
+Rename a clip (region); a unique name can then be used instead of its id. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -686,7 +698,7 @@ Paste the clipboard as a new clip. MIDI goes on instrument tracks and audio on a
 
 *Edits*
 
-Delete a clip.
+Delete a clip (region) and its notes or audio placement. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -874,7 +886,7 @@ List the notes of a MIDI clip.
 
 *Edits*
 
-Add a note to a MIDI clip.
+Add one note to a MIDI clip, like drawing it in the piano roll. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -897,13 +909,13 @@ Change a note's timing, pitch or velocity.
 | `start` | number |  | Start in beats relative to the clip. |
 | `length` | number |  | Length in beats. |
 | `pitch` | integer |  | MIDI pitch 0-127. |
-| `velocity` | integer |  | 1-127. |
+| `velocity` | integer |  | Velocity 1-127. |
 
 ### `note.remove`
 
 *Edits*
 
-Delete a note.
+Delete one note from a MIDI clip. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -990,47 +1002,15 @@ Set a send level to the reverb (A) or delay (B) bus.
 
 *Edits*
 
-Load a stock or installed external plugin. Omit slot for a MIDI instrument; pass slot 0-7 for an insert on a track or bus.
+Load a stock or installed external plugin (CLAP, VST3, AU, native) as a MIDI track's instrument (omit slot) or as an insert (slot 0-7, or firstFreeSlot) on a track or bus. Name it by pluginId, or by plugin: a search such as "pro q" or "diva" that must single out one plugin of the right kind.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `trackId` | string | yes | Track id, as listed by track.list. |
 | `slot` | integer |  | Insert slot 0-7. Omit for the instrument. |
-| `pluginId` | string | yes | Stable descriptor ID from plugin.list, for example stock:Space. |
-
-### `strip.parameters`
-
-Read a plugin's parameter IDs, plain values, bounds and units. Omit slot for the MIDI instrument.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `trackId` | string | yes | Track id, as listed by track.list. |
-| `slot` | integer |  | Insert slot 0-7. Omit for the instrument. |
-
-### `strip.setParameter`
-
-*Edits*
-
-Set a plugin parameter using its plain value and ID from strip.parameters, in one undo step.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `trackId` | string | yes | Track id, as listed by track.list. |
-| `slot` | integer |  | Insert slot 0-7. Omit for the instrument. |
-| `parameterId` | integer | yes | Parameter ID from strip.parameters. |
-| `value` | number | yes | Plain parameter value within its min and max. |
-
-### `strip.setParameters`
-
-*Edits*
-
-Set several plugin parameters atomically in one undo step. Read strip.parameters first.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `trackId` | string | yes | Track id, as listed by track.list. |
-| `slot` | integer |  | Insert slot 0-7. Omit for the instrument. |
-| `values` | object | yes | Object mapping parameter IDs to plain numeric values. |
+| `firstFreeSlot` | boolean |  | Put the effect in the first empty insert slot (default false). |
+| `pluginId` | string |  | Stable descriptor ID from plugin.list, for example stock:Space or vst3:… |
+| `plugin` | string |  | Plugin name or search words, instead of pluginId. |
 
 ### `strip.setBypass`
 
@@ -1076,6 +1056,80 @@ Move an insert to another slot on the same strip, shifting the others.
 | `trackId` | string | yes | Track id, as listed by track.list. |
 | `from` | integer | yes | Slot 0-7 to move. |
 | `to` | integer | yes | Destination slot 0-7. |
+
+### `strip.parameters`
+
+Read the parameters of the plugin on a strip (a track's instrument or insert, or a bus insert): id, name, plain value, display text as the plugin shows it, normalized 0-1 position, min, max, default, unit, steps, labels, whether it can be automated and the automation lane that drives it. Filter by name with query; pages of `limit`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `slot` | integer |  | Insert slot 0-7. Omit for the MIDI track's instrument. |
+| `query` | string |  | Only parameters whose name matches these words, best match first ("filter cutoff"). |
+| `changed` | boolean |  | Only parameters set away from their default (default false). |
+| `offset` | integer |  | Zero-based offset into the result, default 0. |
+| `limit` | integer |  | Parameters to return, 1-10000, default 200. |
+
+### `strip.setParameter`
+
+*Edits*
+
+Set one plugin parameter in one undo step. Name it by parameterId or parameter (its name); give exactly one of value (plain, within min-max), normalized (0-1 of the range) or text (what the plugin displays, such as "-6 dB", "50%" or a label like "Hall"). Answers with the parameter as it now reads.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `slot` | integer |  | Insert slot 0-7. Omit for the MIDI track's instrument. |
+| `parameterId` | integer |  | Parameter id from strip.parameters. |
+| `parameter` | string |  | Parameter name, matched like a search ("cutoff", "mix"), or its id as text. Use instead of parameterId. |
+| `value` | number |  | Plain value within the parameter's min and max. |
+| `normalized` | number |  | Position 0-1 along the range, following its log or stepped scale. |
+| `text` | string |  | Display text to parse: "-6 dB", "440 Hz", "2.5k", "50%" (of the range), "On", or a label. |
+
+### `strip.setParameters`
+
+*Edits*
+
+Set several plugin parameters atomically in one undo step. Keys are parameter ids or names; each value is a plain number, a display string ("-6 dB", "Hall") or {"normalized": 0-1}.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `slot` | integer |  | Insert slot 0-7. Omit for the MIDI track's instrument. |
+| `values` | object | yes | Object mapping parameter ids or names to a plain number, a display string or {normalized}. |
+
+### `strip.programs`
+
+List the programs of the plugin on a strip: its own factory programs (Audio Unit factory presets, a VST3 program list) with the current one, and the Ondera presets saved for it (preset.list). CLAP preset discovery and plugins that only show presets in their own window are not listed.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `slot` | integer |  | Insert slot 0-7. Omit for the MIDI track's instrument. |
+
+### `strip.setProgram`
+
+*Edits*
+
+Load one of the plugin's programs, by index or by name, in one undo step. A name that is not a factory program loads the Ondera preset of that name (preset.load).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `slot` | integer |  | Insert slot 0-7. Omit for the MIDI track's instrument. |
+| `index` | integer |  | Program index from strip.programs. |
+| `name` | string |  | Program or preset name. |
+
+### `strip.removeInsert`
+
+*Edits*
+
+Empty an insert slot on a track or bus, removing the plugin, its settings and any automation of it (one undo step).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `slot` | integer | yes | Insert slot 0-7. |
 
 ## master
 
@@ -1148,7 +1202,7 @@ Add a marker, the start of a song section, to the ruler.
 
 *Edits*
 
-Rename a marker.
+Rename a marker (a song section such as Verse or Chorus). One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1159,7 +1213,7 @@ Rename a marker.
 
 *Edits*
 
-Move a marker to another bar.
+Move a marker to another bar of the ruler. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1181,7 +1235,7 @@ Colour a marker, or give it back the theme's colour.
 
 *Edits*
 
-Delete a marker.
+Delete a marker from the ruler; the music does not change. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1238,6 +1292,7 @@ Create read automation for trackVolume, trackPan, masterVolume or pluginParamete
 | `trackId` | string |  | Track ID; master/bus-a/bus-b also accept plugin parameters |
 | `slot` | integer |  | Plugin insert 0-7; omit for the track instrument |
 | `parameterId` | integer |  | Plugin parameter ID from strip.parameters |
+| `parameter` | string |  | Plugin parameter name instead of parameterId, matched like strip.parameters query |
 | `name` | string |  | Lane name |
 | `interpolation` | string |  | linear (default) or step |
 | `points` | array |  | Optional {beat,value,id?} points in absolute quarter-note beats |
@@ -1257,7 +1312,7 @@ Replace all points in a lane atomically, with one undo step.
 
 *Edits*
 
-Add or move one automation point.
+Add or move one automation point. Beats are absolute quarter notes from the song start (bar × beats per bar); values are the target's plain units: volume 0-1 (0.75 = 0 dB), pan -100 to 100, plugin parameters as strip.parameters lists them.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1270,7 +1325,7 @@ Add or move one automation point.
 
 *Edits*
 
-Delete an automation point.
+Delete one point of an automation lane. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1354,7 +1409,7 @@ Move a controller point or change its value.
 
 *Edits*
 
-Delete a controller point.
+Delete one controller point (CC, pitch bend or pressure) from a MIDI clip. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1645,7 +1700,7 @@ Open a plugin's parameter panel in the window, or its native editor with native=
 
 *Edits · Needs the app*
 
-Close one plugin panel.
+Close one plugin panel and its native editor window. ui.state lists the open ones.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1677,7 +1732,7 @@ Turn musical typing (the computer keyboard as a piano) on or off.
 
 *Edits · Needs the app*
 
-Choose the arrangement tool.
+Choose the arrangement tool, like keys 1-3: pointer selects and drags, pencil draws clips, scissors splits.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1688,6 +1743,12 @@ Choose the arrangement tool.
 *Needs the app*
 
 Window state: open panels, tool, musical typing, plugin panels, status line and any error being shown.
+
+### `ui.state`
+
+*Needs the app*
+
+What the window shows right now: open panels and dialogs (agent, mixer, automation, controllers, palette, settings with its section, help, export, recovery), the prompt waiting for an answer, plugin windows with their track, slot and plugin, the editor (clip, mode, lowest pitch), arrangement zoom and scroll with the visible bars, tool, follow mode, browser tab and selection, selection by name, theme and scale, musical typing, status line and error. Needs the running app.
 
 ## app
 
@@ -1828,4 +1889,4 @@ Undo back to just before one agent change, or redo up to it. Same as the buttons
 
 *Edits · Needs the app*
 
-Clear the agent conversation.
+Clear the agent conversation; the edits it made stay in Undo.
