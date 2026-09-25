@@ -231,6 +231,8 @@ fn inserts_that_take_events_hear_the_track_s_controllers_chase_and_rest() {
 
 /// An ABI 2 effect that writes down the events it gets.
 static EFFECT_HEARD: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+/// What the same plugin hears through ABI 1: notes only.
+static EFFECT_NOTES: Mutex<Vec<NoteEvent>> = Mutex::new(Vec::new());
 struct EffectListener;
 impl Plugin for EffectListener {
     const INFO: Info = Info::effect("org.ondera.tests.fx", "Fx Listener", "Tests", "Utility");
@@ -241,7 +243,9 @@ impl Plugin for EffectListener {
         Self
     }
     fn set_param(&mut self, _: usize, _: f64) {}
-    fn process(&mut self, _: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {}
+    fn process(&mut self, _: &mut [[f32; 2]], notes: &[NoteEvent], _: &ProcessContext) {
+        EFFECT_NOTES.lock().unwrap().extend_from_slice(notes);
+    }
     fn process_events(
         &mut self,
         _: &mut [[f32; 2]],
@@ -276,7 +280,11 @@ fn native_abi_2_effects_take_events_and_abi_1_and_stock_effects_do_not() {
     assert!(rack.accepts_events(0));
     assert!(!rack.accepts_events(1));
     assert!(!rack.accepts_events(7), "An empty slot takes nothing");
-    let events = [Event::control(3, 1, 64), Event::channel_pressure(9, 12)];
+    let events = [
+        Event::control(3, 1, 64),
+        Event::channel_pressure(9, 12),
+        Event::poly_pressure(10, 60, 99).on_channel(2),
+    ];
     let mut audio = [[0.0f32; 2]; 64];
     rack.process(0, &mut audio, &events, &ProcessContext::default());
     assert_eq!(*EFFECT_HEARD.lock().unwrap(), events);
@@ -287,6 +295,20 @@ fn native_abi_2_effects_take_events_and_abi_1_and_stock_effects_do_not() {
             "{name} is a stock effect"
         );
     }
+    // ABI 1 keeps getting notes only, whatever else arrives.
+    rack.process(
+        1,
+        &mut audio,
+        &[
+            Event::note_on(0, 60, 100).on_channel(2),
+            Event::poly_pressure(1, 60, 99).on_channel(2),
+            Event::control(2, 1, 5),
+        ],
+        &ProcessContext::default(),
+    );
+    let notes = EFFECT_NOTES.lock().unwrap().clone();
+    assert_eq!(notes.len(), 1);
+    assert_eq!((notes[0].pitch, notes[0].channel), (60, 2));
     drop(rack);
     drop((v1, v2));
 }
@@ -534,4 +556,145 @@ fn standard_midi_files_keep_a_note_s_own_channel() {
     assert!(controllers
         .iter()
         .any(|c| c.number == Some(74) && c.value == 99));
+}
+
+#[test]
+fn polyphonic_pressure_is_recorded_saved_apart_and_played_on_its_key_and_channel() {
+    // A take: pressure on two keys of channel 1, a repeat dropped per key.
+    let events = [
+        (0.0, Event::poly_pressure(0, 60, 10).on_channel(1)),
+        (0.0, Event::poly_pressure(0, 64, 10).on_channel(1)),
+        (0.25, Event::poly_pressure(0, 60, 10).on_channel(1)),
+        (0.5, Event::poly_pressure(0, 60, 90).on_channel(1)),
+    ];
+    let points = ondera_engine::controllers::recorded(&events, 0.0, false, || "p".into());
+    let summary: Vec<_> = points
+        .iter()
+        .map(|p| (p.kind, p.number, p.channel, p.time, p.value))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (ControllerKind::PolyPressure, Some(60), 1, 0.0, 10),
+            (ControllerKind::PolyPressure, Some(64), 1, 0.0, 10),
+            (ControllerKind::PolyPressure, Some(60), 1, 0.5, 90),
+        ]
+    );
+
+    let mut with_cc = points.clone();
+    with_cc.push(point(ControllerKind::Cc, Some(1), 0.0, 20));
+    let s = session(with_cc, &["fx-events"]);
+    s.validate().unwrap();
+    // The file keeps polyphonic pressure in a list of its own, which older versions skip.
+    let json = serde_json::to_value(&s).unwrap();
+    let data = &json["clips"][0]["data"];
+    assert_eq!(data["controllers"].as_array().unwrap().len(), 1);
+    assert_eq!(data["controllers"][0]["kind"], "cc");
+    let poly = data["polyPressure"].as_array().unwrap();
+    assert_eq!(poly.len(), 3);
+    assert_eq!(poly[0]["kind"], "poly");
+    assert_eq!(poly[0]["number"], 60);
+    assert_eq!(poly[0]["channel"], 1);
+    let back: Session = serde_json::from_value(json.clone()).unwrap();
+    let ClipData::Midi { controllers, .. } = &back.clips[0].data else {
+        panic!()
+    };
+    assert_eq!(controllers.len(), 4);
+    assert_eq!(
+        serde_json::to_value(&back).unwrap()["clips"],
+        json["clips"],
+        "Round trip"
+    );
+    // An older Ondera's clip reader: the same shape without polyPressure still loads.
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct OlderMidi {
+        notes: Vec<serde_json::Value>,
+        #[serde(default)]
+        controllers: Vec<serde_json::Value>,
+    }
+    let older: OlderMidi = serde_json::from_value(data.clone()).unwrap();
+    assert_eq!(older.controllers.len(), 1);
+
+    // Playback: each key's pressure on its own sample and channel, to the instrument and to
+    // an insert that takes events; not chased on locate.
+    let mut rack = Rack::new(2);
+    let instrument = probe(&mut rack, 0, false);
+    let insert = probe(&mut rack, 1, true);
+    let mut renderer = Renderer::new(s.clone(), &Library::new(), 48000, &slots(&s)).unwrap();
+    renderer.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    for _ in 0..(12000 / 256 + 2) {
+        renderer.render(&mut rack, &mut block);
+    }
+    let pressed = |log: &Log| -> Vec<(i64, u8, u8, u8)> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| e.kind == event::POLY_PRESSURE)
+            .map(|(at, e)| (*at, e.channel, e.key, e.value))
+            .collect()
+    };
+    let expected = vec![(0, 1, 60, 10), (0, 1, 64, 10), (12000, 1, 60, 90)];
+    assert_eq!(pressed(&instrument), expected);
+    assert_eq!(pressed(&insert), expected);
+    instrument.lock().unwrap().clear();
+    renderer.locate(1.0);
+    renderer.render(&mut rack, &mut block);
+    assert!(
+        pressed(&instrument).is_empty(),
+        "Pressure belongs to a sounding key and is not chased"
+    );
+    // Live pressure plays at once on its key and channel.
+    renderer.control(0, Event::poly_pressure(0, 67, 33).on_channel(7));
+    renderer.render(&mut rack, &mut block);
+    assert_eq!(
+        pressed(&instrument)
+            .into_iter()
+            .map(|(_, c, k, v)| (c, k, v))
+            .collect::<Vec<_>>(),
+        vec![(7, 67, 33)]
+    );
+}
+
+#[test]
+fn polyphonic_pressure_travels_through_standard_midi_files() {
+    let s = session(
+        vec![Controller {
+            number: Some(62),
+            ..point(ControllerKind::PolyPressure, None, 1.0, 77)
+        }],
+        &[],
+    );
+    s.validate().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("poly.mid");
+    let report = ondera_engine::midi_file::export(&s, &path, None).unwrap();
+    assert_eq!(report.controller_count, 1, "Poly pressure is not rested");
+    let (command, _) = ondera_engine::midi_file::import(
+        &path,
+        &store::empty(),
+        &ondera_engine::midi_file::ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    let mut target = store::Store::new(store::empty()).unwrap();
+    target.dispatch(command).unwrap();
+    let ClipData::Midi { controllers, .. } = &target.session().clips.last().unwrap().data else {
+        panic!()
+    };
+    let summary: Vec<_> = controllers
+        .iter()
+        .map(|c| (c.kind, c.number, c.time, c.value))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![(ControllerKind::PolyPressure, Some(62), 1.0, 77)]
+    );
+
+    let mut broken = s.clone();
+    if let ClipData::Midi { controllers, .. } = &mut broken.clips[0].data {
+        controllers[0].number = None;
+    }
+    assert!(broken.validate().is_err(), "Poly pressure names its key");
 }

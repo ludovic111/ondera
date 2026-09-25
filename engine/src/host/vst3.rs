@@ -747,6 +747,25 @@ unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> MidiMa
     map
 }
 
+/// Polyphonic pressure as the VST3 event for it, at its frame within a block of `frames`.
+fn poly_pressure(event: &PluginEvent, frames: usize) -> Option<Event> {
+    if event.kind != kinds::POLY_PRESSURE {
+        return None;
+    }
+    // SAFETY: `Event` is a plain C struct; all zeroes is a valid value.
+    let mut e: Event = unsafe { std::mem::zeroed() };
+    e.busIndex = 0;
+    e.sampleOffset = (event.frame as usize).min(frames.max(1) - 1) as i32;
+    e.r#type = Event_::EventTypes_::kPolyPressureEvent as u16;
+    e.__field0.polyPressure = PolyPressureEvent {
+        channel: (event.channel & 15) as i16,
+        pitch: event.key.min(127) as i16,
+        pressure: event.value.min(127) as f32 / 127.0,
+        noteId: -1,
+    };
+    Some(e)
+}
+
 /// The `IMidiMapping` controller number and normalised value of a controller event.
 fn midi_controller(event: &PluginEvent) -> Option<(usize, f64)> {
     match event.kind {
@@ -1385,10 +1404,17 @@ impl Processor for Vst3Processor {
             let events = &mut *self.events.events.get();
             events.clear();
             if self.shared.has_event_input {
-                for note in notes.iter().filter_map(PluginEvent::as_note) {
+                for event in notes {
                     if events.len() >= events.capacity() {
                         break;
                     }
+                    if let Some(pressure) = poly_pressure(event, n) {
+                        events.push(pressure);
+                        continue;
+                    }
+                    let Some(note) = event.as_note() else {
+                        continue;
+                    };
                     let mut e: Event = std::mem::zeroed();
                     e.busIndex = 0;
                     e.sampleOffset = (note.frame as usize).min(n - 1) as i32;
@@ -1528,5 +1554,37 @@ impl Processor for Vst3Processor {
                 if r.is_finite() { r } else { 0.0 },
             ];
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn polyphonic_pressure_becomes_the_vst3_event_on_its_channel() {
+        let event = poly_pressure(&PluginEvent::poly_pressure(300, 61, 127).on_channel(4), 256)
+            .expect("a poly pressure event");
+        assert_eq!(event.r#type, Event_::EventTypes_::kPolyPressureEvent as u16);
+        assert_eq!(event.sampleOffset, 255, "Clamped into the block");
+        let pressure = unsafe { event.__field0.polyPressure };
+        assert_eq!((pressure.channel, pressure.pitch), (4, 61));
+        assert_eq!(pressure.pressure, 1.0);
+        assert!(poly_pressure(&PluginEvent::channel_pressure(0, 3), 256).is_none());
+    }
+    #[test]
+    fn mapped_controllers_are_numbered_as_imidimapping_counts_them() {
+        assert_eq!(
+            midi_controller(&PluginEvent::control(0, 74, 127)),
+            Some((74, 1.0))
+        );
+        assert_eq!(
+            midi_controller(&PluginEvent::channel_pressure(0, 0)),
+            Some((128, 0.0))
+        );
+        assert_eq!(
+            midi_controller(&PluginEvent::pitch_bend(0, 1.0)),
+            Some((129, 1.0))
+        );
+        assert!(midi_controller(&PluginEvent::poly_pressure(0, 60, 9)).is_none());
     }
 }

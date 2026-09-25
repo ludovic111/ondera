@@ -167,6 +167,17 @@ pub fn import_bytes(
                                 channel: 0,
                             });
                         }
+                        MidiMessage::Aftertouch { key, vel } => {
+                            controls.entry(channel).or_default().push(Controller {
+                                id: new_id("ctl"),
+                                kind: ControllerKind::PolyPressure,
+                                number: Some(key.as_int()),
+                                time: tick as f64 / ppq,
+                                value: vel.as_int() as i16,
+                                agent,
+                                channel: 0,
+                            });
+                        }
                         MidiMessage::ChannelAftertouch { vel } => {
                             controls.entry(channel).or_default().push(Controller {
                                 id: new_id("ctl"),
@@ -470,6 +481,10 @@ pub fn export(
                             bend: midly::PitchBend::from_int(played.value),
                         },
                         ControllerKind::Pressure => MidiMessage::ChannelAftertouch {
+                            vel: u7::new(played.value.clamp(0, 127) as u8),
+                        },
+                        ControllerKind::PolyPressure => MidiMessage::Aftertouch {
+                            key: u7::new(played.number.unwrap_or(0).min(127)),
                             vel: u7::new(played.value.clamp(0, 127) as u8),
                         },
                     };

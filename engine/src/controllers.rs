@@ -1,4 +1,5 @@
-//! MIDI controller points in clips: control changes, pitch bend and channel pressure. A point
+//! MIDI controller points in clips: control changes, pitch bend, channel pressure and
+//! polyphonic key pressure (whose "number" is the key it presses on). A point
 //! holds its value until the next point of its lane, so every edit that cuts a clip in time
 //! carries the value in force at the cut to the new start ("chasing" it), and reversing a clip
 //! reverses the held spans rather than only the points.
@@ -176,6 +177,11 @@ pub fn from_event(e: &Event) -> Option<(ControllerKind, Option<u8>, i16)> {
         }
         event::PITCH_BEND => Some((ControllerKind::Bend, None, e.bend.clamp(-8192, 8191))),
         event::CHANNEL_PRESSURE => Some((ControllerKind::Pressure, None, e.value.min(127) as i16)),
+        event::POLY_PRESSURE => Some((
+            ControllerKind::PolyPressure,
+            Some(e.key.min(127)),
+            e.value.min(127) as i16,
+        )),
         _ => None,
     }
 }
@@ -224,6 +230,8 @@ pub fn lane_name(kind: ControllerKind, number: Option<u8>) -> String {
     match (kind, number) {
         (ControllerKind::Bend, _) => "Pitch Bend".into(),
         (ControllerKind::Pressure, _) => "Pressure".into(),
+        (ControllerKind::PolyPressure, Some(key)) => format!("Poly Pressure (key {key})"),
+        (ControllerKind::PolyPressure, None) => "Poly Pressure".into(),
         (ControllerKind::Cc, Some(1)) => "Mod Wheel (CC1)".into(),
         (ControllerKind::Cc, Some(2)) => "Breath (CC2)".into(),
         (ControllerKind::Cc, Some(7)) => "Volume (CC7)".into(),

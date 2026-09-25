@@ -24,6 +24,10 @@ const QUEUE_CAPACITY: usize = 4096;
 const CONTROLS: usize = 130;
 const BEND: usize = 128;
 const PRESSURE: usize = 129;
+/// Polyphonic pressure on a key is sequenced as slot `POLY + key`. It shapes a sounding note
+/// only, so it is played but neither chased on locate nor rested at stop: the notes it
+/// pressed on are released there anyway.
+const POLY: usize = CONTROLS;
 const SUSTAIN: usize = 64;
 /// MIDI channels; every note and controller keeps the one it was played on.
 const CHANNELS: usize = 16;
@@ -57,6 +61,11 @@ fn control_event(slot: usize, value: i16, frame: u32, channel: u8) -> Event {
     match slot {
         BEND => Event::new(frame, event::PITCH_BEND, 0, 0, 0, value.clamp(-8192, 8191)),
         PRESSURE => Event::channel_pressure(frame, value.clamp(0, 127) as u8),
+        poly if poly >= POLY => Event::poly_pressure(
+            frame,
+            (poly - POLY).min(127) as u8,
+            value.clamp(0, 127) as u8,
+        ),
         cc => Event::control(frame, cc as u8, value.clamp(0, 127) as u8),
     }
     .on_channel(channel & 15)
@@ -355,6 +364,9 @@ impl Renderer {
                                 ControllerKind::Cc => played.number.unwrap_or(0).min(127) as usize,
                                 ControllerKind::Bend => BEND,
                                 ControllerKind::Pressure => PRESSURE,
+                                ControllerKind::PolyPressure => {
+                                    POLY + played.number.unwrap_or(0).min(127) as usize
+                                }
                             };
                             controls.push((
                                 Control {
@@ -416,7 +428,7 @@ impl Renderer {
         controls.sort_by(|a, b| a.0.beat.total_cmp(&b.0.beat).then(b.1.cmp(&a.1)));
         let controls: Vec<Control> = controls.into_iter().map(|(c, _)| c).collect();
         let mut sequenced = vec![[[false; CONTROLS]; CHANNELS]; channels.len()];
-        for control in &controls {
+        for control in controls.iter().filter(|c| c.slot < CONTROLS) {
             sequenced[control.track][control.channel as usize][control.slot] = true;
         }
         let bus = |id: &str| {
@@ -797,7 +809,10 @@ impl Renderer {
         for chased in &mut self.chased {
             chased.fill([UNSET; CONTROLS]);
         }
-        for control in &self.controls[..self.next_control] {
+        for control in self.controls[..self.next_control]
+            .iter()
+            .filter(|c| c.slot < CONTROLS)
+        {
             self.chased[control.track][control.channel as usize][control.slot] = control.value;
         }
         for track in 0..self.channels.len() {
@@ -936,11 +951,20 @@ impl Renderer {
             self.control(track, event);
         }
     }
-    /// A controller change for a track's instrument now: control change, bend or pressure,
-    /// on the event's own channel.
+    /// A controller change for a track's instrument now: control change, bend, channel or
+    /// polyphonic pressure, on the event's own channel.
     pub fn control(&mut self, track: usize, event: Event) {
         self.idle_frames = 0;
         if !self.channels.get(track).is_some_and(|c| c.midi) {
+            return;
+        }
+        if event.kind == event::POLY_PRESSURE {
+            let key = event.key.min(127) as usize;
+            let value = event.value.min(127) as i16;
+            self.queue(
+                track,
+                control_event(POLY + key, value, 0, event.channel & 15),
+            );
             return;
         }
         let Some((slot, value)) = control_slot(&event) else {
@@ -1133,8 +1157,10 @@ impl Renderer {
                 {
                     let control = self.controls[self.next_control];
                     self.next_control += 1;
-                    self.applied[control.track][control.channel as usize][control.slot] =
-                        control.value;
+                    if control.slot < CONTROLS {
+                        self.applied[control.track][control.channel as usize][control.slot] =
+                            control.value;
+                    }
                     self.push_note(
                         control.track,
                         control_event(control.slot, control.value, i as u32, control.channel),

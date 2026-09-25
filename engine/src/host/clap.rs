@@ -898,6 +898,7 @@ union ClapEvent {
     note: clap_event_note,
     midi: clap_event_midi,
     param: clap_event_param_value,
+    expression: clap_event_note_expression,
 }
 struct Port {
     channels: Vec<Vec<f32>>,
@@ -968,6 +969,24 @@ impl ClapProcessor {
             self.events.push(event);
         }
     }
+}
+/// Polyphonic pressure as a CLAP note expression (pressure 0-1 on one key and channel).
+fn poly_expression(event: &Event, port: u16, time: u32) -> Option<clap_event_note_expression> {
+    (event.kind == event::POLY_PRESSURE).then(|| clap_event_note_expression {
+        header: clap_event_header {
+            size: std::mem::size_of::<clap_event_note_expression>() as u32,
+            time,
+            space_id: CLAP_CORE_EVENT_SPACE_ID,
+            type_: CLAP_EVENT_NOTE_EXPRESSION,
+            flags: 0,
+        },
+        expression_id: CLAP_NOTE_EXPRESSION_PRESSURE,
+        note_id: -1,
+        port_index: port as i16,
+        channel: (event.channel & 15) as i16,
+        key: event.key.min(127) as i16,
+        value: event.value.min(127) as f64 / 127.0,
+    })
 }
 unsafe extern "C" fn events_size(list: *const clap_input_events) -> u32 {
     (*((*list).ctx as *const Vec<ClapEvent>)).len() as u32
@@ -1079,7 +1098,14 @@ impl Processor for ClapProcessor {
                 Some(_) if dialect == CLAP_NOTE_DIALECT_CLAP => None,
                 Some(_) => event.to_midi(),
                 None if midi_controllers => event.to_midi(),
-                None => continue,
+                None => {
+                    // A plugin that speaks only CLAP notes still hears polyphonic pressure,
+                    // as the note expression CLAP has for it.
+                    if let Some(expression) = poly_expression(event, port, time) {
+                        self.push(ClapEvent { expression });
+                    }
+                    continue;
+                }
             };
             if let Some(data) = midi {
                 self.push(ClapEvent {
@@ -1241,6 +1267,15 @@ impl Drop for ClapProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn polyphonic_pressure_is_a_note_expression_for_clap_notes() {
+        let e = poly_expression(&Event::poly_pressure(3, 64, 127).on_channel(5), 1, 3).unwrap();
+        assert_eq!(e.expression_id, CLAP_NOTE_EXPRESSION_PRESSURE);
+        assert_eq!((e.port_index, e.channel, e.key), (1, 5, 64));
+        assert_eq!(e.value, 1.0);
+        assert_eq!(e.header.type_, CLAP_EVENT_NOTE_EXPRESSION);
+        assert!(poly_expression(&Event::channel_pressure(0, 9), 0, 0).is_none());
+    }
     #[test]
     fn negotiates_supported_note_dialect() {
         assert_eq!(

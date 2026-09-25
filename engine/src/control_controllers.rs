@@ -1,4 +1,5 @@
-//! Controller commands: control changes, pitch bend and channel pressure inside MIDI clips,
+//! Controller commands: control changes, pitch bend, channel and polyphonic pressure inside
+//! MIDI clips,
 //! edited like notes. Each command is one undo step; points an agent creates are marked.
 use crate::{
     control::{self, edit, find_clip, opt, query, req, Args, Host, Kind, Spec, CLIP_ID},
@@ -12,27 +13,28 @@ use serde_json::{json, Value};
 const KIND: crate::control::Param = req(
     "kind",
     Kind::String,
-    "cc (control change), bend (pitch bend) or pressure (channel pressure).",
+    "cc (control change), bend (pitch bend), pressure (channel pressure) or poly (polyphonic key pressure).",
 );
 const NUMBER: crate::control::Param = opt(
     "number",
     Kind::Integer,
-    "Controller number 0-119 for kind cc: 1 mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain pedal. Omit for bend and pressure.",
+    "Controller number 0-119 for kind cc: 1 mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain pedal. The key 0-127 for kind poly. Omit for bend and pressure.",
 );
 const CHANNEL: crate::control::Param = opt(
     "channel",
     Kind::Integer,
     "MIDI channel 0-15 (channel 1-16 to a musician); default 0. A lane is one kind, number and channel.",
 );
-const VALUE_DOC: &str = "0-127 for cc and pressure; -8192 (down) to 8191 (up) for bend, 0 centred.";
+const VALUE_DOC: &str =
+    "0-127 for cc, pressure and poly; -8192 (down) to 8191 (up) for bend, 0 centred.";
 /// Most points one lane may hold.
 pub const MAX_LANE_POINTS: usize = 20_000;
 
 pub const SPECS: &[Spec] = &[
-    query("controller.list", "List a MIDI clip's controller points (control changes, pitch bend, channel pressure) and a summary of its lanes. Each value holds until the next point of its lane.", &[
+    query("controller.list", "List a MIDI clip's controller points (control changes, pitch bend, channel and polyphonic pressure) and a summary of its lanes. Each value holds until the next point of its lane.", &[
         CLIP_ID,
-        opt("kind", Kind::String, "Only this kind: cc, bend or pressure."),
-        opt("number", Kind::Integer, "Only this controller number (with kind cc)."),
+        opt("kind", Kind::String, "Only this kind: cc, bend, pressure or poly."),
+        opt("number", Kind::Integer, "Only this controller number (kind cc) or key (kind poly)."),
         opt("channel", Kind::Integer, "Only this MIDI channel, 0-15."),
     ]),
     edit("controller.add", "Add a controller point to a MIDI clip. A point already at that time in the same lane takes the new value instead.", &[
@@ -74,6 +76,10 @@ fn lane_of(a: &Args<'_>) -> Result<controllers::Lane> {
             )
         }
         (ControllerKind::Cc, None) => return Err("kind cc needs `number`".into()),
+        (ControllerKind::PolyPressure, Some(n)) if (0..=127).contains(&n) => Some(n as u8),
+        (ControllerKind::PolyPressure, _) => {
+            return Err("kind poly needs `number`, the key 0-127".into())
+        }
         (_, Some(_)) => return Err(format!("{} takes no `number`", kind.as_str())),
         (_, None) => None,
     };

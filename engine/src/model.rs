@@ -117,37 +117,170 @@ pub struct Clip {
     pub data: ClipData,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+/// A clip's contents. The file form is [`ClipDataFile`] on the way in and [`ClipDataOut`] on
+/// the way out: polyphonic pressure points live in `controllers` like every other controller
+/// here, but the file keeps them in a `polyPressure` list of their own, absent when empty, so
+/// an older Ondera (and the window's controller lanes) never meet a kind they do not know.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(from = "ClipDataFile")]
 pub enum ClipData {
     Midi {
         notes: Vec<Note>,
-        /// Controller changes, pitch bend and pressure. Absent from the file when empty, so
-        /// clips without them read and write exactly as before.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        /// Controller changes, pitch bend, channel and polyphonic pressure. Absent from the
+        /// file when empty, so clips without them read and write exactly as before.
         controllers: Vec<Controller>,
+    },
+    Audio {
+        source_id: String,
+        offset_seconds: f64,
+        /// Fade lengths in seconds, like the offset: the audio is not stretched with the tempo,
+        /// so a fade keeps its sound when the tempo changes. Absent when zero.
+        fade_in: f64,
+        fade_out: f64,
+        fade_curve: FadeCurve,
+        /// Clip gain in dB, applied before the track's inserts. Absent when 0 dB.
+        gain_db: f32,
+    },
+}
+/// [`ClipData`] as a file holds it.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum ClipDataFile {
+    Midi {
+        notes: Vec<Note>,
+        #[serde(default)]
+        controllers: Vec<Controller>,
+        #[serde(rename = "polyPressure", default)]
+        poly_pressure: Vec<Controller>,
     },
     Audio {
         #[serde(rename = "sourceId")]
         source_id: String,
         #[serde(rename = "offsetSeconds")]
         offset_seconds: f64,
-        /// Fade lengths in seconds, like the offset: the audio is not stretched with the tempo,
-        /// so a fade keeps its sound when the tempo changes. Absent when zero.
-        #[serde(rename = "fadeInSeconds", default, skip_serializing_if = "is_zero")]
+        #[serde(rename = "fadeInSeconds", default)]
         fade_in: f64,
-        #[serde(rename = "fadeOutSeconds", default, skip_serializing_if = "is_zero")]
+        #[serde(rename = "fadeOutSeconds", default)]
         fade_out: f64,
-        #[serde(
-            rename = "fadeCurve",
-            default,
-            skip_serializing_if = "FadeCurve::is_default"
-        )]
+        #[serde(rename = "fadeCurve", default)]
         fade_curve: FadeCurve,
-        /// Clip gain in dB, applied before the track's inserts. Absent when 0 dB.
-        #[serde(rename = "gainDb", default, skip_serializing_if = "is_zero_f32")]
+        #[serde(rename = "gainDb", default)]
         gain_db: f32,
     },
+}
+impl From<ClipDataFile> for ClipData {
+    fn from(file: ClipDataFile) -> Self {
+        match file {
+            ClipDataFile::Midi {
+                notes,
+                mut controllers,
+                poly_pressure,
+            } => {
+                controllers.extend(poly_pressure);
+                Self::Midi { notes, controllers }
+            }
+            ClipDataFile::Audio {
+                source_id,
+                offset_seconds,
+                fade_in,
+                fade_out,
+                fade_curve,
+                gain_db,
+            } => Self::Audio {
+                source_id,
+                offset_seconds,
+                fade_in,
+                fade_out,
+                fade_curve,
+                gain_db,
+            },
+        }
+    }
+}
+/// [`ClipData`] as it is written, borrowed so saving copies nothing.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum ClipDataOut<'a> {
+    Midi {
+        notes: &'a [Note],
+        #[serde(skip_serializing_if = "Points::is_empty")]
+        controllers: Points<'a>,
+        #[serde(rename = "polyPressure", skip_serializing_if = "Points::is_empty")]
+        poly_pressure: Points<'a>,
+    },
+    Audio {
+        #[serde(rename = "sourceId")]
+        source_id: &'a str,
+        #[serde(rename = "offsetSeconds")]
+        offset_seconds: f64,
+        #[serde(rename = "fadeInSeconds", skip_serializing_if = "is_zero")]
+        fade_in: f64,
+        #[serde(rename = "fadeOutSeconds", skip_serializing_if = "is_zero")]
+        fade_out: f64,
+        #[serde(rename = "fadeCurve", skip_serializing_if = "FadeCurve::is_default")]
+        fade_curve: FadeCurve,
+        #[serde(rename = "gainDb", skip_serializing_if = "is_zero_f32")]
+        gain_db: f32,
+    },
+}
+/// The controller points of one list in the file: polyphonic pressure or everything else.
+struct Points<'a> {
+    all: &'a [Controller],
+    poly: bool,
+}
+impl Points<'_> {
+    fn iter(&self) -> impl Iterator<Item = &Controller> {
+        self.all
+            .iter()
+            .filter(|p| (p.kind == ControllerKind::PolyPressure) == self.poly)
+    }
+    fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
+    }
+}
+impl Serialize for Points<'_> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.iter())
+    }
+}
+impl Serialize for ClipData {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Self::Midi { notes, controllers } => ClipDataOut::Midi {
+                notes,
+                controllers: Points {
+                    all: controllers,
+                    poly: false,
+                },
+                poly_pressure: Points {
+                    all: controllers,
+                    poly: true,
+                },
+            },
+            Self::Audio {
+                source_id,
+                offset_seconds,
+                fade_in,
+                fade_out,
+                fade_curve,
+                gain_db,
+            } => ClipDataOut::Audio {
+                source_id,
+                offset_seconds: *offset_seconds,
+                fade_in: *fade_in,
+                fade_out: *fade_out,
+                fade_curve: *fade_curve,
+                gain_db: *gain_db,
+            },
+        }
+        .serialize(serializer)
+    }
 }
 impl ClipData {
     /// An audio clip at `offset_seconds` into its source, without fades and at 0 dB.
@@ -261,6 +394,9 @@ pub enum ControllerKind {
     Bend,
     /// Channel pressure (aftertouch); `value` is 0-127.
     Pressure,
+    /// Polyphonic key pressure; `number` is the key (0-127) and `value` 0-127.
+    #[serde(rename = "poly")]
+    PolyPressure,
 }
 impl ControllerKind {
     pub fn parse(text: &str) -> Result<Self> {
@@ -268,8 +404,9 @@ impl ControllerKind {
             "cc" => Ok(Self::Cc),
             "bend" => Ok(Self::Bend),
             "pressure" => Ok(Self::Pressure),
+            "poly" => Ok(Self::PolyPressure),
             other => Err(format!(
-                "Controller kind must be cc, bend or pressure, not {other}"
+                "Controller kind must be cc, bend, pressure or poly, not {other}"
             )),
         }
     }
@@ -278,6 +415,7 @@ impl ControllerKind {
             Self::Cc => "cc",
             Self::Bend => "bend",
             Self::Pressure => "pressure",
+            Self::PolyPressure => "poly",
         }
     }
     /// Lowest and highest value a point of this kind may hold.
@@ -295,7 +433,7 @@ impl ControllerKind {
 pub struct Controller {
     pub id: String,
     pub kind: ControllerKind,
-    /// The controller number, for `cc` only.
+    /// The controller number for `cc`, the key for `poly`; absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<u8>,
     /// Beats from the clip start.
@@ -318,7 +456,9 @@ impl Controller {
             && self.channel < MIDI_CHANNELS
             && (low..=high).contains(&self.value)
             && match self.kind {
-                ControllerKind::Cc => self.number.is_some_and(|n| n <= 127),
+                ControllerKind::Cc | ControllerKind::PolyPressure => {
+                    self.number.is_some_and(|n| n <= 127)
+                }
                 _ => self.number.is_none(),
             }
     }

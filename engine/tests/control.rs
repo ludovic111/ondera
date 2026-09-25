@@ -1203,7 +1203,7 @@ fn controller_points_are_edited_like_notes_and_follow_every_clip_edit() {
         ),
         (
             json!({"clipId":clip,"kind":"wheel","time":0,"value":1}),
-            "cc, bend or pressure",
+            "cc, bend, pressure or poly",
         ),
     ] {
         let error = fail(&mut host, "controller.add", params.clone());
@@ -1358,4 +1358,38 @@ fn controller_lanes_are_per_midi_channel() {
         json!({"clipId":clip,"kind":"bend","channel":16,"time":0,"value":0}),
     );
     assert!(error.contains("0-15"), "{error}");
+}
+
+#[test]
+fn polyphonic_pressure_is_a_lane_per_key() {
+    let mut host = Headless::new();
+    let track = call(&mut host, "track.add", json!({"kind":"midi"}))["id"].clone();
+    let clip = call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":1}),
+    )["id"]
+        .clone();
+    for key in [60, 64] {
+        call(
+            &mut host,
+            "controller.add",
+            json!({"clipId":clip,"kind":"poly","number":key,"time":0,"value":50}),
+        );
+    }
+    let listed = call(&mut host, "controller.list", json!({"clipId":clip}));
+    let lanes = listed["lanes"].as_array().unwrap();
+    assert_eq!(lanes.len(), 2);
+    assert_eq!(lanes[0]["kind"], "poly");
+    assert_eq!(lanes[0]["name"], "Poly Pressure (key 60)");
+    let session = serde_json::to_value(host.store().session()).unwrap();
+    let data = &session["clips"].as_array().unwrap().last().unwrap()["data"];
+    assert!(data.get("controllers").is_none());
+    assert_eq!(data["polyPressure"].as_array().unwrap().len(), 2);
+    let error = fail(
+        &mut host,
+        "controller.add",
+        json!({"clipId":clip,"kind":"poly","time":0,"value":1}),
+    );
+    assert!(error.contains("the key 0-127"), "{error}");
 }
