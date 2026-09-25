@@ -1161,6 +1161,37 @@ fn audio_clip_fades_and_gain_shape_the_output_on_the_sample() {
     assert!(out[47999][0].abs() < 1e-3);
 }
 
+/// Changing a sounding clip's gain rebuilds the graph; the new one used to apply the gain on
+/// its first sample, a step that clicks. It now glides from what the old graph played.
+#[test]
+fn editing_a_sounding_clips_gain_glides_instead_of_stepping() {
+    let (loud, library) = dc_session(0.0, 0.0, FadeCurve::Linear, 0.0);
+    let mut quiet = loud.clone();
+    if let ClipData::Audio { gain_db, .. } = &mut quiet.clips[0].data {
+        *gain_db = -12.0;
+    }
+    let (mut old, mut rack) = offline(loud, &library, 48000);
+    old.playing = true;
+    old.locate(0.0);
+    let mut out = vec![[0.0f32; 2]; 24000];
+    for chunk in out[..12000].chunks_mut(100) {
+        old.render(&mut rack, chunk);
+    }
+    let (mut new, _) = offline(quiet, &library, 48000);
+    new.adopt(&old);
+    for chunk in out[12000..].chunks_mut(100) {
+        new.render(&mut rack, chunk);
+    }
+    let target = 0.5 * 10f32.powf(-12.0 / 20.0);
+    let largest_step = out[11990..12400]
+        .windows(2)
+        .map(|w| (w[1][0] - w[0][0]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(largest_step < 0.005, "the gain stepped by {largest_step}");
+    assert!((out[11999][0] - 0.5).abs() < 1e-4, "{}", out[11999][0]);
+    assert!((out[14000][0] - target).abs() < 1e-4, "{}", out[14000][0]);
+}
+
 #[test]
 fn fade_curves_differ_as_documented() {
     let quarter = |curve| {

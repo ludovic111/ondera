@@ -113,6 +113,8 @@ enum Sound {
         channel: u8,
     },
     Audio {
+        /// Hash of the clip id, so a rebuilt graph can find the same clip in the old one.
+        clip: u64,
         buffer: Arc<AudioBuffer>,
         offset: f64,
         /// Linear clip gain.
@@ -125,6 +127,15 @@ enum Sound {
 }
 /// Edge ramp every audio clip gets, fade or not, so a cut never clicks.
 const EDGE_RAMP_SECONDS: f64 = 0.003;
+/// A rebuilt graph that changes a sounding clip's gain or fades glides from the old envelope
+/// to the new one over about this long instead of jumping.
+const ENVELOPE_GLIDE_SECONDS: f64 = 0.005;
+fn clip_key(id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut h);
+    h.finish()
+}
 /// The clip's gain at `age` seconds after its start with `left` seconds before its end.
 #[inline]
 fn clip_envelope(
@@ -252,6 +263,11 @@ pub struct Renderer {
     latency_samples: u32,
     automation_looped: bool,
     active: [Option<usize>; MAX_VOICES],
+    /// The envelope each active audio voice last applied, and the offset still gliding away
+    /// after a rebuild changed it (zero otherwise, so ordinary playback is unchanged).
+    envelope: [f32; MAX_VOICES],
+    glide: [f32; MAX_VOICES],
+    glide_decay: f32,
     held: Vec<Held>,
     expected: Vec<Held>,
     live: Vec<Held>,
@@ -411,6 +427,7 @@ impl Renderer {
                             end,
                             track: index,
                             sound: Sound::Audio {
+                                clip: clip_key(&clip.id),
                                 buffer: Arc::clone(buffer),
                                 offset: *offset_seconds,
                                 gain: 10f32.powf(gain_db / 20.0),
@@ -508,6 +525,9 @@ impl Renderer {
             sequenced,
             channels,
             active: [None; MAX_VOICES],
+            envelope: [0.0; MAX_VOICES],
+            glide: [0.0; MAX_VOICES],
+            glide_decay: (-1.0 / (ENVELOPE_GLIDE_SECONDS * f64::from(rate))).exp() as f32,
             held: vec![[0; KEYS]; count],
             expected: vec![[0; KEYS]; count],
             live: vec![[0; KEYS]; count],
@@ -725,6 +745,45 @@ impl Renderer {
             }
         }
         self.resync();
+        if self.playing {
+            self.glide_from(old);
+        }
+    }
+    /// A sounding clip whose gain or fades changed starts from what it last played.
+    fn glide_from(&mut self, old: &Renderer) {
+        let spb = 60.0 / self.session.transport.tempo;
+        for slot in 0..MAX_VOICES {
+            let Some(index) = self.active[slot] else {
+                continue;
+            };
+            let e = &self.events[index];
+            let Sound::Audio {
+                clip,
+                gain,
+                fade_in,
+                fade_out,
+                curve,
+                ..
+            } = &e.sound
+            else {
+                continue;
+            };
+            let previous = (0..MAX_VOICES).find(|&j| {
+                old.active[j].is_some_and(
+                    |o| matches!(&old.events[o].sound, Sound::Audio { clip: c, .. } if c == clip),
+                )
+            });
+            let Some(j) = previous else {
+                continue;
+            };
+            let age = (self.position - e.start).max(0.0) * spb;
+            let left = (e.end - self.position) * spb;
+            let now = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
+            let offset = old.envelope[j] - now;
+            if offset.abs() > 1e-6 {
+                self.glide[slot] = offset;
+            }
+        }
     }
     fn queue(&mut self, track: usize, mut event: Event) {
         // UI taps and MIDI callbacks can enqueue a complete note before one
@@ -756,6 +815,7 @@ impl Renderer {
     /// notes that should sound and note-offs for held notes that should not.
     fn resync(&mut self) {
         self.active.fill(None);
+        self.glide.fill(0.0);
         self.next = self.events.partition_point(|e| e.start < self.position);
         // Each historical event is examined once, independent of track count.
         // Storage is reserved with the graph, not allocated during a seek.
@@ -852,11 +912,12 @@ impl Renderer {
         }
     }
     fn activate_slot(&mut self, i: usize) -> bool {
-        let Some(slot) = self.active.iter_mut().find(|v| v.is_none()) else {
+        let Some(slot) = self.active.iter().position(|v| v.is_none()) else {
             self.voice_overflows += 1;
             return false;
         };
-        *slot = Some(i);
+        self.active[slot] = Some(i);
+        self.glide[slot] = 0.0;
         true
     }
     pub fn locate(&mut self, beats: f64) {
@@ -1195,6 +1256,7 @@ impl Renderer {
                     let e = &self.events[index];
                     if self.position >= e.end {
                         self.active[slot] = None;
+                        self.glide[slot] = 0.0;
                         if let Sound::Midi { pitch, channel, .. } = e.sound {
                             let track = e.track;
                             let k = key(channel, pitch);
@@ -1212,6 +1274,7 @@ impl Renderer {
                         buffer,
                         offset,
                         gain,
+                        clip: _,
                         fade_in,
                         fade_out,
                         curve,
@@ -1222,7 +1285,15 @@ impl Renderer {
                         // Fades and gain, on the sample; 3 ms boundary ramps keep trims and
                         // loops free of clicks even without a fade.
                         let left = (e.end - self.position) * spb;
-                        let ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
+                        let mut ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
+                        if self.glide[slot] != 0.0 {
+                            ramp += self.glide[slot];
+                            self.glide[slot] *= self.glide_decay;
+                            if self.glide[slot].abs() < 1e-6 {
+                                self.glide[slot] = 0.0;
+                            }
+                        }
+                        self.envelope[slot] = ramp;
                         v[0] *= ramp;
                         v[1] *= ramp;
                         let frame = &mut self.buffers[e.track][i];
