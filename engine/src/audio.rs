@@ -188,6 +188,15 @@ pub fn decode(data: Vec<u8>, extension: Option<&str>) -> Result<AudioBuffer> {
         .or_else(|| format.default_track())
         .ok_or("No audio track in this file")?;
     let track_id = track.id;
+    // An Ogg stream's length is exact: the last page's granule position. symphonia decodes
+    // the last Vorbis packet whole, and when the only audio page is also the last one it
+    // reads the overrun as a start delay and keeps it, so a short file ends a few
+    // milliseconds late. Other containers' lengths are not always in samples (an MP4 track
+    // counts in its own timescale), so only Vorbis is cut to it.
+    let exact_frames = track
+        .codec_params
+        .n_frames
+        .filter(|_| track.codec_params.codec == symphonia::core::codecs::CODEC_TYPE_VORBIS);
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|e| match e {
@@ -230,6 +239,10 @@ pub fn decode(data: Vec<u8>, extension: Option<&str>) -> Result<AudioBuffer> {
             return Err("Decoded audio exceeds 512 MiB".into());
         }
         frames.extend(samples.samples().chunks_exact(channels).map(to_stereo));
+    }
+    if let Some(exact) = exact_frames.and_then(|n| usize::try_from(n).ok()) {
+        // Only ever cut the overrun; a stream that decodes short keeps what it has.
+        frames.truncate(exact);
     }
     AudioBuffer::new(rate, frames)
 }

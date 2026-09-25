@@ -413,6 +413,46 @@ fn importing_midi_with_its_meter_keeps_automation_on_its_bars() {
     );
 }
 
+/// A short Ogg Vorbis file, whose only audio page is also its last, decoded a few
+/// milliseconds past its true end: symphonia read the last packet's overrun as a start
+/// delay and kept it.
+#[test]
+fn ogg_imports_end_on_the_exported_frame() {
+    use ondera_engine::{audio, export, store};
+    let session = store::demo();
+    let mut library = audio::Library::new();
+    audio::prepare_sources(&session, &mut library).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    for end_beat in [0.5, 1.37, 4.0] {
+        let options = export::ExportOptions {
+            end_beat: Some(end_beat),
+            tail_seconds: 0.0,
+            format: export::SampleFormat::Float32,
+            ..Default::default()
+        };
+        let (wav, ogg) = (dir.path().join("mix.wav"), dir.path().join("mix.ogg"));
+        export::mix(&session, &library, &wav, &options).unwrap();
+        let report = export::mix(&session, &library, &ogg, &options).unwrap();
+        let decoded = audio::decode(std::fs::read(&ogg).unwrap(), Some("ogg")).unwrap();
+        assert_eq!(
+            decoded.frames.len() as u64,
+            report.frames,
+            "{end_beat} beats"
+        );
+        // What was cut is the tail: the start still lines up with the mix.
+        let original = audio::decode(std::fs::read(&wav).unwrap(), Some("wav")).unwrap();
+        let (mut signal, mut error) = (0f64, 0f64);
+        for (a, b) in original.frames.iter().zip(&decoded.frames) {
+            for c in 0..2 {
+                signal += (a[c] as f64).powi(2);
+                error += (a[c] as f64 - b[c] as f64).powi(2);
+            }
+        }
+        let snr = 10.0 * (signal / error.max(1e-12)).log10();
+        assert!(snr > 10.0, "{end_beat} beats: {snr:.1} dB");
+    }
+}
+
 /// An undone `session.importAudio` still counted toward the 1 GiB decoded-audio budget: the
 /// library keeps the buffer so a redo can bring it back, and the budget summed the library.
 #[test]
