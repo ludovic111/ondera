@@ -73,6 +73,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, _agent: bool) -> Re
         let target_name = string(params, "target")?;
         let track_id = params["trackId"].as_str().unwrap_or("");
         let mut manual_value = 0.0;
+        let mut plugin_label: Option<String> = None;
         let (target, min, max) = match target_name {
             "trackVolume" => (
                 AutomationTarget::TrackVolume {
@@ -160,6 +161,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, _agent: bool) -> Re
                         )
                     }),
                 };
+                plugin_label = Some(format!(
+                    "{} · {}",
+                    insert.name,
+                    parameter["name"].as_str().unwrap_or("Parameter")
+                ));
                 (
                     AutomationTarget::PluginParameter {
                         track_id: track_id.into(),
@@ -197,11 +203,31 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, _agent: bool) -> Re
             }
             _ => {}
         }
+        // A readable default: "Drums · Pro-Q 3 · Band 1 Gain", "Bass · Volume".
+        let owner = target.track_id().map(|track| {
+            host.store()
+                .session()
+                .tracks
+                .iter()
+                .find(|t| t.id == track)
+                .map_or_else(|| track.to_string(), |t| t.name.clone())
+        });
+        let readable = match (&target, owner, plugin_label) {
+            (_, Some(owner), Some(plugin)) => Some(format!("{owner} · {plugin}")),
+            (AutomationTarget::TrackVolume { .. }, Some(owner), None) => {
+                Some(format!("{owner} · Volume"))
+            }
+            (AutomationTarget::TrackPan { .. }, Some(owner), None) => {
+                Some(format!("{owner} · Pan"))
+            }
+            _ => None,
+        };
         let lane = AutomationLane {
             id: id("automation"),
             name: params["name"]
                 .as_str()
                 .map(str::to_string)
+                .or(readable)
                 .unwrap_or_else(|| crate::automation::target_label(&target)),
             target,
             min,

@@ -578,3 +578,21 @@ fn a_number_given_as_text_points_at_the_text_parameter() {
     let err = fail(&mut host, "transport.setTempo", json!({"tempo":"fast"}));
     assert!(!err.contains("text"), "{err}");
 }
+
+/// Lanes were named "drums · Parameter 3"; they now say what they automate.
+#[test]
+fn automation_lanes_get_readable_names() {
+    let mut host = Headless::new();
+    let volume = call(
+        &mut host,
+        "automation.create",
+        json!({"target":"trackVolume","trackId":"Bass"}),
+    );
+    assert_eq!(volume["lane"]["name"], "Bass · Volume");
+    let level = call(
+        &mut host,
+        "automation.create",
+        json!({"target":"pluginParameter","trackId":"Drums","parameter":"Level"}),
+    );
+    assert_eq!(level["lane"]["name"], "Drums · Drum Machine · Level");
+}
