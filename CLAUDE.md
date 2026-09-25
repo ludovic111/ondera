@@ -20,8 +20,8 @@ theme's `vars` (`--<id>-frame`, `--<id>-bar`, `--<id>-lcd` also dress the Settin
 `appearance.test.ts` enforces contrast on all twelve variants: fix the palette, not
 the threshold. Stock plugin panels are `components/plugin` (`response.ts` mirrors the engine DSP).
 `npm --prefix frontend run dev` in a plain browser serves a fixture song through `src/dev/mockHost.ts`
-(`?theme=&mode=&panel=`); run `node scripts/gen-site-tokens.mjs` after changing a theme so the
-site follows.
+(`?theme=&mode=&panel=`); run `node scripts/gen-site-tokens.mjs` after changing Skeuomorphic dark (the
+site wears only that one; other themes appear there as screenshots in its theme gallery).
 
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
