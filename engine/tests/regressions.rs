@@ -353,6 +353,66 @@ fn a_midi_round_trip_keeps_the_tempo() {
     );
 }
 
+/// `session.importMidi importTempo=true` changed the meter but left automation on its old
+/// beats, so it slid off the clips it was written against.
+#[test]
+fn importing_midi_with_its_meter_keeps_automation_on_its_bars() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("waltz.mid");
+    let mut waltz = Headless::new();
+    call(
+        &mut waltz,
+        "transport.setTimeSignature",
+        json!({"numerator":3,"denominator":4}),
+    );
+    let track = midi_track(&mut waltz);
+    call(
+        &mut waltz,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":1,
+               "notes":[{"start":0,"length":1,"pitch":60}]}),
+    );
+    call(&mut waltz, "session.exportMidi", json!({ "path": path }));
+
+    let mut host = Headless::new();
+    let track = midi_track(&mut host);
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":4,"lengthBars":1}),
+    );
+    call(
+        &mut host,
+        "automation.create",
+        json!({"target":"trackVolume","trackId":track,
+               "points":[{"beat":16,"value":0.2},{"beat":20,"value":0.9}]}),
+    );
+    call(
+        &mut host,
+        "session.importMidi",
+        json!({ "path": path, "importTempo": true }),
+    );
+    let info = call(&mut host, "session.info", json!({}));
+    assert_eq!(info["transport"]["timeSignature"]["numerator"], 3);
+    let beats = |host: &mut Headless| -> Vec<f64> {
+        call(host, "automation.list", json!({}))["lanes"][0]["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["beat"].as_f64().unwrap())
+            .collect()
+    };
+    // Bar 4 starts at beat 12 in 3/4: the point written at the clip's start stays there.
+    assert_eq!(beats(&mut host), [12.0, 15.0]);
+    // One undo takes back the import, the meter and the moved points together.
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(beats(&mut host), [16.0, 20.0]);
+    assert_eq!(
+        call(&mut host, "session.info", json!({}))["transport"]["timeSignature"]["numerator"],
+        4
+    );
+}
+
 /// An undone `session.importAudio` still counted toward the 1 GiB decoded-audio budget: the
 /// library keeps the buffer so a redo can bring it back, and the budget summed the library.
 #[test]

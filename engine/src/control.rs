@@ -892,23 +892,8 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "transport.setMetronome" => t.metronome = a.bool("enabled")?,
                 _ => t.snap_division = whole(a.int("division")?, "division")?,
             }
-            // Clips sit on bars and automation on beats: a new meter moves every clip, so
-            // the automation moves with them (by bar position), in the same undo step.
-            let session = host.store().session();
-            let (old, new) = (
-                session.beats_per_bar(),
-                t.time_signature.numerator as f64 * 4.0 / t.time_signature.denominator as f64,
-            );
-            let mut commands = vec![Command::SetTransport(t)];
-            if old != new && old > 0.0 {
-                for lane in &session.automation {
-                    let mut lane = lane.clone();
-                    for point in &mut lane.points {
-                        point.beat *= new / old;
-                    }
-                    commands.push(Command::PutAutomation(lane));
-                }
-            }
+            let mut commands = automation_on_bars(host.store().session(), &t.time_signature);
+            commands.insert(0, Command::SetTransport(t));
             host.dispatch(if commands.len() == 1 {
                 commands.remove(0)
             } else {
@@ -1764,6 +1749,28 @@ pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: St
         mute: false,
         solo: false,
     }
+}
+/// Clips sit on bars and automation on beats: a new meter moves every clip, so the
+/// automation moves with them, by bar position. The commands that rewrite every lane for
+/// `meter`, to dispatch in the same undo step as the meter itself; none when the bar
+/// length does not change.
+pub(crate) fn automation_on_bars(session: &Session, meter: &TimeSignature) -> Vec<Command> {
+    let old = session.beats_per_bar();
+    let new = meter.numerator as f64 * 4.0 / meter.denominator as f64;
+    if old == new || old <= 0.0 || !new.is_finite() || new <= 0.0 {
+        return Vec::new();
+    }
+    session
+        .automation
+        .iter()
+        .map(|lane| {
+            let mut lane = lane.clone();
+            for point in &mut lane.points {
+                point.beat *= new / old;
+            }
+            Command::PutAutomation(lane)
+        })
+        .collect()
 }
 /// A strip padded to its eight inserts and two sends, as the inspector shows it.
 pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
