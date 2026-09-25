@@ -1039,20 +1039,54 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFold
         .collect()
 }
 
+/// Plain words a musician (or an agent) searches with, per sound folder, so "reverb" finds
+/// Space and every third-party reverb filed under Space & Time.
+fn folder_words(folder: &str) -> &'static str {
+    match folder {
+        "Synths" => "synth synthesizer lead pluck analog",
+        "Keys" => "keys piano electric piano organ rhodes",
+        "Bass" => "bass sub 808",
+        "Drums" => "drums drum machine beat percussion kit",
+        "Pads" => "pad pads strings choir ambient",
+        "Samplers" => "sampler sample rompler",
+        "Textures" => "texture fx riser noise atmosphere",
+        "Dynamics" => "dynamics compressor compression limiter gate expander transient",
+        "EQ & Filter" => "eq equalizer equaliser filter tone",
+        "Distortion" => "distortion saturation saturator overdrive drive tape bitcrusher lofi",
+        "Modulation" => "modulation chorus flanger phaser tremolo vibrato auto pan",
+        "Space & Time" => "reverb delay echo room hall plate space",
+        "Pitch" => "pitch shift tune tuning harmonizer",
+        "Channel Strips" => "channel strip console",
+        "Mastering" => "mastering limiter loudness",
+        "Restoration" => "restoration denoise de-esser declick repair",
+        "Utility" => "utility gain meter analyzer stereo width",
+        _ => "",
+    }
+}
+
 /// How well a search matches a plugin: its name first, then vendor and name together
-/// ("fabfilter pro q"), then its id, folder and category. `None` when it does not match.
+/// ("fabfilter pro q"), then its id, folder, category, what its folder is for and, for stock
+/// plugins, their description. `None` when it does not match.
 fn relevance(query: &str, d: &Descriptor, library: &Plugins, auto: &AutoFolders) -> Option<u32> {
     use crate::control_refs::score;
     let name = score(query, &d.name).map(|s| s + 1000);
     let vendor = score(query, &format!("{} {}", d.vendor, d.name)).map(|s| s + 500);
+    let folder = folder(d, library, auto);
+    let described = if d.format.prefix() == "stock" {
+        crate::stock::description(&d.name).unwrap_or("")
+    } else {
+        ""
+    };
     let rest = score(
         query,
         &format!(
-            "{} {} {} {}",
+            "{} {} {} {} {} {}",
             d.id,
-            folder(d, library, auto),
+            folder,
             d.category,
-            d.format.prefix()
+            d.format.prefix(),
+            folder_words(&folder),
+            described
         ),
     );
     name.max(vendor).max(rest)

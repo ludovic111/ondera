@@ -96,8 +96,13 @@ fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
         "plugin.list",
         json!({"format":"stock","query":"PIANO"}),
     );
-    assert_eq!(found["total"], 1);
+    // The named plugin first; other Keys instruments follow, since the folder is for pianos.
     assert_eq!(found["plugins"][0]["id"], "stock:E-Piano Mk I");
+    assert!(found["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["folder"] == "Keys"));
     for params in [
         json!({"limit":0}),
         json!({"limit":201}),

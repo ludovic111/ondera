@@ -566,3 +566,23 @@ fn a_reused_insert_key_never_borrows_another_plugins_editor() {
         "Space's five, not Trim's three"
     );
 }
+
+/// "reverb" found nothing: search matched names, vendors and folder names, and no plugin
+/// is called a reverb. It now also matches what each folder is for and stock descriptions.
+#[test]
+fn plugins_are_found_by_what_they_do() {
+    let mut h = demo();
+    let names = |h: &mut Headless, q: &str| -> Vec<String> {
+        call(h, "plugin.list", json!({"query": q}))["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(names(&mut h, "reverb").contains(&"Space".to_string()));
+    assert!(names(&mut h, "compressor").contains(&"Ondera Comp".to_string()));
+    assert!(names(&mut h, "delay").contains(&"Echo".to_string()));
+    // A plugin's own name still ranks first.
+    assert_eq!(names(&mut h, "echo")[0], "Echo");
+}
