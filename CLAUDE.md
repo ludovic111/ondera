@@ -9,12 +9,15 @@ palette and the shortcut sheet; window panels (mixer, help, settings…) are tog
 
 Themes (0.6): `frontend/src/theme` is the only place visual values live. `schema.ts` types a theme,
 `materials.ts` holds the physical recipes against a light model, and `modern.ts`, `skeuo.ts`,
-`aero.ts` each return a full `ThemeSpec` for `dark` and `light`. `tokens.ts` keeps live groups that
+`aero.ts`, `console.ts` (walnut, brass, amber lamps), `ink.ts` (paper and ink, state shown by
+inversion, square corners) and `neon.ts` (violet glass, magenta accent, cyan displays) each return a
+full `ThemeSpec` for `dark` and `light`; the ids also live in `engine/src/settings.rs` `THEMES`. `tokens.ts` keeps live groups that
 `setTheme()` refills (canvas code reads them at paint time); `applyAppearance(theme, mode)` emits the
 CSS properties and sets `data-theme` / `data-mode`. Skeuomorphic dark is the design source, value
-for value. Add a token to `schema.ts` and to all three themes, never a colour in a component;
+for value. Add a token to `schema.ts` and to every theme, never a colour in a component;
 structure that only one theme needs goes in `theme/<theme>.css` and takes its colours from that
-theme's `vars`. `appearance.test.ts` enforces contrast on all six variants: fix the palette, not
+theme's `vars` (`--<id>-frame`, `--<id>-bar`, `--<id>-lcd` also dress the Settings preview).
+`appearance.test.ts` enforces contrast on all twelve variants: fix the palette, not
 the threshold. Stock plugin panels are `components/plugin` (`response.ts` mirrors the engine DSP).
 `npm --prefix frontend run dev` in a plain browser serves a fixture song through `src/dev/mockHost.ts`
 (`?theme=&mode=&panel=`); run `node scripts/gen-site-tokens.mjs` after changing a theme so the

@@ -36,7 +36,13 @@ it("restores every token after switching through all themes repeatedly", () => {
     for (const [key, value] of Object.entries(original))
       expect(style.getPropertyValue(key), key).toBe(value);
     // Theme-only properties of other themes are removed again.
-    expect(style.getPropertyValue("--aero-frame")).toBe("");
+    for (const own of [
+      "--aero-frame",
+      "--console-frame",
+      "--ink-solid",
+      "--neon-rule",
+    ])
+      expect(style.getPropertyValue(own), own).toBe("");
   }
 });
 
@@ -44,6 +50,8 @@ it("maps legacy and unknown appearance names", () => {
   expect(normalizeTheme("graphite")).toBe("skeuo");
   expect(normalizeTheme("aero")).toBe("aero");
   expect(normalizeTheme("modern")).toBe("modern");
+  for (const id of ["console", "ink", "neon"])
+    expect(normalizeTheme(id)).toBe(id);
   expect(normalizeTheme(undefined)).toBe("skeuo");
   expect(normalizeTheme("nope")).toBe("skeuo");
 });
