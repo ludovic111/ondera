@@ -240,7 +240,7 @@ fn parity_commands_cover_view_regions_tracks_inserts_presets_and_settings() {
     assert_eq!(moved["inserts"][1]["effect"], "Space");
     let copy = call(&mut host, "track.duplicate", json!({"trackId":track}));
     assert_eq!(copy["name"], "Keys copy");
-    assert_eq!(copy["index"], 3, "the copy sits right after the original");
+    assert_eq!(copy["index"], 4, "the copy sits right after the original");
     assert_eq!(copy["clipCount"], 1);
     let original_strip = call(&mut host, "strip.get", json!({"trackId":track}));
     let copied_strip = call(&mut host, "strip.get", json!({"trackId":copy["id"]}));
@@ -434,14 +434,14 @@ fn headless_host_builds_a_song_with_one_history() {
     let mut host = Headless::new();
     let info = call(&mut host, "session.info", json!({}));
     assert_eq!(info["mode"], "headless");
-    assert_eq!(info["trackCount"], 2);
+    assert_eq!(info["trackCount"], 3);
     let bass = call(
         &mut host,
         "track.add",
         json!({ "kind": "midi", "name": "Bass", "instrument": "Sub Bass 808" }),
     );
     assert_eq!(bass["instrument"], "Sub Bass 808");
-    assert_eq!(bass["color"], control::TRACK_PALETTE[2]);
+    assert_eq!(bass["color"], control::TRACK_PALETTE[3]);
     let id = bass["id"].as_str().unwrap().to_string();
     let clip = call(
         &mut host,

@@ -347,7 +347,11 @@ fn batch_mode_runs_json_lines_against_a_file_and_stops_at_the_first_error() {
     assert_eq!(lines[2]["ok"], false);
     assert!(lines[2]["error"].as_str().unwrap().contains("midi"));
     let loaded = ondera_engine::document::load(&song).unwrap().0;
-    assert_eq!(loaded.tracks.len(), 3);
+    assert_eq!(
+        loaded.tracks.len(),
+        4,
+        "the three starter tracks and Batch keys"
+    );
     assert_ne!(loaded.name, "never reached");
 }
 

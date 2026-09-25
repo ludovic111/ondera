@@ -375,14 +375,27 @@ pub fn empty() -> Session {
     s.clips.clear();
     s.sources.clear();
     s.strips.clear();
-    s.normalize();
-    s.tracks.truncate(2);
+    // A new song plays at once: Drums on the drum machine and Bass on a bass, plus one audio
+    // track to record into. (It used to start with an audio Drums track that stayed silent.)
+    s.tracks
+        .retain(|t| matches!(t.id.as_str(), "drums" | "bass" | "vox"));
     for t in &mut s.tracks {
         t.mute = false;
         t.solo = false;
         t.armed = false;
         t.volume = 0.75;
         t.pan = 0.0;
+        match t.id.as_str() {
+            "drums" => t.kind = "midi".into(),
+            "vox" => t.name = "Vocals".into(),
+            _ => {}
+        }
+    }
+    s.normalize();
+    for (id, instrument) in [("drums", "Drum Machine"), ("bass", "Analog Bass")] {
+        if let Some(strip) = s.strips.get_mut(id) {
+            strip.instrument = instrument.into();
+        }
     }
     s.transport.cycle = false;
     s.transport.cycle_start_bar = 0.0;
