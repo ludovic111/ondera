@@ -160,15 +160,17 @@ export function AgentPanel() {
           aria-pressed={tab === "takes"}
           className={tab === "takes" ? "m-segment-selected" : ""}
           onClick={() => setTab("takes")}
+          aria-label="Takes A/B"
         >
-          Takes A/B
+          Takes<span className="tab-extra"> A/B</span>
         </button>
         <button
           aria-pressed={tab === "rhythm"}
           className={tab === "rhythm" ? "m-segment-selected" : ""}
           onClick={() => setTab("rhythm")}
+          aria-label="Rhythm Lab"
         >
-          Rhythm Lab
+          Rhythm<span className="tab-extra"> Lab</span>
         </button>
       </div>
       <div
@@ -236,11 +238,11 @@ export function AgentPanel() {
                 </p>
               </div>
             )}
-            {threadItems(agent.transcript.entries).map((item, index) =>
+            {threadItems(agent.transcript.entries).map((item) =>
               item.kind === "steps" ? (
-                <Steps key={index} steps={item.steps} />
+                <Steps key={item.key} steps={item.steps} />
               ) : (
-                <article className="agent-message" key={index}>
+                <article className="agent-message" key={item.key}>
                   <span className="caps">
                     {item.entry.role === "user" ? "You" : "Agent"}
                   </span>
@@ -274,7 +276,10 @@ export function AgentPanel() {
             {agent.transcript.entries
               .filter((entry) => entry.role === "notice")
               .map((entry, index) => (
-                <article className="agent-message" key={`notice-${index}`}>
+                <article
+                  className="agent-message"
+                  key={entry.id ?? `notice-${index}`}
+                >
                   <strong>Details</strong>
                   <p>{entry.text}</p>
                 </article>
@@ -536,26 +541,34 @@ export function AgentPanel() {
 }
 
 type Entry = {
+  id?: number;
   role: string;
   text: string;
   streaming?: boolean;
   tool?: ToolCall;
 };
-type Item =
-  { kind: "message"; entry: Entry } | { kind: "steps"; steps: ToolCall[] };
+type Item = { key: string } & (
+  | { kind: "message"; entry: Entry }
+  | { kind: "steps"; steps: ToolCall[] }
+);
 
-/** Messages in order, with each run of tool calls folded into one block of steps. */
-function threadItems(entries: Entry[]): Item[] {
+/**
+ * Messages in order, with each run of tool calls folded into one block of steps. An item is
+ * keyed by its first entry's id, so trimming old entries never hands one item's state (an
+ * open step, a streaming reveal) to another.
+ */
+export function threadItems(entries: Entry[]): Item[] {
   const items: Item[] = [];
-  for (const entry of entries) {
+  entries.forEach((entry, index) => {
+    const key = String(entry.id ?? `i${index}`);
     if (entry.role === "tool" && entry.tool) {
       const last = items[items.length - 1];
       if (last?.kind === "steps") last.steps.push(entry.tool);
-      else items.push({ kind: "steps", steps: [entry.tool] });
+      else items.push({ key, kind: "steps", steps: [entry.tool] });
     } else if (entry.role === "user" || entry.role === "assistant") {
-      items.push({ kind: "message", entry });
+      items.push({ key, kind: "message", entry });
     }
-  }
+  });
   return items;
 }
 

@@ -85,8 +85,12 @@
 
 /* The narrowest window, with the agent panel open: the meter speaks for itself. */
 @container (max-width: 1200px) {
-  .meter > :first-child {
+  .meter > :first-child,
+  .meter .readout {
     display: none;
+  }
+  .right {
+    gap: 8px;
   }
 }
 

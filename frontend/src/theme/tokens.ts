@@ -134,6 +134,14 @@ export const size = {
   inspector: 240,
   agentPanel: 380,
   agentRail: 32,
+  /**
+   * Floors the side panels give way to on a narrow window, so the arrangement keeps
+   * `arrangementMin` of lanes beside its track headers at the 1120 px minimum width.
+   */
+  browserMin: 168,
+  inspectorMin: 196,
+  agentPanelMin: 292,
+  arrangementMin: 280,
   buttonW: 34,
   buttonH: 26,
   playButtonW: 44,

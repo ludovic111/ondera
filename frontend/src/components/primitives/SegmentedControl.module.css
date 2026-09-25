@@ -10,7 +10,10 @@
 }
 
 .stretch .segment {
-  flex: 1;
+  /* Equal shares, but never narrower than the label: a narrow panel gives the longer label
+     room instead of letting it run into its neighbour. */
+  flex: 1 1 0;
+  min-width: min-content;
   text-align: center;
 }
 
@@ -26,7 +29,7 @@
 }
 
 .stretch .segment {
-  padding: 4px 0;
+  padding: 4px 4px;
 }
 
 .icons .segment {

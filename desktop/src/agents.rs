@@ -109,7 +109,7 @@ impl AgentPanel {
         )
             .hash(&mut h);
         r.elapsed().as_secs().hash(&mut h);
-        r.transcript.len().hash(&mut h);
+        (r.first_id, r.transcript.len()).hash(&mut h);
         for entry in r.transcript.iter().rev().take(100) {
             (&entry.text, entry.streaming).hash(&mut h);
             if let Some(tool) = &entry.tool {
@@ -1260,14 +1260,17 @@ impl AgentPanel {
         })
     }
     pub(crate) fn transcript_json(&self, limit: usize) -> Value {
+        let first = self.runtime.first_id;
         let entries: Vec<Value> = self
             .runtime
             .transcript
             .iter()
+            .enumerate()
             .rev()
             .take(limit)
-            .map(|entry| {
+            .map(|(index, entry)| {
                 let mut value = json!({
+                    "id": first + index as u64,
                     "role": match entry.role {
                         Role::User => "user",
                         Role::Assistant => "assistant",

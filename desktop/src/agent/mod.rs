@@ -241,6 +241,9 @@ pub(crate) struct Task {
 #[derive(Default)]
 pub(crate) struct Runtime {
     pub transcript: Vec<Entry>,
+    /// Entries dropped from the front of `transcript` so far, so `first_id + index` names an
+    /// entry for as long as it lives, even after older ones are trimmed or cleared.
+    pub first_id: u64,
     pub history: Vec<Message>,
     pub task: Option<Task>,
     pub status: String,
@@ -263,6 +266,7 @@ impl Runtime {
         if self.transcript.len() > TRANSCRIPT_ENTRIES {
             let excess = self.transcript.len() - TRANSCRIPT_ENTRIES;
             self.transcript.drain(..excess);
+            self.first_id += excess as u64;
         }
         self.scroll_to_end = true;
     }
@@ -352,6 +356,7 @@ impl Runtime {
         }
     }
     pub fn clear(&mut self) {
+        self.first_id += self.transcript.len() as u64;
         self.transcript.clear();
         self.history.clear();
         self.last_error = None;
@@ -665,6 +670,26 @@ pub(crate) fn http() -> ureq::Agent {
 #[cfg(test)]
 mod streaming_tests {
     use super::*;
+
+    #[test]
+    fn entry_ids_survive_trimming_and_clearing() {
+        let mut runtime = Runtime::default();
+        let note = |text: String| Entry {
+            role: Role::Notice,
+            text,
+            tool: None,
+            streaming: false,
+        };
+        for n in 0..TRANSCRIPT_ENTRIES + 5 {
+            runtime.push(note(n.to_string()));
+        }
+        // The oldest five were trimmed; the first survivor keeps the id it was born with.
+        assert_eq!(runtime.first_id, 5);
+        assert_eq!(runtime.transcript[0].text, "5");
+        runtime.clear();
+        runtime.push(note("fresh".into()));
+        assert_eq!(runtime.first_id as usize, TRANSCRIPT_ENTRIES + 5);
+    }
 
     #[test]
     fn activity_between_text_fragments_does_not_split_the_reply() {

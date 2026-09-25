@@ -109,12 +109,14 @@ export function drawRuler(
   const label = formatBarBeatShort(
     beatsToBarBeat(transport.positionBeats, transport.timeSignature),
   );
-  ctx.font = monoFont("value");
+  // The bubble keeps to the ruler's upper half, above the marker flags, so the playhead
+  // never hides a section name (at bar 1 it used to sit right on the first one).
+  ctx.font = monoFont("small");
   const tw = ctx.measureText(label).width;
   const bx = px + 9;
-  const by = 4;
-  const bw = Math.ceil(tw) + 14;
-  const bh = 18;
+  const by = 1;
+  const bw = Math.ceil(tw) + 12;
+  const bh = size.markerTop - 2 * by;
   withShadows(ctx, canvasShadow.bubble, () => {
     ctx.fillStyle = cc(fill.glass);
     roundRectPath(ctx, bx, by, bw, bh, radius.md);
@@ -128,5 +130,5 @@ export function drawRuler(
   ctx.fillRect(bx + 2, by + 1, bw - 4, 1);
   ctx.fillStyle = color.inkBright;
   ctx.textBaseline = "middle";
-  ctx.fillText(label, bx + 7, by + bh / 2 + 0.5);
+  ctx.fillText(label, bx + 6, by + bh / 2 + 0.5);
 }

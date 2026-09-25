@@ -57,6 +57,10 @@
   --size-inspector: 240px;
   --size-agent-panel: 380px;
   --size-agent-rail: 32px;
+  --size-browser-min: 168px;
+  --size-inspector-min: 196px;
+  --size-agent-panel-min: 292px;
+  --size-arrangement-min: 280px;
   --size-button-w: 34px;
   --size-button-h: 26px;
   --size-play-button-w: 44px;
