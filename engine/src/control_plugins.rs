@@ -988,37 +988,41 @@ fn layout_rank(layout: Option<&str>) -> u8 {
         Some(_) => 3,
     }
 }
-/// One row per plugin: layouts of the same plugin fold into the one a stereo track wants,
-/// and the others stay reachable under `layouts`. Order follows the first of each group.
-/// What the layouts of one plugin have in common, and nothing else shares.
+/// One row per plugin: its formats and channel layouts fold into the one Ondera loads (CLAP,
+/// then VST3, then AU, in the layout a stereo track wants), and the others stay reachable under
+/// `formats` and `layouts`. Order follows the first of each group.
+/// What every format and layout of one plugin have in common, and nothing else shares.
 fn row_key(plugin: &Descriptor) -> String {
-    let (base, layout) = layout_of(&plugin.name);
+    let (base, _) = layout_of(&plugin.name);
     format!(
-        "{}|{}|{}|{}",
-        plugin.format.prefix(),
-        plugin.vendor,
+        "{}|{}|{}",
+        plugin.vendor.trim().to_lowercase(),
         plugin.instrument,
-        if layout.is_some() {
-            base
-        } else {
-            plugin.id.as_str()
-        }
+        base.trim().to_lowercase()
     )
 }
 fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFolders) -> Vec<Value> {
-    let mut rows: Vec<(String, Vec<Descriptor>)> = vec![];
+    let mut rows: Vec<Vec<Descriptor>> = vec![];
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for plugin in plugins {
-        let key = row_key(&plugin);
-        match rows.iter_mut().find(|(k, _)| *k == key) {
-            Some((_, group)) => group.push(plugin),
-            None => rows.push((key, vec![plugin])),
+        // Stock and native plugins are Ondera's own: never folded with anything else.
+        let key = match plugin.format.prefix() {
+            "stock" | "native" => plugin.id.clone(),
+            _ => row_key(&plugin),
+        };
+        match index.get(&key) {
+            Some(&i) => rows[i].push(plugin),
+            None => {
+                index.insert(key, rows.len());
+                rows.push(vec![plugin]);
+            }
         }
     }
     rows.into_iter()
-        .map(|(_, group)| {
+        .map(|group| {
             let best = group
                 .iter()
-                .min_by_key(|d| layout_rank(layout_of(&d.name).1))
+                .min_by_key(|d| (format_rank(d), layout_rank(layout_of(&d.name).1)))
                 .expect("a group has at least one plugin");
             let mut value = entry(best, library, auto);
             // The row names the plugin, not its channel layout, even when only one layout is
@@ -1029,9 +1033,32 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFold
             }
             if group.len() > 1 {
                 value["favorite"] = json!(group.iter().any(|d| library.favorites.contains(&d.id)));
-                value["layouts"] = group
+            }
+            let layouts: Vec<&Descriptor> =
+                group.iter().filter(|d| d.format == best.format).collect();
+            if layouts.len() > 1 {
+                value["layouts"] = layouts
                     .iter()
                     .map(|d| json!({ "id": d.id, "layout": layout_of(&d.name).1 }))
+                    .collect();
+            }
+            let mut formats: Vec<&Descriptor> = vec![];
+            for d in &group {
+                if formats.iter().all(|f| f.format != d.format) {
+                    formats.push(
+                        group
+                            .iter()
+                            .filter(|o| o.format == d.format)
+                            .min_by_key(|o| layout_rank(layout_of(&o.name).1))
+                            .unwrap_or(d),
+                    );
+                }
+            }
+            if formats.len() > 1 {
+                formats.sort_by_key(|d| format_rank(d));
+                value["formats"] = formats
+                    .iter()
+                    .map(|d| json!({ "id": d.id, "format": d.format.prefix() }))
                     .collect();
             }
             value
@@ -1688,6 +1715,41 @@ mod tests {
             "a star on any layout stars the row"
         );
         assert!(rows[2].get("layouts").is_none());
+    }
+
+    #[test]
+    fn one_row_per_plugin_across_formats() {
+        let plugin = |format: crate::plugin::Format, prefix: &str, name: &str| Descriptor {
+            id: format!("{prefix}:{name}"),
+            format,
+            name: name.into(),
+            vendor: "FabFilter".into(),
+            path: String::new(),
+            instrument: false,
+            effect: true,
+            category: String::new(),
+        };
+        use crate::plugin::Format::{AudioUnit, Clap, Vst3};
+        let rows = collapse_layouts(
+            vec![
+                plugin(AudioUnit, "au", "Pro-Q 3"),
+                plugin(Vst3, "vst3", "Pro-Q 3"),
+                plugin(Clap, "clap", "Pro-Q 3"),
+                plugin(Vst3, "vst3", "Pro-R"),
+            ],
+            &Plugins::default(),
+            &AutoFolders::new(&[]),
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["id"], "clap:Pro-Q 3", "CLAP first, as the agent loads it");
+        let formats: Vec<&str> = rows[0]["formats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["format"].as_str().unwrap())
+            .collect();
+        assert_eq!(formats, ["clap", "vst3", "au"]);
+        assert!(rows[1].get("formats").is_none());
     }
 
     #[test]
