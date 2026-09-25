@@ -55,7 +55,7 @@ pub struct Audio {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Interface {
-    /// Theme: `modern`, `skeuo` or `aero`.
+    /// Theme: one of [`THEMES`].
     pub appearance: String,
     /// `dark`, `light`, or `auto` to follow the system.
     pub mode: String,
@@ -228,8 +228,9 @@ impl Default for Interface {
         }
     }
 }
-/// The three interface themes; each has a dark and a light mode.
-pub const THEMES: [&str; 3] = ["modern", "skeuo", "aero"];
+/// The interface themes; each has a dark and a light mode. The renderer builds them
+/// in `frontend/src/theme/<id>.ts` and lists them in the same order.
+pub const THEMES: [&str; 6] = ["modern", "skeuo", "aero", "console", "ink", "neon"];
 impl Interface {
     /// Files written before 0.6 had two appearances and no mode: `graphite` was
     /// the dark skeuomorphic look, `aero` the light glass one.
@@ -397,7 +398,7 @@ impl Settings {
             return Err("Model names must be printable and at most 200 characters".into());
         }
         if !THEMES.contains(&self.interface.appearance.as_str()) {
-            return Err("Appearance must be modern, skeuo or aero".into());
+            return Err(format!("Appearance must be one of {}", THEMES.join(", ")));
         }
         if !["dark", "light", "auto"].contains(&self.interface.mode.as_str()) {
             return Err("Mode must be dark, light or auto".into());
@@ -656,7 +657,23 @@ mod tests {
         assert!(settings.set("interface.mode", json!("dim")).is_err());
         for theme in THEMES {
             settings.set("interface.appearance", json!(theme)).unwrap();
+            assert_eq!(settings.interface.appearance, theme);
         }
+        for theme in ["console", "ink", "neon"] {
+            assert!(THEMES.contains(&theme));
+            std::fs::write(
+                &path,
+                format!(r#"{{"interface":{{"appearance":"{theme}","mode":"light"}}}}"#),
+            )
+            .unwrap();
+            let settings = Settings::read(&path).unwrap();
+            assert_eq!(settings.interface.appearance, theme);
+            assert_eq!(settings.interface.mode, "light");
+        }
+        let err = settings
+            .set("interface.appearance", json!("sepia"))
+            .unwrap_err();
+        assert!(err.contains("neon"), "{err}");
     }
     #[test]
     fn switching_provider_resets_an_incompatible_model_but_keeps_credentials() {

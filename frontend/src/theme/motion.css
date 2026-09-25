@@ -146,6 +146,20 @@ button:active:not(:disabled) {
   animation: motion-attention 600ms var(--motion-ease) 1;
 }
 
+/* Ink is e-paper: surfaces redraw where they stand instead of travelling there. */
+:root[data-theme="ink"]
+  :is(
+    [data-motion="pop"],
+    [data-motion="sheet"],
+    [data-motion="from-right"],
+    [data-motion="from-bottom"],
+    [data-motion="rise"],
+    .agent-message,
+    [data-motion="reveal"] > *
+  ) {
+  animation-name: motion-fade;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

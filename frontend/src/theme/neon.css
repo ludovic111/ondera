@@ -1,0 +1,42 @@
+/*
+ * Neon structure. Colours live in neon.ts as --neon-* properties. A thin tube runs
+ * along the foot of the menu bar and of the transport, the window glows faintly from
+ * below, displays burn cyan, and the selected tab carries a magenta underline. Text
+ * itself never glows outside a display.
+ */
+:root[data-theme="neon"] [data-surface="window"] {
+  background: var(--neon-frame);
+}
+:root[data-theme="neon"]
+  :is([data-surface="titlebar"], [data-surface="transport"])::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  pointer-events: none;
+  background: var(--neon-rule);
+  box-shadow: var(--neon-rule-glow);
+}
+:root[data-theme="neon"] :is(.m-well-deep, .m-well-meter) {
+  background: var(--neon-lcd);
+}
+:root[data-theme="neon"] .m-well-deep {
+  text-shadow: var(--neon-lcd-glow);
+}
+:root[data-theme="neon"] .agent-tabs .m-segment-selected,
+:root[data-theme="neon"] .settings-layout nav .selected {
+  box-shadow:
+    var(--shadow-segment),
+    inset 0 -2px 0 var(--color-accent);
+}
+:root[data-theme="neon"] :is(.aero-primary, .agent-send .m-button) {
+  background: var(--gradient-lit);
+  box-shadow: var(--shadow-lit);
+  color: var(--color-accent-ink);
+}
+:root[data-theme="neon"] .aero-play[aria-pressed="true"],
+:root[data-theme="neon"] .m-lit {
+  color: var(--color-accent-ink);
+}

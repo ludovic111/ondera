@@ -4,13 +4,23 @@
  */
 import { formatRgba, parseColor } from "./color";
 
-export type ThemeId = "modern" | "skeuo" | "aero";
+export type ThemeId = "modern" | "skeuo" | "aero" | "console" | "ink" | "neon";
 export type Mode = "dark" | "light";
-export const THEMES: readonly ThemeId[] = ["modern", "skeuo", "aero"];
+export const THEMES: readonly ThemeId[] = [
+  "modern",
+  "skeuo",
+  "aero",
+  "console",
+  "ink",
+  "neon",
+];
 export const THEME_NAMES: Record<ThemeId, string> = {
   modern: "Modern",
   skeuo: "Skeuomorphic",
   aero: "Frutiger Aero",
+  console: "Console",
+  ink: "Ink",
+  neon: "Neon",
 };
 
 export type ColorKey =
