@@ -1741,7 +1741,10 @@ mod tests {
             &AutoFolders::new(&[]),
         );
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0]["id"], "clap:Pro-Q 3", "CLAP first, as the agent loads it");
+        assert_eq!(
+            rows[0]["id"], "clap:Pro-Q 3",
+            "CLAP first, as the agent loads it"
+        );
         let formats: Vec<&str> = rows[0]["formats"]
             .as_array()
             .unwrap()
