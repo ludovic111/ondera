@@ -270,21 +270,11 @@ pub const BASE_COMMANDS: &[Spec] = &[
         req("send", Kind::Integer, "0 for A · Reverb, 1 for B · Delay."),
         opt("levelDb", Kind::Number, "Level in dB, -100 to 0. Omit or null for off."),
     ]),
-    edit("strip.setPlugin", "Load a stock or installed external plugin. Omit slot for a MIDI instrument; pass slot 0-7 for an insert on a track or bus.", &[
+    edit("strip.setPlugin", "Load a stock or installed external plugin (CLAP, VST3, AU, native) as a MIDI track's instrument (omit slot) or as an insert (slot 0-7, or firstFreeSlot) on a track or bus. Name it by pluginId, or by plugin: a search such as \"pro q\" or \"diva\" that must single out one plugin of the right kind.", &[
         TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-        req("pluginId", Kind::String, "Stable descriptor ID from plugin.list, for example stock:Space."),
-    ]),
-    query("strip.parameters", "Read a plugin's parameter IDs, plain values, bounds and units. Omit slot for the MIDI instrument.", &[
-        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-    ]),
-    edit("strip.setParameter", "Set a plugin parameter using its plain value and ID from strip.parameters, in one undo step.", &[
-        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-        req("parameterId", Kind::Integer, "Parameter ID from strip.parameters."),
-        req("value", Kind::Number, "Plain parameter value within its min and max."),
-    ]),
-    edit("strip.setParameters", "Set several plugin parameters atomically in one undo step. Read strip.parameters first.", &[
-        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-        req("values", Kind::Object, "Object mapping parameter IDs to plain numeric values."),
+        opt("firstFreeSlot", Kind::Boolean, "Put the effect in the first empty insert slot (default false)."),
+        opt("pluginId", Kind::String, "Stable descriptor ID from plugin.list, for example stock:Space or vst3:…"),
+        opt("plugin", Kind::String, "Plugin name or search words, instead of pluginId."),
     ]),
     edit("strip.setBypass", "Bypass or enable a plugin without replacing its settings.", &[
         TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
@@ -316,6 +306,8 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_controllers::SPECS)
         .chain(crate::control_app::SPECS)
+        .chain(crate::control_params::SPECS)
+        .chain(crate::control_overview::SPECS)
         .copied()
         .collect()
 });
@@ -420,23 +412,18 @@ pub trait Host {
     fn recording(&self) -> bool {
         false
     }
+    /// Every parameter of the plugin in a strip slot, with values and display text.
     fn plugin_parameters(&mut self, track: &str, slot: Option<usize>) -> Result<Value> {
-        let insert = selected_plugin(self.store().session(), track, slot)?;
-        let mut instance = plugin_host::instantiate(&insert.plugin_id(), &insert.name, 48000)?;
-        if !insert.blob.is_empty() {
-            instance
-                .editor
-                .load(&plugin_host::decode_blob(&insert.blob)?)?;
-        }
-        Ok(json!({
-            "pluginId": insert.plugin_id(),
-            "parameters": instance.editor.params().iter().map(|p| json!({
-                "id": p.id, "name": p.name, "min": p.min, "max": p.max,
-                "default": p.default, "unit": p.unit, "steps": p.steps,
-                "logarithmic": p.log, "labels": p.labels,
-                "value": insert.params.get(&p.id).copied().or_else(|| instance.editor.value(p.id)).unwrap_or(p.default),
-            })).collect::<Vec<_>>()
-        }))
+        crate::control_params::all_parameters(self, track, slot)
+    }
+    /// The editor of a plugin the host already has loaded, by insert key. The window keeps
+    /// one per insert; a headless host has none, and callers instantiate a fresh one.
+    fn loaded_editor(&mut self, _insert_id: &str) -> Option<&mut dyn crate::plugin::Editor> {
+        None
+    }
+    /// Plugins that failed to load, as (insert key, reason).
+    fn plugin_failures(&self) -> Vec<(String, String)> {
+        Vec::new()
     }
     fn stop(&mut self) -> Result<()>;
     fn locate(&mut self, beats: f64) -> Result<()>;
@@ -748,6 +735,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             )
         }
     })?;
+    // Names stand for ids: `trackId: "Bass"` is the track called Bass.
+    let resolved = crate::control_refs::resolve(host.store().session(), spec, params)?;
+    let params = resolved.as_ref().unwrap_or(params);
     let a = validate(spec, params)?;
     if matches!(
         name,
@@ -780,6 +770,15 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     }
     if crate::control_app::SPECS.iter().any(|s| s.name == name) {
         return crate::control_app::call(host, name, &a, agent);
+    }
+    if crate::control_params::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_params::call(host, name, &a);
+    }
+    if crate::control_overview::SPECS
+        .iter()
+        .any(|s| s.name == name)
+    {
+        return crate::control_overview::call(host, name, &a);
     }
     let result = match name {
         "session.info" => Ok(info(host)),
@@ -1347,7 +1346,6 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             check_strip(host.store().session(), id)?;
             Ok(strip_json(host.store().session(), id))
         }
-        "strip.parameters" => host.plugin_parameters(a.str("trackId")?, plugin_slot(&a)?),
         "strip.getState" => {
             host.capture_states()?;
             Ok(json!(selected_plugin(
@@ -1356,33 +1354,35 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 plugin_slot(&a)?
             )?))
         }
-        "strip.setPlugin"
-        | "strip.setParameter"
-        | "strip.setParameters"
-        | "strip.setBypass"
-        | "strip.setState" => {
+        "strip.setPlugin" | "strip.setBypass" | "strip.setState" => {
             let id = a.str("trackId")?;
-            let slot = plugin_slot(&a)?;
+            let mut slot = plugin_slot(&a)?;
             check_strip(host.store().session(), id)?;
-            if slot.is_none() && find_track(host.store().session(), id)?.kind != "midi" {
-                return Err("Only MIDI tracks have an instrument".into());
-            }
             let mut strip = full_strip(host.store().session(), id);
-            let mut insert = if name == "strip.setPlugin" {
-                let plugin_id = a.str("pluginId")?;
-                let descriptor = plugin_host::scan::installed()
-                    .into_iter()
-                    .find(|d| d.id == plugin_id)
-                    .ok_or_else(|| {
-                        format!("Unknown plugin `{plugin_id}`. Run plugin.scan, then plugin.list.")
-                    })?;
-                if (slot.is_none() && !descriptor.instrument)
-                    || (slot.is_some() && !descriptor.effect)
-                {
-                    return Err(
-                        "The plugin is not compatible with this instrument or effect slot".into(),
-                    );
+            if name == "strip.setPlugin" && a.opt_bool("firstFreeSlot").unwrap_or(false) {
+                if slot.is_some() {
+                    return Err("Give slot or firstFreeSlot, not both".into());
                 }
+                slot =
+                    Some(strip.inserts.iter().position(Insert::is_empty).ok_or(
+                        "All eight insert slots are occupied; strip.removeInsert one first",
+                    )?);
+            }
+            if slot.is_none() && is_bus(id) {
+                return Err("Buses have no instrument; pass slot or firstFreeSlot".into());
+            }
+            if slot.is_none() && find_track(host.store().session(), id)?.kind != "midi" {
+                return Err(
+                    "Only MIDI tracks have an instrument; pass slot or firstFreeSlot for an effect"
+                        .into(),
+                );
+            }
+            let mut insert = if name == "strip.setPlugin" {
+                let descriptor = crate::control_plugins::choose(
+                    a.opt_str("pluginId"),
+                    a.opt_str("plugin"),
+                    Some(slot.is_none()),
+                )?;
                 // Verify loading before accepting an unusable plugin into the song.
                 plugin_host::instantiate(&descriptor.id, &descriptor.name, 48000)?;
                 Insert::new(new_id("plugin"), &descriptor.id, &descriptor.name)
@@ -1390,61 +1390,6 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 selected_plugin(host.store().session(), id, slot)?
             };
             match name {
-                "strip.setParameter" | "strip.setParameters" => {
-                    let values = if name == "strip.setParameter" {
-                        vec![(
-                            whole(a.int("parameterId")?, "parameterId")?,
-                            a.f64("value")?,
-                        )]
-                    } else {
-                        let values = a
-                            .get("values")
-                            .and_then(Value::as_object)
-                            .ok_or("Expected parameter values")?;
-                        if values.is_empty() || values.len() > 512 {
-                            return Err("Set between 1 and 512 parameters per call".into());
-                        }
-                        values
-                            .iter()
-                            .map(|(key, value)| {
-                                let id = key
-                                    .parse::<u32>()
-                                    .map_err(|_| "Parameter IDs must be unsigned integers")?;
-                                if id.to_string() != *key {
-                                    return Err(
-                                        "Use canonical parameter IDs from strip.parameters".into(),
-                                    );
-                                }
-                                let value = value
-                                    .as_f64()
-                                    .filter(|v| v.is_finite())
-                                    .ok_or("Parameter values must be finite numbers")?;
-                                Ok((id, value))
-                            })
-                            .collect::<Result<Vec<_>>>()?
-                    };
-                    let metadata = host.plugin_parameters(id, slot)?;
-                    for (parameter, value) in values {
-                        let param = metadata["parameters"]
-                            .as_array()
-                            .and_then(|p| p.iter().find(|p| p["id"] == parameter))
-                            .ok_or_else(|| {
-                                format!("Unknown parameter `{parameter}`. Use strip.parameters.")
-                            })?;
-                        let min = param["min"]
-                            .as_f64()
-                            .ok_or("Plugin parameter has invalid bounds")?;
-                        let max = param["max"]
-                            .as_f64()
-                            .ok_or("Plugin parameter has invalid bounds")?;
-                        if !(min..=max).contains(&value) {
-                            return Err(format!(
-                                "Parameter {parameter} must be between {min} and {max}"
-                            ));
-                        }
-                        insert.params.insert(parameter, value);
-                    }
-                }
                 "strip.setBypass" => {
                     insert.state = if a.bool("bypassed")? {
                         "bypassed"
@@ -1467,6 +1412,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 }
                 _ => {}
             }
+            let loaded = json!({
+                "slot": slot, "pluginId": insert.plugin_id(), "name": insert.name, "insertId": insert.id,
+            });
             if let Some(slot) = slot {
                 strip.inserts[slot] = insert;
             } else {
@@ -1476,7 +1424,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 track: id.into(),
                 strip,
             })?;
-            Ok(strip_json(host.store().session(), id))
+            let mut out = strip_json(host.store().session(), id);
+            if name == "strip.setPlugin" {
+                out["loaded"] = loaded;
+            }
+            Ok(out)
         }
         "strip.setInstrument" | "strip.setInsert" | "strip.setSendLevel" => {
             let id = a.str("trackId")?;
@@ -1586,8 +1538,14 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             "Command `{name}` is registered but not implemented"
         )),
     };
-    if name == "strip.setPlugin" && result.is_ok() {
-        crate::control_plugins::note_recent(host, a.str("pluginId")?);
+    if name == "strip.setPlugin" {
+        if let Some(plugin) = result
+            .as_ref()
+            .ok()
+            .and_then(|v| v["loaded"]["pluginId"].as_str())
+        {
+            crate::control_plugins::note_recent(host, plugin);
+        }
     }
     result
 }

@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const SPECS:&[Spec]=&[
     query("automation.list","List automation lanes and absolute beat points. Track/master gain and pan are sample-accurate; plugin changes occur at blocks of at most 256 frames.",&[]),
     edit("automation.create","Create read automation for trackVolume, trackPan, masterVolume or pluginParameter. One lane per target; values use the parameter's plain units.",&[
-        req("target",Kind::String,"trackVolume, trackPan, masterVolume or pluginParameter"),opt("trackId",Kind::String,"Track ID; master/bus-a/bus-b also accept plugin parameters"),opt("slot",Kind::Integer,"Plugin insert 0-7; omit for the track instrument"),opt("parameterId",Kind::Integer,"Plugin parameter ID from strip.parameters"),opt("name",Kind::String,"Lane name"),opt("interpolation",Kind::String,"linear (default) or step"),opt("points",Kind::Array,"Optional {beat,value,id?} points in absolute quarter-note beats")]),
+        req("target",Kind::String,"trackVolume, trackPan, masterVolume or pluginParameter"),opt("trackId",Kind::String,"Track ID; master/bus-a/bus-b also accept plugin parameters"),opt("slot",Kind::Integer,"Plugin insert 0-7; omit for the track instrument"),opt("parameterId",Kind::Integer,"Plugin parameter ID from strip.parameters"),opt("parameter",Kind::String,"Plugin parameter name instead of parameterId, matched like strip.parameters query"),opt("name",Kind::String,"Lane name"),opt("interpolation",Kind::String,"linear (default) or step"),opt("points",Kind::Array,"Optional {beat,value,id?} points in absolute quarter-note beats")]),
     edit("automation.setPoints","Replace all points in a lane atomically, with one undo step.",&[req("laneId",Kind::String,"Automation lane ID"),req("points",Kind::Array,"Array of {beat,value,id?}; beats must be distinct")]),
-    edit("automation.setPoint","Add or move one automation point.",&[req("laneId",Kind::String,"Automation lane ID"),opt("pointId",Kind::String,"Existing point ID to move; omitted creates a point"),req("beat",Kind::Number,"Absolute quarter-note beat"),req("value",Kind::Number,"Plain parameter value")]),
+    edit("automation.setPoint","Add or move one automation point. Beats are absolute quarter notes from the song start (bar × beats per bar); values are the target's plain units: volume 0-1 (0.75 = 0 dB), pan -100 to 100, plugin parameters as strip.parameters lists them.",&[req("laneId",Kind::String,"Automation lane ID"),opt("pointId",Kind::String,"Existing point ID to move; omitted creates a point"),req("beat",Kind::Number,"Absolute quarter-note beat"),req("value",Kind::Number,"Plain parameter value")]),
     edit("automation.removePoint","Delete an automation point.",&[req("laneId",Kind::String,"Automation lane ID"),req("pointId",Kind::String,"Point ID")]),
     edit("automation.setEnabled","Enable read automation or leave the manual control active.",&[req("laneId",Kind::String,"Automation lane ID"),req("enabled",Kind::Boolean,"Whether automation controls its target")]),
     edit("automation.setInterpolation","Choose linear ramps or steps between points.",&[req("laneId",Kind::String,"Automation lane ID"),req("interpolation",Kind::String,"linear or step")]),
@@ -97,11 +97,38 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, _agent: bool) -> Re
                 {
                     return Err("Plugin slot must be 0-7".into());
                 }
-                let parameter_id = params["parameterId"]
-                    .as_u64()
-                    .and_then(|id| u32::try_from(id).ok())
-                    .ok_or("Plugin parameterId is required")?;
                 let metadata = host.plugin_parameters(track_id, slot)?;
+                let parameter_id =
+                    match (params["parameterId"].as_u64(), params["parameter"].as_str()) {
+                        (Some(id), _) => u32::try_from(id).map_err(|_| "Invalid parameterId")?,
+                        // A name, found the way strip.setParameter finds it.
+                        (None, Some(name)) => {
+                            let list: Vec<crate::plugin::ParamInfo> = metadata["parameters"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|p| {
+                                    Some(crate::plugin::ParamInfo {
+                                        id: u32::try_from(p["id"].as_u64()?).ok()?,
+                                        name: p["name"].as_str()?.to_string(),
+                                        min: 0.0,
+                                        max: 1.0,
+                                        default: 0.0,
+                                        unit: String::new(),
+                                        steps: 0,
+                                        log: false,
+                                        labels: vec![],
+                                    })
+                                })
+                                .collect();
+                            crate::control_params::find_parameter(&list, name, "The plugin")?.id
+                        }
+                        (None, None) => {
+                            return Err(
+                                "pluginParameter needs parameterId or parameter (a name)".into()
+                            )
+                        }
+                    };
                 let parameter = metadata["parameters"]
                     .as_array()
                     .and_then(|list| {

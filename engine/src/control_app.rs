@@ -66,8 +66,10 @@ pub const SPECS: &[Spec] = &[
         req("from", Kind::Integer, "Slot 0-7 to move."),
         req("to", Kind::Integer, "Destination slot 0-7."),
     ]),
-    query("plugin.describe", "Describe a plugin without placing it: format, vendor, category and every parameter with ids, ranges, units and defaults.", &[
-        req("pluginId", Kind::String, "Descriptor ID from plugin.list, for example stock:Space."),
+    query("plugin.describe", "Describe an installed plugin without placing it: format, vendor, category, latency, whether it has its own window, its factory programs and Ondera presets, and its parameters with ids, ranges, units, defaults as displayed and whether they can be automated.", &[
+        req("pluginId", Kind::String, "Descriptor ID from plugin.list (stock:Space, vst3:…), or the plugin's name."),
+        opt("query", Kind::String, "Only parameters whose name matches these words."),
+        opt("limit", Kind::Integer, "Parameters to return, 1-10000, default 200."),
     ]),
     query("preset.list", "List factory and user presets, optionally for one plugin.", &[
         opt("pluginId", Kind::String, "Only presets for this plugin ID."),
@@ -521,23 +523,39 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
             Ok(control::strip_json(host.store().session(), id))
         }
         "plugin.describe" => {
-            let plugin_id = a.str("pluginId")?;
-            let descriptor = plugin_host::scan::installed()
-                .into_iter()
-                .find(|d| d.id == plugin_id)
-                .ok_or_else(|| {
-                    format!("Unknown plugin `{plugin_id}`. Run plugin.scan, then plugin.list.")
-                })?;
-            let instance = plugin_host::instantiate(&descriptor.id, &descriptor.name, 48000)?;
+            let wanted = a.str("pluginId")?;
+            let descriptor = crate::control_plugins::choose(Some(wanted), None, None)?;
+            let limit = a.opt_int("limit").unwrap_or(200);
+            if !(1..=10_000).contains(&limit) {
+                return Err("limit must be 1-10000".into());
+            }
+            let mut instance = plugin_host::instantiate(&descriptor.id, &descriptor.name, 48000)?;
+            let editor = instance.editor.as_mut();
+            let programs = editor.programs();
+            let mut params: Vec<(u32, &crate::plugin::ParamInfo)> = editor
+                .params()
+                .iter()
+                .filter_map(|p| match a.opt_str("query") {
+                    Some(q) => crate::control_refs::score(q, &p.name).map(|s| (s, p)),
+                    None => Some((0, p)),
+                })
+                .collect();
+            if a.opt_str("query").is_some() {
+                params.sort_by(|x, y| y.0.cmp(&x.0));
+            }
+            let total = params.len();
             Ok(json!({
                 "descriptor": descriptor,
-                "latency": instance.editor.latency(),
-                "hasGui": instance.editor.has_gui(),
-                "parameters": instance.editor.params().iter().map(|p| json!({
-                    "id": p.id, "name": p.name, "min": p.min, "max": p.max, "default": p.default,
-                    "unit": p.unit, "steps": p.steps, "logarithmic": p.log, "labels": p.labels,
-                })).collect::<Vec<_>>(),
-                "presets": preset::list(Some(plugin_id))?.iter().map(|p| &p.name).collect::<Vec<_>>(),
+                "latency": editor.latency(),
+                "hasGui": editor.has_gui(),
+                "parameterCount": editor.params().len(),
+                "total": total,
+                "parameters": params.iter().take(limit as usize).map(|(_, p)| {
+                    crate::control_params::parameter_json(editor, p, p.default, None)
+                }).collect::<Vec<_>>(),
+                "truncated": total > limit as usize,
+                "programs": programs,
+                "presets": preset::list(Some(&descriptor.id))?.iter().map(|p| &p.name).collect::<Vec<_>>(),
             }))
         }
         "preset.list" => Ok(json!({ "presets": preset::list(a.opt_str("pluginId"))? })),

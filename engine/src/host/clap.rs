@@ -546,6 +546,8 @@ pub struct ClapEditor {
     desc: Descriptor,
     params: Vec<ParamInfo>,
     gui_open: bool,
+    /// Parameters the plugin does not flag automatable.
+    fixed: std::collections::HashSet<u32>,
 }
 impl ClapEditor {
     fn new(shared: Arc<Shared>, desc: Descriptor) -> Self {
@@ -554,12 +556,14 @@ impl ClapEditor {
             desc,
             params: vec![],
             gui_open: false,
+            fixed: Default::default(),
         };
         editor.read_params();
         editor
     }
     fn read_params(&mut self) {
         self.params.clear();
+        self.fixed.clear();
         let ext = self.shared.ext.params;
         if ext.is_null() {
             return;
@@ -575,6 +579,9 @@ impl ClapEditor {
                 }
                 if info.flags & CLAP_PARAM_IS_HIDDEN != 0 {
                     continue;
+                }
+                if info.flags & CLAP_PARAM_IS_AUTOMATABLE == 0 {
+                    self.fixed.insert(info.id);
                 }
                 let stepped = info.flags & CLAP_PARAM_IS_STEPPED != 0;
                 let steps = if stepped {
@@ -864,6 +871,31 @@ impl Editor for ClapEditor {
             .fetch_and(!FLAG_DIRTY, Ordering::AcqRel)
             & FLAG_DIRTY
             != 0
+    }
+    fn parse_text(&self, id: u32, input: &str) -> Option<f64> {
+        let ext = self.shared.ext.params;
+        let asked = (!ext.is_null())
+            .then(|| {
+                let c = std::ffi::CString::new(input.trim()).ok()?;
+                let mut out = 0.0;
+                unsafe {
+                    (*ext)
+                        .text_to_value
+                        .is_some_and(|f| f(self.shared.plugin, id, c.as_ptr(), &mut out))
+                        .then_some(out)
+                }
+            })
+            .flatten()
+            .filter(|v| v.is_finite());
+        asked.or_else(|| {
+            self.params
+                .iter()
+                .find(|p| p.id == id)
+                .and_then(|p| p.parse_text(input))
+        })
+    }
+    fn automatable(&self, id: u32) -> bool {
+        !self.fixed.contains(&id)
     }
 }
 impl Drop for ClapEditor {

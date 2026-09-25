@@ -1039,6 +1039,164 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFold
         .collect()
 }
 
+/// How well a search matches a plugin: its name first, then vendor and name together
+/// ("fabfilter pro q"), then its id, folder and category. `None` when it does not match.
+fn relevance(query: &str, d: &Descriptor, library: &Plugins, auto: &AutoFolders) -> Option<u32> {
+    use crate::control_refs::score;
+    let name = score(query, &d.name).map(|s| s + 1000);
+    let vendor = score(query, &format!("{} {}", d.vendor, d.name)).map(|s| s + 500);
+    let rest = score(
+        query,
+        &format!(
+            "{} {} {} {}",
+            d.id,
+            folder(d, library, auto),
+            d.category,
+            d.format.prefix()
+        ),
+    );
+    name.max(vendor).max(rest)
+}
+
+/// Formats in the order a search prefers them when one plugin is installed in several.
+fn format_rank(d: &Descriptor) -> u8 {
+    match d.format.prefix() {
+        "stock" => 0,
+        "native" => 1,
+        "clap" => 2,
+        "vst3" => 3,
+        _ => 4,
+    }
+}
+
+/// The plugin an agent means: an exact descriptor id, else a name search among plugins that
+/// fit the slot (instruments for an instrument, effects for an insert). A plugin installed in
+/// several formats or channel layouts is one match, loaded as CLAP, then VST3, then AU, in
+/// the layout a stereo track wants; two different plugins matching equally is an error that
+/// lists them.
+pub fn choose(
+    plugin_id: Option<&str>,
+    search: Option<&str>,
+    kind: Option<bool>,
+) -> Result<Descriptor> {
+    let installed = scan::installed();
+    let instrument = kind.unwrap_or(false);
+    let fits = |d: &Descriptor| match kind {
+        None => true,
+        Some(true) => d.instrument,
+        Some(false) => d.effect,
+    };
+    let role = match kind {
+        None => "a plugin",
+        Some(true) => "an instrument",
+        Some(false) => "an effect",
+    };
+    let wrong_kind = |d: &Descriptor| {
+        format!(
+            "{} is not {role}: {}",
+            d.name,
+            if instrument {
+                "load it into an insert slot (pass slot or firstFreeSlot)"
+            } else {
+                "load it as a MIDI track's instrument (omit slot)"
+            }
+        )
+    };
+    let search = match (plugin_id, search) {
+        (Some(_), Some(_)) => return Err("Give pluginId or plugin, not both".into()),
+        (None, None) => return Err("Name the plugin with pluginId or plugin (a name)".into()),
+        (Some(id), None) => {
+            if let Some(d) = installed.iter().find(|d| d.id == id) {
+                return if fits(d) {
+                    Ok(d.clone())
+                } else {
+                    Err(wrong_kind(d))
+                };
+            }
+            if id.contains(':') {
+                return Err(format!(
+                    "Unknown plugin `{id}`. Run plugin.scan, then plugin.list query=..."
+                ));
+            }
+            id
+        }
+        (None, Some(name)) => name,
+    };
+    let library = Plugins::default();
+    let auto = AutoFolders::new(&installed);
+    let mut matches: Vec<(u32, &Descriptor)> = installed
+        .iter()
+        .filter_map(|d| {
+            let exact = layout_of(&d.name)
+                .0
+                .trim()
+                .eq_ignore_ascii_case(search.trim())
+                || d.name.trim().eq_ignore_ascii_case(search.trim());
+            relevance(search, d, &library, &auto).map(|s| (if exact { s + 10_000 } else { s }, d))
+        })
+        .collect();
+    if matches.is_empty() {
+        let near = crate::control_refs::suggest(search, installed.iter().map(|d| d.name.as_str()))
+            .map(|n| format!(" Did you mean {n}?"))
+            .unwrap_or_default();
+        return Err(format!(
+            "No installed plugin matches `{search}`.{near} Search with plugin.list query=..., or run plugin.scan after installing."
+        ));
+    }
+    let any_kind = matches.first().map(|m| m.1.clone());
+    matches.retain(|(_, d)| fits(d));
+    let Some(best) = matches.iter().map(|m| m.0).max() else {
+        return Err(any_kind.map_or_else(
+            || format!("No {role} matches `{search}`"),
+            |d| wrong_kind(&d),
+        ));
+    };
+    // One product in several formats and layouts is one choice.
+    let product = |d: &Descriptor| {
+        format!(
+            "{}|{}",
+            crate::control_refs::normalize(&d.vendor),
+            crate::control_refs::normalize(layout_of(&d.name).0)
+        )
+    };
+    let top: Vec<&Descriptor> = matches
+        .iter()
+        .filter(|m| m.0 == best)
+        .map(|m| m.1)
+        .collect();
+    let mut products: Vec<String> = top.iter().map(|d| product(d)).collect();
+    products.sort();
+    products.dedup();
+    // One or two letters single out a plugin only by naming it exactly.
+    let short = crate::control_refs::normalize(search).len() < 3 && best < 10_000;
+    if short {
+        let mut near: Vec<&(u32, &Descriptor)> = matches.iter().collect();
+        near.sort_by(|a, b| b.0.cmp(&a.0));
+        return Err(format!(
+            "`{search}` is too short to choose a plugin. Some that match: {}.",
+            near.iter()
+                .take(8)
+                .map(|(_, d)| d.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if products.len() > 1 {
+        return Err(format!(
+            "`{search}` matches several plugins: {}. Pass pluginId or a fuller name.",
+            top.iter()
+                .take(10)
+                .map(|d| format!("{} ({}, {}) {}", d.name, d.vendor, d.format.prefix(), d.id))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+    top.into_iter()
+        .min_by_key(|d| (format_rank(d), layout_rank(layout_of(&d.name).1)))
+        .cloned()
+        .ok_or_else(|| format!("No {role} matches `{search}`"))
+}
+
 pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
     let format = args.opt_str("format");
     if format.is_some_and(|format| !["stock", "native", "clap", "vst3", "au"].contains(&format)) {
@@ -1048,16 +1206,23 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
     if kind.is_some_and(|kind| !["instrument", "effect"].contains(&kind)) {
         return Err("Plugin kind must be instrument or effect".into());
     }
-    let sort = args.opt_str("sort").unwrap_or("name");
-    if !["name", "recent"].contains(&sort) {
-        return Err("Plugin sort must be name or recent".into());
+    // A search ranks by how well each plugin matches unless a sort is asked for.
+    let sort = args
+        .opt_str("sort")
+        .unwrap_or(if args.opt_str("query").is_some() {
+            "relevance"
+        } else {
+            "name"
+        });
+    if !["name", "recent", "relevance"].contains(&sort) {
+        return Err("Plugin sort must be name, recent or relevance".into());
     }
     let limit = args.opt_int("limit").unwrap_or(50);
     let offset = args.opt_int("offset").unwrap_or(0);
     if !(1..=200).contains(&limit) || offset < 0 {
         return Err("Plugin limit must be 1-200 and offset must be non-negative".into());
     }
-    let query = args.opt_str("query").unwrap_or("").to_lowercase();
+    let query = args.opt_str("query").unwrap_or("").trim().to_string();
     let wanted_folder = args.opt_str("folder").map(str::to_lowercase);
     let favorite = args.opt_bool("favorite").unwrap_or(false);
     let installed = scan::installed();
@@ -1077,15 +1242,14 @@ pub(crate) fn page(args: &Args, library: &Plugins) -> Result<Value> {
                 && wanted_folder
                     .as_ref()
                     .is_none_or(|f| folder(plugin, library, &auto).to_lowercase() == *f)
-                && (query.is_empty()
-                    || plugin.name.to_lowercase().contains(&query)
-                    || plugin.vendor.to_lowercase().contains(&query)
-                    || plugin.id.to_lowercase().contains(&query)
-                    || folder(plugin, library, &auto)
-                        .to_lowercase()
-                        .contains(&query))
+                && (query.is_empty() || relevance(&query, plugin, library, &auto).is_some())
         })
         .collect();
+    if sort == "relevance" && !query.is_empty() {
+        // Stable: equally good matches keep the library's order.
+        filtered
+            .sort_by_key(|d| std::cmp::Reverse(relevance(&query, d, library, &auto).unwrap_or(0)));
+    }
     if sort == "recent" {
         let rank = |d: &Descriptor| {
             library
