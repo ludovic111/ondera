@@ -9,8 +9,8 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-/// A lane: the kind, and the controller number for control changes.
-pub type Lane = (ControllerKind, Option<u8>);
+/// A lane: the kind, the controller number for control changes, and the MIDI channel.
+pub type Lane = (ControllerKind, Option<u8>, u8);
 
 pub const SUSTAIN: u8 = 64;
 pub const MOD_WHEEL: u8 = 1;
@@ -121,6 +121,7 @@ pub struct Played {
     pub time: f64,
     pub kind: ControllerKind,
     pub number: Option<u8>,
+    pub channel: u8,
     pub value: i16,
     /// Sent at the clip's end to return a bend or a held pedal to rest.
     pub reset: bool,
@@ -137,12 +138,13 @@ pub fn playback(points: &[Controller], length: f64) -> Vec<Played> {
             time: p.time,
             kind: p.kind,
             number: p.number,
+            channel: p.channel,
             value: p.value,
             reset: false,
         })
         .collect();
     out.sort_by(|a, b| a.time.total_cmp(&b.time));
-    for ((kind, number), list) in lanes(points) {
+    for ((kind, number, channel), list) in lanes(points) {
         let resting = matches!(
             (kind, number),
             (ControllerKind::Bend, _)
@@ -156,6 +158,7 @@ pub fn playback(points: &[Controller], length: f64) -> Vec<Played> {
                     time: length,
                     kind,
                     number,
+                    channel,
                     value: 0,
                     reset: true,
                 });
@@ -192,7 +195,8 @@ pub fn recorded(
             continue;
         };
         let time = (beats - origin).max(0.0);
-        let lane = (kind, number);
+        let channel = e.channel.min(15);
+        let lane = (kind, number, channel);
         match out.iter_mut().rev().find(|p| p.lane() == lane) {
             Some(last) if (last.time - time).abs() < 1e-9 => {
                 last.value = value;
@@ -208,6 +212,7 @@ pub fn recorded(
             time,
             value,
             agent,
+            channel,
         });
     }
     sort(&mut out);
@@ -247,6 +252,7 @@ mod tests {
             time,
             value,
             agent: false,
+            channel: 0,
         }
     }
     #[test]

@@ -49,6 +49,7 @@ fn point(kind: ControllerKind, number: Option<u8>, time: f64, value: i16) -> Con
         time,
         value,
         agent: false,
+        channel: 0,
     }
 }
 
@@ -87,6 +88,7 @@ fn session(controllers: Vec<Controller>, inserts: &[&str]) -> Session {
                 pitch: 60,
                 velocity: 100,
                 agent: false,
+                channel: 0,
             }],
             controllers,
         },
@@ -287,4 +289,249 @@ fn native_abi_2_effects_take_events_and_abi_1_and_stock_effects_do_not() {
     }
     drop(rack);
     drop((v1, v2));
+}
+
+/// (channel, kind, key, value) of every event, notes included.
+fn on_channels(log: &Log) -> Vec<(u8, u8, u8, i16)> {
+    log.lock()
+        .unwrap()
+        .iter()
+        .map(|(_, e)| {
+            let value = if e.kind == event::PITCH_BEND {
+                e.bend
+            } else {
+                e.value as i16
+            };
+            (e.channel, e.kind, e.key, value)
+        })
+        .collect()
+}
+
+#[test]
+fn notes_and_controllers_keep_their_channel_through_playback_chase_rest_and_live_input() {
+    let mut s = session(
+        vec![
+            Controller {
+                channel: 3,
+                ..point(ControllerKind::Bend, None, 0.01, 4096)
+            },
+            Controller {
+                channel: 3,
+                ..point(ControllerKind::Cc, Some(64), 0.01, 127)
+            },
+        ],
+        &["fx-events"],
+    );
+    // The same pitch on channels 0 and 3, held at once.
+    if let ClipData::Midi { notes, .. } = &mut s.clips[0].data {
+        let mut other = notes[0].clone();
+        other.id = "note-ch3".into();
+        other.channel = 3;
+        other.length = 1.0;
+        notes.push(other);
+    }
+    let mut rack = Rack::new(2);
+    let instrument = probe(&mut rack, 0, false);
+    let insert = probe(&mut rack, 1, true);
+    let mut renderer = Renderer::new(s.clone(), &Library::new(), 48000, &slots(&s)).unwrap();
+    renderer.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    for _ in 0..2 {
+        renderer.render(&mut rack, &mut block);
+    }
+    let heard = on_channels(&instrument);
+    assert!(heard.contains(&(0, event::NOTE_ON, 60, 100)), "{heard:?}");
+    assert!(heard.contains(&(3, event::NOTE_ON, 60, 100)), "{heard:?}");
+    assert!(
+        heard.contains(&(3, event::PITCH_BEND, 0, 4096)),
+        "{heard:?}"
+    );
+    assert!(heard.contains(&(3, event::CONTROL, 64, 127)), "{heard:?}");
+    assert!(
+        on_channels(&insert).contains(&(3, event::PITCH_BEND, 0, 4096)),
+        "Inserts hear the channel too"
+    );
+
+    // The channel 3 note ends at beat 1 and releases on channel 3 only.
+    instrument.lock().unwrap().clear();
+    for _ in 0..(24000 / 256 + 1) {
+        renderer.render(&mut rack, &mut block);
+    }
+    let offs: Vec<_> = on_channels(&instrument)
+        .into_iter()
+        .filter(|e| e.1 == event::NOTE_OFF)
+        .collect();
+    assert_eq!(offs, vec![(3, event::NOTE_OFF, 60, 0)]);
+
+    // Stop releases the channel 0 note on channel 0 and rests channel 3's bend and pedal.
+    instrument.lock().unwrap().clear();
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    let stopped = on_channels(&instrument);
+    assert!(
+        stopped.contains(&(0, event::NOTE_OFF, 60, 0)),
+        "{stopped:?}"
+    );
+    assert!(
+        stopped.contains(&(3, event::PITCH_BEND, 0, 0)),
+        "{stopped:?}"
+    );
+    assert!(stopped.contains(&(3, event::CONTROL, 64, 0)), "{stopped:?}");
+    assert!(
+        !stopped.iter().any(|e| e.1 != event::NOTE_OFF && e.0 == 0),
+        "Nothing was bent on channel 0: {stopped:?}"
+    );
+
+    // A locate chases channel 3's values back on channel 3, and both notes on their own.
+    instrument.lock().unwrap().clear();
+    renderer.locate(0.5);
+    renderer.playing = true;
+    renderer.render(&mut rack, &mut block);
+    let chased = on_channels(&instrument);
+    for expected in [
+        (3, event::PITCH_BEND, 0, 4096),
+        (3, event::CONTROL, 64, 127),
+        (0, event::NOTE_ON, 60, 100),
+        (3, event::NOTE_ON, 60, 100),
+    ] {
+        assert!(chased.contains(&expected), "{chased:?}");
+    }
+
+    // Live input keeps the channel it was played on, and releases on it.
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    instrument.lock().unwrap().clear();
+    let route = ondera_engine::midi::route_id(&s.tracks[0].id);
+    renderer.routed_note(route, true, 72, 90, 9);
+    renderer.routed_control(route, Event::pitch_bend(0, -1.0).on_channel(9));
+    renderer.render(&mut rack, &mut block);
+    renderer.routed_note(route, false, 72, 0, 9);
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    let live = on_channels(&instrument);
+    assert!(live.contains(&(9, event::NOTE_ON, 72, 90)), "{live:?}");
+    assert!(live.contains(&(9, event::PITCH_BEND, 0, -8192)), "{live:?}");
+    assert!(live.contains(&(9, event::NOTE_OFF, 72, 0)), "{live:?}");
+    assert!(
+        live.contains(&(9, event::PITCH_BEND, 0, 0)),
+        "Stop rests the live bend on its channel: {live:?}"
+    );
+    assert_eq!(
+        live.iter().filter(|e| e.1 == event::NOTE_OFF).count(),
+        1,
+        "The live note is released once: {live:?}"
+    );
+}
+
+#[test]
+fn channels_are_absent_from_the_file_on_channel_0_and_kept_otherwise() {
+    let mut s = session(
+        vec![
+            point(ControllerKind::Cc, Some(1), 0.5, 10),
+            Controller {
+                channel: 2,
+                ..point(ControllerKind::Cc, Some(1), 0.5, 90)
+            },
+        ],
+        &[],
+    );
+    if let ClipData::Midi { notes, .. } = &mut s.clips[0].data {
+        let mut other = notes[0].clone();
+        other.id = "n2".into();
+        other.channel = 15;
+        notes.push(other);
+    }
+    s.validate().unwrap();
+    let json = serde_json::to_value(&s).unwrap();
+    let data = &json["clips"][0]["data"];
+    assert!(data["notes"][0].get("channel").is_none());
+    assert_eq!(data["notes"][1]["channel"], 15);
+    assert!(data["controllers"][0].get("channel").is_none());
+    assert_eq!(data["controllers"][1]["channel"], 2);
+    let back: Session = serde_json::from_value(json).unwrap();
+    let ClipData::Midi { notes, controllers } = &back.clips[0].data else {
+        panic!()
+    };
+    assert_eq!((notes[0].channel, notes[1].channel), (0, 15));
+    assert_eq!((controllers[0].channel, controllers[1].channel), (0, 2));
+    assert_eq!(
+        ondera_engine::controllers::lanes(controllers).len(),
+        2,
+        "The same controller on two channels is two lanes"
+    );
+
+    let mut broken = back.clone();
+    if let ClipData::Midi { notes, .. } = &mut broken.clips[0].data {
+        notes[0].channel = 16;
+    }
+    assert!(broken.validate().is_err());
+    let mut broken = back;
+    if let ClipData::Midi { controllers, .. } = &mut broken.clips[0].data {
+        controllers[0].channel = 16;
+    }
+    assert!(broken.validate().is_err());
+}
+
+#[test]
+fn a_take_records_each_channel_as_its_own_lane() {
+    let events = [
+        (0.0, Event::control(0, 1, 40)),
+        (0.0, Event::control(0, 1, 40).on_channel(4)),
+        (1.0, Event::control(0, 1, 40)),
+        (1.0, Event::control(0, 1, 70).on_channel(4)),
+        (2.0, Event::pitch_bend(0, 0.5).on_channel(4)),
+    ];
+    let points = ondera_engine::controllers::recorded(&events, 0.0, false, || "p".into());
+    let summary: Vec<_> = points
+        .iter()
+        .map(|p| (p.channel, p.kind, p.number, p.time, p.value))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (0, ControllerKind::Cc, Some(1), 0.0, 40),
+            (4, ControllerKind::Cc, Some(1), 0.0, 40),
+            (4, ControllerKind::Cc, Some(1), 1.0, 70),
+            (4, ControllerKind::Bend, None, 2.0, 4096),
+        ],
+        "A repeat is dropped per channel, not across channels"
+    );
+}
+
+#[test]
+fn standard_midi_files_keep_a_note_s_own_channel() {
+    let mut s = session(
+        vec![Controller {
+            channel: 6,
+            ..point(ControllerKind::Cc, Some(74), 0.5, 99)
+        }],
+        &[],
+    );
+    if let ClipData::Midi { notes, .. } = &mut s.clips[0].data {
+        notes[0].channel = 6;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("channel.mid");
+    ondera_engine::midi_file::export(&s, &path, None).unwrap();
+    let (command, _) = ondera_engine::midi_file::import(
+        &path,
+        &store::empty(),
+        &ondera_engine::midi_file::ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    let mut target = store::Store::new(store::empty()).unwrap();
+    target.dispatch(command).unwrap();
+    let track = target.session().tracks.last().unwrap();
+    assert_eq!(
+        track.extra.get("midiChannel"),
+        Some(&serde_json::json!(6)),
+        "The imported track names the channel its notes came on"
+    );
+    let ClipData::Midi { controllers, .. } = &target.session().clips.last().unwrap().data else {
+        panic!()
+    };
+    assert!(controllers
+        .iter()
+        .any(|c| c.number == Some(74) && c.value == 99));
 }

@@ -252,6 +252,7 @@ pub fn connect(
                             on: event.on,
                             pitch: event.pitch,
                             velocity: event.velocity,
+                            channel: event.channel,
                         })
                         .is_err();
                     overflow |= producer

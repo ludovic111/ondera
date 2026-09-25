@@ -168,6 +168,11 @@ fn is_zero(v: &f64) -> bool {
 fn is_zero_f32(v: &f32) -> bool {
     *v == 0.0
 }
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
+}
+/// MIDI channels are 0-15 in the file and on the wire (channels 1-16 to a musician).
+pub const MIDI_CHANNELS: u8 = 16;
 /// Clip gain range in dB.
 pub const CLIP_GAIN_MIN_DB: f32 = -60.0;
 pub const CLIP_GAIN_MAX_DB: f32 = 24.0;
@@ -239,6 +244,11 @@ pub struct Note {
     pub velocity: u8,
     #[serde(default)]
     pub agent: bool,
+    /// The MIDI channel the note plays on, 0-15, as it was played in. Absent from the file
+    /// on channel 0 (channel 1 to a musician), so older files and older versions read as
+    /// before.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub channel: u8,
 }
 
 /// What a [`Controller`] point moves.
@@ -293,15 +303,19 @@ pub struct Controller {
     pub value: i16,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent: bool,
+    /// The MIDI channel, 0-15; absent from the file on channel 0.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub channel: u8,
 }
 impl Controller {
-    /// The lane this point belongs to.
-    pub fn lane(&self) -> (ControllerKind, Option<u8>) {
-        (self.kind, self.number)
+    /// The lane this point belongs to: kind, number and channel.
+    pub fn lane(&self) -> (ControllerKind, Option<u8>, u8) {
+        (self.kind, self.number, self.channel)
     }
     pub fn is_valid(&self) -> bool {
         let (low, high) = self.kind.range();
         valid_time(self.time)
+            && self.channel < MIDI_CHANNELS
             && (low..=high).contains(&self.value)
             && match self.kind {
                 ControllerKind::Cc => self.number.is_some_and(|n| n <= 127),
@@ -679,6 +693,7 @@ impl Session {
                             || !valid_time(n.length)
                             || n.length <= 0.0
                             || n.pitch > 127
+                            || n.channel >= MIDI_CHANNELS
                             || n.velocity == 0
                             || n.velocity > 127
                     }) {

@@ -688,10 +688,10 @@ struct Shared {
     in_channels: usize,
     out_channels: usize,
     has_event_input: bool,
-    /// The parameter each MIDI controller drives, as the plugin's `IMidiMapping` reports it
-    /// for the first event bus and channel: 0-127 are CCs, 128 channel pressure, 129 pitch
-    /// bend. VST3 has no MIDI controller events; this is how a host delivers them.
-    midi_map: [Option<ParamID>; 130],
+    /// The parameter each MIDI controller drives on each channel, as the plugin's
+    /// `IMidiMapping` reports it for the first event bus: 0-127 are CCs, 128 channel pressure,
+    /// 129 pitch bend. VST3 has no MIDI controller events; this is how a host delivers them.
+    midi_map: MidiMap,
     active: AtomicBool,
 }
 // SAFETY: VST3 objects are shared between the main thread (controller, state,
@@ -719,16 +719,29 @@ impl Drop for Shared {
     }
 }
 
-/// Ask the controller which parameter each MIDI controller number drives.
-unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> [Option<ParamID>; 130] {
-    let mut map = [None; 130];
+/// Controller numbers `IMidiMapping` knows: 128 CCs, channel pressure and pitch bend.
+const MAPPED_CONTROLLERS: usize = 130;
+/// Per MIDI channel, the parameter each controller number drives.
+type MidiMap = [[Option<ParamID>; MAPPED_CONTROLLERS]; 16];
+
+/// Ask the controller which parameter each MIDI controller number drives on each channel.
+unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> MidiMap {
+    let mut map = [[None; MAPPED_CONTROLLERS]; 16];
     let Some(mapping) = controller.cast::<IMidiMapping>().filter(|_| events) else {
         return map;
     };
-    for (number, slot) in map.iter_mut().enumerate() {
-        let mut id: ParamID = 0;
-        if mapping.getMidiControllerAssignment(0, 0, number as CtrlNumber, &mut id) == kResultOk {
-            *slot = Some(id);
+    for (channel, row) in map.iter_mut().enumerate() {
+        for (number, slot) in row.iter_mut().enumerate() {
+            let mut id: ParamID = 0;
+            if mapping.getMidiControllerAssignment(
+                0,
+                channel as int16,
+                number as CtrlNumber,
+                &mut id,
+            ) == kResultOk
+            {
+                *slot = Some(id);
+            }
         }
     }
     map
@@ -1347,7 +1360,7 @@ impl Processor for Vst3Processor {
             let Some((number, value)) = midi_controller(event) else {
                 continue;
             };
-            let Some(id) = self.shared.midi_map[number] else {
+            let Some(id) = self.shared.midi_map[event.channel as usize & 15][number] else {
                 continue;
             };
             let queues = &self.changes.queues;

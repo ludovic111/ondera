@@ -799,12 +799,17 @@ function controllerCommand(method: string, params: Params): unknown {
     throw new Error("Only MIDI clips hold controllers");
   const data = clip.data as Params & { controllers?: Params[] };
   const points = (data.controllers ??= []);
+  const channel = Number(params.channel ?? 0);
   const inLane = (p: Params) =>
-    p.kind === params.kind && (p.kind !== "cc" || p.number === params.number);
-  const lane =
-    params.kind === "cc"
+    p.kind === params.kind &&
+    (p.kind !== "cc" || p.number === params.number) &&
+    Number(p.channel ?? 0) === channel;
+  const lane = {
+    ...(params.kind === "cc"
       ? { kind: "cc", number: params.number }
-      : { kind: params.kind };
+      : { kind: params.kind }),
+    ...(channel ? { channel } : {}),
+  };
   switch (method) {
     case "controller.add": {
       const existing = points.find((p) => inLane(p) && p.time === params.time);

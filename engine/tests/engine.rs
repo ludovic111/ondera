@@ -59,6 +59,7 @@ fn midi_session() -> Session {
                 pitch: 60,
                 velocity: 100,
                 agent: false,
+                channel: 0,
             }],
             controllers: vec![],
         },
@@ -662,6 +663,7 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
                 time,
                 value,
                 agent: false,
+                channel: 0,
             });
         }
     }
