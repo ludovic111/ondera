@@ -146,6 +146,21 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   `engine/tests/agent_parity.rs` fails when an `actions.ts` action has no entry in
   `docs/agent-parity.json`, when the frontend sends an unknown name, or when a command has
   no real description. A new window interaction adds its row there.
+- 0.9 (2026-09-25, owner asked to "improve the app" and delegated): stock voices are scaled by
+  `dsp::HEADROOM` (0.5, -6 dB) because loops and chords clipped at unity; old songs play 6 dB
+  quieter on stock instruments, accepted. `store::empty()` starts Drums (Drum Machine), Bass
+  (Analog Bass) and Vocals (audio); strips exist only once edited, so set them with
+  `entry().or_default()`. `Host::loaded_editor(insert)` serves the window's instance only when
+  its plugin id and blob match the document (a new song reuses insert keys; reconcile runs a
+  frame later), otherwise callers read a fresh instance. A rebuilt `Renderer` glides a
+  sounding clip's envelope from the old graph (`glide_from`, 5 ms), never touching playback
+  without a rebuild. `plugin.list` rows fold formats and layouts (vendor + name; CLAP, VST3, AU
+  order, others under `formats`); search also matches `folder_words` and stock descriptions.
+  Side panels shrink to `size.*Min` floors so the arrangement keeps `arrangementMin` at the
+  1120 px minimum. `ui.screenshot` finishes running animations first (`settleMotion` in
+  `main.tsx`). Docs: `docs/COMMANDS.md` and `docs/SHORTCUTS.md` are generated and checked by
+  tests (`ONDERA_BLESS=1` regenerates); `USER_GUIDE.md`, `AI_CONTROL.md` and `DEVELOPMENT.md`
+  are written by hand, keep them true when behaviour changes.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ondera-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are

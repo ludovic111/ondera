@@ -89,8 +89,9 @@ The command palette (`⌘P` or View > Command Palette) finds any action by name.
   right-click to move it to another folder, including folders you create.
 - **Files** tab: audio and MIDI files to import.
 - **Preview** (bottom of the browser) plays a sound before you choose it.
-- Search matches names and vendors. One row stands for all of a plugin's channel layouts; Ondera
-  loads the layout a stereo track needs.
+- Search matches names, vendors and what a plugin is for ("reverb", "compressor"). One row
+  stands for all of a plugin's formats and channel layouts: Ondera loads CLAP, then VST3, then
+  AU, in the layout a stereo track needs.
 
 ## Regions in the arrangement
 
