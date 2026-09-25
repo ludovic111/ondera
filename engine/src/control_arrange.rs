@@ -41,10 +41,10 @@ pub const SPECS: &[Spec] = &[
         opt("name", Kind::String, "Section name such as \"Verse 1\" or \"Chorus\". Defaults to \"Marker N\"."),
         opt("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h). Defaults to the theme's marker colour."),
     ]),
-    edit("marker.rename", "Rename a marker.", &[MARKER_ID, req("name", Kind::String, "New name, 1-120 characters.")]),
-    edit("marker.move", "Move a marker to another bar.", &[MARKER_ID, req("bar", Kind::Number, "Zero-based bar.")]),
+    edit("marker.rename", "Rename a marker (a song section such as Verse or Chorus). One undo step.", &[MARKER_ID, req("name", Kind::String, "New name, 1-120 characters.")]),
+    edit("marker.move", "Move a marker to another bar of the ruler. One undo step.", &[MARKER_ID, req("bar", Kind::Number, "Zero-based bar.")]),
     edit("marker.setColor", "Colour a marker, or give it back the theme's colour.", &[MARKER_ID, opt("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h). Omit or null for the theme's colour.")]),
-    edit("marker.remove", "Delete a marker.", &[MARKER_ID]),
+    edit("marker.remove", "Delete a marker from the ruler; the music does not change. One undo step.", &[MARKER_ID]),
     edit("marker.goto", "Move the playhead to a marker, by id or by name.", &[
         opt("markerId", Kind::String, "Marker id from marker.list."),
         opt("name", Kind::String, "Marker name, case-insensitive, when no id is given."),

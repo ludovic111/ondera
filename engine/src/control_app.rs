@@ -137,7 +137,7 @@ pub const SPECS: &[Spec] = &[
         TRACK_ID, SLOT,
         opt("native", Kind::Boolean, "Open the plugin's own editor window when it has one."),
     ]),
-    edit("ui.closePluginWindow", "Close one plugin panel.", &[
+    edit("ui.closePluginWindow", "Close one plugin panel and its native editor window. ui.state lists the open ones.", &[
         req("id", Kind::String, "Window id from ui.status pluginWindows."),
     ]),
     edit("ui.dismissError", "Dismiss the error shown in the window.", &[]),
@@ -145,7 +145,7 @@ pub const SPECS: &[Spec] = &[
     edit("ui.musicalTyping", "Turn musical typing (the computer keyboard as a piano) on or off.", &[
         req("enabled", Kind::Boolean, "On or off."),
     ]),
-    edit("ui.setTool", "Choose the arrangement tool.", &[
+    edit("ui.setTool", "Choose the arrangement tool, like keys 1-3: pointer selects and drags, pencil draws clips, scissors splits.", &[
         req("tool", Kind::String, "pointer, pencil or scissors."),
     ]),
     query("ui.status", "Window state: open panels, tool, musical typing, plugin panels, status line and any error being shown.", &[]),
@@ -190,7 +190,7 @@ pub const SPECS: &[Spec] = &[
         req("sequence", Kind::Integer, "Change sequence from agent.changes."),
         opt("redo", Kind::Boolean, "Redo up to the change instead of undoing it (default false)."),
     ]),
-    edit("agent.clear", "Clear the agent conversation.", &[]),
+    edit("agent.clear", "Clear the agent conversation; the edits it made stay in Undo.", &[]),
 ];
 
 /// Commands that only a window can serve.

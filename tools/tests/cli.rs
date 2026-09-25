@@ -391,3 +391,51 @@ fn doctor_and_json_command_listing_work_without_the_app() {
     assert_eq!(code, 0);
     assert!(out.contains("--value") && out.contains("any"));
 }
+
+#[test]
+fn file_mode_overview_and_plugin_parameters_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let song = dir.path().join("song.ondera");
+    let file = song.to_str().unwrap();
+    let (code, _, err) = cli(
+        dir.path(),
+        &["--file", file, "session.new", "--demo", "true"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let (code, out, err) = cli(dir.path(), &["--file", file, "session.overview"]);
+    assert_eq!(code, 0, "{err}");
+    let overview: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(overview["song"]["tempo"], 120.0);
+    assert!(overview["next"]["parameters"].is_string());
+    let (code, out, err) = cli(
+        dir.path(),
+        &[
+            "--file",
+            file,
+            "strip.parameters",
+            "--trackId",
+            "Bass",
+            "--slot",
+            "0",
+            "--query",
+            "ratio",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let found: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(found["parameters"][0]["name"], "Ratio");
+    let (code, _, err) = cli(
+        dir.path(),
+        &[
+            "--file",
+            file,
+            "track.setSolo",
+            "--trackId",
+            "Drms",
+            "--solo",
+            "true",
+        ],
+    );
+    assert_eq!(code, 1);
+    assert!(err.contains("Did you mean Drums?"), "{err}");
+}
