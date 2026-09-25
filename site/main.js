@@ -2,7 +2,7 @@
 // pattern, canvas drawing for the arrangement mock, the hardware rack demo, the theme
 // gallery and the page's motion. Every visual constant comes from tokens.js (the app's
 // Skeuomorphic dark theme, the one the site wears).
-import { tokens as T } from './tokens.js?v=0.8';
+import { tokens as T } from './tokens.js?v=0.9';
 
 document.documentElement.classList.add('js');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;

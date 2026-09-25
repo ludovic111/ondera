@@ -12,23 +12,23 @@
   <meta property="og:site_name" content="Ondera">
   <meta property="og:locale" content="en_US">
   <meta property="og:url" content="%ORIGIN%/">
-  <meta property="og:title" content="Ondera 0.8 — a free DAW you can finish songs in">
+  <meta property="og:title" content="Ondera 0.9 — a free DAW you can finish songs in">
   <meta property="og:description" content="Record with monitoring through your effects, play with your keyboard's mod wheel and pitch bend, fade and mark your clips, and export WAV, FLAC or Ogg. Free on macOS, Windows and Linux.">
   <meta property="og:image" content="%ORIGIN%/img/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="750">
   <meta property="og:image:alt" content="The Ondera arrangement window with audio and MIDI tracks">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Ondera 0.8 — a free DAW you can finish songs in">
+  <meta name="twitter:title" content="Ondera 0.9 — a free DAW you can finish songs in">
   <meta name="twitter:description" content="Record, arrange, mix and export on macOS, Windows and Linux, with your plugins, 34 stock ones and an agent you can undo.">
   <meta name="twitter:image" content="%ORIGIN%/img/og.png">
   <meta name="twitter:image:alt" content="The Ondera arrangement window with audio and MIDI tracks">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ondera","url":"%ORIGIN%/","description":"A free, open-source digital audio workstation for macOS, Windows and Linux with a built-in agent.","applicationCategory":"MultimediaApplication","applicationSubCategory":"Digital audio workstation","operatingSystem":"macOS 11+, Windows, Linux","softwareVersion":"0.8.0","downloadUrl":"https://github.com/ludovic111/ondera/releases/latest","image":"%ORIGIN%/img/og.png","author":{"@type":"Person","name":"Ludovic Marie"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ondera","url":"%ORIGIN%/","description":"A free, open-source digital audio workstation for macOS, Windows and Linux with a built-in agent.","applicationCategory":"MultimediaApplication","applicationSubCategory":"Digital audio workstation","operatingSystem":"macOS 11+, Windows, Linux","softwareVersion":"0.9.0","downloadUrl":"https://github.com/ludovic111/ondera/releases/latest","image":"%ORIGIN%/img/og.png","author":{"@type":"Person","name":"Ludovic Marie"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT"}</script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c2c2b'/%3E%3Crect x='0.5' y='0.5' width='31' height='31' rx='6.5' fill='none' stroke='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2382d6d1'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2382d6d1' stroke-opacity='.35' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="preload" href="fonts/manrope-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/manrope-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="tokens.css?v=0.8">
-  <link rel="stylesheet" href="styles.css?v=0.8">
+  <link rel="stylesheet" href="tokens.css?v=0.9">
+  <link rel="stylesheet" href="styles.css?v=0.9">
 </head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
@@ -58,7 +58,7 @@
 
   <section class="hero" id="top" aria-labelledby="hero-title">
     <div class="hero__grid" aria-hidden="true"></div>
-    <a class="pill reveal" href="#new"><span class="pill__tag">New in 0.8</span><span class="pill__text">Monitoring, controllers, fades, markers, FLAC and Ogg</span><span class="pill__arrow" aria-hidden="true">→</span></a>
+    <a class="pill reveal" href="#new"><span class="pill__tag">New in 0.9</span><span class="pill__text">AI that controls everything, six themes, cleaner sound</span><span class="pill__arrow" aria-hidden="true">→</span></a>
     <h1 class="display" id="hero-title">
       <span class="line"><span>Finish the song.</span></span>
       <span class="line"><span>Hand the busywork</span></span>
@@ -69,7 +69,7 @@
       <a class="btn btn--lit btn--lg" href="/download" data-download data-download-label>Download Ondera</a>
       <a class="btn btn--ghost btn--lg" href="#downloads">All platforms <span class="arrow" aria-hidden="true">→</span></a>
     </div>
-    <p class="hero__fine reveal" style="--d: 5">Version 0.8 · free and MIT licensed · macOS, Windows, Linux · no account, no subscription, no telemetry</p>
+    <p class="hero__fine reveal" style="--d: 5">Version 0.9 · free and MIT licensed · macOS, Windows, Linux · no account, no subscription, no telemetry</p>
     <div class="signal" id="signal" aria-hidden="true"></div>
   </section>
 
@@ -174,7 +174,7 @@
 
     <dl class="stats reveal" aria-label="Ondera in numbers">
       <div class="stat"><dt>Stock plugins</dt><dd data-pop>34</dd></div>
-      <div class="stat"><dt>Commands for window, CLI, MCP and agent</dt><dd data-pop>170+</dd></div>
+      <div class="stat"><dt>Commands for window, CLI, MCP and agent</dt><dd data-pop>180+</dd></div>
       <div class="stat"><dt>Operating systems</dt><dd data-pop>3</dd></div>
       <div class="stat"><dt>Accounts, subscriptions, telemetry</dt><dd data-pop>0</dd></div>
     </dl>
@@ -182,57 +182,56 @@
 
   <section id="new" class="section" aria-labelledby="new-title">
     <header class="section__head">
-      <p class="eyebrow reveal">New in 0.8</p>
-      <h2 class="reveal" id="new-title">Hear yourself. Play with feeling. Shape every clip.</h2>
-      <p class="lede reveal">0.8 is about the moment you press record and the hour after it: monitoring through your effects, the full expression of your keyboard, fades, clip gain and section markers, and exports that fit wherever the song goes next.</p>
+      <p class="eyebrow reveal">New in 0.9</p>
+      <h2 class="reveal" id="new-title">Anything you can click, an AI can do.</h2>
+      <p class="lede reveal">0.9 opens the whole DAW to AI: the built-in agent, Claude Code, Codex or any MCP client can do everything you can do in the window, down to the knobs of your own plugins, and every edit stays one undo away. It also brings three new themes, more headroom and a pile of small things that make the day smoother.</p>
     </header>
     <div class="news">
       <article class="news__item news__item--wide reveal">
-        <span class="news__kind">Recording</span>
-        <h3>Hear yourself through the effects</h3>
-        <p>Input monitoring runs through the track’s own inserts and fader, so you sing into the reverb and compressor you will mix with. Each audio track has Off, Auto and On: Auto listens while the track is armed and again while it records. Monitoring shares one input stream with recording, so it does not drop out when the take starts.</p>
-        <p class="news__seg" aria-hidden="true"><i>Off</i><i class="is-on">Auto</i><i>On</i></p>
-        <p>Set the buffer size in Settings for less delay, and Ondera shows the input and output latency it measured.</p>
-      </article>
-      <article class="news__item reveal">
-        <span class="news__kind">Laptop recording</span>
-        <h3>No howl from the built-in mic</h3>
-        <p>The built-in microphone into the built-in speakers would feed back, so that pairing stays muted until you choose Monitor Anyway. Headphones and audio interfaces are never affected.</p>
-      </article>
-      <article class="news__item reveal">
-        <span class="news__kind">MIDI</span>
-        <h3>Your keyboard’s expression, kept</h3>
-        <p>Mod wheel, sustain, pitch bend and pressure reach the instrument as you play, are recorded into the clip, and can be drawn in a controller lane under the piano roll.</p>
-      </article>
-      <article class="news__item reveal">
-        <span class="news__kind">Editing</span>
-        <h3>Fades and clip gain</h3>
-        <p>Drag the fade-in and fade-out handles on an audio clip and pick the curve. Turn one loud take down with its clip gain and leave the fader where the mix wants it.</p>
-      </article>
-      <article class="news__item reveal">
-        <span class="news__kind">Arranging</span>
-        <h3>Markers for song sections</h3>
-        <p>Name the intro, verse and chorus on the ruler, jump from one to the next, and loop a section while you work on it.</p>
-      </article>
-      <article class="news__item reveal">
-        <span class="news__kind">Export</span>
-        <h3>WAV, FLAC and Ogg Vorbis</h3>
-        <p>Bounce the mix or the stems as WAV, FLAC at 16 or 24-bit, or Ogg Vorbis for small files, and bring Ogg files back in. AIFF and MIDI export are still there.</p>
-      </article>
-      <article class="news__item reveal">
-        <span class="news__kind">Mixing</span>
-        <h3>Sample-accurate automation</h3>
-        <p>Automation lands on the sample it is drawn on instead of once per audio buffer, so quick volume rides and filter sweeps stay tight.</p>
+        <span class="news__kind">AI control</span>
+        <h3>Everything in the window, from any AI</h3>
+        <p>Every one of the 213 things you can do in the window has a command, checked by a test so it stays that way. One call gives an AI the whole song: sections, tracks, instruments, the plugin settings that differ from default, and what keeps a track silent. Tracks, clips and markers answer to their names, so “turn Bass down” means what it says.</p>
+        <p class="news__seg" aria-hidden="true"><i>Window</i><i class="is-on">Agent</i><i>CLI</i><i>MCP</i></p>
       </article>
       <article class="news__item reveal">
         <span class="news__kind">Plugins</span>
-        <h3>One row per plugin, better folders</h3>
-        <p>The browser lists each plugin once instead of once per channel layout, and far fewer end up in Other Effects. Native Ondera plugins gain controllers, timed parameters, their own state, tails and latency; older ones still load.</p>
+        <h3>Your plugins, by name</h3>
+        <p>Load any VST3, CLAP or Audio Unit by name, set a knob to “-4.5 dB” or “Hall”, pick one of its factory presets and automate it, from a prompt or a script.</p>
       </article>
       <article class="news__item reveal">
-        <span class="news__kind">Control</span>
-        <h3>170+ commands, one clipboard</h3>
-        <p>The window, the CLI, MCP clients and the built-in agent share more than 170 commands. Copy a clip in the window and paste it from the command line, or the other way round.</p>
+        <span class="news__kind">Themes</span>
+        <h3>Console, Ink and Neon</h3>
+        <p>Three new looks, each in dark and light: a walnut-and-brass studio desk, paper and ink with one red accent, and violet glass lit in magenta and cyan.</p>
+      </article>
+      <article class="news__item reveal">
+        <span class="news__kind">Sound</span>
+        <h3>Room to mix</h3>
+        <p>The built-in instruments leave 6 dB of headroom, so a full drum loop or a big chord no longer clips the master. Effect knobs and fast automation glide instead of stepping.</p>
+      </article>
+      <article class="news__item reveal">
+        <span class="news__kind">MIDI</span>
+        <h3>Expression goes further</h3>
+        <p>Mod wheel, bend and pressure also reach effects that listen to MIDI, every note keeps its MIDI channel, and polyphonic aftertouch is recorded.</p>
+      </article>
+      <article class="news__item reveal">
+        <span class="news__kind">Browser</span>
+        <h3>One row per plugin</h3>
+        <p>A plugin installed as VST3, CLAP and AU is one row, not three: a 2,244-plugin library now reads as 875. Search by what it does, like “reverb” or “saturation”.</p>
+      </article>
+      <article class="news__item reveal">
+        <span class="news__kind">Editing</span>
+        <h3>Click-free edits while playing</h3>
+        <p>Change a region’s gain or fade during playback and it glides to the new level.</p>
+      </article>
+      <article class="news__item reveal">
+        <span class="news__kind">Start</span>
+        <h3>A new song that plays</h3>
+        <p>New songs open with Drums on the drum machine, a Bass and a Vocals track ready to record.</p>
+      </article>
+      <article class="news__item reveal">
+        <span class="news__kind">Docs</span>
+        <h3>A real manual</h3>
+        <p>A user guide, a guide to AI control, every shortcut and every command, the last two generated from the app itself so they never go stale.</p>
       </article>
     </div>
   </section>
@@ -411,7 +410,7 @@
     <header class="section__head">
       <p class="eyebrow reveal">Command layer</p>
       <h2 class="reveal" id="commands-title">One command layer. Four clients. None of them privileged.</h2>
-      <p class="lede reveal">The desktop window, command-line tool, MCP server and built-in agent share more than 170 validated commands for sessions, transport, tracks, notes, plugins, presets, automation, settings, exports, the clipboard and the interface itself. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
+      <p class="lede reveal">The desktop window, command-line tool, MCP server and built-in agent share more than 180 validated commands for sessions, transport, tracks, notes, plugins, presets, automation, settings, exports, the clipboard and the interface itself. Agent edits use the same undo history as manual edits. Native dialogs and plugin windows remain interface controls.</p>
     </header>
 
     <div class="clients">
@@ -511,7 +510,7 @@
           <li><b>Free, for good.</b> MIT licensed. No tiers, no dongle, no account, no track limit.</li>
           <li><b>Linux included.</b> Every release ships Linux builds from the same pipeline and tests as macOS and Windows.</li>
           <li><b>An agent that can actually edit.</b> Not a chatbot beside the DAW: it runs the DAW’s own commands, in your undo history.</li>
-          <li><b>Scriptable end to end.</b> More than 170 commands from a CLI or any MCP client, answered in under a millisecond each, or hundreds at once as a single undo step. Render a project headless with one line.</li>
+          <li><b>Scriptable end to end.</b> More than 180 commands from a CLI or any MCP client, answered in under a millisecond each, or hundreds at once as a single undo step. Render a project headless with one line.</li>
           <li><b>A file you can read.</b> Projects are plain JSON with the audio embedded, not an opaque binary.</li>
         </ul>
       </article>
@@ -538,6 +537,21 @@
 
     <ol class="releases reveal">
       <li class="release release--now">
+        <div class="release__meta"><span class="release__v">0.9</span><time class="release__date" datetime="2026-09-25">25 Sep 2026</time></div>
+        <div class="release__body">
+          <h3>AI control of everything, six themes</h3>
+          <ul>
+            <li>Every action in the window is a command the agent, the CLI and MCP clients can call, with a one-call overview of the song and tracks named by name.</li>
+            <li>External plugins by name: parameters set as “-4.5 dB”, factory presets, automation.</li>
+            <li>Console, Ink and Neon themes, each in dark and light.</li>
+            <li>6 dB of headroom on the stock instruments, gliding effect knobs, click-free gain and fade edits while playing.</li>
+            <li>Controllers reach MIDI-aware effects, MIDI channels kept, polyphonic aftertouch recorded.</li>
+            <li>One browser row per plugin across formats, search by what a plugin does, a user guide and generated references.</li>
+          </ul>
+          <a class="release__link" href="https://github.com/ludovic111/ondera/releases/tag/v0.9.0" rel="noopener">Full notes for 0.9.0 <span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </li>
+      <li class="release">
         <div class="release__meta"><span class="release__v">0.8</span><time class="release__date" datetime="2026-09-23">23 Sep 2026</time></div>
         <div class="release__body">
           <h3>Monitoring, controllers, fades and markers</h3>
@@ -565,22 +579,22 @@
           <a class="release__link" href="https://github.com/ludovic111/ondera/releases/tag/v0.7.0" rel="noopener">Full notes for 0.7.0 <span class="arrow" aria-hidden="true">→</span></a>
         </div>
       </li>
-      <li class="release">
-        <div class="release__meta"><span class="release__v">0.6</span><time class="release__date" datetime="2026-09-19">19 Sep 2026</time></div>
-        <div class="release__body">
-          <h3>Three themes and stock front panels</h3>
-          <ul>
-            <li>Modern, Skeuomorphic and Frutiger Aero, each in dark and light, with contrast tested on every surface.</li>
-            <li>Every stock plugin gets a front panel that draws what it does from the same maths as the audio.</li>
-          </ul>
-          <a class="release__link" href="https://github.com/ludovic111/ondera/releases/tag/v0.6.0" rel="noopener">Full notes for 0.6.0 <span class="arrow" aria-hidden="true">→</span></a>
-        </div>
-      </li>
     </ol>
 
     <details class="releases__older reveal">
-      <summary>Earlier releases, 0.2 to 0.5</summary>
+      <summary>Earlier releases, 0.2 to 0.6</summary>
       <ol class="releases">
+        <li class="release">
+          <div class="release__meta"><span class="release__v">0.6</span><time class="release__date" datetime="2026-09-19">19 Sep 2026</time></div>
+          <div class="release__body">
+            <h3>Three themes and stock front panels</h3>
+            <ul>
+              <li>Modern, Skeuomorphic and Frutiger Aero, each in dark and light, with contrast tested on every surface.</li>
+              <li>Every stock plugin gets a front panel that draws what it does from the same maths as the audio.</li>
+            </ul>
+            <a class="release__link" href="https://github.com/ludovic111/ondera/releases/tag/v0.6.0" rel="noopener">Full notes for 0.6.0 <span class="arrow" aria-hidden="true">→</span></a>
+          </div>
+        </li>
         <li class="release">
           <div class="release__meta"><span class="release__v">0.5</span><time class="release__date" datetime="2026-09-19">19 Sep 2026</time></div>
           <div class="release__body">
@@ -663,7 +677,7 @@
 
   <section id="downloads" class="section cta" aria-labelledby="downloads-title">
     <div class="cta__panel">
-      <h2 class="reveal" id="downloads-title">Download Ondera 0.8</h2>
+      <h2 class="reveal" id="downloads-title">Download Ondera 0.9</h2>
       <p class="lede reveal">Free and MIT licensed. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
       <div class="downloads reveal">
         <a class="dl" href="/download/macos-arm64" data-os="macos-arm64"><b>macOS</b><span>Apple silicon · macOS 11+</span></a>
@@ -671,7 +685,7 @@
         <a class="dl" href="/download/windows-x86_64" data-os="windows-x86_64"><b>Windows</b><span>64-bit · needs WebView2 (built into Windows 11)</span></a>
         <a class="dl" href="/download/linux-x86_64" data-os="linux-x86_64"><b>Linux</b><span>x86-64 · needs WebKitGTK 4.1</span></a>
       </div>
-      <p class="downloads__foot reveal"><a href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Release notes and checksums</a> <span aria-hidden="true">·</span> <a href="https://github.com/ludovic111/ondera#build-and-run" rel="noopener">Build from source</a> <span aria-hidden="true">·</span> <a href="https://github.com/ludovic111/ondera/issues" rel="noopener">Report a problem</a></p>
+      <p class="downloads__foot reveal"><a href="https://github.com/ludovic111/ondera/releases/latest" rel="noopener">Release notes and checksums</a> <span aria-hidden="true">·</span> <a href="https://github.com/ludovic111/ondera#build-from-source" rel="noopener">Build from source</a> <span aria-hidden="true">·</span> <a href="https://github.com/ludovic111/ondera/issues" rel="noopener">Report a problem</a></p>
       <div class="codewell reveal">
         <code id="clone-cmd" tabindex="0" aria-label="Build from source command">git clone https://github.com/ludovic111/ondera.git &amp;&amp; cd ondera &amp;&amp; npm --prefix frontend ci &amp;&amp; npm --prefix frontend run build &amp;&amp; cargo run --release</code>
         <button class="btn btn--raised btn--xs" id="copy" type="button"><span class="swap" data-label>Copy</span></button>
@@ -683,7 +697,7 @@
 
 <footer class="footer">
   <div class="footer__inner">
-    <span class="wordmark wordmark--sm"><span class="led led--accent" aria-hidden="true"></span>Ondera 0.8</span>
+    <span class="wordmark wordmark--sm"><span class="led led--accent" aria-hidden="true"></span>Ondera 0.9</span>
     <span>MIT license · © 2026 Ludovic Marie</span>
     <nav class="footer__links" aria-label="Project">
       <a href="https://github.com/ludovic111/ondera" rel="noopener">Source</a>
@@ -694,6 +708,6 @@
   </div>
 </footer>
 
-<script type="module" src="main.js?v=0.8"></script>
+<script type="module" src="main.js?v=0.9"></script>
 </body>
 </html>
