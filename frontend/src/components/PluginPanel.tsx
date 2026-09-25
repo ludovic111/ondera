@@ -34,7 +34,7 @@ export function PluginPanel({
       const result = await native<{
         pluginId: string;
         parameters: Parameter[];
-      }>("strip.parameters", where.current);
+      }>("strip.parameters", { ...where.current, limit: 10000 });
       setPluginId(result.pluginId);
       setParameters(result.parameters);
       const list = await native<{ presets: typeof presets }>("preset.list", {

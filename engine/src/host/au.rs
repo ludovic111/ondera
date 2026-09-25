@@ -772,6 +772,71 @@ impl Editor for AuEditor {
         }
         0
     }
+    fn programs(&mut self) -> Vec<String> {
+        unsafe { factory_presets(self.shared.unit) }
+            .into_iter()
+            .map(|p| p.1)
+            .collect()
+    }
+    fn load_program(&mut self, index: usize) -> Result<()> {
+        let presets = unsafe { factory_presets(self.shared.unit) };
+        let (number, _, name) = presets.get(index).cloned().ok_or_else(|| {
+            format!(
+                "Program {index} does not exist ({} programs)",
+                presets.len()
+            )
+        })?;
+        let preset = AUPreset {
+            presetNumber: number,
+            presetName: name as *const CFString,
+        };
+        unsafe {
+            check(
+                set_property(
+                    self.shared.unit,
+                    kAudioUnitProperty_PresentPreset,
+                    kAudioUnitScope_Global,
+                    0,
+                    &preset,
+                ),
+                "Loading the Audio Unit factory preset",
+            )
+        }
+    }
+}
+
+/// The factory presets as (number, name, name pointer). The array stays with the Audio
+/// Unit: some units return one they keep, so releasing it here could free it under them.
+unsafe fn factory_presets(unit: AudioUnit) -> Vec<(i32, String, usize)> {
+    extern "C" {
+        fn CFArrayGetCount(array: *const c_void) -> isize;
+        fn CFArrayGetValueAtIndex(array: *const c_void, index: isize) -> *const c_void;
+    }
+    let mut array: *const c_void = std::ptr::null();
+    if get_property(
+        unit,
+        kAudioUnitProperty_FactoryPresets,
+        kAudioUnitScope_Global,
+        0,
+        &mut array,
+    ) != 0
+        || array.is_null()
+    {
+        return Vec::new();
+    }
+    let count = CFArrayGetCount(array).clamp(0, 4096);
+    (0..count)
+        .filter_map(|i| {
+            let preset = CFArrayGetValueAtIndex(array, i) as *const AUPreset;
+            let preset = preset.as_ref()?;
+            let name = if preset.presetName.is_null() {
+                format!("Program {}", preset.presetNumber)
+            } else {
+                cf_string(preset.presetName)
+            };
+            Some((preset.presetNumber, name, preset.presetName as usize))
+        })
+        .collect()
 }
 impl Drop for AuEditor {
     fn drop(&mut self) {

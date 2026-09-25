@@ -1048,6 +1048,10 @@ pub struct Vst3Editor {
     view: Option<ComPtr<IPlugView>>,
     frame: ComWrapper<PlugFrame>,
     dirty: bool,
+    /// Parameters without `kCanAutomate`.
+    fixed: std::collections::HashSet<u32>,
+    /// The program-change parameter and its step count, when the plugin has one.
+    program: Option<(u32, u32)>,
 }
 impl Vst3Editor {
     fn new(shared: Arc<Shared>, desc: Descriptor) -> Self {
@@ -1060,12 +1064,16 @@ impl Vst3Editor {
                 resize: Mutex::new(None),
             }),
             dirty: false,
+            fixed: Default::default(),
+            program: None,
         };
         editor.read_params();
         editor
     }
     fn read_params(&mut self) {
         self.params.clear();
+        self.fixed.clear();
+        self.program = None;
         unsafe {
             let controller = &self.shared.controller;
             let count = controller.getParameterCount().clamp(0, 8192);
@@ -1074,8 +1082,18 @@ impl Vst3Editor {
                 if controller.getParameterInfo(i, &mut info) != kResultOk {
                     continue;
                 }
-                if info.flags & ParameterInfo_::ParameterFlags_::kIsHidden != 0 {
+                let flags = info.flags;
+                if flags & ParameterInfo_::ParameterFlags_::kIsProgramChange != 0
+                    && self.program.is_none()
+                    && info.stepCount > 0
+                {
+                    self.program = Some((info.id, info.stepCount.min(4096) as u32));
+                }
+                if flags & ParameterInfo_::ParameterFlags_::kIsHidden != 0 {
                     continue;
+                }
+                if flags & ParameterInfo_::ParameterFlags_::kCanAutomate == 0 {
+                    self.fixed.insert(info.id);
                 }
                 let steps = info.stepCount.clamp(0, 100_000) as u32;
                 let mut labels = vec![];
@@ -1291,6 +1309,40 @@ impl Editor for Vst3Editor {
     }
     fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
+    }
+    fn parse_text(&self, id: u32, input: &str) -> Option<f64> {
+        let mut chars: String128 = [0; 128];
+        write_wstr(input.trim(), &mut chars);
+        let mut out = 0.0;
+        let asked = unsafe {
+            self.shared
+                .controller
+                .getParamValueByString(id, chars.as_mut_ptr(), &mut out)
+        } == kResultOk;
+        if asked && out.is_finite() {
+            return Some(out.clamp(0.0, 1.0));
+        }
+        // Labels were read at step positions of the normalized range.
+        let p = self.params.iter().find(|p| p.id == id)?;
+        p.labels
+            .iter()
+            .position(|l| l.trim().eq_ignore_ascii_case(input.trim()))
+            .map(|i| i as f64 / p.steps.max(1) as f64)
+            .or_else(|| input.trim().parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0)))
+    }
+    fn automatable(&self, id: u32) -> bool {
+        !self.fixed.contains(&id)
+    }
+    fn programs(&mut self) -> Vec<String> {
+        let Some((id, steps)) = self.program else {
+            return Vec::new();
+        };
+        (0..=steps)
+            .map(|i| self.string_for(id, i as f64 / steps.max(1) as f64))
+            .collect()
+    }
+    fn program_parameter(&self) -> Option<u32> {
+        self.program.map(|(id, _)| id)
     }
 }
 impl Drop for Vst3Editor {

@@ -1,5 +1,7 @@
 // Presentation commands retain the existing controls. NativeStore translates them
 // to the Rust registry; there is no JavaScript document reducer or audio engine.
+// Every name here is a registry command or a `case` in NativeStore.translate:
+// engine/tests/parity.rs checks it.
 export * from "./types";
 export * from "./time";
 export * from "./gain";
@@ -65,7 +67,6 @@ export const commands = {
   },
   agent: {
     setDraft: command("agent.setDraft"),
-    toggleRevert: command("agent.toggleRevert"),
     stopCurrent: command("agent.stopCurrent"),
     submit: command("agent.submit"),
   },
@@ -84,9 +85,6 @@ export const commands = {
   },
   session: {
     rename: command("session.rename"),
-    addSource: command("session.addSource"),
-    load: command("session.load"),
-    updateMeters: command("session.updateMeters"),
   },
   track: {
     setMute: command("track.setMute"),
@@ -110,7 +108,6 @@ export const commands = {
     returnToStart: command("transport.returnToStart"),
     nudge: command("transport.nudge"),
     setPosition: command("transport.setPosition"),
-    tick: command("transport.tick"),
     setRecording: command("transport.setRecording"),
     setCycle: command("transport.setCycle"),
     setCycleRange: command("transport.setCycleRange"),

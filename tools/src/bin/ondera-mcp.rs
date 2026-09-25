@@ -298,8 +298,8 @@ impl Server {
         };
         format!(
             "Ondera is a digital audio workstation. {mode}\n\
-             Start with session_info, then session_inspect or track_list and clip_list. session_catalog lists stock instruments, effects and bundled loops; plugin_list and plugin_describe cover installed Ondera-native, CLAP, VST3 and AU plugins by stable ID; preset_list and preset_load apply factory presets.\n\
-             Bars and beats are zero-based. Note start/length are beats relative to the clip; pitch 60 is C4; velocity 1-127.\n\
+             Start with session_overview: one call returns the song, sections, every track with its instrument, inserts, sends, fader, problems, clips and automation, the selection, undo history and (live) what the window shows. Drill down with note_list, strip_parameters, automation_list, controller_list or ui_state. session_catalog lists stock instruments, effects and bundled loops; plugin_list query=... searches installed Ondera-native, CLAP, VST3 and AU plugins; strip_setPlugin loads one by name or ID; strip_parameters, strip_setParameter (by name, plain value, normalized 0-1 or display text) and strip_programs / strip_setProgram control it.\n\
+             Tracks, clips and markers can be named by id or by exact name. Bars and beats are zero-based. Note start/length are beats relative to the clip; pitch 60 is C4; velocity 1-127.\n\
              clip_create with notes, or clip_setNotes, writes a whole pattern in one undo step; clip_quantize and clip_transpose edit a region; history_undo with steps reverts several edits.\n\
              In live mode ui_screenshot returns a PNG of the window so you can see the interface, view_set scrolls and zooms it, and audio_status reports the engine. settings_get and settings_set read and change preferences.\n\
              Clips and notes you create are marked as agent-made so the person can see them."
@@ -308,7 +308,13 @@ impl Server {
 }
 
 /// Registry-backed resources: uri, name, description, command.
-const RESOURCES: [(&str, &str, &str, &str); 8] = [
+const RESOURCES: [(&str, &str, &str, &str); 9] = [
+    (
+        "ondera://session/overview",
+        "Song overview",
+        "Everything about the song in one compact answer: tracks, plugins, clips, sections, mix problems and history.",
+        "session.overview",
+    ),
     (
         "ondera://session",
         "Open session",
@@ -388,7 +394,7 @@ const PROMPTS: [Prompt; 3] = [
         ],
         render: |a| {
             format!(
-            "Compose {bars} bars of {style} in {key}. Start with session_info and session_catalog. Set the tempo and key with transport_setTempo and transport_setKey, add one instrument track per part with track_add (choose stock instruments that fit), then write each part with clip_create and a full notes array in one call. Keep every note inside its clip, use velocities between 60 and 110 for dynamics, and set sends or inserts with strip_setSendLevel and strip_setPlugin for depth. Finish with session_inspect and describe what you made in a few sentences.",
+            "Compose {bars} bars of {style} in {key}. Start with session_overview and session_catalog. Set the tempo and key with transport_setTempo and transport_setKey, add one instrument track per part with track_add (choose stock instruments that fit), then write each part with clip_create and a full notes array in one call. Keep every note inside its clip, use velocities between 60 and 110 for dynamics, and set sends or inserts with strip_setSendLevel and strip_setPlugin for depth. Finish with session_overview and describe what you made in a few sentences.",
             bars = arg(a, "bars", "8"), style = arg(a, "style", "a warm, simple groove"), key = arg(a, "key", "the current key")
         )
         },
@@ -403,7 +409,7 @@ const PROMPTS: [Prompt; 3] = [
         )],
         render: |a| {
             format!(
-            "Review this session's mix: call session_inspect, then strip_get for every track and bus. Consider level balance (track_setVolume, 0.75 is unity), panning width (track_setPan), the reverb and delay sends, and the master chain. {} Keep changes small and explain each one.",
+            "Review this session's mix: call session_overview (it lists every track's plugins, sends, fader in dB and problems), then strip_parameters where a plugin needs a closer look. Consider level balance (track_setVolume, 0.75 is unity), panning width (track_setPan), the reverb and delay sends, and the master chain. {} Keep changes small and explain each one.",
             if arg(a, "apply", "false") == "true" { "Apply the improvements with the strip and track commands, one undo step each." } else { "Do not change anything yet; list the concrete commands you would run." }
         )
         },
@@ -414,7 +420,7 @@ const PROMPTS: [Prompt; 3] = [
             "Take a screenshot of the running app and describe what the person is looking at.",
         arguments: &[],
         render: |_| {
-            "Call ui_screenshot, look at the image file it returns, then call ui_status and view_get. Describe the arrangement, the selected track or region, any open panels and anything that looks wrong.".into()
+            "Call ui_state, then ui_screenshot and look at the image file it returns. Describe the arrangement, the selected track or region, any open panels and anything that looks wrong.".into()
         },
     },
 ];

@@ -134,6 +134,18 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   forms that show their own errors. `atomic_write` keeps the target's mode (0644 when new) and writes
   through symlinks. Engine regression tests live in `engine/tests/regressions.rs`. The agent's
   Changes list records only document edits that did not come from the window.
+- Agent control (decided 2026-09-25): an agent starts from `session.overview`
+  (`control_overview.rs`, bounded; the built-in agent gets a compact one each turn) and
+  `ui.state` (live). `control::call` runs `control_refs::resolve` first, so every `trackId`,
+  `clipId` and `markerId` also takes a unique name, and a wrong one lists what exists.
+  Plugin parameters and programs live in `control_params.rs`: read through
+  `Host::loaded_editor` (the window's instance) or a fresh one, set by name, plain value,
+  0-1 or display text (`Editor::parse_text`), programs through `Editor::programs` (VST3
+  program-change parameter, AU factory presets loaded into a fresh instance and saved as
+  state). `docs/AGENT_PARITY.md` is the audit of window interactions against the registry;
+  `engine/tests/agent_parity.rs` fails when an `actions.ts` action has no entry in
+  `docs/agent-parity.json`, when the frontend sends an unknown name, or when a command has
+  no real description. A new window interaction adds its row there.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ondera-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are

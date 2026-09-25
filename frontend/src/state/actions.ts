@@ -420,7 +420,8 @@ export const actions = define([
   {
     id: "stopAgent",
     label: "Stop Current Agent Action",
-    enabled: (s) => s.agent.current !== null,
+    // The host reports the running agent; the document carries no agent state.
+    enabled: (_s, store) => store.agent?.status.running ?? false,
     run: (store) => store.dispatch(commands.agent.stopCurrent({})),
   },
   {

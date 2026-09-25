@@ -51,7 +51,7 @@ pub const SPECS: &[Spec] = &[
         opt("time", Kind::Number, "New time in beats from the clip start."),
         opt("value", Kind::Integer, VALUE_DOC),
     ]),
-    edit("controller.remove", "Delete a controller point.", &[
+    edit("controller.remove", "Delete one controller point (CC, pitch bend or pressure) from a MIDI clip. One undo step.", &[
         CLIP_ID,
         req("controllerId", Kind::String, "Point id from controller.list."),
     ]),

@@ -983,7 +983,15 @@ impl Ondera {
             );
         }
         let settings = self.settings.clone();
-        let summary = control::call(self, "session.info", &json!({}), false).unwrap_or(Value::Null);
+        // The overview without plugin parameters and with a few clips per track: enough to
+        // start oriented; the agent asks session_overview for more.
+        let summary = control::call(
+            self,
+            "session.overview",
+            &json!({"maxClips": 2, "parameters": false}),
+            false,
+        )
+        .unwrap_or(Value::Null);
         let history = self.agents.runtime.history.clone();
         let mcp = agent::cli::companion("ondera-mcp");
         self.agents

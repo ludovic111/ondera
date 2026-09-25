@@ -65,7 +65,8 @@ export function RhythmLab({ busy }: { busy: boolean }) {
       if (preview) {
         const { wavBase64: wav } = await native<{ wavBase64: string }>(
           "rhythm.preview",
-          { ...params(), inline: true },
+          // A preview creates nothing, so it takes no name (the registry refuses one).
+          { lanes: params().lanes, bars, inline: true },
         );
         if (!mounted.current) return;
         const audio = new Audio(`data:audio/wav;base64,${wav}`);
