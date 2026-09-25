@@ -352,3 +352,59 @@ fn a_midi_round_trip_keeps_the_tempo() {
         90.0
     );
 }
+
+/// Stock instruments left no headroom: the Four Floor loop on the Drum Machine peaked at
+/// +3 dBFS on its own, and a five-note E-piano chord at +5 dBFS, at unity gain.
+#[test]
+fn stock_loops_and_chords_do_not_clip_at_unity() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = Headless::new();
+    let loops = call(&mut host, "session.catalog", json!({}))["loops"].clone();
+    for (index, l) in loops.as_array().unwrap().iter().enumerate() {
+        let name = l["name"].as_str().unwrap();
+        let track = call(
+            &mut host,
+            "track.add",
+            json!({"kind":"midi","name":name,"instrument":l["instrument"]}),
+        )["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        call(
+            &mut host,
+            "clip.addLoop",
+            json!({"trackId":track,"name":name,"startBar":0}),
+        );
+        let solo = call(
+            &mut host,
+            "session.exportStems",
+            json!({"directory": dir.path().join(format!("stems-{index}")), "trackIds":[track], "includeMaster": false}),
+        );
+        let peak = solo["files"][0]["peak"].as_f64().unwrap();
+        assert!(peak < 0.9, "{name} peaks at {peak}");
+    }
+    let keys = call(
+        &mut host,
+        "track.add",
+        json!({"kind":"midi","name":"Chord","instrument":"E-Piano Mk I"}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let notes: Vec<Value> = [48, 55, 60, 64, 67]
+        .iter()
+        .map(|p| json!({"start":0,"length":4,"pitch":p,"velocity":110}))
+        .collect();
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":keys,"startBar":0,"lengthBars":1,"notes":notes}),
+    );
+    let chord = call(
+        &mut host,
+        "session.exportStems",
+        json!({"directory": dir.path().join("chord"), "trackIds":[keys], "includeMaster": false}),
+    );
+    let peak = chord["files"][0]["peak"].as_f64().unwrap();
+    assert!(peak < 1.0, "the chord peaks at {peak}");
+}
