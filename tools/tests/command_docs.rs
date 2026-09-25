@@ -107,7 +107,9 @@ fn the_command_reference_matches_the_registry() {
         std::fs::write(&path, &fresh).unwrap();
         return;
     }
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    let current = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         current == fresh,
         "docs/COMMANDS.md is out of date: run `ONDERA_BLESS=1 cargo test -p ondera-tools --test command_docs`"
