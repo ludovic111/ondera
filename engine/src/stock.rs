@@ -631,14 +631,105 @@ instrument!(
 // Effects
 // ---------------------------------------------------------------------------
 
+/// One-pole smoothing for a continuous effect parameter, so automation that arrives every
+/// `render::AUTOMATION_GRAIN` frames becomes a curve instead of a staircase. Values set
+/// before the first processed sample, after `new` or `snap`, are taken at once: a freshly
+/// loaded plugin or a locate does not glide from the defaults. Discrete parameters (modes,
+/// switches, sync divisions) are never smoothed.
+#[derive(Clone, Copy, Debug)]
+struct Smoothed {
+    current: f64,
+    target: f64,
+    coefficient: f64,
+    live: bool,
+}
+impl Smoothed {
+    /// Time constant: long enough to hide a 32-frame step, short enough to follow a hand.
+    const SECONDS: f64 = 0.01;
+    /// Relative distance at which the value lands on its target exactly, so a settled
+    /// parameter gives bit-identical output to one that never moved.
+    const SETTLE: f64 = 1e-4;
+    fn new(rate: f64, value: f64) -> Self {
+        Self {
+            current: value,
+            target: value,
+            coefficient: 1.0 - (-1.0 / (rate.max(1.0) * Self::SECONDS)).exp(),
+            live: false,
+        }
+    }
+    fn set(&mut self, value: f64) {
+        self.target = value;
+        if !self.live {
+            self.current = value;
+        }
+    }
+    /// Jump to the target; the next `set` before processing is taken at once too.
+    fn snap(&mut self) {
+        self.current = self.target;
+        self.live = false;
+    }
+    /// One sample on; true while the value is still moving.
+    #[inline]
+    fn advance(&mut self) -> bool {
+        self.live = true;
+        if self.current == self.target {
+            return false;
+        }
+        let next = self.current + self.coefficient * (self.target - self.current);
+        self.current = if (self.target - next).abs() <= Self::SETTLE * self.target.abs().max(1.0) {
+            self.target
+        } else {
+            next
+        };
+        true
+    }
+    /// One sample on, and the value for that sample.
+    #[inline]
+    fn next(&mut self) -> f64 {
+        self.advance();
+        self.current
+    }
+    #[inline]
+    fn value(&self) -> f64 {
+        self.current
+    }
+}
+
+/// Filter coefficients from smoothed values, recomputed every `GRAIN` samples while they
+/// move rather than on every sample: a sixteenth of the `tan()` and `exp()` calls.
+#[derive(Default)]
+struct Retune {
+    tick: u32,
+    stale: bool,
+}
+impl Retune {
+    const GRAIN: u32 = 16;
+    /// A value was set: recompute before the next sample.
+    fn mark(&mut self) {
+        self.stale = true;
+        self.tick = 0;
+    }
+    /// Whether to recompute before this sample, given whether any input moved.
+    #[inline]
+    fn due(&mut self, moved: bool) -> bool {
+        self.stale |= moved;
+        let due = self.tick == 0 && self.stale;
+        self.tick = (self.tick + 1) % Self::GRAIN;
+        if due {
+            self.stale = false;
+        }
+        due
+    }
+}
+
 pub struct Comp {
     rate: f64,
-    threshold: f32,
-    ratio: f32,
+    threshold: Smoothed,
+    ratio: Smoothed,
     attack: f32,
     release: f32,
-    makeup: f32,
-    mix: f32,
+    makeup: Smoothed,
+    mix: Smoothed,
     env: f32,
 }
 impl Plugin for Comp {
@@ -657,43 +748,55 @@ impl Plugin for Comp {
     fn new(rate: f64) -> Self {
         Self {
             rate,
-            threshold: -18.0,
-            ratio: 4.0,
+            threshold: Smoothed::new(rate, -18.0),
+            ratio: Smoothed::new(rate, 4.0),
             attack: coef(rate, 0.01),
             release: coef(rate, 0.12),
-            makeup: 1.0,
-            mix: 1.0,
+            makeup: Smoothed::new(rate, 1.0),
+            mix: Smoothed::new(rate, 1.0),
             env: 0.0,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.threshold = value as f32,
-            1 => self.ratio = value.max(1.0) as f32,
+            0 => self.threshold.set(value),
+            1 => self.ratio.set(value.max(1.0)),
             2 => self.attack = coef(self.rate, value / 1000.0),
             3 => self.release = coef(self.rate, value / 1000.0),
-            4 => self.makeup = db_to_gain(value),
-            5 => self.mix = (value / 100.0) as f32,
+            4 => self.makeup.set(db_to_gain(value) as f64),
+            5 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.env = 0.0;
+        for s in [
+            &mut self.threshold,
+            &mut self.ratio,
+            &mut self.makeup,
+            &mut self.mix,
+        ] {
+            s.snap();
+        }
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let threshold = self.threshold.next() as f32;
+            let ratio = self.ratio.next() as f32;
+            let makeup = self.makeup.next() as f32;
+            let mix = self.mix.next() as f32;
             let peak = frame[0].abs().max(frame[1].abs());
-            let over = (db(peak) - self.threshold).max(0.0);
-            let target = over * (1.0 - 1.0 / self.ratio);
+            let over = (db(peak) - threshold).max(0.0);
+            let target = over * (1.0 - 1.0 / ratio);
             let c = if target > self.env {
                 self.attack
             } else {
                 self.release
             };
             self.env += c * (target - self.env);
-            let gain = db_to_gain(-self.env as f64) * self.makeup;
+            let gain = db_to_gain(-self.env as f64) * makeup;
             for s in frame.iter_mut() {
-                *s = *s * (1.0 - self.mix) + *s * gain * self.mix;
+                *s = *s * (1.0 - mix) + *s * gain * mix;
             }
         }
     }
@@ -701,17 +804,16 @@ impl Plugin for Comp {
 
 pub struct Eq {
     rate: f64,
-    values: [f64; 7],
+    values: [Smoothed; 7],
     bands: [Biquad; 3],
-    dirty: bool,
+    retune: Retune,
 }
 impl Eq {
     fn update(&mut self) {
-        let v = self.values;
+        let v = self.values.map(|s| s.value());
         self.bands[0].low_shelf(self.rate, v[1], v[0]);
         self.bands[1].peaking(self.rate, v[3], v[2], v[4]);
         self.bands[2].high_shelf(self.rate, v[6], v[5]);
-        self.dirty = false;
     }
 }
 impl Plugin for Eq {
@@ -729,27 +831,35 @@ impl Plugin for Eq {
         ]
     }
     fn new(rate: f64) -> Self {
+        let mut retune = Retune::default();
+        retune.mark();
         Self {
             rate,
-            values: [1.5, 120.0, -2.0, 1000.0, 0.8, 2.0, 6000.0],
+            values: [1.5, 120.0, -2.0, 1000.0, 0.8, 2.0, 6000.0].map(|v| Smoothed::new(rate, v)),
             bands: [Biquad::default(); 3],
-            dirty: true,
+            retune,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         if let Some(v) = self.values.get_mut(index) {
-            *v = value;
-            self.dirty = true;
+            v.set(value);
+            self.retune.mark();
         }
     }
     fn reset(&mut self) {
         self.bands.iter_mut().for_each(Biquad::clear);
+        self.values.iter_mut().for_each(Smoothed::snap);
+        self.retune.mark();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        if self.dirty {
-            self.update();
-        }
         for frame in audio {
+            let mut moved = false;
+            for v in &mut self.values {
+                moved |= v.advance();
+            }
+            if self.retune.due(moved) {
+                self.update();
+            }
             for (c, s) in frame.iter_mut().enumerate() {
                 let mut x = *s;
                 for band in &mut self.bands {
@@ -764,45 +874,74 @@ impl Plugin for Eq {
 /// `HARD` selects the overdrive curve; `false` is the tape saturator.
 pub struct Saturator<const HARD: bool> {
     rate: f64,
-    drive: f32,
-    tone: f32,
-    mix: f32,
-    output: f32,
+    drive: Smoothed,
+    /// Output normalisation for the drive, smoothed with it.
+    norm: Smoothed,
+    tone: Smoothed,
+    mix: Smoothed,
+    output: Smoothed,
     lp: [f32; 2],
 }
 impl<const HARD: bool> Saturator<HARD> {
+    fn norm(drive: f32) -> f64 {
+        (1.0 / drive.max(1.0).powf(0.6)) as f64
+    }
     fn build(rate: f64, drive_db: f64, tone_hz: f64, output_db: f64) -> Self {
+        let drive = db_to_gain(drive_db);
         Self {
             rate,
-            drive: db_to_gain(drive_db),
-            tone: coef(rate, 1.0 / (TAU * tone_hz)),
-            mix: 1.0,
-            output: db_to_gain(output_db),
+            drive: Smoothed::new(rate, drive as f64),
+            norm: Smoothed::new(rate, Self::norm(drive)),
+            tone: Smoothed::new(rate, coef(rate, 1.0 / (TAU * tone_hz)) as f64),
+            mix: Smoothed::new(rate, 1.0),
+            output: Smoothed::new(rate, db_to_gain(output_db) as f64),
             lp: [0.0; 2],
         }
     }
     fn set(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.drive = db_to_gain(value),
-            1 => self.tone = coef(self.rate, 1.0 / (TAU * value.max(20.0))),
-            2 => self.mix = (value / 100.0) as f32,
-            3 => self.output = db_to_gain(value),
+            0 => {
+                let drive = db_to_gain(value);
+                self.drive.set(drive as f64);
+                self.norm.set(Self::norm(drive));
+            }
+            1 => self
+                .tone
+                .set(coef(self.rate, 1.0 / (TAU * value.max(20.0))) as f64),
+            2 => self.mix.set(value / 100.0),
+            3 => self.output.set(db_to_gain(value) as f64),
             _ => {}
         }
     }
+    fn clear(&mut self) {
+        self.lp = [0.0; 2];
+        for s in [
+            &mut self.drive,
+            &mut self.norm,
+            &mut self.tone,
+            &mut self.mix,
+            &mut self.output,
+        ] {
+            s.snap();
+        }
+    }
     fn run(&mut self, audio: &mut [[f32; 2]]) {
-        let norm = 1.0 / self.drive.max(1.0).powf(0.6);
         for frame in audio {
+            let drive = self.drive.next() as f32;
+            let norm = self.norm.next() as f32;
+            let tone = self.tone.next() as f32;
+            let mix = self.mix.next() as f32;
+            let output = self.output.next() as f32;
             for (c, s) in frame.iter_mut().enumerate() {
-                let pre = *s * self.drive;
+                let pre = *s * drive;
                 let shaped = if HARD {
                     pre / (1.0 + pre.abs())
                 } else {
                     pre.tanh()
                 } * norm;
-                self.lp[c] += self.tone * (shaped - self.lp[c]);
-                let wet = self.lp[c] * self.output;
-                *s = *s * (1.0 - self.mix) + wet * self.mix;
+                self.lp[c] += tone * (shaped - self.lp[c]);
+                let wet = self.lp[c] * output;
+                *s = *s * (1.0 - mix) + wet * mix;
             }
         }
     }
@@ -825,7 +964,7 @@ impl Plugin for Saturator<false> {
         self.set(index, value)
     }
     fn reset(&mut self) {
-        self.lp = [0.0; 2];
+        self.clear();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         self.run(audio)
@@ -854,7 +993,7 @@ impl Plugin for Saturator<true> {
         self.set(index, value)
     }
     fn reset(&mut self) {
-        self.lp = [0.0; 2];
+        self.clear();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         self.run(audio)
@@ -866,9 +1005,9 @@ pub struct Chorus {
     delay: Delay,
     phase: f64,
     speed: f64,
-    depth: f64,
-    spread: f64,
-    mix: f32,
+    depth: Smoothed,
+    spread: Smoothed,
+    mix: Smoothed,
 }
 impl Plugin for Chorus {
     const INFO: Info = Info::effect("org.ondera.stock.chorus", "Chorus", VENDOR, "Modulation")
@@ -887,37 +1026,44 @@ impl Plugin for Chorus {
             delay: Delay::new(0.06, rate as u32),
             phase: 0.0,
             speed: 0.6,
-            depth: 0.4,
-            spread: 0.5,
-            mix: 0.5,
+            depth: Smoothed::new(rate, 0.4),
+            spread: Smoothed::new(rate, 0.5),
+            mix: Smoothed::new(rate, 0.5),
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
+            // The rate moves the LFO's speed, not its phase: nothing to smooth.
             0 => self.speed = value,
-            1 => self.depth = value / 100.0,
-            2 => self.spread = value / 100.0,
-            3 => self.mix = (value / 100.0) as f32,
+            1 => self.depth.set(value / 100.0),
+            2 => self.spread.set(value / 100.0),
+            3 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.delay.clear();
+        for s in [&mut self.depth, &mut self.spread, &mut self.mix] {
+            s.snap();
+        }
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         let r = self.rate;
         for frame in audio {
+            let depth = self.depth.next();
+            let spread = self.spread.next();
+            let mix = self.mix.next() as f32;
             self.phase = (self.phase + self.speed / r).fract();
             let base = 0.016;
-            let swing = 0.008 * self.depth;
+            let swing = 0.008 * depth;
             let l = self
                 .delay
                 .read((base + swing * (TAU * self.phase).sin()) * r);
-            let ph = (self.phase + 0.5 * self.spread).fract();
+            let ph = (self.phase + 0.5 * spread).fract();
             let rr = self.delay.read((base + swing * (TAU * ph).sin()) * r);
             self.delay.write(*frame);
-            frame[0] += l[0] * self.mix;
-            frame[1] += rr[1] * self.mix;
+            frame[0] += l[0] * mix;
+            frame[1] += rr[1] * mix;
         }
     }
 }
@@ -971,11 +1117,11 @@ pub struct Space {
     allpasses: [Vec<Allpass>; 2],
     predelay: Delay,
     rate: f64,
-    feedback: f32,
-    damp: f32,
-    pre: f64,
-    width: f32,
-    mix: f32,
+    feedback: Smoothed,
+    damp: Smoothed,
+    pre: Smoothed,
+    width: Smoothed,
+    mix: Smoothed,
 }
 impl Plugin for Space {
     const INFO: Info = Info::effect("org.ondera.stock.space", "Space", VENDOR, "Space & Time")
@@ -1009,20 +1155,20 @@ impl Plugin for Space {
             allpasses: [allpasses(0), allpasses(23)],
             predelay: Delay::new(0.11, rate as u32),
             rate,
-            feedback: 0.7 + 0.28 * 0.55,
-            damp: 0.4 * 0.4,
-            pre: 0.01,
-            width: 1.0,
-            mix: 0.3,
+            feedback: Smoothed::new(rate, (0.7 + 0.28 * 0.55f32) as f64),
+            damp: Smoothed::new(rate, (0.4 * 0.4f32) as f64),
+            pre: Smoothed::new(rate, 0.01),
+            width: Smoothed::new(rate, 1.0),
+            mix: Smoothed::new(rate, 0.3f32 as f64),
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.feedback = (0.7 + 0.28 * value / 100.0) as f32,
-            1 => self.damp = (0.4 * value / 100.0) as f32,
-            2 => self.pre = value / 1000.0,
-            3 => self.width = (value / 100.0) as f32,
-            4 => self.mix = (value / 100.0) as f32,
+            0 => self.feedback.set(0.7 + 0.28 * value / 100.0),
+            1 => self.damp.set(0.4 * value / 100.0),
+            2 => self.pre.set(value / 1000.0),
+            3 => self.width.set(value / 100.0),
+            4 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
@@ -1035,12 +1181,25 @@ impl Plugin for Space {
             a.buffer.fill(0.0);
         }
         self.predelay.clear();
+        for s in [
+            &mut self.feedback,
+            &mut self.damp,
+            &mut self.pre,
+            &mut self.width,
+            &mut self.mix,
+        ] {
+            s.snap();
+        }
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        let pre = self.pre * self.rate;
-        let wet1 = self.mix * (self.width / 2.0 + 0.5);
-        let wet2 = self.mix * ((1.0 - self.width) / 2.0);
         for frame in audio {
+            let feedback = self.feedback.next() as f32;
+            let damp = self.damp.next() as f32;
+            let pre = self.pre.next() * self.rate;
+            let width = self.width.next() as f32;
+            let mix = self.mix.next() as f32;
+            let wet1 = mix * (width / 2.0 + 0.5);
+            let wet2 = mix * ((1.0 - width) / 2.0);
             let delayed = self.predelay.read(pre);
             self.predelay.write(*frame);
             let input = (delayed[0] + delayed[1]) * 0.015;
@@ -1048,7 +1207,7 @@ impl Plugin for Space {
             for (c, out_c) in out.iter_mut().enumerate() {
                 let mut acc = 0.0;
                 for comb in &mut self.combs[c] {
-                    acc += comb.process(input, self.feedback, self.damp);
+                    acc += comb.process(input, feedback, damp);
                 }
                 for ap in &mut self.allpasses[c] {
                     acc = ap.process(acc);
@@ -1066,10 +1225,10 @@ pub struct Echo {
     lines: [Delay; 2],
     sync: usize,
     time_ms: f64,
-    feedback: f32,
-    tone: f32,
+    feedback: Smoothed,
+    tone: Smoothed,
     pingpong: bool,
-    mix: f32,
+    mix: Smoothed,
     lp: [f32; 2],
     current: f64,
 }
@@ -1112,10 +1271,10 @@ impl Plugin for Echo {
             lines: [Delay::new(2.1, rate as u32), Delay::new(2.1, rate as u32)],
             sync: 3,
             time_ms: 375.0,
-            feedback: 0.35,
-            tone: coef(rate, 1.0 / (TAU * 6000.0)),
+            feedback: Smoothed::new(rate, 0.35),
+            tone: Smoothed::new(rate, coef(rate, 1.0 / (TAU * 6000.0)) as f64),
             pingpong: false,
-            mix: 0.35,
+            mix: Smoothed::new(rate, 0.35),
             lp: [0.0; 2],
             current: 0.0,
         }
@@ -1123,17 +1282,23 @@ impl Plugin for Echo {
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.sync = value.round().max(0.0) as usize,
+            // The delay time already glides towards its target in `process`.
             1 => self.time_ms = value,
-            2 => self.feedback = (value / 100.0) as f32,
-            3 => self.tone = coef(self.rate, 1.0 / (TAU * value.max(20.0))),
+            2 => self.feedback.set(value / 100.0),
+            3 => self
+                .tone
+                .set(coef(self.rate, 1.0 / (TAU * value.max(20.0))) as f64),
             4 => self.pingpong = value >= 0.5,
-            5 => self.mix = (value / 100.0) as f32,
+            5 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.lines.iter_mut().for_each(Delay::clear);
         self.lp = [0.0; 2];
+        for s in [&mut self.feedback, &mut self.tone, &mut self.mix] {
+            s.snap();
+        }
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], ctx: &ProcessContext) {
         let target = self.seconds(ctx.tempo) * self.rate;
@@ -1142,12 +1307,15 @@ impl Plugin for Echo {
         }
         let glide = coef(self.rate, 0.05) as f64;
         for frame in audio {
+            let feedback = self.feedback.next() as f32;
+            let tone = self.tone.next() as f32;
+            let mix = self.mix.next() as f32;
             self.current += glide * (target - self.current);
             let l = self.lines[0].read(self.current)[0];
             let r = self.lines[1].read(self.current)[1];
-            self.lp[0] += self.tone * (l - self.lp[0]);
-            self.lp[1] += self.tone * (r - self.lp[1]);
-            let (fl, fr) = (self.lp[0] * self.feedback, self.lp[1] * self.feedback);
+            self.lp[0] += tone * (l - self.lp[0]);
+            self.lp[1] += tone * (r - self.lp[1]);
+            let (fl, fr) = (self.lp[0] * feedback, self.lp[1] * feedback);
             if self.pingpong {
                 let mono = (frame[0] + frame[1]) * 0.5;
                 self.lines[0].write([mono + fr, 0.0]);
@@ -1156,19 +1324,19 @@ impl Plugin for Echo {
                 self.lines[0].write([frame[0] + fl, 0.0]);
                 self.lines[1].write([0.0, frame[1] + fr]);
             }
-            frame[0] += l * self.mix;
-            frame[1] += r * self.mix;
+            frame[0] += l * mix;
+            frame[1] += r * mix;
         }
     }
 }
 
 pub struct Gate {
     rate: f64,
-    threshold: f32,
+    threshold: Smoothed,
     attack: f32,
     hold: u32,
     release: f32,
-    range: f32,
+    range: Smoothed,
     env: f32,
     gain: f32,
     held: u32,
@@ -1188,11 +1356,11 @@ impl Plugin for Gate {
     fn new(rate: f64) -> Self {
         Self {
             rate,
-            threshold: db_to_gain(-40.0),
+            threshold: Smoothed::new(rate, db_to_gain(-40.0) as f64),
             attack: coef(rate, 0.001),
             hold: (rate * 0.05) as u32,
             release: coef(rate, 0.1),
-            range: 0.0001,
+            range: Smoothed::new(rate, 0.0001f32 as f64),
             env: 0.0,
             gain: 0.0,
             held: 0,
@@ -1200,25 +1368,29 @@ impl Plugin for Gate {
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.threshold = db_to_gain(value),
+            0 => self.threshold.set(db_to_gain(value) as f64),
             1 => self.attack = coef(self.rate, value / 1000.0),
             2 => self.hold = (self.rate * value / 1000.0) as u32,
             3 => self.release = coef(self.rate, value / 1000.0),
-            4 => self.range = db_to_gain(value),
+            4 => self.range.set(db_to_gain(value) as f64),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.env = 0.0;
         self.gain = 0.0;
+        self.threshold.snap();
+        self.range.snap();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         let follow = coef(self.rate, 0.0005);
         let decay = coef(self.rate, 0.02);
         for frame in audio {
+            let threshold = self.threshold.next() as f32;
+            let range = self.range.next() as f32;
             let peak = frame[0].abs().max(frame[1].abs());
             self.env += if peak > self.env { follow } else { decay } * (peak - self.env);
-            let open = if self.env > self.threshold {
+            let open = if self.env > threshold {
                 self.held = self.hold;
                 true
             } else if self.held > 0 {
@@ -1227,7 +1399,7 @@ impl Plugin for Gate {
             } else {
                 false
             };
-            let target = if open { 1.0 } else { self.range };
+            let target = if open { 1.0 } else { range };
             let c = if target > self.gain {
                 self.attack
             } else {
@@ -1242,8 +1414,8 @@ impl Plugin for Gate {
 
 pub struct Limiter {
     rate: f64,
-    input: f32,
-    ceiling: f32,
+    input: Smoothed,
+    ceiling: Smoothed,
     release: f32,
     delay: Delay,
     lookahead: usize,
@@ -1262,8 +1434,8 @@ impl Plugin for Limiter {
     fn new(rate: f64) -> Self {
         Self {
             rate,
-            input: 1.0,
-            ceiling: db_to_gain(-0.3),
+            input: Smoothed::new(rate, 1.0),
+            ceiling: Smoothed::new(rate, db_to_gain(-0.3) as f64),
             release: coef(rate, 0.08),
             delay: Delay::new(0.002, rate as u32),
             lookahead: (rate as u32 / 1000).max(1) as usize,
@@ -1272,8 +1444,8 @@ impl Plugin for Limiter {
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.input = db_to_gain(value),
-            1 => self.ceiling = db_to_gain(value),
+            0 => self.input.set(db_to_gain(value) as f64),
+            1 => self.ceiling.set(db_to_gain(value) as f64),
             2 => self.release = coef(self.rate, value / 1000.0),
             _ => {}
         }
@@ -1281,19 +1453,19 @@ impl Plugin for Limiter {
     fn reset(&mut self) {
         self.delay.clear();
         self.gain = 1.0;
+        self.input.snap();
+        self.ceiling.snap();
     }
     fn latency(&self) -> u32 {
         self.lookahead as u32
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
-            let x = [frame[0] * self.input, frame[1] * self.input];
+            let input = self.input.next() as f32;
+            let ceiling = self.ceiling.next() as f32;
+            let x = [frame[0] * input, frame[1] * input];
             let peak = x[0].abs().max(x[1].abs());
-            let needed = if peak > self.ceiling {
-                self.ceiling / peak
-            } else {
-                1.0
-            };
+            let needed = if peak > ceiling { ceiling / peak } else { 1.0 };
             if needed < self.gain {
                 self.gain = needed;
             } else {
@@ -1301,8 +1473,8 @@ impl Plugin for Limiter {
             }
             let delayed = self.delay.read(self.lookahead as f64);
             self.delay.write(x);
-            frame[0] = (delayed[0] * self.gain).clamp(-self.ceiling, self.ceiling);
-            frame[1] = (delayed[1] * self.gain).clamp(-self.ceiling, self.ceiling);
+            frame[0] = (delayed[0] * self.gain).clamp(-ceiling, ceiling);
+            frame[1] = (delayed[1] * self.gain).clamp(-ceiling, ceiling);
         }
     }
 }
@@ -1310,10 +1482,17 @@ impl Plugin for Limiter {
 pub struct Filter {
     rate: f64,
     kind: u8,
-    cutoff: f64,
-    resonance: f64,
-    drive: f32,
+    cutoff: Smoothed,
+    resonance: Smoothed,
+    drive: Smoothed,
     svf: Svf,
+    retune: Retune,
+}
+impl Filter {
+    fn tune(&mut self) {
+        self.svf
+            .set(self.rate, self.cutoff.value(), self.resonance.value());
+    }
 }
 impl Plugin for Filter {
     const INFO: Info = Info::effect("org.ondera.stock.filter", "Filter", VENDOR, "EQ & Filter")
@@ -1330,35 +1509,41 @@ impl Plugin for Filter {
         let mut f = Self {
             rate,
             kind: 0,
-            cutoff: 1000.0,
-            resonance: 0.2,
-            drive: 1.0,
+            cutoff: Smoothed::new(rate, 1000.0),
+            resonance: Smoothed::new(rate, 0.2),
+            drive: Smoothed::new(rate, 1.0),
             svf: Svf::default(),
+            retune: Retune::default(),
         };
-        f.svf.set(rate, f.cutoff, f.resonance);
+        f.tune();
         f
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.kind = value.round() as u8,
-            1 => self.cutoff = value,
-            2 => self.resonance = value / 100.0,
-            3 => self.drive = db_to_gain(value),
+            1 => self.cutoff.set(value),
+            2 => self.resonance.set(value / 100.0),
+            3 => self.drive.set(db_to_gain(value) as f64),
             _ => {}
         }
-        self.svf.set(self.rate, self.cutoff, self.resonance);
+        self.retune.mark();
     }
     fn reset(&mut self) {
         self.svf.clear();
+        for s in [&mut self.cutoff, &mut self.resonance, &mut self.drive] {
+            s.snap();
+        }
+        self.retune.mark();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let moved = self.cutoff.advance() | self.resonance.advance();
+            if self.retune.due(moved) {
+                self.tune();
+            }
+            let drive = self.drive.next() as f32;
             for (c, s) in frame.iter_mut().enumerate() {
-                let x = if self.drive > 1.0 {
-                    (*s * self.drive).tanh()
-                } else {
-                    *s
-                };
+                let x = if drive > 1.0 { (*s * drive).tanh() } else { *s };
                 let (lp, bp, hp) = self.svf.process(c, x);
                 *s = match self.kind {
                     1 => hp,
@@ -1373,11 +1558,11 @@ impl Plugin for Filter {
 pub struct Phaser {
     rate: f64,
     speed: f64,
-    depth: f64,
+    depth: Smoothed,
     stages: usize,
-    feedback: f32,
-    center: f64,
-    mix: f32,
+    feedback: Smoothed,
+    center: Smoothed,
+    mix: Smoothed,
     phase: f64,
     state: [[f32; 2]; 12],
     last: [f32; 2],
@@ -1399,11 +1584,11 @@ impl Plugin for Phaser {
         Self {
             rate,
             speed: 0.3,
-            depth: 0.7,
+            depth: Smoothed::new(rate, 0.7),
             stages: 6,
-            feedback: 0.3,
-            center: 800.0,
-            mix: 0.5,
+            feedback: Smoothed::new(rate, 0.3),
+            center: Smoothed::new(rate, 800.0),
+            mix: Smoothed::new(rate, 0.5),
             phase: 0.0,
             state: [[0.0; 2]; 12],
             last: [0.0; 2],
@@ -1412,28 +1597,39 @@ impl Plugin for Phaser {
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
-            1 => self.depth = value / 100.0,
+            1 => self.depth.set(value / 100.0),
             2 => self.stages = ((value.round() as usize + 1) * 2).clamp(2, 12),
-            3 => self.feedback = (value / 100.0) as f32,
-            4 => self.center = value,
-            5 => self.mix = (value / 100.0) as f32,
+            3 => self.feedback.set(value / 100.0),
+            4 => self.center.set(value),
+            5 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.state = [[0.0; 2]; 12];
         self.last = [0.0; 2];
+        for s in [
+            &mut self.depth,
+            &mut self.feedback,
+            &mut self.center,
+            &mut self.mix,
+        ] {
+            s.snap();
+        }
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let depth = self.depth.next();
+            let feedback = self.feedback.next() as f32;
+            let center = self.center.next();
+            let mix = self.mix.next() as f32;
             self.phase = (self.phase + self.speed / self.rate).fract();
             let lfo = (TAU * self.phase).sin();
-            let hz =
-                (self.center * 2f64.powf(lfo * self.depth * 2.0)).clamp(20.0, self.rate * 0.45);
+            let hz = (center * 2f64.powf(lfo * depth * 2.0)).clamp(20.0, self.rate * 0.45);
             let w = (std::f64::consts::PI * hz / self.rate).tan();
             let c = ((1.0 - w) / (1.0 + w)) as f32;
             for ch in 0..2 {
-                let mut x = frame[ch] + self.last[ch] * self.feedback;
+                let mut x = frame[ch] + self.last[ch] * feedback;
                 for stage in 0..self.stages {
                     let z = &mut self.state[stage][ch];
                     let y = -c * x + *z;
@@ -1445,7 +1641,7 @@ impl Plugin for Phaser {
                     self.state.iter_mut().for_each(|s| s[ch] = 0.0);
                 }
                 self.last[ch] = x;
-                frame[ch] = frame[ch] * (1.0 - self.mix) + x * self.mix;
+                frame[ch] = frame[ch] * (1.0 - mix) + x * mix;
             }
         }
     }
@@ -1454,9 +1650,9 @@ impl Plugin for Phaser {
 pub struct Tremolo {
     rate: f64,
     speed: f64,
-    depth: f32,
+    depth: Smoothed,
     shape: u8,
-    stereo: f64,
+    stereo: Smoothed,
     phase: f64,
 }
 impl Tremolo {
@@ -1490,39 +1686,49 @@ impl Plugin for Tremolo {
         Self {
             rate,
             speed: 4.0,
-            depth: 0.6,
+            depth: Smoothed::new(rate, 0.6),
             shape: 0,
-            stereo: 0.0,
+            stereo: Smoothed::new(rate, 0.0),
             phase: 0.0,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
-            1 => self.depth = (value / 100.0) as f32,
+            1 => self.depth.set(value / 100.0),
             2 => self.shape = value.round() as u8,
-            3 => self.stereo = value / 360.0,
+            3 => self.stereo.set(value / 360.0),
             _ => {}
         }
     }
+    fn reset(&mut self) {
+        self.depth.snap();
+        self.stereo.snap();
+    }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let depth = self.depth.next() as f32;
+            let stereo = self.stereo.next();
             self.phase = (self.phase + self.speed / self.rate).fract();
-            let l = 1.0 - self.depth * (1.0 - self.wave(self.phase));
-            let r = 1.0 - self.depth * (1.0 - self.wave((self.phase + self.stereo).fract()));
+            let l = 1.0 - depth * (1.0 - self.wave(self.phase));
+            let r = 1.0 - depth * (1.0 - self.wave((self.phase + stereo).fract()));
             frame[0] *= l;
             frame[1] *= r;
         }
     }
 }
 
-#[derive(Default)]
 pub struct Bitcrusher {
-    bits: f32,
+    bits: Smoothed,
     factor: u32,
-    mix: f32,
+    mix: Smoothed,
     counter: u32,
     held: [f32; 2],
+}
+impl Bitcrusher {
+    fn step(bits: f64) -> f32 {
+        2f32.powf(bits.max(1.0) as f32 - 1.0)
+    }
 }
 impl Plugin for Bitcrusher {
     const INFO: Info = Info::effect(
@@ -1539,26 +1745,41 @@ impl Plugin for Bitcrusher {
             param("Mix", 0.0, 100.0, 100.0, "%"),
         ]
     }
-    fn new(_rate: f64) -> Self {
-        Self::default()
+    fn new(rate: f64) -> Self {
+        Self {
+            bits: Smoothed::new(rate, 8.0),
+            factor: 4,
+            mix: Smoothed::new(rate, 1.0),
+            counter: 0,
+            held: [0.0; 2],
+        }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.bits = value as f32,
+            0 => self.bits.set(value as f32 as f64),
+            // A whole number of samples to hold: a step, not a sweep.
             1 => self.factor = value.round().max(1.0) as u32,
-            2 => self.mix = (value / 100.0) as f32,
+            2 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
+    fn reset(&mut self) {
+        self.bits.snap();
+        self.mix.snap();
+    }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        let step = 2f32.powf(self.bits.max(1.0) - 1.0);
+        let mut step = Self::step(self.bits.value());
         for frame in audio {
+            if self.bits.advance() {
+                step = Self::step(self.bits.value());
+            }
+            let mix = self.mix.next() as f32;
             if self.counter == 0 {
                 self.held = frame.map(|s| (s * step).round() / step);
             }
             self.counter = (self.counter + 1) % self.factor.max(1);
             for (c, s) in frame.iter_mut().enumerate() {
-                *s = *s * (1.0 - self.mix) + self.held[c] * self.mix;
+                *s = *s * (1.0 - mix) + self.held[c] * mix;
             }
         }
     }
@@ -1566,7 +1787,7 @@ impl Plugin for Bitcrusher {
 
 pub struct Width {
     rate: f64,
-    width: f32,
+    width: Smoothed,
     bass: f32,
     lp: f32,
 }
@@ -1582,14 +1803,16 @@ impl Plugin for Width {
     fn new(rate: f64) -> Self {
         Self {
             rate,
-            width: 1.2,
+            width: Smoothed::new(rate, 1.2),
             bass: 0.0,
             lp: 0.0,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.width = (value / 100.0) as f32,
+            0 => self.width.set(value / 100.0),
+            // A crossover on the side signal: moving it in steps is inaudible, and gliding it
+            // through zero would leave the filter's last output behind as an offset.
             1 => {
                 self.bass = if value < 1.0 {
                     0.0
@@ -1600,27 +1823,37 @@ impl Plugin for Width {
             _ => {}
         }
     }
+    fn reset(&mut self) {
+        self.width.snap();
+    }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let width = self.width.next() as f32;
             let mid = (frame[0] + frame[1]) * 0.5;
             let mut side = (frame[0] - frame[1]) * 0.5;
             if self.bass > 0.0 {
                 self.lp += self.bass * (side - self.lp);
                 side -= self.lp;
             }
-            side *= self.width;
+            side *= width;
             frame[0] = mid + side;
             frame[1] = mid - side;
         }
     }
 }
 
-#[derive(Default)]
 pub struct Utility {
-    gain: f32,
-    pan: f32,
+    gain: Smoothed,
+    pan: Smoothed,
     invert: [bool; 2],
     mono: bool,
+}
+impl Utility {
+    /// Left and right gains of the pan law.
+    fn law(pan: f64) -> (f32, f32) {
+        let pan = pan as f32;
+        ((1.0 - pan.max(0.0)).sqrt(), (1.0 + pan.min(0.0)).sqrt())
+    }
 }
 impl Plugin for Utility {
     const INFO: Info = Info::effect("org.ondera.stock.utility", "Utility", VENDOR, "Utility")
@@ -1634,23 +1867,35 @@ impl Plugin for Utility {
             choice("Mono", ON_OFF, 0),
         ]
     }
-    fn new(_rate: f64) -> Self {
-        Self::default()
+    fn new(rate: f64) -> Self {
+        Self {
+            gain: Smoothed::new(rate, 1.0),
+            pan: Smoothed::new(rate, 0.0),
+            invert: [false; 2],
+            mono: false,
+        }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.gain = db_to_gain(value),
-            1 => self.pan = (value / 100.0) as f32,
+            0 => self.gain.set(db_to_gain(value) as f64),
+            1 => self.pan.set((value / 100.0) as f32 as f64),
             2 => self.invert[0] = value >= 0.5,
             3 => self.invert[1] = value >= 0.5,
             4 => self.mono = value >= 0.5,
             _ => {}
         }
     }
+    fn reset(&mut self) {
+        self.gain.snap();
+        self.pan.snap();
+    }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        let left = (1.0 - self.pan.max(0.0)).sqrt();
-        let right = (1.0 + self.pan.min(0.0)).sqrt();
+        let (mut left, mut right) = Self::law(self.pan.value());
         for frame in audio {
+            if self.pan.advance() {
+                (left, right) = Self::law(self.pan.value());
+            }
+            let gain = self.gain.next() as f32;
             if self.mono {
                 let m = (frame[0] + frame[1]) * 0.5;
                 *frame = [m, m];
@@ -1660,16 +1905,16 @@ impl Plugin for Utility {
                     *s = -*s;
                 }
             }
-            frame[0] *= self.gain * left;
-            frame[1] *= self.gain * right;
+            frame[0] *= gain * left;
+            frame[1] *= gain * right;
         }
     }
 }
 
 pub struct Transient {
     rate: f64,
-    attack: f32,
-    sustain: f32,
+    attack: Smoothed,
+    sustain: Smoothed,
     fast: f32,
     slow: f32,
 }
@@ -1690,22 +1935,24 @@ impl Plugin for Transient {
     fn new(rate: f64) -> Self {
         Self {
             rate,
-            attack: 0.3,
-            sustain: 0.0,
+            attack: Smoothed::new(rate, 0.3),
+            sustain: Smoothed::new(rate, 0.0),
             fast: 0.0,
             slow: 0.0,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.attack = (value / 100.0) as f32,
-            1 => self.sustain = (value / 100.0) as f32,
+            0 => self.attack.set(value / 100.0),
+            1 => self.sustain.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.fast = 0.0;
         self.slow = 0.0;
+        self.attack.snap();
+        self.sustain.snap();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         let fast_up = coef(self.rate, 0.0005);
@@ -1713,12 +1960,14 @@ impl Plugin for Transient {
         let slow_up = coef(self.rate, 0.02);
         let slow_down = coef(self.rate, 0.15);
         for frame in audio {
+            let attack = self.attack.next() as f32;
+            let sustain = self.sustain.next() as f32;
             let peak = frame[0].abs().max(frame[1].abs());
             self.fast += if peak > self.fast { fast_up } else { fast_down } * (peak - self.fast);
             self.slow += if peak > self.slow { slow_up } else { slow_down } * (peak - self.slow);
             let diff = db(self.fast) - db(self.slow);
-            let attack_db = self.attack * diff.clamp(0.0, 24.0);
-            let sustain_db = self.sustain * (-diff).clamp(0.0, 24.0);
+            let attack_db = attack * diff.clamp(0.0, 24.0);
+            let sustain_db = sustain * (-diff).clamp(0.0, 24.0);
             let gain = db_to_gain((attack_db + sustain_db) as f64).clamp(0.05, 8.0);
             frame[0] *= gain;
             frame[1] *= gain;
@@ -1734,10 +1983,10 @@ pub struct Flanger {
     rate: f64,
     delay: Delay,
     speed: f64,
-    depth: f64,
-    manual: f64,
-    feedback: f32,
-    mix: f32,
+    depth: Smoothed,
+    manual: Smoothed,
+    feedback: Smoothed,
+    mix: Smoothed,
     phase: f64,
 }
 impl Plugin for Flanger {
@@ -1757,39 +2006,50 @@ impl Plugin for Flanger {
             rate,
             delay: Delay::new(0.03, rate as u32),
             speed: 0.35,
-            depth: 0.7,
-            manual: 2.5,
-            feedback: 0.55,
-            mix: 0.5,
+            depth: Smoothed::new(rate, 0.7),
+            manual: Smoothed::new(rate, 2.5),
+            feedback: Smoothed::new(rate, 0.55),
+            mix: Smoothed::new(rate, 0.5),
             phase: 0.0,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
-            1 => self.depth = value / 100.0,
-            2 => self.manual = value,
-            3 => self.feedback = (value / 100.0) as f32,
-            4 => self.mix = (value / 100.0) as f32,
+            1 => self.depth.set(value / 100.0),
+            2 => self.manual.set(value),
+            3 => self.feedback.set(value / 100.0),
+            4 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.delay.clear();
+        for s in [
+            &mut self.depth,
+            &mut self.manual,
+            &mut self.feedback,
+            &mut self.mix,
+        ] {
+            s.snap();
+        }
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let depth = self.depth.next();
+            let manual = self.manual.next();
+            let feedback = self.feedback.next() as f32;
+            let mix = self.mix.next() as f32;
             self.phase = (self.phase + self.speed / self.rate).fract();
             let sweep = 0.5 + 0.5 * (TAU * self.phase).sin();
-            let ms =
-                self.manual * (1.0 - self.depth) + (0.2 + self.manual * 2.0 * sweep) * self.depth;
+            let ms = manual * (1.0 - depth) + (0.2 + manual * 2.0 * sweep) * depth;
             let wet = self.delay.read(ms.clamp(0.1, 25.0) / 1000.0 * self.rate);
             self.delay.write([
-                (frame[0] + wet[0] * self.feedback).clamp(-4.0, 4.0),
-                (frame[1] + wet[1] * self.feedback).clamp(-4.0, 4.0),
+                (frame[0] + wet[0] * feedback).clamp(-4.0, 4.0),
+                (frame[1] + wet[1] * feedback).clamp(-4.0, 4.0),
             ]);
-            frame[0] += wet[0] * self.mix;
-            frame[1] += wet[1] * self.mix;
+            frame[0] += wet[0] * mix;
+            frame[1] += wet[1] * mix;
         }
     }
 }
@@ -1797,7 +2057,7 @@ impl Plugin for Flanger {
 pub struct AutoPan {
     rate: f64,
     speed: f64,
-    depth: f32,
+    depth: Smoothed,
     shape: u8,
     phase: f64,
 }
@@ -1815,7 +2075,7 @@ impl Plugin for AutoPan {
         Self {
             rate,
             speed: 1.0,
-            depth: 0.8,
+            depth: Smoothed::new(rate, 0.8),
             shape: 0,
             phase: 0.0,
         }
@@ -1823,13 +2083,17 @@ impl Plugin for AutoPan {
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => self.speed = value,
-            1 => self.depth = (value / 100.0) as f32,
+            1 => self.depth.set(value / 100.0),
             2 => self.shape = value.round() as u8,
             _ => {}
         }
     }
+    fn reset(&mut self) {
+        self.depth.snap();
+    }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         for frame in audio {
+            let depth = self.depth.next() as f32;
             self.phase = (self.phase + self.speed / self.rate).fract();
             let lfo = match self.shape {
                 1 => triangle(self.phase),
@@ -1843,9 +2107,9 @@ impl Plugin for AutoPan {
                 _ => (TAU * self.phase).sin(),
             } as f32;
             // Constant-power pan law around the centre.
-            let angle = (lfo * self.depth + 1.0) * std::f32::consts::FRAC_PI_4;
+            let angle = (lfo * depth + 1.0) * std::f32::consts::FRAC_PI_4;
             let mono = (frame[0] + frame[1]) * 0.5;
-            let side = (frame[0] - frame[1]) * 0.5 * (1.0 - self.depth);
+            let side = (frame[0] - frame[1]) * 0.5 * (1.0 - depth);
             frame[0] = mono * angle.cos() * std::f32::consts::SQRT_2 + side;
             frame[1] = mono * angle.sin() * std::f32::consts::SQRT_2 - side;
         }
@@ -1855,11 +2119,11 @@ impl Plugin for AutoPan {
 pub struct AutoFilter {
     rate: f64,
     svf: Svf,
-    cutoff: f64,
-    resonance: f64,
+    cutoff: Smoothed,
+    resonance: Smoothed,
     speed: f64,
-    lfo_depth: f64,
-    env_depth: f64,
+    lfo_depth: Smoothed,
+    env_depth: Smoothed,
     phase: f64,
     envelope: f32,
     tick: u32,
@@ -1885,11 +2149,11 @@ impl Plugin for AutoFilter {
         Self {
             rate,
             svf: Svf::default(),
-            cutoff: 600.0,
-            resonance: 0.45,
+            cutoff: Smoothed::new(rate, 600.0),
+            resonance: Smoothed::new(rate, 0.45),
             speed: 0.5,
-            lfo_depth: 0.4,
-            env_depth: 0.4,
+            lfo_depth: Smoothed::new(rate, 0.4),
+            env_depth: Smoothed::new(rate, 0.4),
             phase: 0.0,
             envelope: 0.0,
             tick: 0,
@@ -1897,11 +2161,11 @@ impl Plugin for AutoFilter {
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.cutoff = value,
-            1 => self.resonance = value / 100.0,
+            0 => self.cutoff.set(value),
+            1 => self.resonance.set(value / 100.0),
             2 => self.speed = value,
-            3 => self.lfo_depth = value / 100.0,
-            4 => self.env_depth = value / 100.0,
+            3 => self.lfo_depth.set(value / 100.0),
+            4 => self.env_depth.set(value / 100.0),
             _ => {}
         }
         self.tick = 0;
@@ -1909,6 +2173,15 @@ impl Plugin for AutoFilter {
     fn reset(&mut self) {
         self.svf.clear();
         self.envelope = 0.0;
+        for s in [
+            &mut self.cutoff,
+            &mut self.resonance,
+            &mut self.lfo_depth,
+            &mut self.env_depth,
+        ] {
+            s.snap();
+        }
+        self.tick = 0;
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         let (up, down) = (coef(self.rate, 0.004), coef(self.rate, 0.18));
@@ -1917,14 +2190,25 @@ impl Plugin for AutoFilter {
             let level = frame[0].abs().max(frame[1].abs());
             self.envelope +=
                 if level > self.envelope { up } else { down } * (level - self.envelope);
+            for s in [
+                &mut self.cutoff,
+                &mut self.resonance,
+                &mut self.lfo_depth,
+                &mut self.env_depth,
+            ] {
+                s.advance();
+            }
             // Coefficients every 16 samples: inaudible, and a sixteenth of the tan() calls.
             if self.tick == 0 {
-                let octaves = (TAU * self.phase).sin() * self.lfo_depth * 3.0
-                    + (self.envelope.min(1.0) as f64).sqrt() * self.env_depth * 5.0;
-                self.svf
-                    .set(self.rate, self.cutoff * 2f64.powf(octaves), self.resonance);
+                let octaves = (TAU * self.phase).sin() * self.lfo_depth.value() * 3.0
+                    + (self.envelope.min(1.0) as f64).sqrt() * self.env_depth.value() * 5.0;
+                self.svf.set(
+                    self.rate,
+                    self.cutoff.value() * 2f64.powf(octaves),
+                    self.resonance.value(),
+                );
             }
-            self.tick = (self.tick + 1) % 16;
+            self.tick = (self.tick + 1) % Retune::GRAIN;
             frame[0] = self.svf.process(0, frame[0]).0;
             frame[1] = self.svf.process(1, frame[1]).0;
         }
@@ -1935,12 +2219,19 @@ pub struct DeEsser {
     rate: f64,
     detect: Biquad,
     split: Biquad,
-    frequency: f64,
-    threshold: f32,
-    range: f32,
+    frequency: Smoothed,
+    threshold: Smoothed,
+    range: Smoothed,
     listen: bool,
     envelope: f32,
-    dirty: bool,
+    retune: Retune,
+}
+impl DeEsser {
+    fn tune(&mut self) {
+        let frequency = self.frequency.value();
+        self.detect.highpass(self.rate, frequency, 0.9);
+        self.split.highpass(self.rate, frequency * 0.8, 0.707);
+    }
 }
 impl Plugin for DeEsser {
     const INFO: Info = Info::effect("org.ondera.stock.deesser", "De-Esser", VENDOR, "Dynamics")
@@ -1954,26 +2245,28 @@ impl Plugin for DeEsser {
         ]
     }
     fn new(rate: f64) -> Self {
+        let mut retune = Retune::default();
+        retune.mark();
         Self {
             rate,
             detect: Biquad::default(),
             split: Biquad::default(),
-            frequency: 6500.0,
-            threshold: -28.0,
-            range: 9.0,
+            frequency: Smoothed::new(rate, 6500.0),
+            threshold: Smoothed::new(rate, -28.0),
+            range: Smoothed::new(rate, 9.0),
             listen: false,
             envelope: 0.0,
-            dirty: true,
+            retune,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
             0 => {
-                self.frequency = value;
-                self.dirty = true;
+                self.frequency.set(value);
+                self.retune.mark();
             }
-            1 => self.threshold = value as f32,
-            2 => self.range = value as f32,
+            1 => self.threshold.set(value as f32 as f64),
+            2 => self.range.set(value as f32 as f64),
             3 => self.listen = value >= 0.5,
             _ => {}
         }
@@ -1982,19 +2275,24 @@ impl Plugin for DeEsser {
         self.detect.clear();
         self.split.clear();
         self.envelope = 0.0;
+        for s in [&mut self.frequency, &mut self.threshold, &mut self.range] {
+            s.snap();
+        }
+        self.retune.mark();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        if self.dirty {
-            self.dirty = false;
-            self.detect.highpass(self.rate, self.frequency, 0.9);
-            self.split.highpass(self.rate, self.frequency * 0.8, 0.707);
-        }
         let (up, down) = (coef(self.rate, 0.001), coef(self.rate, 0.06));
         for frame in audio {
+            let moved = self.frequency.advance();
+            if self.retune.due(moved) {
+                self.tune();
+            }
+            let threshold = self.threshold.next() as f32;
+            let range = self.range.next() as f32;
             let side = self.detect.process(0, (frame[0] + frame[1]) * 0.5).abs();
             self.envelope += if side > self.envelope { up } else { down } * (side - self.envelope);
-            let over = (db(self.envelope) - self.threshold).max(0.0);
-            let gain = db_to_gain(-(over * 0.75).min(self.range) as f64);
+            let over = (db(self.envelope) - threshold).max(0.0);
+            let gain = db_to_gain(-(over * 0.75).min(range) as f64);
             let high = [
                 self.split.process(0, frame[0]),
                 self.split.process(1, frame[1]),
@@ -2013,18 +2311,18 @@ pub struct LoFi {
     rate: f64,
     delay: Delay,
     tone: Biquad,
-    wobble: f64,
-    noise: f32,
-    cutoff: f64,
-    drive: f32,
-    mix: f32,
+    wobble: Smoothed,
+    noise: Smoothed,
+    cutoff: Smoothed,
+    drive: Smoothed,
+    mix: Smoothed,
     phase: f64,
     flutter: f64,
     seed: u32,
     hiss: f32,
     /// Input level: the hiss rides on the programme so silence stays silent.
     presence: f32,
-    dirty: bool,
+    retune: Retune,
 }
 impl Plugin for LoFi {
     const INFO: Info = Info::effect("org.ondera.stock.lofi", "Lo-Fi", VENDOR, "Distortion")
@@ -2039,33 +2337,35 @@ impl Plugin for LoFi {
         ]
     }
     fn new(rate: f64) -> Self {
+        let mut retune = Retune::default();
+        retune.mark();
         Self {
             rate,
             delay: Delay::new(0.05, rate as u32),
             tone: Biquad::default(),
-            wobble: 0.35,
-            noise: 0.2,
-            cutoff: 5200.0,
-            drive: 2.0,
-            mix: 1.0,
+            wobble: Smoothed::new(rate, 0.35),
+            noise: Smoothed::new(rate, 0.2),
+            cutoff: Smoothed::new(rate, 5200.0),
+            drive: Smoothed::new(rate, 2.0),
+            mix: Smoothed::new(rate, 1.0),
             phase: 0.0,
             flutter: 0.0,
             seed: 22222,
             hiss: 0.0,
             presence: 0.0,
-            dirty: true,
+            retune,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
-            0 => self.wobble = value / 100.0,
-            1 => self.noise = (value / 100.0) as f32,
+            0 => self.wobble.set(value / 100.0),
+            1 => self.noise.set(value / 100.0),
             2 => {
-                self.cutoff = value;
-                self.dirty = true;
+                self.cutoff.set(value);
+                self.retune.mark();
             }
-            3 => self.drive = db_to_gain(value),
-            4 => self.mix = (value / 100.0) as f32,
+            3 => self.drive.set(db_to_gain(value) as f64),
+            4 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
@@ -2073,17 +2373,31 @@ impl Plugin for LoFi {
         self.delay.clear();
         self.tone.clear();
         self.presence = 0.0;
+        for s in [
+            &mut self.wobble,
+            &mut self.noise,
+            &mut self.cutoff,
+            &mut self.drive,
+            &mut self.mix,
+        ] {
+            s.snap();
+        }
+        self.retune.mark();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
-        if self.dirty {
-            self.dirty = false;
-            self.tone.lowpass(self.rate, self.cutoff, 0.6);
-        }
         for frame in audio {
+            let moved = self.cutoff.advance();
+            if self.retune.due(moved) {
+                self.tone.lowpass(self.rate, self.cutoff.value(), 0.6);
+            }
+            let wobble = self.wobble.next();
+            let noise = self.noise.next() as f32;
+            let drive = self.drive.next() as f32;
+            let mix = self.mix.next() as f32;
             self.phase = (self.phase + 0.6 / self.rate).fract();
             self.flutter = (self.flutter + 7.3 / self.rate).fract();
-            let ms = 12.0
-                + self.wobble * (6.0 * (TAU * self.phase).sin() + 0.8 * (TAU * self.flutter).sin());
+            let ms =
+                12.0 + wobble * (6.0 * (TAU * self.phase).sin() + 0.8 * (TAU * self.flutter).sin());
             self.delay.write(*frame);
             let tape = self.delay.read(ms.max(0.5) / 1000.0 * self.rate);
             self.seed = self.seed.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -2092,11 +2406,11 @@ impl Plugin for LoFi {
             let level = tape[0].abs().max(tape[1].abs()).min(1.0);
             self.presence +=
                 if level > self.presence { 0.01 } else { 0.00005 } * (level - self.presence);
-            let hiss = self.hiss * self.noise * 0.04 * self.presence.sqrt();
+            let hiss = self.hiss * noise * 0.04 * self.presence.sqrt();
             for c in 0..2 {
-                let worn = ((tape[c] * self.drive).tanh() / self.drive.max(1.0).sqrt()) + hiss;
+                let worn = ((tape[c] * drive).tanh() / drive.max(1.0).sqrt()) + hiss;
                 let wet = self.tone.process(c, worn);
-                frame[c] += (wet - frame[c]) * self.mix;
+                frame[c] += (wet - frame[c]) * mix;
             }
         }
     }
@@ -2108,7 +2422,7 @@ pub struct PitchShift {
     delay: Delay,
     semitones: f64,
     cents: f64,
-    mix: f32,
+    mix: Smoothed,
     phase: f64,
 }
 impl PitchShift {
@@ -2140,20 +2454,23 @@ impl Plugin for PitchShift {
             delay: Delay::new(Self::WINDOW * 2.0 + 0.01, rate as u32),
             semitones: 7.0,
             cents: 0.0,
-            mix: 0.5,
+            mix: Smoothed::new(rate, 0.5),
             phase: 0.0,
         }
     }
     fn set_param(&mut self, index: usize, value: f64) {
         match index {
+            // Semitones are steps, and the ratio moves the read head's speed, not its place:
+            // neither clicks.
             0 => self.semitones = value.round(),
             1 => self.cents = value,
-            2 => self.mix = (value / 100.0) as f32,
+            2 => self.mix.set(value / 100.0),
             _ => {}
         }
     }
     fn reset(&mut self) {
         self.delay.clear();
+        self.mix.snap();
     }
     fn process(&mut self, audio: &mut [[f32; 2]], _: &[NoteEvent], _: &ProcessContext) {
         let ratio = 2f64.powf((self.semitones + self.cents / 100.0) / 12.0);
@@ -2161,6 +2478,7 @@ impl Plugin for PitchShift {
         // The read head drifts (1 - ratio) samples per sample; one ramp spans the window.
         let step = (1.0 - ratio) / window;
         for frame in audio {
+            let mix = self.mix.next() as f32;
             self.delay.write(*frame);
             self.phase = (self.phase + step).rem_euclid(1.0);
             let mut wet = [0f32; 2];
@@ -2171,8 +2489,8 @@ impl Plugin for PitchShift {
                 wet[0] += v[0] * gain * gain;
                 wet[1] += v[1] * gain * gain;
             }
-            frame[0] += (wet[0] - frame[0]) * self.mix;
-            frame[1] += (wet[1] - frame[1]) * self.mix;
+            frame[0] += (wet[0] - frame[0]) * mix;
+            frame[1] += (wet[1] - frame[1]) * mix;
         }
     }
 }
@@ -2260,6 +2578,113 @@ mod tests {
             assert_eq!(instance.editor.descriptor().id, format!("stock:{name}"));
         }
         assert_eq!(MANIFESTS.len(), INSTRUMENTS.len() + EFFECTS.len());
+    }
+    fn ctx() -> ProcessContext {
+        ProcessContext {
+            tempo: 120.0,
+            ..ProcessContext::default()
+        }
+    }
+    /// A gain step that arrives while the plugin runs becomes a monotonic ramp, then lands
+    /// exactly on the unsmoothed gain.
+    #[test]
+    fn a_gain_step_ramps_monotonically_and_settles_bit_exact() {
+        let rate = 48000.0;
+        let mut utility = Utility::new(rate);
+        utility.set_param(0, 0.0);
+        let mut audio = vec![[1.0f32, 1.0]; 64];
+        utility.process(&mut audio, &[], &ctx());
+        assert!(
+            audio.iter().all(|f| f[0] == 1.0),
+            "a fresh value is not glided"
+        );
+        utility.set_param(0, -12.0);
+        let mut audio = vec![[1.0f32, 1.0]; 4800];
+        utility.process(&mut audio, &[], &ctx());
+        let target = db_to_gain(-12.0);
+        assert!(
+            audio[0][0] < 1.0 && audio[0][0] > 0.9,
+            "no jump: {}",
+            audio[0][0]
+        );
+        for pair in audio.windows(2) {
+            assert!(pair[1][0] <= pair[0][0], "monotonic");
+        }
+        assert!(
+            audio[480][0] > target,
+            "still moving after one time constant"
+        );
+        assert_eq!(audio[4799][0], target, "settled on the exact gain");
+        // A settled gain gives the same bits as a plugin that never moved.
+        let mut fresh = Utility::new(rate);
+        fresh.set_param(0, -12.0);
+        let input: Vec<[f32; 2]> = (0..512)
+            .map(|i| [(i as f32 * 0.01).sin(), (i as f32 * 0.013).cos()])
+            .collect();
+        let (mut a, mut b) = (input.clone(), input.clone());
+        utility.process(&mut a, &[], &ctx());
+        fresh.process(&mut b, &[], &ctx());
+        assert_eq!(a, b);
+        assert!(a.iter().zip(&input).all(|(o, i)| o[0] == i[0] * target));
+    }
+    /// Values set before the first sample, and after a reset, are taken at once.
+    #[test]
+    fn values_set_before_processing_or_after_a_reset_do_not_glide() {
+        let mut utility = Utility::new(48000.0);
+        utility.set_param(0, 0.0);
+        utility.set_param(0, -6.0);
+        let mut audio = vec![[1.0f32, 1.0]; 4];
+        utility.process(&mut audio, &[], &ctx());
+        assert_eq!(audio[0][0], db_to_gain(-6.0));
+        utility.reset();
+        utility.set_param(0, 6.0);
+        utility.process(&mut audio, &[], &ctx());
+        assert_eq!(audio[0][0], db_to_gain(-6.0) * db_to_gain(6.0));
+    }
+    /// Every stock effect, through its vtable, stays finite when all of its continuous
+    /// parameters jump to their maximum in the middle of a signal.
+    #[test]
+    fn stock_effects_stay_finite_when_every_parameter_jumps() {
+        let rate = 48000u32;
+        for name in EFFECTS {
+            let instance = create(name, rate).expect(name);
+            let mut processor = instance.processor.expect(name);
+            let params = instance.editor.params().to_vec();
+            let context = ctx();
+            let signal = |i: usize| (i as f32 * TAU as f32 * 220.0 / rate as f32).sin() * 0.25;
+            let run = |processor: &mut Box<dyn crate::plugin::Processor>,
+                       start: usize,
+                       changes: &[crate::plugin::ParamChange]| {
+                let mut audio: Vec<[f32; 2]> = (start..start + 256)
+                    .map(|i| [signal(i), signal(i)])
+                    .collect();
+                processor.process(&mut audio, &[], changes, &context);
+                audio
+            };
+            let mut out = Vec::new();
+            for block in 0..8 {
+                out.extend(run(&mut processor, block * 256, &[]));
+            }
+            // Move every continuous parameter to its maximum at once, mid-signal.
+            let changes: Vec<_> = params
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.steps == 0)
+                .map(|(i, p)| crate::plugin::ParamChange {
+                    id: i as u32,
+                    value: p.max,
+                    frame: 0,
+                })
+                .collect();
+            out.extend(run(&mut processor, 8 * 256, &changes));
+            for block in 9..16 {
+                out.extend(run(&mut processor, block * 256, &[]));
+            }
+            assert!(
+                out.iter().flatten().all(|s| s.is_finite()),
+                "{name} stays finite"
+            );
+        }
     }
     #[test]
     fn factory_presets_name_real_plugins_and_parameters_in_range() {

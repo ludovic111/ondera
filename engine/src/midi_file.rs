@@ -303,7 +303,11 @@ pub fn import_bytes(
         / transport.time_signature.denominator as f64;
     let mut commands = vec![];
     if options.import_tempo {
+        // A new meter moves the existing clips, so the automation follows them, as
+        // `transport.setTimeSignature` does, in this same undo step.
+        let lanes = crate::control::automation_on_bars(session, &transport.time_signature);
         commands.push(Command::SetTransport(transport));
+        commands.extend(lanes);
     }
     let mut report = ImportReport {
         track_ids: vec![],
