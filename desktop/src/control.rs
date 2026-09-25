@@ -900,13 +900,16 @@ impl Host for Ondera {
     }
     fn loaded_editor(
         &mut self,
-        insert_id: &str,
-        plugin_id: &str,
+        insert: &ondera_engine::model::Insert,
     ) -> Option<&mut dyn ondera_engine::plugin::Editor> {
         self.plugins
             .loaded
-            .get_mut(insert_id)
-            .filter(|entry| !entry.retiring && entry.plugin_id == plugin_id)
+            .get_mut(&insert.id)
+            .filter(|entry| {
+                !entry.retiring
+                    && entry.plugin_id == insert.plugin_id()
+                    && entry.blob == insert.blob
+            })
             .map(|entry| entry.editor.as_mut() as &mut dyn ondera_engine::plugin::Editor)
     }
     fn plugin_failures(&self) -> Vec<(String, String)> {
@@ -1510,6 +1513,22 @@ fn release_json(release: &crate::update::Release) -> Value {
 
 #[cfg(test)]
 mod tests {
+    /// Between an edit and the next reconcile the loaded instance is out of date; commands
+    /// must then read the document through a fresh instance, never the stale one.
+    #[test]
+    fn a_loaded_editor_serves_only_its_own_plugin_and_state() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.reconcile_plugins();
+        let space = app.store.session().strips["bus-a"].inserts[0].clone();
+        assert!(Host::loaded_editor(&mut app, &space).is_some());
+        let mut other_state = space.clone();
+        other_state.blob = "pending".into();
+        assert!(Host::loaded_editor(&mut app, &other_state).is_none());
+        let mut other_plugin = space.clone();
+        other_plugin.plugin = "stock:Echo".into();
+        assert!(Host::loaded_editor(&mut app, &other_plugin).is_none());
+    }
+
     #[test]
     fn a_reply_waits_only_on_the_job_its_own_command_started() {
         let dir = tempfile::tempdir().unwrap();

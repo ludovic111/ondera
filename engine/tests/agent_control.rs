@@ -439,9 +439,9 @@ impl Host for Window {
     fn bounce(&mut self, path: &Path) -> Result<()> {
         self.inner.bounce(path)
     }
-    fn loaded_editor(&mut self, insert_id: &str, plugin_id: &str) -> Option<&mut dyn Editor> {
+    fn loaded_editor(&mut self, insert: &Insert) -> Option<&mut dyn Editor> {
         // As the window does: the editor under a key serves only the plugin it was made for.
-        (insert_id == self.key && plugin_id == TRIM)
+        (insert.id == self.key && insert.plugin_id() == TRIM)
             .then(|| self.instance.editor.as_mut() as &mut dyn Editor)
     }
     fn plugin_failures(&self) -> Vec<(String, String)> {

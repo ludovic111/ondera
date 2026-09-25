@@ -426,14 +426,14 @@ pub trait Host {
     fn plugin_parameters(&mut self, track: &str, slot: Option<usize>) -> Result<Value> {
         crate::control_params::all_parameters(self, track, slot)
     }
-    /// The editor of a plugin the host already has loaded, by insert key and plugin id. The
-    /// window keeps one per insert; a headless host has none, and callers instantiate a fresh
-    /// one. The plugin id guards against an insert key reused by a new song while the window
-    /// still holds the old song's plugin under it.
+    /// The editor of a plugin the host already has loaded for this insert. The window keeps
+    /// one per insert; a headless host has none, and callers instantiate a fresh one. It must
+    /// be the same plugin with the same saved state: between an edit (a new song reusing the
+    /// key, a program change, an undo) and the window's next reconcile, the loaded instance is
+    /// out of date and callers read the document through a fresh one instead.
     fn loaded_editor(
         &mut self,
-        _insert_id: &str,
-        _plugin_id: &str,
+        _insert: &crate::model::Insert,
     ) -> Option<&mut dyn crate::plugin::Editor> {
         None
     }
