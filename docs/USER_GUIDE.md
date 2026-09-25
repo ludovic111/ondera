@@ -223,8 +223,18 @@ Scripts and external AI tools control Ondera through the same commands: see
 ## Themes and appearance
 
 Settings > Interface shows every theme as a live miniature, with a Dark / Light / Auto switch
-(Auto follows the system). THEME_LIST The interface scale, tooltips and following the playhead
-are set there too.
+(Auto follows the system). There are six themes, each in dark and light:
+
+- **Modern**: flat and quiet, one cool neutral and one accent.
+- **Skeuomorphic**: milled hardware; graphite by night, champagne aluminium by day.
+- **Frutiger Aero**: glass, water and sky.
+- **Console**: a warm analogue desk with walnut, brass keys and amber meters.
+- **Ink**: paper and ink, flat and square, one red accent; selected things are shown reversed.
+- **Neon**: violet glass lit from inside, magenta and cyan.
+
+Scripts and the agent switch them too (`settings.set` with `interface.appearance` set to
+`modern`, `skeuo`, `aero`, `console`, `ink` or `neon`, and `interface.mode` set to `dark`,
+`light` or `auto`). The interface scale, tooltips and following the playhead are set there too.
 
 ## Settings
 
