@@ -1313,13 +1313,14 @@ Delete an automation lane; undo restores it.
 
 ### `controller.list`
 
-List a MIDI clip's controller points (control changes, pitch bend, channel pressure) and a summary of its lanes. Each value holds until the next point of its lane.
+List a MIDI clip's controller points (control changes, pitch bend, channel and polyphonic pressure) and a summary of its lanes. Each value holds until the next point of its lane.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `clipId` | string | yes | Clip id, as listed by clip.list. |
-| `kind` | string |  | Only this kind: cc, bend or pressure. |
-| `number` | integer |  | Only this controller number (with kind cc). |
+| `kind` | string |  | Only this kind: cc, bend, pressure or poly. |
+| `number` | integer |  | Only this controller number (kind cc) or key (kind poly). |
+| `channel` | integer |  | Only this MIDI channel, 0-15. |
 
 ### `controller.add`
 
@@ -1330,10 +1331,11 @@ Add a controller point to a MIDI clip. A point already at that time in the same 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `clipId` | string | yes | Clip id, as listed by clip.list. |
-| `kind` | string | yes | cc (control change), bend (pitch bend) or pressure (channel pressure). |
-| `number` | integer |  | Controller number 0-119 for kind cc: 1 mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain pedal. Omit for bend and pressure. |
+| `kind` | string | yes | cc (control change), bend (pitch bend), pressure (channel pressure) or poly (polyphonic key pressure). |
+| `number` | integer |  | Controller number 0-119 for kind cc: 1 mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain pedal. The key 0-127 for kind poly. Omit for bend and pressure. |
+| `channel` | integer |  | MIDI channel 0-15 (channel 1-16 to a musician); default 0. A lane is one kind, number and channel. |
 | `time` | number | yes | Beats from the clip start, inside the clip. |
-| `value` | integer | yes | 0-127 for cc and pressure; -8192 (down) to 8191 (up) for bend, 0 centred. |
+| `value` | integer | yes | 0-127 for cc, pressure and poly; -8192 (down) to 8191 (up) for bend, 0 centred. |
 
 ### `controller.update`
 
@@ -1346,7 +1348,7 @@ Move a controller point or change its value.
 | `clipId` | string | yes | Clip id, as listed by clip.list. |
 | `controllerId` | string | yes | Point id from controller.list. |
 | `time` | number |  | New time in beats from the clip start. |
-| `value` | integer |  | 0-127 for cc and pressure; -8192 (down) to 8191 (up) for bend, 0 centred. |
+| `value` | integer |  | 0-127 for cc, pressure and poly; -8192 (down) to 8191 (up) for bend, 0 centred. |
 
 ### `controller.remove`
 
@@ -1368,8 +1370,9 @@ Replace the points of one lane (kind and number) in one undo step: all of them, 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `clipId` | string | yes | Clip id, as listed by clip.list. |
-| `kind` | string | yes | cc (control change), bend (pitch bend) or pressure (channel pressure). |
-| `number` | integer |  | Controller number 0-119 for kind cc: 1 mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain pedal. Omit for bend and pressure. |
+| `kind` | string | yes | cc (control change), bend (pitch bend), pressure (channel pressure) or poly (polyphonic key pressure). |
+| `number` | integer |  | Controller number 0-119 for kind cc: 1 mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain pedal. The key 0-127 for kind poly. Omit for bend and pressure. |
+| `channel` | integer |  | MIDI channel 0-15 (channel 1-16 to a musician); default 0. A lane is one kind, number and channel. |
 | `points` | array | yes | Array of {time, value, id?}: time in beats from the clip start, value as for controller.add. |
 | `from` | number |  | Start of the range to replace, in beats (default: the clip start). |
 | `to` | number |  | End of the range to replace, in beats, exclusive (default: the clip end). |
