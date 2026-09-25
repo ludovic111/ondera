@@ -107,7 +107,16 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   are `Message::RoutedControl`. CLAP gets controllers as MIDI only when its note port speaks MIDI;
   VST3 through `IMidiMapping` (`Shared.midi_map`), one queue point per value; AU through
   `Event::to_midi`. Lane UI: `canvas/controllerLane.ts`, `components/editor/ControllerLane.tsx`,
-  `ui.showPanel panel=controllers`. Audio clips carry `fade_in`/`fade_out` (seconds), `fade_curve`
+  `ui.showPanel panel=controllers`. Inserts hear a MIDI track's controllers (never its notes) when
+  `Processor::accepts_events` says so (native ABI 2, CLAP note port, VST3 event bus, AU music
+  effect); they ride the same per-track list, so chase and rest reach them. Channels: `Note` and
+  `Controller` carry `channel` 0-15, absent when 0; a lane is (kind, number, channel); the
+  renderer keeps voices and `applied` per channel and `Message::RoutedNote` carries it. Poly
+  pressure is `ControllerKind::PolyPressure` (`number` = key) inside `controllers`, but the file
+  writes it to its own `polyPressure` list (`ClipDataFile`/`ClipDataOut` in `model.rs`) so older
+  versions and the lane UI never see the kind; it is played, not chased or rested. VST3 mapped
+  controllers also reach the edit controller through `Shared.mapped` (atomics, read in `idle`).
+  Audio clips carry `fade_in`/`fade_out` (seconds), `fade_curve`
   and `gain_db`, absent when default; build them with `ClipData::audio(src, offset)`;
   `Command::PutClip` clamps fades (`model::clamp_fades`) and `render.rs` `clip_envelope` applies
   fades, gain and the 3 ms edge ramp per sample; `frontend/src/core/fade.ts` mirrors the curves.

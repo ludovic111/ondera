@@ -51,6 +51,7 @@ fn point(kind: ControllerKind, number: Option<u8>, time: f64, value: i16) -> Con
         time,
         value,
         agent: false,
+        channel: 0,
     }
 }
 fn session(controllers: Vec<Controller>) -> Session {
@@ -75,6 +76,7 @@ fn session(controllers: Vec<Controller>) -> Session {
                 pitch: 60,
                 velocity: 100,
                 agent: false,
+                channel: 0,
             }],
             controllers,
         },

@@ -98,8 +98,11 @@ pub enum Message {
         on: bool,
         pitch: u8,
         velocity: u8,
+        /// The MIDI channel it was played on, 0-15.
+        channel: u8,
     },
-    /// A live control change, pitch bend or channel pressure for the routed track.
+    /// A live control change, pitch bend or channel pressure for the routed track, on the
+    /// event's own channel.
     RoutedControl {
         route: usize,
         event: crate::plugin::Event,
@@ -498,7 +501,10 @@ impl Callback {
                     on,
                     pitch,
                     velocity,
-                } => self.renderer.routed_note(route, on, pitch, velocity),
+                    channel,
+                } => self
+                    .renderer
+                    .routed_note(route, on, pitch, velocity, channel),
                 Message::RoutedControl { route, event } => {
                     self.renderer.routed_control(route, event)
                 }

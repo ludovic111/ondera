@@ -804,6 +804,13 @@ impl Processor for AuProcessor {
             AudioUnitReset(self.shared.unit, kAudioUnitScope_Global, 0);
         }
     }
+    /// Music effects take MIDI, so they hear their track's controllers.
+    fn accepts_events(&self) -> bool {
+        matches!(
+            self.shared.kind,
+            kAudioUnitType_MusicDevice | kAudioUnitType_MusicEffect
+        )
+    }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],

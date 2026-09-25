@@ -1276,6 +1276,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                         pitch: byte(a.int("pitch")?, "pitch")?,
                         velocity: byte(a.opt_int("velocity").unwrap_or(100), "velocity")?,
                         agent,
+                        channel: 0,
                     };
                     let id = note.id.clone();
                     notes.push(note);
@@ -1681,7 +1682,10 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
                 .as_object()
                 .ok_or_else(|| format!("Note {i} must be an object"))?;
             for key in obj.keys() {
-                if !["id", "start", "length", "pitch", "velocity", "agent"].contains(&key.as_str())
+                if ![
+                    "id", "start", "length", "pitch", "velocity", "agent", "channel",
+                ]
+                .contains(&key.as_str())
                 {
                     return Err(format!("Note {i} has an unknown field `{key}`"));
                 }
@@ -1709,6 +1713,14 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
             if !(1..=127).contains(&velocity) {
                 return Err(format!("Note {i} velocity must be 1-127"));
             }
+            let channel = match obj.get("channel") {
+                None | Some(Value::Null) => 0,
+                Some(v) => v
+                    .as_u64()
+                    .filter(|c| *c < 16)
+                    .ok_or_else(|| format!("Note {i} channel must be 0-15"))?
+                    as u8,
+            };
             Ok(Note {
                 id: obj
                     .get("id")
@@ -1720,6 +1732,7 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
                 pitch: byte(pitch, "pitch")?,
                 velocity: velocity as u8,
                 agent: obj.get("agent").and_then(Value::as_bool).unwrap_or(agent),
+                channel,
             })
         })
         .collect()
@@ -1914,6 +1927,7 @@ fn add_loop(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
             pitch: n["pitch"].as_u64().unwrap_or(60) as u8,
             velocity: n["velocity"].as_u64().unwrap_or(100) as u8,
             agent,
+            channel: 0,
         })
         .collect();
     // Patterns are authored in 4/4; length is translated to current bars.

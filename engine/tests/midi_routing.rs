@@ -1,0 +1,700 @@
+//! Where a track's MIDI events go: controllers, bend and pressure reach the instrument and
+//! every insert that takes events (native ABI 2, CLAP note ports, VST3 event buses, AU music
+//! effects), chase and rest included; stock and ABI 1 effects hear nothing.
+use ondera_engine::{
+    audio::Library,
+    host::native,
+    model::{Clip, ClipData, Controller, ControllerKind, Insert, Note, Session, Strip},
+    plugin::{event, Descriptor, Event, Format, ParamChange, ProcessContext, Processor, Rack},
+    render::Renderer,
+    stock, store,
+};
+use ondera_plugin::{ffi, prelude::*};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+/// Every event a processor received, at its absolute sample.
+type Log = Arc<Mutex<Vec<(i64, Event)>>>;
+
+/// A rack processor that writes down what reaches it.
+struct Probe {
+    accepts: bool,
+    log: Log,
+}
+impl Processor for Probe {
+    fn process(
+        &mut self,
+        _: &mut [[f32; 2]],
+        events: &[Event],
+        _: &[ParamChange],
+        ctx: &ProcessContext,
+    ) {
+        let mut log = self.log.lock().unwrap();
+        for e in events {
+            log.push((ctx.sample_time + e.frame as i64, *e));
+        }
+    }
+    fn accepts_events(&self) -> bool {
+        self.accepts
+    }
+}
+
+fn point(kind: ControllerKind, number: Option<u8>, time: f64, value: i16) -> Controller {
+    Controller {
+        id: format!("{}{number:?}@{time}", kind.as_str()),
+        kind,
+        number,
+        time,
+        value,
+        agent: false,
+        channel: 0,
+    }
+}
+
+/// One MIDI track with a clip of one note and `controllers`, and the named inserts.
+fn session(controllers: Vec<Controller>, inserts: &[&str]) -> Session {
+    let mut s = store::empty();
+    s.tracks.retain(|t| t.kind == "midi");
+    s.tracks.truncate(1);
+    s.clips.clear();
+    s.transport.tempo = 120.0;
+    s.transport.metronome = false;
+    s.transport.cycle = false;
+    let track = s.tracks[0].id.clone();
+    s.strips.insert(
+        track.clone(),
+        Strip {
+            inserts: inserts
+                .iter()
+                .map(|id| Insert::new(id.to_string(), "native:tests.probe", id))
+                .collect(),
+            ..Strip::default()
+        },
+    );
+    s.clips.push(Clip {
+        id: "clip".into(),
+        name: "Take".into(),
+        agent: false,
+        track_id: track,
+        start_bar: 0.0,
+        length_bars: 1.0,
+        data: ClipData::Midi {
+            notes: vec![Note {
+                id: "note".into(),
+                start: 0.0,
+                length: 4.0,
+                pitch: 60,
+                velocity: 100,
+                agent: false,
+                channel: 0,
+            }],
+            controllers,
+        },
+    });
+    s
+}
+
+/// The instrument in slot 0, then one slot per insert, in order.
+fn slots(s: &Session) -> HashMap<String, u32> {
+    let track = &s.tracks[0].id;
+    let strip = &s.strips[track];
+    let mut slots = HashMap::from([(strip.synth_key(track), 0)]);
+    for (i, insert) in strip.inserts.iter().enumerate() {
+        slots.insert(insert.id.clone(), i as u32 + 1);
+    }
+    slots
+}
+
+fn probe(rack: &mut Rack, slot: u32, accepts: bool) -> Log {
+    let log = Log::default();
+    rack.mount(
+        slot,
+        Box::new(Probe {
+            accepts,
+            log: log.clone(),
+        }),
+    );
+    log
+}
+
+/// Controllers only, as (sample, kind, key, value).
+fn controls(log: &Log) -> Vec<(i64, u8, u8, i16)> {
+    log.lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, e)| !e.is_note())
+        .map(|(at, e)| {
+            let value = if e.kind == event::PITCH_BEND {
+                e.bend
+            } else {
+                e.value as i16
+            };
+            (*at, e.kind, e.key, value)
+        })
+        .collect()
+}
+fn untimed(list: Vec<(i64, u8, u8, i16)>) -> Vec<(u8, u8, i16)> {
+    list.into_iter().map(|(_, k, n, v)| (k, n, v)).collect()
+}
+
+#[test]
+fn inserts_that_take_events_hear_the_track_s_controllers_chase_and_rest() {
+    let s = session(
+        vec![
+            point(ControllerKind::Cc, Some(1), 0.01, 20),
+            point(ControllerKind::Bend, None, 0.02, 4096),
+        ],
+        &["fx-events", "fx-plain"],
+    );
+    let mut rack = Rack::new(4);
+    let instrument = probe(&mut rack, 0, false);
+    let listening = probe(&mut rack, 1, true);
+    let plain = probe(&mut rack, 2, false);
+    let mut renderer = Renderer::new(s.clone(), &Library::new(), 48000, &slots(&s)).unwrap();
+    renderer.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    for _ in 0..3 {
+        renderer.render(&mut rack, &mut block);
+    }
+    let played = vec![
+        (240, event::CONTROL, 1, 20),
+        (480, event::PITCH_BEND, 0, 4096),
+    ];
+    assert_eq!(controls(&instrument), played);
+    assert_eq!(
+        controls(&listening),
+        played,
+        "The insert hears each controller on the instrument's sample"
+    );
+    assert!(
+        listening.lock().unwrap().iter().all(|(_, e)| !e.is_note()),
+        "Notes stay with the instrument"
+    );
+    assert!(
+        plain.lock().unwrap().is_empty(),
+        "A plain effect hears nothing"
+    );
+
+    // Stop returns the bend to rest for the insert as well.
+    listening.lock().unwrap().clear();
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    assert_eq!(
+        untimed(controls(&listening)),
+        vec![(event::PITCH_BEND, 0, 0)]
+    );
+
+    // A locate chases the values in force for it too.
+    listening.lock().unwrap().clear();
+    renderer.locate(0.5);
+    renderer.playing = true;
+    renderer.render(&mut rack, &mut block);
+    assert_eq!(
+        untimed(controls(&listening)),
+        vec![(event::PITCH_BEND, 0, 4096)]
+    );
+
+    // Live controllers reach it at once.
+    listening.lock().unwrap().clear();
+    renderer.control(0, Event::control(0, 11, 99));
+    renderer.render(&mut rack, &mut block);
+    assert_eq!(
+        untimed(controls(&listening)),
+        vec![(event::CONTROL, 11, 99)]
+    );
+    assert!(plain.lock().unwrap().is_empty());
+
+    // An insert added while playing is told the values in force when the graph is rebuilt.
+    let mut grown = s.clone();
+    let track = grown.tracks[0].id.clone();
+    grown
+        .strips
+        .get_mut(&track)
+        .unwrap()
+        .inserts
+        .push(Insert::new("fx-new".into(), "native:tests.probe", "New"));
+    let added = probe(&mut rack, 3, true);
+    let mut next = Renderer::new(grown.clone(), &Library::new(), 48000, &slots(&grown)).unwrap();
+    next.adopt(&renderer);
+    next.render(&mut rack, &mut block);
+    let heard = untimed(controls(&added));
+    for expected in [
+        (event::CONTROL, 1, 20),
+        (event::CONTROL, 11, 99),
+        (event::PITCH_BEND, 0, 4096),
+    ] {
+        assert!(heard.contains(&expected), "{heard:?}");
+    }
+}
+
+/// An ABI 2 effect that writes down the events it gets.
+static EFFECT_HEARD: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+/// What the same plugin hears through ABI 1: notes only.
+static EFFECT_NOTES: Mutex<Vec<NoteEvent>> = Mutex::new(Vec::new());
+struct EffectListener;
+impl Plugin for EffectListener {
+    const INFO: Info = Info::effect("org.ondera.tests.fx", "Fx Listener", "Tests", "Utility");
+    fn params() -> Vec<ParamSpec> {
+        vec![]
+    }
+    fn new(_: f64) -> Self {
+        Self
+    }
+    fn set_param(&mut self, _: usize, _: f64) {}
+    fn process(&mut self, _: &mut [[f32; 2]], notes: &[NoteEvent], _: &ProcessContext) {
+        EFFECT_NOTES.lock().unwrap().extend_from_slice(notes);
+    }
+    fn process_events(
+        &mut self,
+        _: &mut [[f32; 2]],
+        events: &[Event],
+        _: &[TimedParam],
+        _: &ProcessContext,
+    ) {
+        EFFECT_HEARD.lock().unwrap().extend_from_slice(events);
+    }
+}
+static EFFECT_V2: ffi::PluginVTable2 = ffi::vtable2::<EffectListener>();
+static EFFECT_V1: ffi::PluginVTable = ffi::vtable::<EffectListener>();
+
+#[test]
+fn native_abi_2_effects_take_events_and_abi_1_and_stock_effects_do_not() {
+    let manifest = ffi::Manifest::of::<EffectListener>();
+    let descriptor = Descriptor {
+        id: "native:org.ondera.tests.fx".into(),
+        format: Format::Native,
+        name: "Fx Listener".into(),
+        vendor: "Tests".into(),
+        path: "in-process".into(),
+        instrument: false,
+        effect: true,
+        category: "Utility".into(),
+    };
+    let mut v2 = native::instance_from(&EFFECT_V2, &manifest, descriptor.clone(), 48000).unwrap();
+    let mut v1 = native::instance_from(&EFFECT_V1, &manifest, descriptor, 48000).unwrap();
+    let mut rack = Rack::new(2);
+    rack.mount(0, v2.processor.take().unwrap());
+    rack.mount(1, v1.processor.take().unwrap());
+    assert!(rack.accepts_events(0));
+    assert!(!rack.accepts_events(1));
+    assert!(!rack.accepts_events(7), "An empty slot takes nothing");
+    let events = [
+        Event::control(3, 1, 64),
+        Event::channel_pressure(9, 12),
+        Event::poly_pressure(10, 60, 99).on_channel(2),
+    ];
+    let mut audio = [[0.0f32; 2]; 64];
+    rack.process(0, &mut audio, &events, &ProcessContext::default());
+    assert_eq!(*EFFECT_HEARD.lock().unwrap(), events);
+    for name in ondera_engine::dsp::EFFECTS {
+        let mut instance = stock::create(name, 48000).unwrap();
+        assert!(
+            !instance.processor.take().unwrap().accepts_events(),
+            "{name} is a stock effect"
+        );
+    }
+    // ABI 1 keeps getting notes only, whatever else arrives.
+    rack.process(
+        1,
+        &mut audio,
+        &[
+            Event::note_on(0, 60, 100).on_channel(2),
+            Event::poly_pressure(1, 60, 99).on_channel(2),
+            Event::control(2, 1, 5),
+        ],
+        &ProcessContext::default(),
+    );
+    let notes = EFFECT_NOTES.lock().unwrap().clone();
+    assert_eq!(notes.len(), 1);
+    assert_eq!((notes[0].pitch, notes[0].channel), (60, 2));
+    drop(rack);
+    drop((v1, v2));
+}
+
+/// (channel, kind, key, value) of every event, notes included.
+fn on_channels(log: &Log) -> Vec<(u8, u8, u8, i16)> {
+    log.lock()
+        .unwrap()
+        .iter()
+        .map(|(_, e)| {
+            let value = if e.kind == event::PITCH_BEND {
+                e.bend
+            } else {
+                e.value as i16
+            };
+            (e.channel, e.kind, e.key, value)
+        })
+        .collect()
+}
+
+#[test]
+fn notes_and_controllers_keep_their_channel_through_playback_chase_rest_and_live_input() {
+    let mut s = session(
+        vec![
+            Controller {
+                channel: 3,
+                ..point(ControllerKind::Bend, None, 0.01, 4096)
+            },
+            Controller {
+                channel: 3,
+                ..point(ControllerKind::Cc, Some(64), 0.01, 127)
+            },
+        ],
+        &["fx-events"],
+    );
+    // The same pitch on channels 0 and 3, held at once.
+    if let ClipData::Midi { notes, .. } = &mut s.clips[0].data {
+        let mut other = notes[0].clone();
+        other.id = "note-ch3".into();
+        other.channel = 3;
+        other.length = 1.0;
+        notes.push(other);
+    }
+    let mut rack = Rack::new(2);
+    let instrument = probe(&mut rack, 0, false);
+    let insert = probe(&mut rack, 1, true);
+    let mut renderer = Renderer::new(s.clone(), &Library::new(), 48000, &slots(&s)).unwrap();
+    renderer.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    for _ in 0..2 {
+        renderer.render(&mut rack, &mut block);
+    }
+    let heard = on_channels(&instrument);
+    assert!(heard.contains(&(0, event::NOTE_ON, 60, 100)), "{heard:?}");
+    assert!(heard.contains(&(3, event::NOTE_ON, 60, 100)), "{heard:?}");
+    assert!(
+        heard.contains(&(3, event::PITCH_BEND, 0, 4096)),
+        "{heard:?}"
+    );
+    assert!(heard.contains(&(3, event::CONTROL, 64, 127)), "{heard:?}");
+    assert!(
+        on_channels(&insert).contains(&(3, event::PITCH_BEND, 0, 4096)),
+        "Inserts hear the channel too"
+    );
+
+    // The channel 3 note ends at beat 1 and releases on channel 3 only.
+    instrument.lock().unwrap().clear();
+    for _ in 0..(24000 / 256 + 1) {
+        renderer.render(&mut rack, &mut block);
+    }
+    let offs: Vec<_> = on_channels(&instrument)
+        .into_iter()
+        .filter(|e| e.1 == event::NOTE_OFF)
+        .collect();
+    assert_eq!(offs, vec![(3, event::NOTE_OFF, 60, 0)]);
+
+    // Stop releases the channel 0 note on channel 0 and rests channel 3's bend and pedal.
+    instrument.lock().unwrap().clear();
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    let stopped = on_channels(&instrument);
+    assert!(
+        stopped.contains(&(0, event::NOTE_OFF, 60, 0)),
+        "{stopped:?}"
+    );
+    assert!(
+        stopped.contains(&(3, event::PITCH_BEND, 0, 0)),
+        "{stopped:?}"
+    );
+    assert!(stopped.contains(&(3, event::CONTROL, 64, 0)), "{stopped:?}");
+    assert!(
+        !stopped.iter().any(|e| e.1 != event::NOTE_OFF && e.0 == 0),
+        "Nothing was bent on channel 0: {stopped:?}"
+    );
+
+    // A locate chases channel 3's values back on channel 3, and both notes on their own.
+    instrument.lock().unwrap().clear();
+    renderer.locate(0.5);
+    renderer.playing = true;
+    renderer.render(&mut rack, &mut block);
+    let chased = on_channels(&instrument);
+    for expected in [
+        (3, event::PITCH_BEND, 0, 4096),
+        (3, event::CONTROL, 64, 127),
+        (0, event::NOTE_ON, 60, 100),
+        (3, event::NOTE_ON, 60, 100),
+    ] {
+        assert!(chased.contains(&expected), "{chased:?}");
+    }
+
+    // Live input keeps the channel it was played on, and releases on it.
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    instrument.lock().unwrap().clear();
+    let route = ondera_engine::midi::route_id(&s.tracks[0].id);
+    renderer.routed_note(route, true, 72, 90, 9);
+    renderer.routed_control(route, Event::pitch_bend(0, -1.0).on_channel(9));
+    renderer.render(&mut rack, &mut block);
+    renderer.routed_note(route, false, 72, 0, 9);
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    let live = on_channels(&instrument);
+    assert!(live.contains(&(9, event::NOTE_ON, 72, 90)), "{live:?}");
+    assert!(live.contains(&(9, event::PITCH_BEND, 0, -8192)), "{live:?}");
+    assert!(live.contains(&(9, event::NOTE_OFF, 72, 0)), "{live:?}");
+    assert!(
+        live.contains(&(9, event::PITCH_BEND, 0, 0)),
+        "Stop rests the live bend on its channel: {live:?}"
+    );
+    assert_eq!(
+        live.iter().filter(|e| e.1 == event::NOTE_OFF).count(),
+        1,
+        "The live note is released once: {live:?}"
+    );
+}
+
+#[test]
+fn channels_are_absent_from_the_file_on_channel_0_and_kept_otherwise() {
+    let mut s = session(
+        vec![
+            point(ControllerKind::Cc, Some(1), 0.5, 10),
+            Controller {
+                channel: 2,
+                ..point(ControllerKind::Cc, Some(1), 0.5, 90)
+            },
+        ],
+        &[],
+    );
+    if let ClipData::Midi { notes, .. } = &mut s.clips[0].data {
+        let mut other = notes[0].clone();
+        other.id = "n2".into();
+        other.channel = 15;
+        notes.push(other);
+    }
+    s.validate().unwrap();
+    let json = serde_json::to_value(&s).unwrap();
+    let data = &json["clips"][0]["data"];
+    assert!(data["notes"][0].get("channel").is_none());
+    assert_eq!(data["notes"][1]["channel"], 15);
+    assert!(data["controllers"][0].get("channel").is_none());
+    assert_eq!(data["controllers"][1]["channel"], 2);
+    let back: Session = serde_json::from_value(json).unwrap();
+    let ClipData::Midi { notes, controllers } = &back.clips[0].data else {
+        panic!()
+    };
+    assert_eq!((notes[0].channel, notes[1].channel), (0, 15));
+    assert_eq!((controllers[0].channel, controllers[1].channel), (0, 2));
+    assert_eq!(
+        ondera_engine::controllers::lanes(controllers).len(),
+        2,
+        "The same controller on two channels is two lanes"
+    );
+
+    let mut broken = back.clone();
+    if let ClipData::Midi { notes, .. } = &mut broken.clips[0].data {
+        notes[0].channel = 16;
+    }
+    assert!(broken.validate().is_err());
+    let mut broken = back;
+    if let ClipData::Midi { controllers, .. } = &mut broken.clips[0].data {
+        controllers[0].channel = 16;
+    }
+    assert!(broken.validate().is_err());
+}
+
+#[test]
+fn a_take_records_each_channel_as_its_own_lane() {
+    let events = [
+        (0.0, Event::control(0, 1, 40)),
+        (0.0, Event::control(0, 1, 40).on_channel(4)),
+        (1.0, Event::control(0, 1, 40)),
+        (1.0, Event::control(0, 1, 70).on_channel(4)),
+        (2.0, Event::pitch_bend(0, 0.5).on_channel(4)),
+    ];
+    let points = ondera_engine::controllers::recorded(&events, 0.0, false, || "p".into());
+    let summary: Vec<_> = points
+        .iter()
+        .map(|p| (p.channel, p.kind, p.number, p.time, p.value))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (0, ControllerKind::Cc, Some(1), 0.0, 40),
+            (4, ControllerKind::Cc, Some(1), 0.0, 40),
+            (4, ControllerKind::Cc, Some(1), 1.0, 70),
+            (4, ControllerKind::Bend, None, 2.0, 4096),
+        ],
+        "A repeat is dropped per channel, not across channels"
+    );
+}
+
+#[test]
+fn standard_midi_files_keep_a_note_s_own_channel() {
+    let mut s = session(
+        vec![Controller {
+            channel: 6,
+            ..point(ControllerKind::Cc, Some(74), 0.5, 99)
+        }],
+        &[],
+    );
+    if let ClipData::Midi { notes, .. } = &mut s.clips[0].data {
+        notes[0].channel = 6;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("channel.mid");
+    ondera_engine::midi_file::export(&s, &path, None).unwrap();
+    let (command, _) = ondera_engine::midi_file::import(
+        &path,
+        &store::empty(),
+        &ondera_engine::midi_file::ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    let mut target = store::Store::new(store::empty()).unwrap();
+    target.dispatch(command).unwrap();
+    let track = target.session().tracks.last().unwrap();
+    assert_eq!(
+        track.extra.get("midiChannel"),
+        Some(&serde_json::json!(6)),
+        "The imported track names the channel its notes came on"
+    );
+    let ClipData::Midi { controllers, .. } = &target.session().clips.last().unwrap().data else {
+        panic!()
+    };
+    assert!(controllers
+        .iter()
+        .any(|c| c.number == Some(74) && c.value == 99));
+}
+
+#[test]
+fn polyphonic_pressure_is_recorded_saved_apart_and_played_on_its_key_and_channel() {
+    // A take: pressure on two keys of channel 1, a repeat dropped per key.
+    let events = [
+        (0.0, Event::poly_pressure(0, 60, 10).on_channel(1)),
+        (0.0, Event::poly_pressure(0, 64, 10).on_channel(1)),
+        (0.25, Event::poly_pressure(0, 60, 10).on_channel(1)),
+        (0.5, Event::poly_pressure(0, 60, 90).on_channel(1)),
+    ];
+    let points = ondera_engine::controllers::recorded(&events, 0.0, false, || "p".into());
+    let summary: Vec<_> = points
+        .iter()
+        .map(|p| (p.kind, p.number, p.channel, p.time, p.value))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (ControllerKind::PolyPressure, Some(60), 1, 0.0, 10),
+            (ControllerKind::PolyPressure, Some(64), 1, 0.0, 10),
+            (ControllerKind::PolyPressure, Some(60), 1, 0.5, 90),
+        ]
+    );
+
+    let mut with_cc = points.clone();
+    with_cc.push(point(ControllerKind::Cc, Some(1), 0.0, 20));
+    let s = session(with_cc, &["fx-events"]);
+    s.validate().unwrap();
+    // The file keeps polyphonic pressure in a list of its own, which older versions skip.
+    let json = serde_json::to_value(&s).unwrap();
+    let data = &json["clips"][0]["data"];
+    assert_eq!(data["controllers"].as_array().unwrap().len(), 1);
+    assert_eq!(data["controllers"][0]["kind"], "cc");
+    let poly = data["polyPressure"].as_array().unwrap();
+    assert_eq!(poly.len(), 3);
+    assert_eq!(poly[0]["kind"], "poly");
+    assert_eq!(poly[0]["number"], 60);
+    assert_eq!(poly[0]["channel"], 1);
+    let back: Session = serde_json::from_value(json.clone()).unwrap();
+    let ClipData::Midi { controllers, .. } = &back.clips[0].data else {
+        panic!()
+    };
+    assert_eq!(controllers.len(), 4);
+    assert_eq!(
+        serde_json::to_value(&back).unwrap()["clips"],
+        json["clips"],
+        "Round trip"
+    );
+    // An older Ondera's clip reader: the same shape without polyPressure still loads.
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct OlderMidi {
+        notes: Vec<serde_json::Value>,
+        #[serde(default)]
+        controllers: Vec<serde_json::Value>,
+    }
+    let older: OlderMidi = serde_json::from_value(data.clone()).unwrap();
+    assert_eq!(older.controllers.len(), 1);
+
+    // Playback: each key's pressure on its own sample and channel, to the instrument and to
+    // an insert that takes events; not chased on locate.
+    let mut rack = Rack::new(2);
+    let instrument = probe(&mut rack, 0, false);
+    let insert = probe(&mut rack, 1, true);
+    let mut renderer = Renderer::new(s.clone(), &Library::new(), 48000, &slots(&s)).unwrap();
+    renderer.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    for _ in 0..(12000 / 256 + 2) {
+        renderer.render(&mut rack, &mut block);
+    }
+    let pressed = |log: &Log| -> Vec<(i64, u8, u8, u8)> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| e.kind == event::POLY_PRESSURE)
+            .map(|(at, e)| (*at, e.channel, e.key, e.value))
+            .collect()
+    };
+    let expected = vec![(0, 1, 60, 10), (0, 1, 64, 10), (12000, 1, 60, 90)];
+    assert_eq!(pressed(&instrument), expected);
+    assert_eq!(pressed(&insert), expected);
+    instrument.lock().unwrap().clear();
+    renderer.locate(1.0);
+    renderer.render(&mut rack, &mut block);
+    assert!(
+        pressed(&instrument).is_empty(),
+        "Pressure belongs to a sounding key and is not chased"
+    );
+    // Live pressure plays at once on its key and channel.
+    renderer.control(0, Event::poly_pressure(0, 67, 33).on_channel(7));
+    renderer.render(&mut rack, &mut block);
+    assert_eq!(
+        pressed(&instrument)
+            .into_iter()
+            .map(|(_, c, k, v)| (c, k, v))
+            .collect::<Vec<_>>(),
+        vec![(7, 67, 33)]
+    );
+}
+
+#[test]
+fn polyphonic_pressure_travels_through_standard_midi_files() {
+    let s = session(
+        vec![Controller {
+            number: Some(62),
+            ..point(ControllerKind::PolyPressure, None, 1.0, 77)
+        }],
+        &[],
+    );
+    s.validate().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("poly.mid");
+    let report = ondera_engine::midi_file::export(&s, &path, None).unwrap();
+    assert_eq!(report.controller_count, 1, "Poly pressure is not rested");
+    let (command, _) = ondera_engine::midi_file::import(
+        &path,
+        &store::empty(),
+        &ondera_engine::midi_file::ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    let mut target = store::Store::new(store::empty()).unwrap();
+    target.dispatch(command).unwrap();
+    let ClipData::Midi { controllers, .. } = &target.session().clips.last().unwrap().data else {
+        panic!()
+    };
+    let summary: Vec<_> = controllers
+        .iter()
+        .map(|c| (c.kind, c.number, c.time, c.value))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![(ControllerKind::PolyPressure, Some(62), 1.0, 77)]
+    );
+
+    let mut broken = s.clone();
+    if let ClipData::Midi { controllers, .. } = &mut broken.clips[0].data {
+        controllers[0].number = None;
+    }
+    assert!(broken.validate().is_err(), "Poly pressure names its key");
+}

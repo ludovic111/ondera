@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Clip, Controller } from "@ondera/core";
 import {
   hitPoint,
+  laneOf,
   laneParams,
   lanePoints,
   lanesInClip,
   laneTitle,
   parseCcNumber,
+  sameLane,
   strokePoints,
   valueAtY,
   valueLabel,
@@ -47,6 +49,19 @@ describe("controller lane", () => {
     expect(laneTitle(BEND)).toBe("Pitch Bend");
     expect(laneParams(MOD)).toEqual({ kind: "cc", number: 1 });
     expect(laneParams(BEND)).toEqual({ kind: "bend" });
+    expect(laneTitle({ ...BEND, channel: 3 })).toBe("Pitch Bend · Ch 4");
+    expect(laneParams({ ...MOD, channel: 3 })).toEqual({
+      kind: "cc",
+      number: 1,
+      channel: 3,
+    });
+    expect(sameLane(MOD, { ...MOD, channel: 0 })).toBe(true);
+    expect(sameLane(MOD, { ...MOD, channel: 2 })).toBe(false);
+    expect(laneOf({ ...point("a", "cc", 0, 5, 1), channel: 2 })).toEqual({
+      kind: "cc",
+      number: 1,
+      channel: 2,
+    });
     expect(parseCcNumber("CC 74")).toBe(74);
     expect(parseCcNumber("cc7")).toBe(7);
     expect(parseCcNumber("120")).toBeNull();

@@ -43,6 +43,8 @@ export interface Note {
   velocity: number;
   /** True when the note was written by an agent. */
   agent?: boolean;
+  /** MIDI channel 0..15 it plays on; absent means 0 (channel 1). */
+  channel?: number;
 }
 
 export type WaveKind = "drums" | "tonal";
@@ -99,6 +101,8 @@ export interface Controller {
   value: number;
   /** True when the point was written by an agent. */
   agent?: boolean;
+  /** MIDI channel 0..15; absent means 0. The same controller on two channels is two lanes. */
+  channel?: number;
 }
 
 export interface MidiClipData {

@@ -191,6 +191,13 @@ pub trait Processor: Send {
     fn timed_params(&self) -> bool {
         false
     }
+    /// The processor takes MIDI events (controllers, pitch bend and pressure) as an insert
+    /// effect: native ABI 2, CLAP with a note port, VST3 with an event bus or MIDI mapping,
+    /// Audio Unit music effects. An instrument always gets its track's events; an insert only
+    /// when this says so. Stock effects and ABI 1 plugins keep the default, and hear nothing.
+    fn accepts_events(&self) -> bool {
+        false
+    }
 }
 
 /// An opaque parent window handle for native plugin editors.
@@ -413,6 +420,14 @@ impl Rack {
         }
         pending.len = 0;
         true
+    }
+    /// Whether the processor in `slot` takes events as an insert (see
+    /// [`Processor::accepts_events`]). False for an empty slot.
+    pub fn accepts_events(&self, slot: u32) -> bool {
+        self.slots
+            .get(slot as usize)
+            .and_then(|s| s.as_ref())
+            .is_some_and(|p| p.accepts_events())
     }
     pub fn latency(&self, slot: u32) -> u32 {
         self.slots

@@ -499,6 +499,7 @@ impl Ondera {
                     on: false,
                     pitch,
                     velocity: 0,
+                    channel: 0,
                 })
                 .is_err()
             {
@@ -520,6 +521,7 @@ impl Ondera {
                 on,
                 pitch,
                 velocity,
+                channel: 0,
             }) {
                 d.telemetry.input_overflow.store(true, Ordering::Release);
                 self.stop();
@@ -649,6 +651,7 @@ impl Ondera {
                     pitch: n.pitch,
                     velocity: n.velocity,
                     agent: false,
+                    channel: n.channel,
                 })
                 .collect();
             let controllers =
@@ -2007,6 +2010,7 @@ impl Ondera {
                 pitch: n["pitch"].as_u64().unwrap_or(60) as u8,
                 velocity: n["velocity"].as_u64().unwrap_or(100) as u8,
                 agent: false,
+                channel: 0,
             })
             .collect();
         // Patterns are authored in 4/4; length is translated to current bars.

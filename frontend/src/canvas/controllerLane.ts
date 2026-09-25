@@ -10,10 +10,11 @@ import { withLightness } from "../theme/color";
 import { cc, hline, monoFont } from "./paint";
 import { rollGeometry, type RollGeometry } from "./pianoRoll";
 
-/** One controller lane: a kind, and a number for control changes. */
+/** One controller lane: a kind, a number for control changes, and a MIDI channel (absent: 0). */
 export interface Lane {
   kind: ControllerKind;
   number?: number;
+  channel?: number;
 }
 
 /** The lanes the selector offers first, most useful first. */
@@ -38,23 +39,34 @@ const CC_NAMES: Record<number, string> = {
 };
 
 export function laneTitle(lane: Lane): string {
-  if (lane.kind === "bend") return "Pitch Bend";
-  if (lane.kind === "pressure") return "Pressure";
+  const suffix = lane.channel ? ` · Ch ${lane.channel + 1}` : "";
+  if (lane.kind === "bend") return `Pitch Bend${suffix}`;
+  if (lane.kind === "pressure") return `Pressure${suffix}`;
   const name = CC_NAMES[lane.number ?? -1];
-  return name ? `${name} (CC${lane.number})` : `CC${lane.number}`;
+  return (name ? `${name} (CC${lane.number})` : `CC${lane.number}`) + suffix;
 }
 
 export const sameLane = (a: Lane, b: Lane) =>
-  a.kind === b.kind && (a.kind !== "cc" || a.number === b.number);
+  a.kind === b.kind &&
+  (a.kind !== "cc" || a.number === b.number) &&
+  (a.channel ?? 0) === (b.channel ?? 0);
 
-export const laneOf = (p: Controller): Lane =>
-  p.kind === "cc" ? { kind: "cc", number: p.number ?? 0 } : { kind: p.kind };
+export const laneOf = (p: Controller): Lane => {
+  const lane: Lane =
+    p.kind === "cc" ? { kind: "cc", number: p.number ?? 0 } : { kind: p.kind };
+  if (p.channel) lane.channel = p.channel;
+  return lane;
+};
 
 /** Parameters naming a lane for the controller.* commands. */
-export const laneParams = (lane: Lane): Record<string, unknown> =>
-  lane.kind === "cc"
-    ? { kind: "cc", number: lane.number }
-    : { kind: lane.kind };
+export const laneParams = (lane: Lane): Record<string, unknown> => {
+  const params: Record<string, unknown> =
+    lane.kind === "cc"
+      ? { kind: "cc", number: lane.number }
+      : { kind: lane.kind };
+  if (lane.channel) params.channel = lane.channel;
+  return params;
+};
 
 export function laneRange(lane: Lane): [number, number] {
   return lane.kind === "bend" ? [-8192, 8191] : [0, 127];

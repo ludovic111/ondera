@@ -498,6 +498,7 @@ impl Ondera {
                                         pitch,
                                         velocity: 100,
                                         agent: false,
+                                        channel: 0,
                                     });
                                 }
                                 self.dispatch(Command::PutClip(c));
