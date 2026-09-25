@@ -1834,6 +1834,59 @@ mod tests {
     }
 
     #[test]
+    fn the_window_describes_itself_and_the_overview_carries_it() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.preparing = false;
+        app.sync_needed = false;
+        app.run_control_command(
+            "ui.showPanel",
+            &json!({"panel":"mixer","visible":true}),
+            true,
+            "MCP / agent",
+        )
+        .unwrap();
+        app.run_control_command(
+            "ui.showPanel",
+            &json!({"panel":"settings","section":"audio"}),
+            false,
+            "test",
+        )
+        .unwrap();
+        app.run_control_command("ui.setTool", &json!({"tool":"scissors"}), true, "test")
+            .unwrap();
+        let state = app
+            .run_control_command("ui.state", &json!({}), true, "MCP / agent")
+            .unwrap();
+        assert_eq!(state["panels"]["mixer"], true, "{state}");
+        assert_eq!(state["panels"]["settings"], "audio");
+        assert_eq!(state["arrangement"]["tool"], "scissors");
+        assert_eq!(state["editor"]["shownInstead"], "mixer");
+        assert_eq!(state["selection"]["track"]["name"], "Bass");
+        assert_eq!(state["editor"]["clip"]["name"], "Bass verse");
+        assert!(state["theme"]["appearance"].is_string());
+        let overview = app
+            .run_control_command(
+                "session.overview",
+                &json!({"parameters": false}),
+                true,
+                "MCP / agent",
+            )
+            .unwrap();
+        assert_eq!(overview["song"]["mode"], "live");
+        assert_eq!(overview["window"]["panels"]["mixer"], true);
+        // Names work through the window too, agent permissions included.
+        let solo = app
+            .run_control_command(
+                "track.setSolo",
+                &json!({"trackId":"Keys","solo":true}),
+                true,
+                "MCP / agent",
+            )
+            .unwrap();
+        assert_eq!(solo["solo"], true);
+    }
+
+    #[test]
     fn a_batch_is_one_change_because_it_is_one_undo_step() {
         let mut app = Ondera::from_session(store::demo(), None);
         app.preparing = false;
