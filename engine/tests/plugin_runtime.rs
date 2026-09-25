@@ -485,8 +485,11 @@ fn stock_state_load_changes_audio_and_parameter_overrides_still_win() {
     assert!((audio[255][0] - 0.2 * 10f32.powf(-12.0 / 20.0)).abs() < 1e-6);
     instance.editor.load(&blob).unwrap();
     rack.set_param(0, 0, 0.0);
-    audio.fill([0.2; 2]);
-    rack.process(0, &mut audio, &[], &ProcessContext::default());
+    // The running plugin glides to the new gain; wait for it to settle.
+    for _ in 0..20 {
+        audio.fill([0.2; 2]);
+        rack.process(0, &mut audio, &[], &ProcessContext::default());
+    }
     assert!((audio[255][0] - 0.2).abs() < 1e-6);
 }
 #[test]

@@ -241,11 +241,20 @@ fn stock_plugin_step_automation_lands_on_its_frame_inside_a_block_and_delete_res
     renderer.playing = true;
     let mut audio = [[0.0; 2]; 768];
     renderer.render(&mut rack, &mut audio);
-    // The point sits on frame 300, inside the second 256-frame block.
+    // The point sits on frame 300, inside the second 256-frame block. Stock effects smooth
+    // their parameters, so the step starts on that frame and glides down without a click.
     let quieter = 0.2 * 10f32.powf(-12.0 / 20.0);
     assert!((audio[299][0] - 0.2).abs() < 1e-5);
-    assert!((audio[300][0] - quieter).abs() < 1e-5);
-    assert!((audio[511][0] - quieter).abs() < 1e-5);
+    assert!(audio[300][0] < audio[299][0] && audio[300][0] > 0.19);
+    for pair in audio[300..].windows(2) {
+        assert!(
+            pair[1][0] <= pair[0][0],
+            "the step glides down monotonically"
+        );
+    }
+    let mut settle = vec![[0.0f32; 2]; 4800];
+    renderer.render(&mut rack, &mut settle);
+    assert!((settle[4799][0] - quieter).abs() < 1e-5);
     session.automation.clear();
     let mut new = Renderer::new(
         session,
@@ -255,9 +264,11 @@ fn stock_plugin_step_automation_lands_on_its_frame_inside_a_block_and_delete_res
     )
     .unwrap();
     new.adopt(&renderer);
-    let mut audio = [[0.0; 2]; 256];
+    let mut audio = vec![[0.0f32; 2]; 4800];
     new.render(&mut rack, &mut audio);
-    assert!((audio[0][0] - 0.2).abs() < 1e-5);
+    // Back to the manual value, gliding from where the automation left it.
+    assert!(audio[0][0] > quieter && audio[0][0] < 0.2);
+    assert!((audio[4799][0] - 0.2).abs() < 1e-5);
 }
 #[test]
 fn lane_points_are_transactional_persistent_and_deleted_with_their_track() {
