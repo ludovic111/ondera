@@ -352,3 +352,39 @@ fn a_midi_round_trip_keeps_the_tempo() {
         90.0
     );
 }
+
+/// An undone `session.importAudio` still counted toward the 1 GiB decoded-audio budget: the
+/// library keeps the buffer so a redo can bring it back, and the budget summed the library.
+#[test]
+fn undone_audio_imports_do_not_count_toward_the_import_budget() {
+    use ondera_engine::audio::{self, AudioBuffer};
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("loop.wav");
+    let mut host = Headless::new();
+    call(
+        &mut host,
+        "clip.addLoop",
+        json!({"name":"Four Floor 124","startBar":0}),
+    );
+    call(&mut host, "session.bounce", json!({ "path": wav }));
+    let mut host = Headless::new();
+    let imported = call(&mut host, "session.importAudio", json!({ "path": wav }));
+    let source = imported["source"]["id"].as_str().unwrap().to_string();
+    // Stand in a buffer that fills the whole budget for the imported one. Zeroed pages are
+    // never touched, so this costs no real memory.
+    let full = AudioBuffer {
+        sample_rate: 48000,
+        frames: vec![[0.0; 2]; audio::MAX_LIBRARY_BYTES / 8],
+        peaks: Vec::new(),
+    };
+    host.library.insert(source.clone(), Arc::new(full));
+    let error = fail(&mut host, "session.importAudio", json!({ "path": wav }));
+    assert!(error.contains("1 GiB"), "{error}");
+    call(&mut host, "history.undo", json!({}));
+    assert!(host.store.session().sources.is_empty());
+    assert!(host.library.contains_key(&source), "kept for redo");
+    assert_eq!(audio::session_bytes(host.store.session(), &host.library), 0);
+    call(&mut host, "session.importAudio", json!({ "path": wav }));
+    assert_eq!(host.store.session().sources.len(), 1);
+}

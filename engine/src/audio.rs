@@ -15,9 +15,20 @@ pub struct AudioBuffer {
 }
 pub type Library = HashMap<String, Arc<AudioBuffer>>;
 pub fn library_bytes(library: &Library) -> usize {
-    library
-        .values()
-        .map(|b| b.frames.len() * 8 + b.peaks.len() * 4)
+    library.values().map(|b| buffer_bytes(b)).sum()
+}
+fn buffer_bytes(buffer: &AudioBuffer) -> usize {
+    buffer.frames.len() * 8 + buffer.peaks.len() * 4
+}
+/// Decoded bytes of the audio the session's sources use: what counts against
+/// `MAX_LIBRARY_BYTES`. The library also keeps audio only the undo history points at, so a
+/// redo can bring it back; an undone import does not take up the budget.
+pub fn session_bytes(session: &crate::model::Session, library: &Library) -> usize {
+    session
+        .sources
+        .keys()
+        .filter_map(|id| library.get(id))
+        .map(|b| buffer_bytes(b))
         .sum()
 }
 
@@ -337,7 +348,8 @@ pub fn generate(src: &Source) -> Result<AudioBuffer> {
 
 pub fn prepare_sources(session: &crate::model::Session, library: &mut Library) -> Result<()> {
     session.validate()?;
-    if library_bytes(library) > MAX_LIBRARY_BYTES {
+    let mut used = session_bytes(session, library);
+    if used > MAX_LIBRARY_BYTES {
         return Err("Decoded audio library exceeds 1 GiB".into());
     }
     for src in session.sources.values() {
@@ -346,10 +358,12 @@ pub fn prepare_sources(session: &crate::model::Session, library: &mut Library) -
                 return Err(format!("Missing audio: {}", src.name));
             }
             let expected = (src.duration_seconds * 48000.0 * 8.0) as usize;
-            if library_bytes(library).saturating_add(expected) > MAX_LIBRARY_BYTES {
+            if used.saturating_add(expected) > MAX_LIBRARY_BYTES {
                 return Err("Decoded audio library exceeds 1 GiB".into());
             }
-            library.insert(src.id.clone(), Arc::new(generate(src)?));
+            let buffer = generate(src)?;
+            used = used.saturating_add(buffer_bytes(&buffer));
+            library.insert(src.id.clone(), Arc::new(buffer));
         }
     }
     Ok(())

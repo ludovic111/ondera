@@ -1786,7 +1786,8 @@ pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
 fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
     let path = Path::new(a.str("path")?);
     let buffer = Arc::new(decode_file(path)?);
-    if audio::library_bytes(host.library()).saturating_add(buffer.frames.len() * 8)
+    if audio::session_bytes(host.store().session(), host.library())
+        .saturating_add(buffer.frames.len() * 8)
         > audio::MAX_LIBRARY_BYTES
     {
         return Err("Decoded audio library exceeds 1 GiB".into());

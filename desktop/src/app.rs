@@ -1157,7 +1157,7 @@ impl Ondera {
                 .map(|buffer| (buffer.frames.len() * 8 + 128).div_ceil(3) * 4)
                 .sum();
             byte_limit = audio::MAX_LIBRARY_BYTES
-                .saturating_sub(audio::library_bytes(&self.library))
+                .saturating_sub(audio::session_bytes(s, &self.library))
                 .min(
                     (700usize * 1024 * 1024)
                         .saturating_sub(embedded_bytes)
@@ -1383,7 +1383,8 @@ impl Ondera {
         buffer: Arc<audio::AudioBuffer>,
         recorded: Option<(f64, Vec<String>)>,
     ) {
-        if audio::library_bytes(&self.library).saturating_add(buffer.frames.len() * 8)
+        if audio::session_bytes(self.store.session(), &self.library)
+            .saturating_add(buffer.frames.len() * 8)
             > audio::MAX_LIBRARY_BYTES
         {
             self.error = Some(
