@@ -2744,7 +2744,7 @@ mod tests {
             .plugins
             .loaded
             .values()
-            .any(|l| l.plugin_id == "stock:Ondera Synth"));
+            .any(|l| l.plugin_id == "stock:Drum Machine"));
         // Removing the insert retires its instance.
         let mut strip = app.store.session().strips[MASTER].clone();
         strip.inserts.clear();

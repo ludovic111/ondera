@@ -1428,7 +1428,8 @@ mod tests {
             .id
             .clone();
         let result = Host::plugin_parameters(&mut app, &track, None).unwrap();
-        assert_eq!(result["pluginId"], "stock:Ondera Synth");
+        // The new song's first instrument track is Drums, on the Drum Machine.
+        assert_eq!(result["pluginId"], "stock:Drum Machine");
         assert!(!result["parameters"].as_array().unwrap().is_empty());
     }
 }

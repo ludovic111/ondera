@@ -416,9 +416,15 @@ pub trait Host {
     fn plugin_parameters(&mut self, track: &str, slot: Option<usize>) -> Result<Value> {
         crate::control_params::all_parameters(self, track, slot)
     }
-    /// The editor of a plugin the host already has loaded, by insert key. The window keeps
-    /// one per insert; a headless host has none, and callers instantiate a fresh one.
-    fn loaded_editor(&mut self, _insert_id: &str) -> Option<&mut dyn crate::plugin::Editor> {
+    /// The editor of a plugin the host already has loaded, by insert key and plugin id. The
+    /// window keeps one per insert; a headless host has none, and callers instantiate a fresh
+    /// one. The plugin id guards against an insert key reused by a new song while the window
+    /// still holds the old song's plugin under it.
+    fn loaded_editor(
+        &mut self,
+        _insert_id: &str,
+        _plugin_id: &str,
+    ) -> Option<&mut dyn crate::plugin::Editor> {
         None
     }
     /// Plugins that failed to load, as (insert key, reason).

@@ -393,9 +393,7 @@ pub fn empty() -> Session {
     }
     s.normalize();
     for (id, instrument) in [("drums", "Drum Machine"), ("bass", "Analog Bass")] {
-        if let Some(strip) = s.strips.get_mut(id) {
-            strip.instrument = instrument.into();
-        }
+        s.strips.entry(id.into()).or_default().instrument = instrument.into();
     }
     s.transport.cycle = false;
     s.transport.cycle_start_bar = 0.0;

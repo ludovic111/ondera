@@ -544,3 +544,23 @@ fn undone_audio_imports_do_not_count_toward_the_import_budget() {
     call(&mut host, "session.importAudio", json!({ "path": wav }));
     assert_eq!(host.store.session().sources.len(), 1);
 }
+
+/// A new song was meant to start with Drums on the Drum Machine and Bass on Analog Bass, but
+/// track strips only exist once edited, so both tracks still played the default synth.
+#[test]
+fn a_new_song_starts_with_drums_and_bass_instruments() {
+    let mut host = Headless::new();
+    let tracks = call(&mut host, "track.list", json!({}));
+    let instrument = |name: &str| {
+        tracks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("no {name} track"))["instrument"]
+            .clone()
+    };
+    assert_eq!(instrument("Drums"), "Drum Machine");
+    assert_eq!(instrument("Bass"), "Analog Bass");
+    assert_eq!(instrument("Vocals"), Value::Null);
+}

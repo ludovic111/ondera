@@ -71,7 +71,7 @@ pub fn with_editor<H: Host + ?Sized, R>(
     insert: &Insert,
     f: impl FnOnce(&mut dyn Editor) -> Result<R>,
 ) -> Result<R> {
-    if let Some(editor) = host.loaded_editor(&insert.id) {
+    if let Some(editor) = host.loaded_editor(&insert.id, &insert.plugin_id()) {
         return f(editor);
     }
     let mut instance = plugin_host::instantiate(&insert.plugin_id(), &insert.name, 48000)?;
@@ -553,7 +553,11 @@ pub fn changed_summary(host: &mut dyn Host, insert: &Insert, max: usize) -> Opti
         return None;
     }
     let stock = insert.plugin_id().starts_with("stock:");
-    if !stock && host.loaded_editor(&insert.id).is_none() {
+    if !stock
+        && host
+            .loaded_editor(&insert.id, &insert.plugin_id())
+            .is_none()
+    {
         let mut map = Map::new();
         for (id, v) in insert.params.iter().take(max) {
             map.insert(format!("#{id}"), json!(round(*v)));

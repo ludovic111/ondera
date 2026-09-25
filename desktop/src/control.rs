@@ -898,11 +898,15 @@ impl Host for Ondera {
             self.guarded(Ondera::play)
         }
     }
-    fn loaded_editor(&mut self, insert_id: &str) -> Option<&mut dyn ondera_engine::plugin::Editor> {
+    fn loaded_editor(
+        &mut self,
+        insert_id: &str,
+        plugin_id: &str,
+    ) -> Option<&mut dyn ondera_engine::plugin::Editor> {
         self.plugins
             .loaded
             .get_mut(insert_id)
-            .filter(|entry| !entry.retiring)
+            .filter(|entry| !entry.retiring && entry.plugin_id == plugin_id)
             .map(|entry| entry.editor.as_mut() as &mut dyn ondera_engine::plugin::Editor)
     }
     fn plugin_failures(&self) -> Vec<(String, String)> {

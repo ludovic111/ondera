@@ -392,6 +392,7 @@ struct Window {
     key: String,
     instance: Instance,
 }
+const TRIM: &str = "native:org.ondera.examples.trim";
 impl Host for Window {
     fn store(&self) -> &Store {
         &self.inner.store
@@ -438,8 +439,10 @@ impl Host for Window {
     fn bounce(&mut self, path: &Path) -> Result<()> {
         self.inner.bounce(path)
     }
-    fn loaded_editor(&mut self, insert_id: &str) -> Option<&mut dyn Editor> {
-        (insert_id == self.key).then(|| self.instance.editor.as_mut() as &mut dyn Editor)
+    fn loaded_editor(&mut self, insert_id: &str, plugin_id: &str) -> Option<&mut dyn Editor> {
+        // As the window does: the editor under a key serves only the plugin it was made for.
+        (insert_id == self.key && plugin_id == TRIM)
+            .then(|| self.instance.editor.as_mut() as &mut dyn Editor)
     }
     fn plugin_failures(&self) -> Vec<(String, String)> {
         vec![("insert-2".into(), "the bundle moved".into())]
@@ -480,7 +483,7 @@ fn an_external_plugin_the_window_has_loaded_is_read_and_set_through_that_instanc
         .get("drums")
         .cloned()
         .unwrap_or_default();
-    let trim_insert = Insert::new(key.clone(), "native:org.ondera.examples.trim", "Trim");
+    let trim_insert = Insert::new(key.clone(), TRIM, "Trim");
     match strip.inserts.first_mut() {
         Some(first) => *first = trim_insert,
         None => strip.inserts.push(trim_insert),
@@ -535,4 +538,31 @@ fn an_external_plugin_the_window_has_loaded_is_read_and_set_through_that_instanc
             .as_str()
             .unwrap()
             .contains("failed to load: the bundle moved")));
+}
+
+/// After `session.new` the window can still hold the old song's plugin under an insert key the
+/// new song reuses: the overview then named the reverb bus's Mix "Makeup" (a compressor's
+/// parameter) and showed "100 dB". A loaded editor now serves only its own plugin.
+#[test]
+fn a_reused_insert_key_never_borrows_another_plugins_editor() {
+    let inner = demo();
+    let space = inner.store.session().strips["bus-a"].inserts[0].clone();
+    assert_eq!(space.plugin_id(), "stock:Space");
+    let mut w = Window {
+        inner,
+        key: space.id.clone(),
+        instance: trim(),
+    };
+    let o = call(&mut w, "session.overview", json!({}));
+    let changed = &o["buses"]["bus-a"]["inserts"][0]["changed"];
+    assert!(changed.get("Mix").is_some(), "{changed}");
+    let listed = call(
+        &mut w,
+        "strip.parameters",
+        json!({"trackId": "bus-a", "slot": 0}),
+    );
+    assert_eq!(
+        listed["parameterCount"], 5,
+        "Space's five, not Trim's three"
+    );
 }
