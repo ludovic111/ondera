@@ -890,6 +890,7 @@ if (galleryImg) {
     theme = b.dataset.themeId;
     select(themeTabs, 'aria-selected', theme, 'themeId');
     placeAll();
+    b.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reducedMotion ? 'auto' : 'smooth' });
     show();
   });
   for (const b of modeTabs) b.addEventListener('click', () => {

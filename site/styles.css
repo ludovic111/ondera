@@ -620,7 +620,10 @@ html:not(.js) .gallery__controls { display: none; }
 .tabs {
   position: relative; display: inline-flex; max-width: 100%; padding: 3px; gap: 2px; border-radius: 999px;
   background: var(--color-well-deep); box-shadow: var(--shadow-well-input);
+  /* Six themes do not fit a phone: the row scrolls sideways inside its well, the pill with it. */
+  overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
 }
+.tabs::-webkit-scrollbar { display: none; }
 .tabs button {
   position: relative; z-index: 1; height: 36px; padding: 0 18px; border-radius: 999px; white-space: nowrap;
   font-size: 13.5px; font-weight: var(--fw-semibold); color: var(--color-ink300); transition: color var(--t-fast);
@@ -641,7 +644,8 @@ html.js .tabs button:is([aria-selected="true"], [aria-checked="true"]) { backgro
 }
 @media (max-width: 520px) {
   .gallery__controls { flex-direction: column; align-items: stretch; }
-  .tabs button { flex: 1; padding: 0 10px; font-size: 12.5px; }
+  .tabs button { flex: none; padding: 0 14px; font-size: 12.5px; }
+  .tabs--mode button { flex: 1; }
 }
 .gallery__view { margin: 0; }
 .gallery__frame img { view-transition-name: theme-shot; }

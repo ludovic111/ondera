@@ -40,7 +40,7 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
 - **Adding an app theme to the site:** add a tab to `#theme-tabs` in `index.html` (`data-theme-id`,
   `data-theme-name`) and its `<p data-theme-desc>` line, add `img/theme-<id>-dark.webp` and
   `-light.webp`, and update the theme count. The count is written in exactly one place: the
-  `#themes-title` heading ("Three themes, each in dark and light.", marked `THEME COUNT` in a
+  `#themes-title` heading ("Six themes, each in dark and light.", marked `THEME COUNT` in a
   comment). The 0.6 changelog entry names the original three and stays as history.
 - `main.js` runs the interactive DAW mock on the hero: a tiny command store using the registry's
   command names (`transport.locate`, `transport.setCycle`, `track.setMonitor`, ...), canvas drawing
