@@ -1286,6 +1286,11 @@ impl Processor for Vst3Processor {
     fn timed_params(&self) -> bool {
         true
     }
+    /// An effect with an event bus hears its track's controllers (as events, or as the
+    /// parameters its `IMidiMapping` names).
+    fn accepts_events(&self) -> bool {
+        self.shared.has_event_input
+    }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],

@@ -1020,6 +1020,10 @@ impl Processor for ClapProcessor {
     fn timed_params(&self) -> bool {
         true
     }
+    /// An effect with a note input port hears its track's controllers.
+    fn accepts_events(&self) -> bool {
+        self.shared.layout.note_input.is_some()
+    }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],

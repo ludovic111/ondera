@@ -629,6 +629,12 @@ impl Processor for NativeProcessor {
     fn timed_params(&self) -> bool {
         self.table.v2.is_some()
     }
+    /// Every ABI 2 plugin takes every event kind (and ignores the ones it does not know), so an
+    /// ABI 2 effect hears its track's controllers. ABI 1 knows notes only, which an insert
+    /// never gets.
+    fn accepts_events(&self) -> bool {
+        self.table.v2.is_some()
+    }
 }
 impl Drop for NativeProcessor {
     fn drop(&mut self) {

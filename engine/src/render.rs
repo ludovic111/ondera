@@ -229,6 +229,8 @@ pub struct Renderer {
     live: Vec<Held>,
     queued: Vec<(usize, Event)>,
     notes: Vec<Vec<Event>>,
+    /// A track's controller events without its notes, for the inserts that take events.
+    insert_events: Vec<Event>,
     buffers: Vec<Vec<[f32; 2]>>,
     sends: [Vec<[f32; 2]>; 2],
     mix: Vec<[f32; 2]>,
@@ -480,6 +482,7 @@ impl Renderer {
             notes: (0..count)
                 .map(|_| Vec::with_capacity(NOTE_CAPACITY))
                 .collect(),
+            insert_events: Vec::with_capacity(NOTE_CAPACITY),
             buffers: (0..count).map(|_| vec![[0.0; 2]; MAX_BLOCK]).collect(),
             sends: [vec![[0.0; 2]; MAX_BLOCK], vec![[0.0; 2]; MAX_BLOCK]],
             mix: vec![[0.0; 2]; MAX_BLOCK],
@@ -657,6 +660,14 @@ impl Renderer {
                             self.queue(index, event);
                         }
                     }
+                    // A changed insert chain may hold an effect that takes events and has not
+                    // heard the values in force: send them again. The instrument hears them
+                    // twice, which changes nothing.
+                    if self.channels[index].midi
+                        && self.channels[index].inserts != old.channels[prev].inserts
+                    {
+                        self.resend_applied(index);
+                    }
                 }
                 self.live[index] = old.live[prev];
                 if !same_instrument {
@@ -777,6 +788,16 @@ impl Renderer {
                     self.applied[track][slot] = target;
                     self.queue(track, control_event(slot, target, 0));
                 }
+            }
+        }
+    }
+    /// Queue every controller value `track` is known to have, for an insert that joined it.
+    /// Channel mode messages (120-127) are never repeated.
+    fn resend_applied(&mut self, track: usize) {
+        for slot in 0..CONTROLS {
+            let value = self.applied[track][slot];
+            if value != UNSET && !(120..128).contains(&slot) {
+                self.queue(track, control_event(slot, value, 0));
             }
         }
     }
@@ -1211,8 +1232,24 @@ impl Renderer {
                     rack.process(slot, buffer, &self.notes[index], &ctx);
                 }
             }
+            // Inserts that take events hear the track's controllers, bend and pressure, the
+            // chase on locate and the rest at stop included, because those travel as events
+            // too. Notes stay with the instrument: an insert never holds a voice to release.
+            self.insert_events.clear();
+            if channel.midi {
+                for event in self.notes[index].iter().filter(|e| !e.is_note()) {
+                    if self.insert_events.len() < self.insert_events.capacity() {
+                        self.insert_events.push(*event);
+                    }
+                }
+            }
             for &slot in &channel.inserts {
-                rack.process(slot, buffer, &[], &ctx);
+                let events = if rack.accepts_events(slot) {
+                    &self.insert_events[..]
+                } else {
+                    &[]
+                };
+                rack.process(slot, buffer, events, &ctx);
             }
             let start_beat = block_start - channel.automation_offset as f64 * dpb;
             let mut volume = channel.volume_lane.map(|lane| {
