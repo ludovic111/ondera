@@ -564,3 +564,17 @@ fn a_new_song_starts_with_drums_and_bass_instruments() {
     assert_eq!(instrument("Bass"), "Analog Bass");
     assert_eq!(instrument("Vocals"), Value::Null);
 }
+
+/// Agents write `value="-6 dB"`; the refusal now names the parameter that takes text.
+#[test]
+fn a_number_given_as_text_points_at_the_text_parameter() {
+    let mut host = Headless::new();
+    let err = fail(
+        &mut host,
+        "strip.setParameter",
+        json!({"trackId":"Drums","parameter":"Level","value":"-6 dB"}),
+    );
+    assert!(err.contains("use `text`"), "{err}");
+    let err = fail(&mut host, "transport.setTempo", json!({"tempo":"fast"}));
+    assert!(!err.contains("text"), "{err}");
+}

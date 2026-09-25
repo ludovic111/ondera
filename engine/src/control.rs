@@ -117,6 +117,16 @@ pub(crate) const TRACK_ID: Param = req(
 pub(crate) const CLIP_ID: Param = req("clipId", Kind::String, "Clip id, as listed by clip.list.");
 const NOTES_DOC: &str = "Array of {start, length, pitch, velocity?} with start/length in beats relative to the clip, pitch 0-127 (60 = C4), velocity 1-127 (default 100).";
 
+/// The hint for a number parameter given text on a command that takes display text as well
+/// (`strip.setParameter value="-6 dB"` means `text="-6 dB"`).
+pub fn text_hint(spec: &Spec) -> &'static str {
+    if spec.params.iter().any(|p| p.name == "text") {
+        "; to give display text such as \"-6 dB\" or \"Hall\", use `text` instead"
+    } else {
+        ""
+    }
+}
+
 /// Every public command. Names use `family.action` and map one-to-one to CLI commands and MCP
 /// tools (`family_action`).
 pub const BASE_COMMANDS: &[Spec] = &[
@@ -697,8 +707,13 @@ fn validate<'a>(spec: &'static Spec, params: &'a Value) -> Result<Args<'a>> {
             Kind::Any => true,
         };
         if !ok {
+            let hint = if p.kind == Kind::Number && value.is_string() {
+                text_hint(spec)
+            } else {
+                ""
+            };
             return Err(format!(
-                "Parameter `{key}` of {} must be a {}",
+                "Parameter `{key}` of {} must be a {}{hint}",
                 spec.name,
                 p.kind.schema_type()
             ));

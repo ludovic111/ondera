@@ -159,7 +159,10 @@ pub fn coerce(command: &str, key: &str, raw: &str) -> Result<Value> {
                 .parse::<f64>()
                 .ok()
                 .filter(|n| n.is_finite())
-                .ok_or_else(|| format!("`{key}` must be a number (finite), got `{raw}`"))?;
+                .ok_or_else(|| {
+                    let hint = control::spec(command).map_or("", control::text_hint);
+                    format!("`{key}` must be a number (finite), got `{raw}`{hint}")
+                })?;
             Value::from(number)
         }
         Some(control::Kind::Integer) => Value::from(
