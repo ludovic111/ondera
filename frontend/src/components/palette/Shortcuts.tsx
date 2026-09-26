@@ -37,14 +37,34 @@ const GROUPS: [string, (id: string) => boolean][] = [
  * The cheat sheet. It is generated from the action table, so it cannot drift
  * from what the keyboard handler and the menus actually do.
  */
-export function ShortcutList() {
+export function shortcutGroups(): {
+  title: string;
+  rows: { id: string; label: string; keys: string }[];
+}[] {
   const bound = Object.values(actions).filter((a) => a.shortcut);
   const taken = new Set<string>();
   const groups = GROUPS.map(([title, belongs]) => {
-    const rows = bound.filter((a) => !taken.has(a.id) && belongs(a.id));
+    const rows = bound
+      .filter((a) => !taken.has(a.id) && belongs(a.id))
+      .map((a) => ({
+        id: a.id,
+        label: a.label,
+        keys: formatShortcut(a.shortcut!),
+      }));
     rows.forEach((a) => taken.add(a.id));
     return { title, rows };
   });
+  return [
+    ...groups,
+    {
+      title: "Session",
+      rows: FIXED.map(([label, keys]) => ({ id: label, label, keys })),
+    },
+  ];
+}
+
+export function ShortcutList() {
+  const groups = shortcutGroups();
   return (
     <div className={styles.sheet}>
       {groups.map(({ title, rows }) => (
@@ -54,23 +74,12 @@ export function ShortcutList() {
             {rows.map((a) => (
               <div key={a.id}>
                 <dt>{a.label}</dt>
-                <dd>{formatShortcut(a.shortcut!)}</dd>
+                <dd>{a.keys}</dd>
               </div>
             ))}
           </dl>
         </section>
       ))}
-      <section>
-        <h3>Session</h3>
-        <dl>
-          {FIXED.map(([label, key]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{key}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
       <p className={styles.note}>
         ⌘ is Ctrl on Windows and Linux. With musical typing on, A–; play notes
         and Z / X shift the octave. In the arrangement: draw a region with the

@@ -116,6 +116,42 @@ impl ParamInfo {
         }
         v.clamp(self.min, self.max)
     }
+    /// Read a display string back: a label ("Hall"), a number with or without its unit
+    /// ("-6", "-6 dB", "2.5k" for kilo units) or a percentage of the range ("50%" when the
+    /// unit is not itself %). `None` when the text means nothing for this parameter.
+    pub fn parse_text(&self, text: &str) -> Option<f64> {
+        let text = text.trim();
+        if let Some(index) = self
+            .labels
+            .iter()
+            .position(|l| l.trim().eq_ignore_ascii_case(text))
+        {
+            return Some((self.min + index as f64).min(self.max));
+        }
+        let lower = text.to_lowercase();
+        match lower.as_str() {
+            "on" | "true" | "yes" if self.steps == 1 => return Some(self.max),
+            "off" | "false" | "no" if self.steps == 1 => return Some(self.min),
+            _ => {}
+        }
+        let unit = self.unit.trim().to_lowercase();
+        let mut body = lower.as_str();
+        if !unit.is_empty() {
+            body = body.strip_suffix(unit.as_str()).unwrap_or(body).trim_end();
+        }
+        let (body, scale) = if let Some(b) = body.strip_suffix('k') {
+            (b, 1000.0)
+        } else {
+            (body, 1.0)
+        };
+        if let Some(percent) = body.strip_suffix('%').filter(|_| unit != "%") {
+            let t: f64 = percent.trim().parse().ok()?;
+            return Some(self.denormalize(t / 100.0));
+        }
+        let value: f64 = body.trim().trim_start_matches('+').parse().ok()?;
+        let value = value * scale;
+        (value.is_finite()).then(|| value.clamp(self.min, self.max))
+    }
     pub fn text(&self, value: f64) -> String {
         if !self.labels.is_empty() {
             let index = ((value - self.min).round().max(0.0) as usize).min(self.labels.len() - 1);
@@ -191,6 +227,13 @@ pub trait Processor: Send {
     fn timed_params(&self) -> bool {
         false
     }
+    /// The processor takes MIDI events (controllers, pitch bend and pressure) as an insert
+    /// effect: native ABI 2, CLAP with a note port, VST3 with an event bus or MIDI mapping,
+    /// Audio Unit music effects. An instrument always gets its track's events; an insert only
+    /// when this says so. Stock effects and ABI 1 plugins keep the default, and hear nothing.
+    fn accepts_events(&self) -> bool {
+        false
+    }
 }
 
 /// An opaque parent window handle for native plugin editors.
@@ -244,6 +287,33 @@ pub trait Editor {
     /// True after the plugin reported parameter or state changes from its own GUI.
     fn take_dirty(&mut self) -> bool {
         false
+    }
+    /// The plain value a display string stands for ("-6 dB", "Hall", "440 Hz"), asking the
+    /// plugin where its format can (CLAP `text_to_value`, VST3 `getParamValueByString`).
+    fn parse_text(&self, id: u32, text: &str) -> Option<f64> {
+        self.params()
+            .iter()
+            .find(|p| p.id == id)
+            .and_then(|p| p.parse_text(text))
+    }
+    /// Whether the plugin lets a host automate the parameter (CLAP and VST3 flag it).
+    fn automatable(&self, _id: u32) -> bool {
+        true
+    }
+    /// The plugin's own factory programs: Audio Unit factory presets, the VST3 program
+    /// list behind its program-change parameter. Empty when the format or plugin has none.
+    fn programs(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// The parameter that selects a program, when programs are chosen by value (VST3): the
+    /// host sets it like any parameter, so the choice is document state and undoes.
+    fn program_parameter(&self) -> Option<u32> {
+        None
+    }
+    /// Load program `index` into this instance (Audio Units). The host saves the state
+    /// afterwards and restores it on the audio thread like any other state change.
+    fn load_program(&mut self, _index: usize) -> Result<()> {
+        Err("This plugin does not load programs by index".into())
     }
 }
 
@@ -413,6 +483,14 @@ impl Rack {
         }
         pending.len = 0;
         true
+    }
+    /// Whether the processor in `slot` takes events as an insert (see
+    /// [`Processor::accepts_events`]). False for an empty slot.
+    pub fn accepts_events(&self, slot: u32) -> bool {
+        self.slots
+            .get(slot as usize)
+            .and_then(|s| s.as_ref())
+            .is_some_and(|p| p.accepts_events())
     }
     pub fn latency(&self, slot: u32) -> u32 {
         self.slots

@@ -1,0 +1,31 @@
+/*
+ * Ink structure. Nothing is lit or embossed: state is shown by inversion, the way
+ * a printer shows it. Engaged switches and selected segments become solid ink with
+ * reversed type (--ink-solid / --ink-reverse from ink.ts); labels are set in the
+ * mono face like a spec sheet.
+ */
+:root[data-theme="ink"] :is(.caps, .t-caps) {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-medium);
+}
+:root[data-theme="ink"]
+  :is(
+    .m-pressed,
+    .m-segment-active,
+    .agent-tabs .m-segment-selected,
+    .settings-layout nav .selected
+  ) {
+  --color-ink100: var(--ink-reverse);
+  --color-ink300: var(--ink-reverse);
+  --color-ink500: var(--ink-reverse);
+  --color-ink-control: var(--ink-reverse);
+  background: var(--ink-solid);
+  color: var(--ink-reverse);
+}
+:root[data-theme="ink"] .aero-play[aria-pressed="true"],
+:root[data-theme="ink"] .m-lit {
+  color: var(--color-accent-ink);
+}
+:root[data-theme="ink"] .native-dialog > header {
+  box-shadow: inset 0 -1px 0 var(--ink-rule);
+}

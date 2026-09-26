@@ -779,6 +779,7 @@ mod tests {
                         pitch: 60,
                         velocity: 100,
                         agent: false,
+                        channel: 0,
                     },
                     Note {
                         id: "outside".into(),
@@ -787,6 +788,7 @@ mod tests {
                         pitch: 64,
                         velocity: 100,
                         agent: false,
+                        channel: 0,
                     },
                 ],
                 controllers: vec![],

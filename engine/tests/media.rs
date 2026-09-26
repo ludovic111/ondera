@@ -654,7 +654,7 @@ fn ogg_export_decodes_back_to_the_mix_at_a_fraction_of_the_size() {
     let decoded = audio::decode(bytes.clone(), Some("ogg")).unwrap();
     assert_eq!(decoded.sample_rate, 48000);
     let length = decoded.frames.len() as i64 - report.frames as i64;
-    assert!(length.abs() < 2048, "{length} frames off");
+    assert_eq!(length, 0, "the decoded Ogg ends on the exported frame");
     let (mut signal, mut error) = (0f64, 0f64);
     for (a, b) in original.frames.iter().zip(&decoded.frames) {
         for c in 0..2 {

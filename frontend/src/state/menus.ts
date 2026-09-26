@@ -53,10 +53,16 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
     method: string,
     params: Record<string, unknown> = {},
   ): MenuItem => ({ label, onSelect: () => store.fire(method, params) });
+  const s = store.getState();
+  const selected = s.clips.find((c) => c.id === s.view.selectedClipId);
   const file = (label: string, action: string) =>
     call(label, "web.file", { action });
-  const panel = (label: string, name: string) =>
-    call(label, "ui.showPanel", { panel: name, visible: true });
+  const panel = (label: string, name: string, section?: string) =>
+    call(label, "ui.showPanel", {
+      panel: name,
+      visible: true,
+      ...(section ? { section } : {}),
+    });
   switch (title) {
     case "File":
       return [
@@ -111,7 +117,10 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
           ["Repeat region × 4", "clip.repeat", { count: 3 }],
         ].map(([label, method, params]) => ({
           label: String(label),
-          disabled: !store.getState().view.selectedClipId,
+          // Every tool but Repeat rewrites notes, so it needs a MIDI region.
+          disabled: !(method === "clip.repeat"
+            ? selected
+            : selected?.data.kind === "midi"),
           onSelect: () =>
             store.fire(String(method), {
               ...(params as Record<string, unknown>),
@@ -148,9 +157,9 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
       return [
         file("Save recovered take…", "recoverTake"),
         call("Reconnect output", "audio.reconnect"),
-        panel("Output device…", "settings"),
-        panel("Input device…", "settings"),
-        panel("MIDI input…", "settings"),
+        panel("Output device…", "settings", "audio"),
+        panel("Input device…", "settings", "audio"),
+        panel("MIDI input…", "settings", "audio"),
         {
           ...call("Musical typing", "ui.musicalTyping", {
             enabled: !store.ui.musicalTyping,
@@ -173,7 +182,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("toggleAgentPanel", "Show agent panel"),
         a("askAgent"),
         a("stopAgent", "Stop agent"),
-        panel("Agent settings…", "settings"),
+        panel("Agent settings…", "settings", "agent"),
       ];
     case "View":
       return [

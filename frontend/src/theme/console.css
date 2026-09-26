@@ -1,0 +1,40 @@
+/*
+ * Console structure. Colours live in console.ts as --console-* properties so the
+ * same rules serve the night and the day desk. The work surface sits between walnut
+ * end cheeks joined by a walnut rail (the menu bar); legends are engraved into the
+ * enamel; displays are amber lamps behind smoked glass; the one primary action of a
+ * surface wears a brass cap.
+ */
+:root[data-theme="console"] [data-surface="window"] {
+  padding: 0 9px;
+  background: var(--console-frame);
+  box-shadow: var(--console-cheek-shadow);
+}
+:root[data-theme="console"] [data-surface="titlebar"] {
+  --color-ink100: var(--console-title-ink);
+  --color-ink300: var(--console-title-ink);
+  --color-ink500: var(--console-title-ink-dim);
+  --color-menu-hover: var(--console-title-hover);
+  margin: 0 -9px;
+  color: var(--console-title-ink);
+  background: var(--console-title);
+  box-shadow: var(--console-cheek-shadow);
+  text-shadow: var(--console-engrave);
+}
+:root[data-theme="console"] :is(.caps, .t-caps) {
+  text-shadow: var(--console-engrave);
+}
+:root[data-theme="console"] .m-well-deep {
+  background: var(--console-lcd);
+  text-shadow: var(--console-lcd-glow);
+}
+/* Brass caps: play when it runs, and the primary action of a panel. */
+:root[data-theme="console"]
+  :is(.aero-primary, .agent-send .m-button, .aero-play[aria-pressed="true"]) {
+  background: var(--console-brass);
+  color: var(--color-accent-ink);
+  text-shadow: none;
+}
+:root[data-theme="console"] .m-lit {
+  text-shadow: none;
+}

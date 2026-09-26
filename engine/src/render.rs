@@ -19,15 +19,34 @@ pub const METER_TRACKS: usize = 32;
 const MAX_VOICES: usize = 256;
 const NOTE_CAPACITY: usize = 1024;
 const QUEUE_CAPACITY: usize = 4096;
-/// Controller slots per track: 128 control changes, then pitch bend, then channel pressure.
+/// Controller slots per track and channel: 128 control changes, then pitch bend, then
+/// channel pressure.
 const CONTROLS: usize = 130;
 const BEND: usize = 128;
 const PRESSURE: usize = 129;
+/// Polyphonic pressure on a key is sequenced as slot `POLY + key`. It shapes a sounding note
+/// only, so it is played but neither chased on locate nor rested at stop: the notes it
+/// pressed on are released there anyway.
+const POLY: usize = CONTROLS;
 const SUSTAIN: usize = 64;
+/// MIDI channels; every note and controller keeps the one it was played on.
+const CHANNELS: usize = 16;
+/// Notes a track can hold: every pitch on every channel.
+const KEYS: usize = CHANNELS * 128;
 /// No value sent or known.
 const UNSET: i16 = i16::MIN;
-type Controls = [i16; CONTROLS];
+type Controls = [[i16; CONTROLS]; CHANNELS];
 
+/// Where a note is counted: its channel and pitch.
+#[inline]
+fn key(channel: u8, pitch: u8) -> usize {
+    (channel as usize & 15) * 128 + (pitch as usize & 127)
+}
+/// The channel and pitch of a `key`.
+#[inline]
+fn unkey(key: usize) -> (u8, u8) {
+    ((key / 128) as u8, (key % 128) as u8)
+}
 /// The controller slot an event sets, if it is a controller event.
 fn control_slot(e: &Event) -> Option<(usize, i16)> {
     match e.kind {
@@ -37,13 +56,19 @@ fn control_slot(e: &Event) -> Option<(usize, i16)> {
         _ => None,
     }
 }
-/// The event that sets `slot` to `value`.
-fn control_event(slot: usize, value: i16, frame: u32) -> Event {
+/// The event that sets `slot` to `value` on `channel`.
+fn control_event(slot: usize, value: i16, frame: u32, channel: u8) -> Event {
     match slot {
         BEND => Event::new(frame, event::PITCH_BEND, 0, 0, 0, value.clamp(-8192, 8191)),
         PRESSURE => Event::channel_pressure(frame, value.clamp(0, 127) as u8),
+        poly if poly >= POLY => Event::poly_pressure(
+            frame,
+            (poly - POLY).min(127) as u8,
+            value.clamp(0, 127) as u8,
+        ),
         cc => Event::control(frame, cc as u8, value.clamp(0, 127) as u8),
     }
+    .on_channel(channel & 15)
 }
 /// Order within one frame: releases, then controllers, then attacks, so a bend or a pedal
 /// is in place before the note it shapes and a repeated pitch can start again.
@@ -85,8 +110,11 @@ enum Sound {
     Midi {
         pitch: u8,
         velocity: u8,
+        channel: u8,
     },
     Audio {
+        /// Hash of the clip id, so a rebuilt graph can find the same clip in the old one.
+        clip: u64,
         buffer: Arc<AudioBuffer>,
         offset: f64,
         /// Linear clip gain.
@@ -99,6 +127,15 @@ enum Sound {
 }
 /// Edge ramp every audio clip gets, fade or not, so a cut never clicks.
 const EDGE_RAMP_SECONDS: f64 = 0.003;
+/// A rebuilt graph that changes a sounding clip's gain or fades glides from the old envelope
+/// to the new one over about this long instead of jumping.
+const ENVELOPE_GLIDE_SECONDS: f64 = 0.005;
+fn clip_key(id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut h);
+    h.finish()
+}
 /// The clip's gain at `age` seconds after its start with `left` seconds before its end.
 #[inline]
 fn clip_envelope(
@@ -131,6 +168,7 @@ struct Scheduled {
 struct Control {
     beat: f64,
     track: usize,
+    channel: u8,
     slot: usize,
     value: i16,
 }
@@ -188,7 +226,8 @@ struct Preview {
     pitch: u8,
     remaining: u32,
 }
-type Held = [u16; 128];
+/// Voices per track, by [`key`].
+type Held = [u16; KEYS];
 struct PluginAutomation {
     lane: usize,
     slot: u32,
@@ -204,12 +243,12 @@ pub struct Renderer {
     events: Vec<Scheduled>,
     controls: Vec<Control>,
     next_control: usize,
-    /// What each track's instrument was last told, per controller slot.
+    /// What each track's instrument was last told, per channel and controller slot.
     applied: Vec<Controls>,
     /// Scratch for the chase on locate; reserved with the graph.
     chased: Vec<Controls>,
     /// Slots a track's clips drive, which a locate may return to rest.
-    sequenced: Vec<[bool; CONTROLS]>,
+    sequenced: Vec<[[bool; CONTROLS]; CHANNELS]>,
     channels: Vec<Channel>,
     buses: [Vec<u32>; 2],
     master: Vec<u32>,
@@ -224,11 +263,18 @@ pub struct Renderer {
     latency_samples: u32,
     automation_looped: bool,
     active: [Option<usize>; MAX_VOICES],
+    /// The envelope each active audio voice last applied, and the offset still gliding away
+    /// after a rebuild changed it (zero otherwise, so ordinary playback is unchanged).
+    envelope: [f32; MAX_VOICES],
+    glide: [f32; MAX_VOICES],
+    glide_decay: f32,
     held: Vec<Held>,
     expected: Vec<Held>,
     live: Vec<Held>,
     queued: Vec<(usize, Event)>,
     notes: Vec<Vec<Event>>,
+    /// A track's controller events without its notes, for the inserts that take events.
+    insert_events: Vec<Event>,
     buffers: Vec<Vec<[f32; 2]>>,
     sends: [Vec<[f32; 2]>; 2],
     mix: Vec<[f32; 2]>,
@@ -334,11 +380,15 @@ impl Renderer {
                                 ControllerKind::Cc => played.number.unwrap_or(0).min(127) as usize,
                                 ControllerKind::Bend => BEND,
                                 ControllerKind::Pressure => PRESSURE,
+                                ControllerKind::PolyPressure => {
+                                    POLY + played.number.unwrap_or(0).min(127) as usize
+                                }
                             };
                             controls.push((
                                 Control {
                                     beat: start + played.time,
                                     track: index,
+                                    channel: played.channel & 15,
                                     slot,
                                     value: played.value,
                                 },
@@ -356,6 +406,7 @@ impl Renderer {
                                 sound: Sound::Midi {
                                     pitch: note.pitch,
                                     velocity: note.velocity,
+                                    channel: note.channel & 15,
                                 },
                             });
                         }
@@ -376,6 +427,7 @@ impl Renderer {
                             end,
                             track: index,
                             sound: Sound::Audio {
+                                clip: clip_key(&clip.id),
                                 buffer: Arc::clone(buffer),
                                 offset: *offset_seconds,
                                 gain: 10f32.powf(gain_db / 20.0),
@@ -392,9 +444,9 @@ impl Renderer {
         // A clip's closing reset comes before the next clip's first value at the same beat.
         controls.sort_by(|a, b| a.0.beat.total_cmp(&b.0.beat).then(b.1.cmp(&a.1)));
         let controls: Vec<Control> = controls.into_iter().map(|(c, _)| c).collect();
-        let mut sequenced = vec![[false; CONTROLS]; channels.len()];
-        for control in &controls {
-            sequenced[control.track][control.slot] = true;
+        let mut sequenced = vec![[[false; CONTROLS]; CHANNELS]; channels.len()];
+        for control in controls.iter().filter(|c| c.slot < CONTROLS) {
+            sequenced[control.track][control.channel as usize][control.slot] = true;
         }
         let bus = |id: &str| {
             session
@@ -468,18 +520,22 @@ impl Renderer {
             events,
             controls,
             next_control: 0,
-            applied: vec![[UNSET; CONTROLS]; count],
-            chased: vec![[UNSET; CONTROLS]; count],
+            applied: vec![[[UNSET; CONTROLS]; CHANNELS]; count],
+            chased: vec![[[UNSET; CONTROLS]; CHANNELS]; count],
             sequenced,
             channels,
             active: [None; MAX_VOICES],
-            held: vec![[0; 128]; count],
-            expected: vec![[0; 128]; count],
-            live: vec![[0; 128]; count],
+            envelope: [0.0; MAX_VOICES],
+            glide: [0.0; MAX_VOICES],
+            glide_decay: (-1.0 / (ENVELOPE_GLIDE_SECONDS * f64::from(rate))).exp() as f32,
+            held: vec![[0; KEYS]; count],
+            expected: vec![[0; KEYS]; count],
+            live: vec![[0; KEYS]; count],
             queued: Vec::with_capacity(QUEUE_CAPACITY),
             notes: (0..count)
                 .map(|_| Vec::with_capacity(NOTE_CAPACITY))
                 .collect(),
+            insert_events: Vec::with_capacity(NOTE_CAPACITY),
             buffers: (0..count).map(|_| vec![[0.0; 2]; MAX_BLOCK]).collect(),
             sends: [vec![[0.0; 2]; MAX_BLOCK], vec![[0.0; 2]; MAX_BLOCK]],
             mix: vec![[0.0; 2]; MAX_BLOCK],
@@ -657,12 +713,21 @@ impl Renderer {
                             self.queue(index, event);
                         }
                     }
+                    // A changed insert chain may hold an effect that takes events and has not
+                    // heard the values in force: send them again. The instrument hears them
+                    // twice, which changes nothing.
+                    if self.channels[index].midi
+                        && self.channels[index].inserts != old.channels[prev].inserts
+                    {
+                        self.resend_applied(index);
+                    }
                 }
                 self.live[index] = old.live[prev];
                 if !same_instrument {
-                    for pitch in 0..128 {
-                        for _ in 0..self.live[index][pitch] {
-                            self.queue(index, Event::note_on(0, pitch as u8, 96));
+                    for held in 0..KEYS {
+                        let (channel, pitch) = unkey(held);
+                        for _ in 0..self.live[index][held] {
+                            self.queue(index, Event::note_on(0, pitch, 96).on_channel(channel));
                         }
                     }
                 }
@@ -680,6 +745,45 @@ impl Renderer {
             }
         }
         self.resync();
+        if self.playing {
+            self.glide_from(old);
+        }
+    }
+    /// A sounding clip whose gain or fades changed starts from what it last played.
+    fn glide_from(&mut self, old: &Renderer) {
+        let spb = 60.0 / self.session.transport.tempo;
+        for slot in 0..MAX_VOICES {
+            let Some(index) = self.active[slot] else {
+                continue;
+            };
+            let e = &self.events[index];
+            let Sound::Audio {
+                clip,
+                gain,
+                fade_in,
+                fade_out,
+                curve,
+                ..
+            } = &e.sound
+            else {
+                continue;
+            };
+            let previous = (0..MAX_VOICES).find(|&j| {
+                old.active[j].is_some_and(
+                    |o| matches!(&old.events[o].sound, Sound::Audio { clip: c, .. } if c == clip),
+                )
+            });
+            let Some(j) = previous else {
+                continue;
+            };
+            let age = (self.position - e.start).max(0.0) * spb;
+            let left = (e.end - self.position) * spb;
+            let now = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
+            let offset = old.envelope[j] - now;
+            if offset.abs() > 1e-6 {
+                self.glide[slot] = offset;
+            }
+        }
     }
     fn queue(&mut self, track: usize, mut event: Event) {
         // UI taps and MIDI callbacks can enqueue a complete note before one
@@ -711,10 +815,11 @@ impl Renderer {
     /// notes that should sound and note-offs for held notes that should not.
     fn resync(&mut self) {
         self.active.fill(None);
+        self.glide.fill(0.0);
         self.next = self.events.partition_point(|e| e.start < self.position);
         // Each historical event is examined once, independent of track count.
         // Storage is reserved with the graph, not allocated during a seek.
-        self.expected.fill([0; 128]);
+        self.expected.fill([0; KEYS]);
         let mut active = 0;
         for i in 0..self.next {
             let e = &self.events[i];
@@ -727,21 +832,30 @@ impl Renderer {
             }
             self.active[active] = Some(i);
             active += 1;
-            if let Sound::Midi { pitch, velocity } = e.sound {
+            if let Sound::Midi {
+                pitch,
+                velocity,
+                channel,
+            } = e.sound
+            {
                 let track = e.track;
-                let p = pitch as usize;
-                self.expected[track][p] += 1;
-                if self.expected[track][p] > self.held[track][p] {
-                    self.held[track][p] += 1;
-                    self.queue(track, Event::note_on(0, pitch, velocity));
+                let k = key(channel, pitch);
+                self.expected[track][k] += 1;
+                if self.expected[track][k] > self.held[track][k] {
+                    self.held[track][k] += 1;
+                    self.queue(
+                        track,
+                        Event::note_on(0, pitch, velocity).on_channel(channel),
+                    );
                 }
             }
         }
         for track in 0..self.channels.len() {
-            for p in 0..128 {
-                while self.held[track][p] > self.expected[track][p] {
-                    self.held[track][p] -= 1;
-                    self.queue(track, Event::note_off(0, p as u8));
+            for k in 0..KEYS {
+                while self.held[track][k] > self.expected[track][k] {
+                    self.held[track][k] -= 1;
+                    let (channel, pitch) = unkey(k);
+                    self.queue(track, Event::note_off(0, pitch).on_channel(channel));
                 }
             }
         }
@@ -753,39 +867,57 @@ impl Renderer {
     fn chase(&mut self) {
         self.next_control = self.controls.partition_point(|c| c.beat < self.position);
         for chased in &mut self.chased {
-            chased.fill(UNSET);
+            chased.fill([UNSET; CONTROLS]);
         }
-        for control in &self.controls[..self.next_control] {
-            self.chased[control.track][control.slot] = control.value;
+        for control in self.controls[..self.next_control]
+            .iter()
+            .filter(|c| c.slot < CONTROLS)
+        {
+            self.chased[control.track][control.channel as usize][control.slot] = control.value;
         }
         for track in 0..self.channels.len() {
-            for slot in 0..CONTROLS {
-                let current = self.applied[track][slot];
-                let target = match self.chased[track][slot] {
-                    UNSET
-                        if self.sequenced[track][slot]
-                            && matches!(slot, SUSTAIN | BEND | PRESSURE)
-                            && current != UNSET
-                            && current != 0 =>
-                    {
-                        0
+            for channel in 0..CHANNELS {
+                for slot in 0..CONTROLS {
+                    let current = self.applied[track][channel][slot];
+                    let target = match self.chased[track][channel][slot] {
+                        UNSET
+                            if self.sequenced[track][channel][slot]
+                                && matches!(slot, SUSTAIN | BEND | PRESSURE)
+                                && current != UNSET
+                                && current != 0 =>
+                        {
+                            0
+                        }
+                        UNSET => continue,
+                        value => value,
+                    };
+                    if target != current {
+                        self.applied[track][channel][slot] = target;
+                        self.queue(track, control_event(slot, target, 0, channel as u8));
                     }
-                    UNSET => continue,
-                    value => value,
-                };
-                if target != current {
-                    self.applied[track][slot] = target;
-                    self.queue(track, control_event(slot, target, 0));
+                }
+            }
+        }
+    }
+    /// Queue every controller value `track` is known to have, for an insert that joined it.
+    /// Channel mode messages (120-127) are never repeated.
+    fn resend_applied(&mut self, track: usize) {
+        for channel in 0..CHANNELS {
+            for slot in 0..CONTROLS {
+                let value = self.applied[track][channel][slot];
+                if value != UNSET && !(120..128).contains(&slot) {
+                    self.queue(track, control_event(slot, value, 0, channel as u8));
                 }
             }
         }
     }
     fn activate_slot(&mut self, i: usize) -> bool {
-        let Some(slot) = self.active.iter_mut().find(|v| v.is_none()) else {
+        let Some(slot) = self.active.iter().position(|v| v.is_none()) else {
             self.voice_overflows += 1;
             return false;
         };
-        *slot = Some(i);
+        self.active[slot] = Some(i);
+        self.glide[slot] = 0.0;
         true
     }
     pub fn locate(&mut self, beats: f64) {
@@ -821,23 +953,35 @@ impl Renderer {
             self.queue(track, Event::note_on(0, pitch, velocity.clamp(1, 127)));
         }
     }
-    /// Live note input (keyboard or MIDI port) routed to a track's instrument.
-    pub fn routed_note(&mut self, route: usize, on: bool, pitch: u8, velocity: u8) {
+    /// Live note input (keyboard or MIDI port) routed to a track's instrument, on the MIDI
+    /// channel it was played on.
+    pub fn routed_note(&mut self, route: usize, on: bool, pitch: u8, velocity: u8, channel: u8) {
         if let Some(track) = self
             .channels
             .iter()
             .position(|channel| channel.route == route)
         {
-            self.note(track, on, pitch, velocity);
+            self.note_on_channel(track, on, pitch, velocity, channel);
         }
     }
+    /// A live note on channel 0 (channel 1), as the computer keyboard plays it.
     pub fn note(&mut self, track: usize, on: bool, pitch: u8, velocity: u8) {
+        self.note_on_channel(track, on, pitch, velocity, 0);
+    }
+    pub fn note_on_channel(
+        &mut self,
+        track: usize,
+        on: bool,
+        pitch: u8,
+        velocity: u8,
+        channel: u8,
+    ) {
         self.idle_frames = 0;
         if !self.channels.get(track).is_some_and(|c| c.midi) {
             return;
         }
-        let pitch = pitch.min(127);
-        let count = &mut self.live[track][pitch as usize];
+        let (pitch, channel) = (pitch.min(127), channel & 15);
+        let count = &mut self.live[track][key(channel, pitch)];
         if on {
             *count = count.saturating_add(1);
             self.live_total += 1;
@@ -854,7 +998,8 @@ impl Renderer {
                 Event::note_on(0, pitch, velocity.clamp(1, 127))
             } else {
                 Event::note_off(0, pitch)
-            },
+            }
+            .on_channel(channel),
         );
     }
     /// A live controller change (MIDI port) routed to a track's instrument.
@@ -867,27 +1012,39 @@ impl Renderer {
             self.control(track, event);
         }
     }
-    /// A controller change for a track's instrument now: control change, bend or pressure.
+    /// A controller change for a track's instrument now: control change, bend, channel or
+    /// polyphonic pressure, on the event's own channel.
     pub fn control(&mut self, track: usize, event: Event) {
         self.idle_frames = 0;
         if !self.channels.get(track).is_some_and(|c| c.midi) {
             return;
         }
+        if event.kind == event::POLY_PRESSURE {
+            let key = event.key.min(127) as usize;
+            let value = event.value.min(127) as i16;
+            self.queue(
+                track,
+                control_event(POLY + key, value, 0, event.channel & 15),
+            );
+            return;
+        }
         let Some((slot, value)) = control_slot(&event) else {
             return;
         };
-        self.applied[track][slot] = value;
-        self.queue(track, control_event(slot, value, 0));
+        let channel = event.channel & 15;
+        self.applied[track][channel as usize][slot] = value;
+        self.queue(track, control_event(slot, value, 0, channel));
     }
     fn all_notes_off(&mut self) {
         for track in 0..self.channels.len() {
-            for p in 0..128 {
-                let total = self.held[track][p] as u32 + self.live[track][p] as u32;
+            for k in 0..KEYS {
+                let total = self.held[track][k] as u32 + self.live[track][k] as u32;
+                let (channel, pitch) = unkey(k);
                 for _ in 0..total {
-                    self.queue(track, Event::note_off(0, p as u8));
+                    self.queue(track, Event::note_off(0, pitch).on_channel(channel));
                 }
-                self.held[track][p] = 0;
-                self.live[track][p] = 0;
+                self.held[track][k] = 0;
+                self.live[track][k] = 0;
             }
         }
         self.live_total = 0;
@@ -902,11 +1059,13 @@ impl Renderer {
         self.all_notes_off();
         // Nothing stays bent or held after stop.
         for track in 0..self.channels.len() {
-            for slot in [SUSTAIN, BEND, PRESSURE] {
-                let current = self.applied[track][slot];
-                if current != UNSET && current != 0 {
-                    self.applied[track][slot] = 0;
-                    self.queue(track, control_event(slot, 0, 0));
+            for channel in 0..CHANNELS {
+                for slot in [SUSTAIN, BEND, PRESSURE] {
+                    let current = self.applied[track][channel][slot];
+                    if current != UNSET && current != 0 {
+                        self.applied[track][channel][slot] = 0;
+                        self.queue(track, control_event(slot, 0, 0, channel as u8));
+                    }
                 }
             }
         }
@@ -1059,10 +1218,13 @@ impl Renderer {
                 {
                     let control = self.controls[self.next_control];
                     self.next_control += 1;
-                    self.applied[control.track][control.slot] = control.value;
+                    if control.slot < CONTROLS {
+                        self.applied[control.track][control.channel as usize][control.slot] =
+                            control.value;
+                    }
                     self.push_note(
                         control.track,
-                        control_event(control.slot, control.value, i as u32),
+                        control_event(control.slot, control.value, i as u32, control.channel),
                     );
                 }
                 while self.next < self.events.len()
@@ -1071,11 +1233,19 @@ impl Renderer {
                     let index = self.next;
                     self.next += 1;
                     if self.activate_slot(index) {
-                        if let Sound::Midi { pitch, velocity } = self.events[index].sound {
+                        if let Sound::Midi {
+                            pitch,
+                            velocity,
+                            channel,
+                        } = self.events[index].sound
+                        {
                             let track = self.events[index].track;
-                            self.held[track][pitch as usize] =
-                                self.held[track][pitch as usize].saturating_add(1);
-                            self.push_note(track, Event::note_on(i as u32, pitch, velocity));
+                            let k = key(channel, pitch);
+                            self.held[track][k] = self.held[track][k].saturating_add(1);
+                            self.push_note(
+                                track,
+                                Event::note_on(i as u32, pitch, velocity).on_channel(channel),
+                            );
                         }
                     }
                 }
@@ -1086,12 +1256,17 @@ impl Renderer {
                     let e = &self.events[index];
                     if self.position >= e.end {
                         self.active[slot] = None;
-                        if let Sound::Midi { pitch, .. } = e.sound {
+                        self.glide[slot] = 0.0;
+                        if let Sound::Midi { pitch, channel, .. } = e.sound {
                             let track = e.track;
-                            if self.held[track][pitch as usize] > 0 {
-                                self.held[track][pitch as usize] -= 1;
+                            let k = key(channel, pitch);
+                            if self.held[track][k] > 0 {
+                                self.held[track][k] -= 1;
                             }
-                            self.push_note(track, Event::note_off(i as u32, pitch));
+                            self.push_note(
+                                track,
+                                Event::note_off(i as u32, pitch).on_channel(channel),
+                            );
                         }
                         continue;
                     }
@@ -1099,6 +1274,7 @@ impl Renderer {
                         buffer,
                         offset,
                         gain,
+                        clip: _,
                         fade_in,
                         fade_out,
                         curve,
@@ -1109,7 +1285,15 @@ impl Renderer {
                         // Fades and gain, on the sample; 3 ms boundary ramps keep trims and
                         // loops free of clicks even without a fade.
                         let left = (e.end - self.position) * spb;
-                        let ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
+                        let mut ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
+                        if self.glide[slot] != 0.0 {
+                            ramp += self.glide[slot];
+                            self.glide[slot] *= self.glide_decay;
+                            if self.glide[slot].abs() < 1e-6 {
+                                self.glide[slot] = 0.0;
+                            }
+                        }
+                        self.envelope[slot] = ramp;
                         v[0] *= ramp;
                         v[1] *= ramp;
                         let frame = &mut self.buffers[e.track][i];
@@ -1211,8 +1395,24 @@ impl Renderer {
                     rack.process(slot, buffer, &self.notes[index], &ctx);
                 }
             }
+            // Inserts that take events hear the track's controllers, bend and pressure, the
+            // chase on locate and the rest at stop included, because those travel as events
+            // too. Notes stay with the instrument: an insert never holds a voice to release.
+            self.insert_events.clear();
+            if channel.midi {
+                for event in self.notes[index].iter().filter(|e| !e.is_note()) {
+                    if self.insert_events.len() < self.insert_events.capacity() {
+                        self.insert_events.push(*event);
+                    }
+                }
+            }
             for &slot in &channel.inserts {
-                rack.process(slot, buffer, &[], &ctx);
+                let events = if rack.accepts_events(slot) {
+                    &self.insert_events[..]
+                } else {
+                    &[]
+                };
+                rack.process(slot, buffer, events, &ctx);
             }
             let start_beat = block_start - channel.automation_offset as f64 * dpb;
             let mut volume = channel.volume_lane.map(|lane| {

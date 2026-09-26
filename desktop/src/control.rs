@@ -718,6 +718,113 @@ impl Ondera {
             "heldNotes": self.typing_down,
         })
     }
+    /// `ui.state`: what the window shows, named so an agent can act on it without a screenshot.
+    fn ui_state(&self) -> Value {
+        let session = self.store.session();
+        let view = &session.view;
+        let track_name = |id: &str| {
+            if ondera_engine::model::is_bus(id) {
+                Some(ondera_engine::model::bus_name(id).to_string())
+            } else {
+                session
+                    .tracks
+                    .iter()
+                    .find(|t| t.id == id)
+                    .map(|t| t.name.clone())
+            }
+        };
+        let clip = |id: &Option<String>| {
+            id.as_ref().and_then(|id| {
+                session.clips.iter().find(|c| &c.id == id).map(|c| {
+                    json!({"id": c.id, "name": c.name, "trackId": c.track_id,
+                        "track": track_name(&c.track_id), "bars": [c.start_bar, c.start_bar + c.length_bars]})
+                })
+            })
+        };
+        let mut windows: Vec<Value> = self
+            .plugins
+            .windows
+            .iter()
+            .map(|(key, window)| {
+                let found = crate::plugins::find_insert(session, key);
+                let slot = found.as_ref().and_then(|(strip, _, synth)| {
+                    (!synth)
+                        .then(|| {
+                            session
+                                .strips
+                                .get(strip)
+                                .and_then(|s| s.inserts.iter().position(|i| &i.id == key))
+                        })
+                        .flatten()
+                });
+                json!({
+                    "id": key,
+                    "trackId": found.as_ref().map(|f| &f.0),
+                    "track": found.as_ref().and_then(|f| track_name(&f.0)),
+                    "slot": slot,
+                    "plugin": found.as_ref().map(|f| &f.1.name),
+                    "nativeEditor": window.native.is_some(),
+                })
+            })
+            .collect();
+        windows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        let visible_bars = self.lane_width / self.zoom.max(1.0) as f64;
+        let interface = &self.settings.interface;
+        json!({
+            "panels": {
+                "agent": self.agents.open,
+                "mixer": self.show_mixer,
+                "automation": self.automation.open,
+                "controllers": self.show_controllers,
+                "palette": self.show_palette,
+                "help": self.show_help,
+                "settings": if self.settings_ui.open {
+                    json!(crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)])
+                } else {
+                    json!(false)
+                },
+                "export": self.export.is_open(),
+                "recovery": self.recovery.is_open(),
+            },
+            "prompt": self.intent.map(|intent| match intent {
+                crate::app::Intent::New => "new",
+                crate::app::Intent::Open => "open",
+                crate::app::Intent::Recover => "recover",
+                crate::app::Intent::Demo => "demo",
+                crate::app::Intent::Quit => "quit",
+                crate::app::Intent::Relaunch => "relaunch",
+            }),
+            "pluginWindows": windows,
+            "editor": {
+                "clip": clip(&view.editor_clip_id),
+                "mode": view.editor_mode,
+                "lowPitch": view.editor_low_pitch,
+                "shownInstead": if self.show_mixer { Some("mixer") } else { None },
+            },
+            "arrangement": {
+                "pixelsPerBar": self.zoom,
+                "firstBar": self.scroll,
+                "visibleBars": [self.scroll, self.scroll + visible_bars],
+                "laneWidth": self.lane_width,
+                "tool": TOOLS[self.tool.min(2)],
+                "followPlayhead": view.follow_playhead,
+            },
+            "browser": { "tab": view.browser_tab, "selection": view.browser_selection },
+            "selection": {
+                "track": view.selected_track_id.as_ref().map(|id| json!({"id": id, "name": track_name(id)})),
+                "clip": clip(&view.selected_clip_id),
+                "noteId": view.selected_note_id,
+            },
+            "theme": { "appearance": interface.appearance, "mode": interface.mode, "scale": interface.scale },
+            "musicalTyping": self.musical_typing,
+            "heldNotes": self.typing_down,
+            "status": self.status,
+            "error": self.error,
+            "busy": self.job.is_some() || self.control_job.is_some(),
+            "recoveredTake": self.unplaced_recording.is_some(),
+            "frontendReady": self.frontend_ready,
+        })
+    }
     fn available(&self) -> Result<()> {
         if (self.job.is_some() && !self.preparing) || self.control_job.is_some() {
             return Err("Ondera is busy with a file operation; retry in a moment".into());
@@ -791,46 +898,26 @@ impl Host for Ondera {
             self.guarded(Ondera::play)
         }
     }
-    fn plugin_parameters(&mut self, track: &str, slot: Option<usize>) -> Result<Value> {
-        let session = self.store.session();
-        if !session.tracks.iter().any(|t| t.id == track) && !ondera_engine::model::is_bus(track) {
-            return Err("Track or bus not found".into());
-        }
-        let strip = session.strips.get(track).cloned().unwrap_or_default();
-        let insert = if let Some(slot) = slot {
-            strip
-                .inserts
-                .get(slot)
-                .cloned()
-                .filter(|i| !i.is_empty())
-                .ok_or("Plugin slot is empty")?
-        } else {
-            if !session
-                .tracks
-                .iter()
-                .any(|t| t.id == track && t.kind == "midi")
-            {
-                return Err("Instruments require a MIDI track".into());
-            }
-            strip.synth.clone().unwrap_or_else(|| {
-                ondera_engine::model::Insert::new(
-                    strip.synth_key(track),
-                    &format!("stock:{}", strip.instrument),
-                    &strip.instrument,
-                )
-            })
-        };
-        let entry = self
-            .plugins
+    fn loaded_editor(
+        &mut self,
+        insert: &ondera_engine::model::Insert,
+    ) -> Option<&mut dyn ondera_engine::plugin::Editor> {
+        self.plugins
             .loaded
-            .get(&insert.id)
-            .filter(|entry| !entry.retiring)
-            .ok_or("Plugin is still loading or failed to load; inspect the app status")?;
-        Ok(json!({"pluginId":entry.plugin_id,
-            "parameters":entry.editor.params().iter().map(|p| json!({"id":p.id,"name":p.name,
-                "min":p.min,"max":p.max,"default":p.default,"value":insert.params.get(&p.id).copied()
-                    .or_else(||entry.editor.value(p.id)).unwrap_or(p.default),"unit":p.unit,
-                "steps":p.steps,"logarithmic":p.log,"labels":p.labels})).collect::<Vec<_>>() }))
+            .get_mut(&insert.id)
+            .filter(|entry| {
+                !entry.retiring
+                    && entry.plugin_id == insert.plugin_id()
+                    && entry.blob == insert.blob
+            })
+            .map(|entry| entry.editor.as_mut() as &mut dyn ondera_engine::plugin::Editor)
+    }
+    fn plugin_failures(&self) -> Vec<(String, String)> {
+        self.plugins
+            .failed
+            .iter()
+            .map(|(key, why)| (key.clone(), why.clone()))
+            .collect()
     }
     fn position(&self) -> f64 {
         self.position
@@ -1291,6 +1378,7 @@ impl Host for Ondera {
                 Ok(self.ui_status())
             }
             "ui.status" => Ok(self.ui_status()),
+            "ui.state" => Ok(self.ui_state()),
             "app.status" => Ok(json!({
                 "device": self.device.as_ref().map(|d| d.device_name.clone()),
                 "sampleRate": self.device.as_ref().map(|d| d.sample_rate),
@@ -1425,6 +1513,22 @@ fn release_json(release: &crate::update::Release) -> Value {
 
 #[cfg(test)]
 mod tests {
+    /// Between an edit and the next reconcile the loaded instance is out of date; commands
+    /// must then read the document through a fresh instance, never the stale one.
+    #[test]
+    fn a_loaded_editor_serves_only_its_own_plugin_and_state() {
+        let mut app = Ondera::from_session(store::empty(), None);
+        app.reconcile_plugins();
+        let space = app.store.session().strips["bus-a"].inserts[0].clone();
+        assert!(Host::loaded_editor(&mut app, &space).is_some());
+        let mut other_state = space.clone();
+        other_state.blob = "pending".into();
+        assert!(Host::loaded_editor(&mut app, &other_state).is_none());
+        let mut other_plugin = space.clone();
+        other_plugin.plugin = "stock:Echo".into();
+        assert!(Host::loaded_editor(&mut app, &other_plugin).is_none());
+    }
+
     #[test]
     fn a_reply_waits_only_on_the_job_its_own_command_started() {
         let dir = tempfile::tempdir().unwrap();
@@ -1750,6 +1854,59 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         };
         assert!(refused.unwrap_err().contains("1 to 4 bars"));
+    }
+
+    #[test]
+    fn the_window_describes_itself_and_the_overview_carries_it() {
+        let mut app = Ondera::from_session(store::demo(), None);
+        app.preparing = false;
+        app.sync_needed = false;
+        app.run_control_command(
+            "ui.showPanel",
+            &json!({"panel":"mixer","visible":true}),
+            true,
+            "MCP / agent",
+        )
+        .unwrap();
+        app.run_control_command(
+            "ui.showPanel",
+            &json!({"panel":"settings","section":"audio"}),
+            false,
+            "test",
+        )
+        .unwrap();
+        app.run_control_command("ui.setTool", &json!({"tool":"scissors"}), true, "test")
+            .unwrap();
+        let state = app
+            .run_control_command("ui.state", &json!({}), true, "MCP / agent")
+            .unwrap();
+        assert_eq!(state["panels"]["mixer"], true, "{state}");
+        assert_eq!(state["panels"]["settings"], "audio");
+        assert_eq!(state["arrangement"]["tool"], "scissors");
+        assert_eq!(state["editor"]["shownInstead"], "mixer");
+        assert_eq!(state["selection"]["track"]["name"], "Bass");
+        assert_eq!(state["editor"]["clip"]["name"], "Bass verse");
+        assert!(state["theme"]["appearance"].is_string());
+        let overview = app
+            .run_control_command(
+                "session.overview",
+                &json!({"parameters": false}),
+                true,
+                "MCP / agent",
+            )
+            .unwrap();
+        assert_eq!(overview["song"]["mode"], "live");
+        assert_eq!(overview["window"]["panels"]["mixer"], true);
+        // Names work through the window too, agent permissions included.
+        let solo = app
+            .run_control_command(
+                "track.setSolo",
+                &json!({"trackId":"Keys","solo":true}),
+                true,
+                "MCP / agent",
+            )
+            .unwrap();
+        assert_eq!(solo["solo"], true);
     }
 
     #[test]

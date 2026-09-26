@@ -34,6 +34,7 @@ fn main() {
                         pitch: 48 + (track_index % 24) as u8,
                         velocity: 90,
                         agent: false,
+                        channel: 0,
                     })
                     .collect(),
                 controllers: vec![],

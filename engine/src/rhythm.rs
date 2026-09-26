@@ -50,6 +50,7 @@ pub(crate) fn call(host: &mut dyn Host, args: &Args<'_>, agent: bool) -> Result<
                         pitch: lane.pitch,
                         velocity: lane.velocity,
                         agent,
+                        channel: 0,
                     });
                 }
             }

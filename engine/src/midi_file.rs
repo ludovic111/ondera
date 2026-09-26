@@ -137,6 +137,7 @@ pub fn import_bytes(
                                     pitch: key.as_int(),
                                     velocity,
                                     agent,
+                                    channel: 0,
                                 });
                             } else {
                                 unmatched += 1;
@@ -152,6 +153,7 @@ pub fn import_bytes(
                                 time: tick as f64 / ppq,
                                 value: value.as_int() as i16,
                                 agent,
+                                channel: 0,
                             });
                         }
                         MidiMessage::PitchBend { bend } => {
@@ -162,6 +164,18 @@ pub fn import_bytes(
                                 time: tick as f64 / ppq,
                                 value: bend.as_int(),
                                 agent,
+                                channel: 0,
+                            });
+                        }
+                        MidiMessage::Aftertouch { key, vel } => {
+                            controls.entry(channel).or_default().push(Controller {
+                                id: new_id("ctl"),
+                                kind: ControllerKind::PolyPressure,
+                                number: Some(key.as_int()),
+                                time: tick as f64 / ppq,
+                                value: vel.as_int() as i16,
+                                agent,
+                                channel: 0,
                             });
                         }
                         MidiMessage::ChannelAftertouch { vel } => {
@@ -172,6 +186,7 @@ pub fn import_bytes(
                                 time: tick as f64 / ppq,
                                 value: vel.as_int() as i16,
                                 agent,
+                                channel: 0,
                             });
                         }
                         _ => ignored += 1,
@@ -194,6 +209,7 @@ pub fn import_bytes(
                     pitch,
                     velocity,
                     agent,
+                    channel: 0,
                 });
             }
         }
@@ -303,7 +319,11 @@ pub fn import_bytes(
         / transport.time_signature.denominator as f64;
     let mut commands = vec![];
     if options.import_tempo {
+        // A new meter moves the existing clips, so the automation follows them, as
+        // `transport.setTimeSignature` does, in this same undo step.
+        let lanes = crate::control::automation_on_bars(session, &transport.time_signature);
         commands.push(Command::SetTransport(transport));
+        commands.extend(lanes);
     }
     let mut report = ImportReport {
         track_ids: vec![],
@@ -416,9 +436,11 @@ pub fn export(
             .and_then(serde_json::Value::as_u64)
             .filter(|v| *v < 16)
             .unwrap_or((index % 16) as u64) as u8;
-        // (tick, rank, message): at one tick note-offs go first, then controllers, then
-        // note-ons, so a bend or pedal is in place before the note it shapes.
-        let mut events: Vec<(u64, u8, MidiMessage)> = vec![];
+        // (tick, rank, channel, message): at one tick note-offs go first, then controllers,
+        // then note-ons, so a bend or pedal is in place before the note it shapes. What was
+        // played on channel 0 goes out on the track's channel; any other channel is kept.
+        let mut events: Vec<(u64, u8, u8, MidiMessage)> = vec![];
+        let on = |own: u8| if own == 0 { channel } else { own & 15 };
         for clip in session.clips.iter().filter(|c| c.track_id == track.id) {
             if let ClipData::Midi { notes, controllers } = &clip.data {
                 let offset = clip.start_bar * session.beats_per_bar();
@@ -430,11 +452,12 @@ pub fn export(
                         continue;
                     }
                     let note_end = (start + note.length).min(end);
-                    let on = (start * PPQ as f64).round() as u64;
-                    let off = ((note_end * PPQ as f64).round() as u64).max(on + 1);
+                    let start_tick = (start * PPQ as f64).round() as u64;
+                    let off = ((note_end * PPQ as f64).round() as u64).max(start_tick + 1);
                     events.push((
-                        on,
+                        start_tick,
                         2,
+                        on(note.channel),
                         MidiMessage::NoteOn {
                             key: u7::new(note.pitch),
                             vel: u7::new(note.velocity),
@@ -443,6 +466,7 @@ pub fn export(
                     events.push((
                         off,
                         0,
+                        on(note.channel),
                         MidiMessage::NoteOff {
                             key: u7::new(note.pitch),
                             vel: u7::new(0),
@@ -463,20 +487,29 @@ pub fn export(
                         ControllerKind::Pressure => MidiMessage::ChannelAftertouch {
                             vel: u7::new(played.value.clamp(0, 127) as u8),
                         },
+                        ControllerKind::PolyPressure => MidiMessage::Aftertouch {
+                            key: u7::new(played.number.unwrap_or(0).min(127)),
+                            vel: u7::new(played.value.clamp(0, 127) as u8),
+                        },
                     };
                     // A reset shares its tick with the next clip's first value; it goes first.
-                    events.push((tick, if played.reset { 0 } else { 1 }, message));
+                    events.push((
+                        tick,
+                        if played.reset { 0 } else { 1 },
+                        on(played.channel),
+                        message,
+                    ));
                     controller_count += 1;
                 }
             }
         }
-        events.sort_by_key(|(tick, rank, _)| (*tick, *rank));
+        events.sort_by_key(|(tick, rank, _, _)| (*tick, *rank));
         let mut sequence = vec![TrackEvent {
             delta: u28::new(0),
             kind: TrackEventKind::Meta(MetaMessage::TrackName(track.name.as_bytes())),
         }];
         let mut previous = 0;
-        for (tick, _, message) in events {
+        for (tick, _, channel, message) in events {
             let delta = tick - previous;
             if delta > 0x0fff_ffff {
                 return Err("MIDI gap exceeds the Standard MIDI File delta-time limit".into());

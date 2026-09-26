@@ -211,13 +211,30 @@ textarea:focus-visible {
   padding: 8px 14px;
   gap: 8px;
   border-bottom: 1px solid var(--line-border);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .agent-tabs button {
+  flex: none;
+  white-space: nowrap;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: var(--color-ink300);
   padding: 5px 8px;
+}
+/* A narrow window squeezes the agent panel: shorter labels, tighter tabs. */
+@container agent-panel (max-width: 350px) {
+  .agent-tabs {
+    padding-inline: 8px;
+    gap: 2px;
+  }
+  .agent-tabs button {
+    padding-inline: 6px;
+  }
+  .agent-tabs .tab-extra {
+    display: none;
+  }
 }
 .agent-tabs .m-segment-selected {
   background: var(--gradient-segment);

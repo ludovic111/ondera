@@ -14,7 +14,7 @@
 
 .center {
   flex: 1;
-  min-width: 0;
+  min-width: calc(var(--size-track-header) + var(--size-arrangement-min));
   display: flex;
   flex-direction: column;
   background: var(--color-timeline);

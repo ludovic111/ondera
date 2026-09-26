@@ -688,10 +688,13 @@ struct Shared {
     in_channels: usize,
     out_channels: usize,
     has_event_input: bool,
-    /// The parameter each MIDI controller drives, as the plugin's `IMidiMapping` reports it
-    /// for the first event bus and channel: 0-127 are CCs, 128 channel pressure, 129 pitch
-    /// bend. VST3 has no MIDI controller events; this is how a host delivers them.
-    midi_map: [Option<ParamID>; 130],
+    /// The parameter each MIDI controller drives on each channel, as the plugin's
+    /// `IMidiMapping` reports it for the first event bus: 0-127 are CCs, 128 channel pressure,
+    /// 129 pitch bend, each an index into `mapped`. VST3 has no MIDI controller events; this
+    /// is how a host delivers them.
+    midi_map: MidiMap,
+    /// The mapped parameters and the value the audio thread last gave each.
+    mapped: Mapped,
     active: AtomicBool,
 }
 // SAFETY: VST3 objects are shared between the main thread (controller, state,
@@ -719,19 +722,102 @@ impl Drop for Shared {
     }
 }
 
-/// Ask the controller which parameter each MIDI controller number drives.
-unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> [Option<ParamID>; 130] {
-    let mut map = [None; 130];
-    let Some(mapping) = controller.cast::<IMidiMapping>().filter(|_| events) else {
-        return map;
-    };
-    for (number, slot) in map.iter_mut().enumerate() {
-        let mut id: ParamID = 0;
-        if mapping.getMidiControllerAssignment(0, 0, number as CtrlNumber, &mut id) == kResultOk {
-            *slot = Some(id);
+/// Controller numbers `IMidiMapping` knows: 128 CCs, channel pressure and pitch bend.
+const MAPPED_CONTROLLERS: usize = 130;
+/// Per MIDI channel, the index in [`Mapped`] of the parameter each controller number drives.
+type MidiMap = [[Option<u16>; MAPPED_CONTROLLERS]; 16];
+
+/// The parameters MIDI controllers drive, each once however many controllers map to it, and
+/// the value the audio thread last sent each. The edit controller is told on the main thread
+/// (`Vst3Editor::idle`) so the plugin's own window follows the controller: a plugin applies a
+/// mapped value in its processor only, and a host that does not relay it leaves the knob
+/// still. Lock-free and preallocated: the audio thread only stores atomics, and a burst of
+/// values reaches the editor as the latest one.
+struct Mapped {
+    ids: Vec<ParamID>,
+    values: Vec<AtomicU64>,
+    dirty: Vec<AtomicBool>,
+    any: AtomicBool,
+}
+impl Mapped {
+    /// Audio thread.
+    fn publish(&self, index: usize, value: f64) {
+        if let (Some(slot), Some(dirty)) = (self.values.get(index), self.dirty.get(index)) {
+            slot.store(value.to_bits(), Ordering::Relaxed);
+            dirty.store(true, Ordering::Release);
+            self.any.store(true, Ordering::Release);
         }
     }
-    map
+    /// Main thread: every parameter whose value changed since the last call, with its latest
+    /// value.
+    fn take(&self, mut apply: impl FnMut(ParamID, f64)) {
+        if !self.any.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        for ((id, value), dirty) in self.ids.iter().zip(&self.values).zip(&self.dirty) {
+            if dirty.swap(false, Ordering::AcqRel) {
+                apply(*id, f64::from_bits(value.load(Ordering::Relaxed)));
+            }
+        }
+    }
+}
+/// Build the map from `assignment(channel, controller)`, as `IMidiMapping` answers it.
+fn mapping(mut assignment: impl FnMut(u8, usize) -> Option<ParamID>) -> (MidiMap, Mapped) {
+    let mut map = [[None; MAPPED_CONTROLLERS]; 16];
+    let mut ids: Vec<ParamID> = vec![];
+    for (channel, row) in map.iter_mut().enumerate() {
+        for (number, slot) in row.iter_mut().enumerate() {
+            let Some(id) = assignment(channel as u8, number) else {
+                continue;
+            };
+            let index = match ids.iter().position(|known| *known == id) {
+                Some(index) => index,
+                None if ids.len() < u16::MAX as usize => {
+                    ids.push(id);
+                    ids.len() - 1
+                }
+                None => continue,
+            };
+            *slot = Some(index as u16);
+        }
+    }
+    let mapped = Mapped {
+        values: ids.iter().map(|_| AtomicU64::new(0)).collect(),
+        dirty: ids.iter().map(|_| AtomicBool::new(false)).collect(),
+        any: AtomicBool::new(false),
+        ids,
+    };
+    (map, mapped)
+}
+/// Ask the controller which parameter each MIDI controller number drives on each channel.
+unsafe fn midi_map(controller: &ComPtr<IEditController>, events: bool) -> (MidiMap, Mapped) {
+    let asking = controller.cast::<IMidiMapping>().filter(|_| events);
+    mapping(|channel, number| {
+        let mapping = asking.as_ref()?;
+        let mut id: ParamID = 0;
+        (mapping.getMidiControllerAssignment(0, channel as int16, number as CtrlNumber, &mut id)
+            == kResultOk)
+            .then_some(id)
+    })
+}
+
+/// Polyphonic pressure as the VST3 event for it, at its frame within a block of `frames`.
+fn poly_pressure(event: &PluginEvent, frames: usize) -> Option<Event> {
+    if event.kind != kinds::POLY_PRESSURE {
+        return None;
+    }
+    // SAFETY: `Event` is a plain C struct; all zeroes is a valid value.
+    let mut e: Event = unsafe { std::mem::zeroed() };
+    e.busIndex = 0;
+    e.sampleOffset = (event.frame as usize).min(frames.max(1) - 1) as i32;
+    e.r#type = Event_::EventTypes_::kPolyPressureEvent as u16;
+    e.__field0.polyPressure = PolyPressureEvent {
+        channel: (event.channel & 15) as i16,
+        pitch: event.key.min(127) as i16,
+        pressure: event.value.min(127) as f32 / 127.0,
+        noteId: -1,
+    };
+    Some(e)
 }
 
 /// The `IMidiMapping` controller number and normalised value of a controller event.
@@ -926,7 +1012,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
                 controller.setComponentState(s.as_ptr());
             }
         }
-        let midi_map = midi_map(&controller, event_in > 0);
+        let (midi_map, mapped) = midi_map(&controller, event_in > 0);
         let shared = Arc::new(Shared {
             _module: module,
             component,
@@ -939,6 +1025,7 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
             out_channels,
             has_event_input: event_in > 0,
             midi_map,
+            mapped,
             active: AtomicBool::new(true),
         });
         let editor = Vst3Editor::new(shared.clone(), desc.clone());
@@ -961,6 +1048,10 @@ pub struct Vst3Editor {
     view: Option<ComPtr<IPlugView>>,
     frame: ComWrapper<PlugFrame>,
     dirty: bool,
+    /// Parameters without `kCanAutomate`.
+    fixed: std::collections::HashSet<u32>,
+    /// The program-change parameter and its step count, when the plugin has one.
+    program: Option<(u32, u32)>,
 }
 impl Vst3Editor {
     fn new(shared: Arc<Shared>, desc: Descriptor) -> Self {
@@ -973,12 +1064,16 @@ impl Vst3Editor {
                 resize: Mutex::new(None),
             }),
             dirty: false,
+            fixed: Default::default(),
+            program: None,
         };
         editor.read_params();
         editor
     }
     fn read_params(&mut self) {
         self.params.clear();
+        self.fixed.clear();
+        self.program = None;
         unsafe {
             let controller = &self.shared.controller;
             let count = controller.getParameterCount().clamp(0, 8192);
@@ -987,8 +1082,18 @@ impl Vst3Editor {
                 if controller.getParameterInfo(i, &mut info) != kResultOk {
                     continue;
                 }
-                if info.flags & ParameterInfo_::ParameterFlags_::kIsHidden != 0 {
+                let flags = info.flags;
+                if flags & ParameterInfo_::ParameterFlags_::kIsProgramChange != 0
+                    && self.program.is_none()
+                    && info.stepCount > 0
+                {
+                    self.program = Some((info.id, info.stepCount.min(4096) as u32));
+                }
+                if flags & ParameterInfo_::ParameterFlags_::kIsHidden != 0 {
                     continue;
+                }
+                if flags & ParameterInfo_::ParameterFlags_::kCanAutomate == 0 {
+                    self.fixed.insert(info.id);
                 }
                 let steps = info.stepCount.clamp(0, 100_000) as u32;
                 let mut labels = vec![];
@@ -1192,12 +1297,52 @@ impl Editor for Vst3Editor {
                 edits.clear();
             }
         }
+        // Values mapped controllers gave the processor: the edit controller, and so the
+        // plugin's window, follows them. Not a document edit, so nothing turns dirty.
+        let controller = &self.shared.controller;
+        self.shared.mapped.take(|id, value| unsafe {
+            controller.setParamNormalized(id, value);
+        });
     }
     fn latency(&self) -> u32 {
         unsafe { self.shared.processor.getLatencySamples() }
     }
     fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
+    }
+    fn parse_text(&self, id: u32, input: &str) -> Option<f64> {
+        let mut chars: String128 = [0; 128];
+        write_wstr(input.trim(), &mut chars);
+        let mut out = 0.0;
+        let asked = unsafe {
+            self.shared
+                .controller
+                .getParamValueByString(id, chars.as_mut_ptr(), &mut out)
+        } == kResultOk;
+        if asked && out.is_finite() {
+            return Some(out.clamp(0.0, 1.0));
+        }
+        // Labels were read at step positions of the normalized range.
+        let p = self.params.iter().find(|p| p.id == id)?;
+        p.labels
+            .iter()
+            .position(|l| l.trim().eq_ignore_ascii_case(input.trim()))
+            .map(|i| i as f64 / p.steps.max(1) as f64)
+            .or_else(|| input.trim().parse::<f64>().ok().map(|v| v.clamp(0.0, 1.0)))
+    }
+    fn automatable(&self, id: u32) -> bool {
+        !self.fixed.contains(&id)
+    }
+    fn programs(&mut self) -> Vec<String> {
+        let Some((id, steps)) = self.program else {
+            return Vec::new();
+        };
+        (0..=steps)
+            .map(|i| self.string_for(id, i as f64 / steps.max(1) as f64))
+            .collect()
+    }
+    fn program_parameter(&self) -> Option<u32> {
+        self.program.map(|(id, _)| id)
     }
 }
 impl Drop for Vst3Editor {
@@ -1286,6 +1431,11 @@ impl Processor for Vst3Processor {
     fn timed_params(&self) -> bool {
         true
     }
+    /// An effect with an event bus hears its track's controllers (as events, or as the
+    /// parameters its `IMidiMapping` names).
+    fn accepts_events(&self) -> bool {
+        self.shared.has_event_input
+    }
     fn process(
         &mut self,
         audio: &mut [[f32; 2]],
@@ -1342,9 +1492,12 @@ impl Processor for Vst3Processor {
             let Some((number, value)) = midi_controller(event) else {
                 continue;
             };
-            let Some(id) = self.shared.midi_map[number] else {
+            let Some(index) = self.shared.midi_map[event.channel as usize & 15][number] else {
                 continue;
             };
+            let index = index as usize;
+            let id = self.shared.mapped.ids[index];
+            self.shared.mapped.publish(index, value);
             let queues = &self.changes.queues;
             let queue = match queues[..count]
                 .iter()
@@ -1367,10 +1520,17 @@ impl Processor for Vst3Processor {
             let events = &mut *self.events.events.get();
             events.clear();
             if self.shared.has_event_input {
-                for note in notes.iter().filter_map(PluginEvent::as_note) {
+                for event in notes {
                     if events.len() >= events.capacity() {
                         break;
                     }
+                    if let Some(pressure) = poly_pressure(event, n) {
+                        events.push(pressure);
+                        continue;
+                    }
+                    let Some(note) = event.as_note() else {
+                        continue;
+                    };
                     let mut e: Event = std::mem::zeroed();
                     e.busIndex = 0;
                     e.sampleOffset = (note.frame as usize).min(n - 1) as i32;
@@ -1510,5 +1670,66 @@ impl Processor for Vst3Processor {
                 if r.is_finite() { r } else { 0.0 },
             ];
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn polyphonic_pressure_becomes_the_vst3_event_on_its_channel() {
+        let event = poly_pressure(&PluginEvent::poly_pressure(300, 61, 127).on_channel(4), 256)
+            .expect("a poly pressure event");
+        assert_eq!(event.r#type, Event_::EventTypes_::kPolyPressureEvent as u16);
+        assert_eq!(event.sampleOffset, 255, "Clamped into the block");
+        let pressure = unsafe { event.__field0.polyPressure };
+        assert_eq!((pressure.channel, pressure.pitch), (4, 61));
+        assert_eq!(pressure.pressure, 1.0);
+        assert!(poly_pressure(&PluginEvent::channel_pressure(0, 3), 256).is_none());
+    }
+    #[test]
+    fn mapped_controller_values_reach_the_edit_controller_once_and_latest() {
+        // CC1 on every channel and pitch bend on channel 2 drive parameter 7; CC74 on channel
+        // 0 drives parameter 9.
+        let (map, mapped) = mapping(|channel, number| match (channel, number) {
+            (_, 1) | (2, 129) => Some(7),
+            (0, 74) => Some(9),
+            _ => None,
+        });
+        assert_eq!(mapped.ids, vec![7, 9], "One entry per parameter");
+        assert_eq!(map[0][1], Some(0));
+        assert_eq!(map[15][1], Some(0));
+        assert_eq!(map[2][129], Some(0));
+        assert_eq!(map[0][74], Some(1));
+        assert_eq!(map[1][74], None);
+        let taken = |mapped: &Mapped| {
+            let mut out = vec![];
+            mapped.take(|id, value| out.push((id, value)));
+            out
+        };
+        assert!(taken(&mapped).is_empty(), "Nothing moved yet");
+        mapped.publish(0, 0.25);
+        mapped.publish(0, 0.5);
+        mapped.publish(1, 1.0);
+        assert_eq!(taken(&mapped), vec![(7, 0.5), (9, 1.0)]);
+        assert!(taken(&mapped).is_empty(), "Told once");
+        mapped.publish(99, 1.0);
+        assert!(taken(&mapped).is_empty(), "An unknown index is ignored");
+    }
+    #[test]
+    fn mapped_controllers_are_numbered_as_imidimapping_counts_them() {
+        assert_eq!(
+            midi_controller(&PluginEvent::control(0, 74, 127)),
+            Some((74, 1.0))
+        );
+        assert_eq!(
+            midi_controller(&PluginEvent::channel_pressure(0, 0)),
+            Some((128, 0.0))
+        );
+        assert_eq!(
+            midi_controller(&PluginEvent::pitch_bend(0, 1.0)),
+            Some((129, 1.0))
+        );
+        assert!(midi_controller(&PluginEvent::poly_pressure(0, 60, 9)).is_none());
     }
 }

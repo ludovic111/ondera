@@ -499,6 +499,7 @@ impl Ondera {
                     on: false,
                     pitch,
                     velocity: 0,
+                    channel: 0,
                 })
                 .is_err()
             {
@@ -520,6 +521,7 @@ impl Ondera {
                 on,
                 pitch,
                 velocity,
+                channel: 0,
             }) {
                 d.telemetry.input_overflow.store(true, Ordering::Release);
                 self.stop();
@@ -649,6 +651,7 @@ impl Ondera {
                     pitch: n.pitch,
                     velocity: n.velocity,
                     agent: false,
+                    channel: n.channel,
                 })
                 .collect();
             let controllers =
@@ -1157,7 +1160,7 @@ impl Ondera {
                 .map(|buffer| (buffer.frames.len() * 8 + 128).div_ceil(3) * 4)
                 .sum();
             byte_limit = audio::MAX_LIBRARY_BYTES
-                .saturating_sub(audio::library_bytes(&self.library))
+                .saturating_sub(audio::session_bytes(s, &self.library))
                 .min(
                     (700usize * 1024 * 1024)
                         .saturating_sub(embedded_bytes)
@@ -1383,7 +1386,8 @@ impl Ondera {
         buffer: Arc<audio::AudioBuffer>,
         recorded: Option<(f64, Vec<String>)>,
     ) {
-        if audio::library_bytes(&self.library).saturating_add(buffer.frames.len() * 8)
+        if audio::session_bytes(self.store.session(), &self.library)
+            .saturating_add(buffer.frames.len() * 8)
             > audio::MAX_LIBRARY_BYTES
         {
             self.error = Some(
@@ -2006,6 +2010,7 @@ impl Ondera {
                 pitch: n["pitch"].as_u64().unwrap_or(60) as u8,
                 velocity: n["velocity"].as_u64().unwrap_or(100) as u8,
                 agent: false,
+                channel: 0,
             })
             .collect();
         // Patterns are authored in 4/4; length is translated to current bars.
@@ -2739,7 +2744,7 @@ mod tests {
             .plugins
             .loaded
             .values()
-            .any(|l| l.plugin_id == "stock:Ondera Synth"));
+            .any(|l| l.plugin_id == "stock:Drum Machine"));
         // Removing the insert retires its instance.
         let mut strip = app.store.session().strips[MASTER].clone();
         strip.inserts.clear();

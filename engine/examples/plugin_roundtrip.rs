@@ -153,6 +153,7 @@ fn main() {
                     pitch,
                     velocity: 92,
                     agent: false,
+                    channel: 0,
                 })
                 .collect(),
             controllers: vec![],

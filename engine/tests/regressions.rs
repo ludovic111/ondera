@@ -352,3 +352,247 @@ fn a_midi_round_trip_keeps_the_tempo() {
         90.0
     );
 }
+
+/// Stock instruments left no headroom: the Four Floor loop on the Drum Machine peaked at
+/// +3 dBFS on its own, and a five-note E-piano chord at +5 dBFS, at unity gain.
+#[test]
+fn stock_loops_and_chords_do_not_clip_at_unity() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = Headless::new();
+    let loops = call(&mut host, "session.catalog", json!({}))["loops"].clone();
+    for (index, l) in loops.as_array().unwrap().iter().enumerate() {
+        let name = l["name"].as_str().unwrap();
+        let track = call(
+            &mut host,
+            "track.add",
+            json!({"kind":"midi","name":name,"instrument":l["instrument"]}),
+        )["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        call(
+            &mut host,
+            "clip.addLoop",
+            json!({"trackId":track,"name":name,"startBar":0}),
+        );
+        let solo = call(
+            &mut host,
+            "session.exportStems",
+            json!({"directory": dir.path().join(format!("stems-{index}")), "trackIds":[track], "includeMaster": false}),
+        );
+        let peak = solo["files"][0]["peak"].as_f64().unwrap();
+        assert!(peak < 0.9, "{name} peaks at {peak}");
+    }
+    let keys = call(
+        &mut host,
+        "track.add",
+        json!({"kind":"midi","name":"Chord","instrument":"E-Piano Mk I"}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let notes: Vec<Value> = [48, 55, 60, 64, 67]
+        .iter()
+        .map(|p| json!({"start":0,"length":4,"pitch":p,"velocity":110}))
+        .collect();
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":keys,"startBar":0,"lengthBars":1,"notes":notes}),
+    );
+    let chord = call(
+        &mut host,
+        "session.exportStems",
+        json!({"directory": dir.path().join("chord"), "trackIds":[keys], "includeMaster": false}),
+    );
+    let peak = chord["files"][0]["peak"].as_f64().unwrap();
+    assert!(peak < 1.0, "the chord peaks at {peak}");
+}
+
+/// `session.importMidi importTempo=true` changed the meter but left automation on its old
+/// beats, so it slid off the clips it was written against.
+#[test]
+fn importing_midi_with_its_meter_keeps_automation_on_its_bars() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("waltz.mid");
+    let mut waltz = Headless::new();
+    call(
+        &mut waltz,
+        "transport.setTimeSignature",
+        json!({"numerator":3,"denominator":4}),
+    );
+    let track = midi_track(&mut waltz);
+    call(
+        &mut waltz,
+        "clip.create",
+        json!({"trackId":track,"startBar":0,"lengthBars":1,
+               "notes":[{"start":0,"length":1,"pitch":60}]}),
+    );
+    call(&mut waltz, "session.exportMidi", json!({ "path": path }));
+
+    let mut host = Headless::new();
+    let track = midi_track(&mut host);
+    call(
+        &mut host,
+        "clip.create",
+        json!({"trackId":track,"startBar":4,"lengthBars":1}),
+    );
+    call(
+        &mut host,
+        "automation.create",
+        json!({"target":"trackVolume","trackId":track,
+               "points":[{"beat":16,"value":0.2},{"beat":20,"value":0.9}]}),
+    );
+    call(
+        &mut host,
+        "session.importMidi",
+        json!({ "path": path, "importTempo": true }),
+    );
+    let info = call(&mut host, "session.info", json!({}));
+    assert_eq!(info["transport"]["timeSignature"]["numerator"], 3);
+    let beats = |host: &mut Headless| -> Vec<f64> {
+        call(host, "automation.list", json!({}))["lanes"][0]["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["beat"].as_f64().unwrap())
+            .collect()
+    };
+    // Bar 4 starts at beat 12 in 3/4: the point written at the clip's start stays there.
+    assert_eq!(beats(&mut host), [12.0, 15.0]);
+    // One undo takes back the import, the meter and the moved points together.
+    call(&mut host, "history.undo", json!({}));
+    assert_eq!(beats(&mut host), [16.0, 20.0]);
+    assert_eq!(
+        call(&mut host, "session.info", json!({}))["transport"]["timeSignature"]["numerator"],
+        4
+    );
+}
+
+/// A short Ogg Vorbis file, whose only audio page is also its last, decoded a few
+/// milliseconds past its true end: symphonia read the last packet's overrun as a start
+/// delay and kept it.
+#[test]
+fn ogg_imports_end_on_the_exported_frame() {
+    use ondera_engine::{audio, export, store};
+    let session = store::demo();
+    let mut library = audio::Library::new();
+    audio::prepare_sources(&session, &mut library).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    for end_beat in [0.5, 1.37, 4.0] {
+        let options = export::ExportOptions {
+            end_beat: Some(end_beat),
+            tail_seconds: 0.0,
+            format: export::SampleFormat::Float32,
+            ..Default::default()
+        };
+        let (wav, ogg) = (dir.path().join("mix.wav"), dir.path().join("mix.ogg"));
+        export::mix(&session, &library, &wav, &options).unwrap();
+        let report = export::mix(&session, &library, &ogg, &options).unwrap();
+        let decoded = audio::decode(std::fs::read(&ogg).unwrap(), Some("ogg")).unwrap();
+        assert_eq!(
+            decoded.frames.len() as u64,
+            report.frames,
+            "{end_beat} beats"
+        );
+        // What was cut is the tail: the start still lines up with the mix.
+        let original = audio::decode(std::fs::read(&wav).unwrap(), Some("wav")).unwrap();
+        let (mut signal, mut error) = (0f64, 0f64);
+        for (a, b) in original.frames.iter().zip(&decoded.frames) {
+            for c in 0..2 {
+                signal += (a[c] as f64).powi(2);
+                error += (a[c] as f64 - b[c] as f64).powi(2);
+            }
+        }
+        let snr = 10.0 * (signal / error.max(1e-12)).log10();
+        assert!(snr > 10.0, "{end_beat} beats: {snr:.1} dB");
+    }
+}
+
+/// An undone `session.importAudio` still counted toward the 1 GiB decoded-audio budget: the
+/// library keeps the buffer so a redo can bring it back, and the budget summed the library.
+#[test]
+fn undone_audio_imports_do_not_count_toward_the_import_budget() {
+    use ondera_engine::audio::{self, AudioBuffer};
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("loop.wav");
+    let mut host = Headless::new();
+    call(
+        &mut host,
+        "clip.addLoop",
+        json!({"name":"Four Floor 124","startBar":0}),
+    );
+    call(&mut host, "session.bounce", json!({ "path": wav }));
+    let mut host = Headless::new();
+    let imported = call(&mut host, "session.importAudio", json!({ "path": wav }));
+    let source = imported["source"]["id"].as_str().unwrap().to_string();
+    // Stand in a buffer that fills the whole budget for the imported one. Zeroed pages are
+    // never touched, so this costs no real memory.
+    let full = AudioBuffer {
+        sample_rate: 48000,
+        frames: vec![[0.0; 2]; audio::MAX_LIBRARY_BYTES / 8],
+        peaks: Vec::new(),
+    };
+    host.library.insert(source.clone(), Arc::new(full));
+    let error = fail(&mut host, "session.importAudio", json!({ "path": wav }));
+    assert!(error.contains("1 GiB"), "{error}");
+    call(&mut host, "history.undo", json!({}));
+    assert!(host.store.session().sources.is_empty());
+    assert!(host.library.contains_key(&source), "kept for redo");
+    assert_eq!(audio::session_bytes(host.store.session(), &host.library), 0);
+    call(&mut host, "session.importAudio", json!({ "path": wav }));
+    assert_eq!(host.store.session().sources.len(), 1);
+}
+
+/// A new song was meant to start with Drums on the Drum Machine and Bass on Analog Bass, but
+/// track strips only exist once edited, so both tracks still played the default synth.
+#[test]
+fn a_new_song_starts_with_drums_and_bass_instruments() {
+    let mut host = Headless::new();
+    let tracks = call(&mut host, "track.list", json!({}));
+    let instrument = |name: &str| {
+        tracks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("no {name} track"))["instrument"]
+            .clone()
+    };
+    assert_eq!(instrument("Drums"), "Drum Machine");
+    assert_eq!(instrument("Bass"), "Analog Bass");
+    assert_eq!(instrument("Vocals"), Value::Null);
+}
+
+/// Agents write `value="-6 dB"`; the refusal now names the parameter that takes text.
+#[test]
+fn a_number_given_as_text_points_at_the_text_parameter() {
+    let mut host = Headless::new();
+    let err = fail(
+        &mut host,
+        "strip.setParameter",
+        json!({"trackId":"Drums","parameter":"Level","value":"-6 dB"}),
+    );
+    assert!(err.contains("use `text`"), "{err}");
+    let err = fail(&mut host, "transport.setTempo", json!({"tempo":"fast"}));
+    assert!(!err.contains("text"), "{err}");
+}
+
+/// Lanes were named "drums · Parameter 3"; they now say what they automate.
+#[test]
+fn automation_lanes_get_readable_names() {
+    let mut host = Headless::new();
+    let volume = call(
+        &mut host,
+        "automation.create",
+        json!({"target":"trackVolume","trackId":"Bass"}),
+    );
+    assert_eq!(volume["lane"]["name"], "Bass · Volume");
+    let level = call(
+        &mut host,
+        "automation.create",
+        json!({"target":"pluginParameter","trackId":"Drums","parameter":"Level"}),
+    );
+    assert_eq!(level["lane"]["name"], "Drums · Drum Machine · Level");
+}

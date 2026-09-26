@@ -115,13 +115,13 @@ fn preflight(
 pub(super) fn prompt_with_context(turn: &Turn, prefix: &str) -> String {
     let summary = bounded(
         &serde_json::to_string(&turn.session_summary).unwrap_or_default(),
-        3000,
+        8000,
     );
     if prefix.trim().is_empty() {
-        format!("{}\n\n[Current session summary: {summary}]", turn.prompt)
+        format!("{}\n\n[Current session overview: {summary}]", turn.prompt)
     } else {
         format!(
-            "Conversation so far, for context only:\n{prefix}\n\nNew request:\n{}\n\n[Current session summary: {summary}]",
+            "Conversation so far, for context only:\n{prefix}\n\nNew request:\n{}\n\n[Current session overview: {summary}]",
             turn.prompt
         )
     }

@@ -1,15 +1,32 @@
-// Ondera site runtime. Three parts: a tiny command store that mirrors the app's
-// dispatch(command) pattern, canvas drawing for the arrangement mock, and the
-// hardware rack demo. Every visual constant comes from tokens.js.
-import { tokens as T, setTheme } from './tokens.js?v=0.8';
-
-setTheme(document.documentElement.dataset.theme, document.documentElement.dataset.mode);
+// Ondera site runtime: a tiny command store that mirrors the app's dispatch(command)
+// pattern, canvas drawing for the arrangement mock, the hardware rack demo, the theme
+// gallery and the page's motion. Every visual constant comes from tokens.js (the app's
+// Skeuomorphic dark theme, the one the site wears).
+import { tokens as T } from './tokens.js?v=0.9';
 
 document.documentElement.classList.add('js');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// Reveals are wired first, so a failure further down never leaves the page hidden.
+// Grid items rise one after another: each gets its column as a stagger step.
+for (const grid of $$('.news, .features, .downloads, .clients, .switch, .shots__grid')) {
+  $$(':scope > .reveal', grid).forEach((el, i) => { if (!el.style.getPropertyValue('--d')) el.style.setProperty('--d', i % 3); });
+}
+
+// Reveal on scroll.
+const revealer = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); revealer.unobserve(e.target); }
+}, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
+for (const el of $$('.reveal, .display')) revealer.observe(el);
+
+// Number pop-in: each digit of a stat gets its own step; the text stays whole for screen readers.
+for (const dd of $$('[data-pop]')) {
+  const text = dd.textContent;
+  dd.innerHTML = `<span class="sr">${text}</span><span class="pop" aria-hidden="true">${[...text].map((ch, i) => `<i style="--i:${i}">${ch}</i>`).join('')}</span>`;
+}
 
 // ---------------------------------------------------------------------------
 // Mock session: eight tracks, song markers, and audio clips with fades and clip gain.
@@ -725,35 +742,194 @@ segmented?.addEventListener('click', (e) => {
   for (const b of $$('button', segmented)) b.setAttribute('aria-pressed', String(b === btn));
 });
 
+// ---------------------------------------------------------------------------
+// Page motion. Patterns after transitions.dev (texts reveal, number pop-in, text
+// states swap, tabs sliding, 3D tilt), written from scratch. CSS owns what moves;
+// this only sets classes and custom properties. Reduced motion skips all of it.
+// ---------------------------------------------------------------------------
+
+/** Text states swap: the old label blurs out, the new one blurs in. */
+function swapText(el, text) {
+  if (reducedMotion) { el.textContent = text; return; }
+  el.classList.add('is-out');
+  setTimeout(() => { el.textContent = text; el.classList.remove('is-out'); }, 140);
+}
+
 // Copy clone command
 $('#copy')?.addEventListener('click', async (e) => {
-  const btn = e.currentTarget;
+  const label = $('[data-label]', e.currentTarget);
   try {
     await navigator.clipboard.writeText($('#clone-cmd').textContent);
-    btn.textContent = 'Copied';
+    swapText(label, 'Copied');
   } catch {
-    btn.textContent = 'Select it';
+    swapText(label, 'Select it');
   }
-  setTimeout(() => { btn.textContent = 'Copy'; }, 1400);
+  setTimeout(() => swapText(label, 'Copy'), 1600);
 });
-
-// Reveal on scroll
-const revealer = new IntersectionObserver((entries) => {
-  for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); revealer.unobserve(e.target); }
-}, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
-for (const el of $$('.reveal')) revealer.observe(el);
 
 // Sound folders light in order; cards carry the pointer position for their sheen.
 $$('.families__row li').forEach((li, i) => li.style.setProperty('--i', i));
-if (!reducedMotion) {
-  for (const card of $$('.feature, .switch__col, .news__item')) {
+const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
+if (!reducedMotion && finePointer) {
+  for (const card of $$('.feature, .switch__col, .news__item, .card, .dl, .release')) {
     card.addEventListener('pointermove', (e) => {
       const r = card.getBoundingClientRect();
       card.style.setProperty('--mx', `${e.clientX - r.left}px`);
       card.style.setProperty('--my', `${e.clientY - r.top}px`);
     }, { passive: true });
   }
+  // 3D tilt with a glare that follows the pointer, on the window captures.
+  for (const frame of $$('.shot__frame, .gallery__frame')) {
+    frame.addEventListener('pointermove', (e) => {
+      const r = frame.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      frame.style.setProperty('--ry', `${(x - 0.5) * 5}deg`);
+      frame.style.setProperty('--rx', `${(0.5 - y) * 4}deg`);
+      frame.style.setProperty('--gx', `${x * 100}%`);
+      frame.style.setProperty('--gy', `${y * 100}%`);
+      frame.classList.add('is-tilting');
+    }, { passive: true });
+    frame.addEventListener('pointerleave', () => {
+      frame.classList.remove('is-tilting');
+      frame.style.setProperty('--rx', '0deg');
+      frame.style.setProperty('--ry', '0deg');
+    });
+  }
 }
+
+// ---------------------------------------------------------------------------
+// The hero's signal: a row of level bars that breathe like a meter bridge.
+// Pure CSS animation (transform only); it pauses off screen.
+// ---------------------------------------------------------------------------
+
+const signal = $('#signal');
+if (signal) {
+  const rnd = lcg(7);
+  const build = () => {
+    const count = Math.max(24, Math.min(128, Math.floor(signal.clientWidth / 8)));
+    if (signal.childElementCount === count) return;
+    let html = '';
+    for (let i = 0; i < count; i++) {
+      const u = i / (count - 1);
+      // A phrase-like envelope: louder in the middle, two swells, never silent.
+      const env = 0.25 + 0.75 * Math.sin(Math.PI * u) * (0.7 + 0.3 * Math.sin(u * 9.4 + 1.3));
+      const hi = Math.max(0.14, env * (0.65 + rnd() * 0.35));
+      const lo = hi * (0.25 + rnd() * 0.3);
+      html += `<i style="--hi:${hi.toFixed(3)};--lo:${lo.toFixed(3)};--dur:${(0.9 + rnd() * 1.1).toFixed(2)}s;--delay:-${(rnd() * 2).toFixed(2)}s"></i>`;
+    }
+    signal.innerHTML = html;
+  };
+  build();
+  new ResizeObserver(build).observe(signal);
+  new IntersectionObserver(([e]) => signal.classList.toggle('is-paused', !e.isIntersecting)).observe(signal);
+}
+
+// ---------------------------------------------------------------------------
+// Tabs with a sliding pill (the theme gallery's theme and mode pickers).
+// ---------------------------------------------------------------------------
+
+function placePill(group) {
+  const on = $('[aria-selected="true"], [aria-checked="true"]', group);
+  const pill = $('.tabs__pill', group);
+  if (!on || !pill) return;
+  pill.style.setProperty('--x', `${on.offsetLeft}px`);
+  pill.style.setProperty('--w', `${on.offsetWidth}px`);
+}
+const pillGroups = $$('.tabs');
+const placeAll = () => pillGroups.forEach(placePill);
+if (pillGroups.length) {
+  placeAll();
+  document.fonts?.ready.then(placeAll);
+  new ResizeObserver(placeAll).observe(pillGroups[0].parentElement);
+  requestAnimationFrame(() => pillGroups.forEach((g) => g.classList.add('is-ready')));
+}
+
+// ---------------------------------------------------------------------------
+// Theme gallery: captures of the app's renderer in every theme and mode. The site
+// itself keeps one look; this only swaps a picture, crossfaded with a view
+// transition where the browser has one.
+// ---------------------------------------------------------------------------
+
+const galleryImg = $('#gallery-img');
+if (galleryImg) {
+  const themeTabs = $$('#theme-tabs [role="tab"]');
+  const modeTabs = $$('#mode-tabs [role="radio"]');
+  let theme = 'skeuo', mode = 'dark', request = 0;
+
+  const select = (list, attr, value, key) => {
+    for (const b of list) {
+      const on = b.dataset[key] === value;
+      b.setAttribute(attr, String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+  };
+  async function show() {
+    const id = ++request;
+    const tab = themeTabs.find((b) => b.dataset.themeId === theme);
+    const src = `img/theme-${theme}-${mode}.webp`;
+    const alt = `The Ondera window in the ${tab.dataset.themeName} theme, ${mode} mode: arrangement, piano roll, channel inspector and agent panel`;
+    // Load before the swap so the transition never waits on the network.
+    const next = new Image();
+    next.src = src;
+    try { await next.decode(); } catch { /* shown anyway */ }
+    if (id !== request) return;
+    const swap = () => {
+      galleryImg.src = src;
+      galleryImg.alt = alt;
+      for (const p of $$('[data-theme-desc]')) p.hidden = p.dataset.themeDesc !== theme;
+    };
+    if (document.startViewTransition && !reducedMotion) {
+      document.startViewTransition(async () => {
+        swap();
+        try { await galleryImg.decode(); } catch { /* ignore */ }
+      });
+    } else swap();
+  }
+  for (const b of themeTabs) b.addEventListener('click', () => {
+    if (b.dataset.themeId === theme) return;
+    theme = b.dataset.themeId;
+    select(themeTabs, 'aria-selected', theme, 'themeId');
+    placeAll();
+    b.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reducedMotion ? 'auto' : 'smooth' });
+    show();
+  });
+  for (const b of modeTabs) b.addEventListener('click', () => {
+    if (b.dataset.modeId === mode) return;
+    mode = b.dataset.modeId;
+    select(modeTabs, 'aria-checked', mode, 'modeId');
+    placeAll();
+    show();
+  });
+  // Warm the cache for the other captures once the gallery is near.
+  new IntersectionObserver(([e], io) => {
+    if (!e.isIntersecting) return;
+    io.disconnect();
+    const warm = () => {
+      for (const t of themeTabs) for (const m of ['dark', 'light']) {
+        const src = `img/theme-${t.dataset.themeId}-${m}.webp`;
+        if (!galleryImg.src.endsWith(src)) new Image().src = src;
+      }
+    };
+    (window.requestIdleCallback ?? setTimeout)(warm);
+  }, { rootMargin: '400px 0px' }).observe(galleryImg);
+}
+
+// ---------------------------------------------------------------------------
+// The section link you are reading is marked in the nav.
+// ---------------------------------------------------------------------------
+
+const navFor = new Map($$('.nav__links a[href^="#"]').map((a) => [a.getAttribute('href').slice(1), a]));
+const sectionSpy = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    const link = navFor.get(e.target.id);
+    if (!link) continue;
+    if (e.isIntersecting) {
+      for (const a of navFor.values()) a.removeAttribute('aria-current');
+      link.setAttribute('aria-current', 'location');
+    } else if (link.hasAttribute('aria-current')) link.removeAttribute('aria-current');
+  }
+}, { rootMargin: '-45% 0px -50% 0px' });
+for (const id of navFor.keys()) { const s = document.getElementById(id); if (s) sectionSpy.observe(s); }
 
 // ---------------------------------------------------------------------------
 // Section menu on narrow screens.
@@ -774,7 +950,7 @@ if (menuBtn && navLinks) {
   document.addEventListener('click', (e) => {
     if (navLinks.classList.contains('is-open') && !e.target.closest('.nav')) setOpen(false);
   });
-  matchMedia('(min-width: 1141px)').addEventListener('change', (e) => { if (e.matches) setOpen(false); });
+  matchMedia('(min-width: 1041px)').addEventListener('change', (e) => { if (e.matches) setOpen(false); });
 }
 
 // ---------------------------------------------------------------------------
@@ -804,37 +980,3 @@ detectPlatform().then((platform) => {
   $$('[data-download-label]').forEach((a) => { a.textContent = `Download for ${names[platform]}`; });
   $(`.dl[data-os="${platform}"]`)?.classList.add('is-yours');
 });
-
-// ---------------------------------------------------------------------------
-// Themes: the page wears the app's tokens, so switching re-skins everything.
-// CSS follows the data attributes; the canvas re-reads the live token object.
-// ---------------------------------------------------------------------------
-
-function applyTheme(theme, mode, remember = true) {
-  const root = document.documentElement;
-  root.dataset.theme = theme;
-  root.dataset.mode = mode;
-  setTheme(theme, mode);
-  if (remember) {
-    try {
-      localStorage.setItem('ondera-theme', theme);
-      localStorage.setItem('ondera-mode', mode);
-    } catch { /* private mode: the choice lasts for this page */ }
-  }
-  for (const el of $$('[data-set-theme]')) {
-    const on = el.dataset.setTheme === theme;
-    el.setAttribute(el.getAttribute('role') === 'radio' ? 'aria-checked' : 'aria-pressed', String(on));
-  }
-  // Theme cards preview their own theme in the page's current mode.
-  for (const card of $$('.themecard')) card.dataset.mode = mode;
-  $('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--site-page').trim());
-  draw();
-}
-document.addEventListener('click', (e) => {
-  const root = document.documentElement;
-  const pick = e.target.closest('[data-set-theme]');
-  if (pick) return applyTheme(pick.dataset.setTheme, root.dataset.mode);
-  if (e.target.closest('[data-toggle-mode]'))
-    applyTheme(root.dataset.theme, root.dataset.mode === 'dark' ? 'light' : 'dark');
-});
-applyTheme(document.documentElement.dataset.theme, document.documentElement.dataset.mode, false);

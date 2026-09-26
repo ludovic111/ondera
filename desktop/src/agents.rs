@@ -109,7 +109,7 @@ impl AgentPanel {
         )
             .hash(&mut h);
         r.elapsed().as_secs().hash(&mut h);
-        r.transcript.len().hash(&mut h);
+        (r.first_id, r.transcript.len()).hash(&mut h);
         for entry in r.transcript.iter().rev().take(100) {
             (&entry.text, entry.streaming).hash(&mut h);
             if let Some(tool) = &entry.tool {
@@ -983,7 +983,15 @@ impl Ondera {
             );
         }
         let settings = self.settings.clone();
-        let summary = control::call(self, "session.info", &json!({}), false).unwrap_or(Value::Null);
+        // The overview without plugin parameters and with a few clips per track: enough to
+        // start oriented; the agent asks session_overview for more.
+        let summary = control::call(
+            self,
+            "session.overview",
+            &json!({"maxClips": 2, "parameters": false}),
+            false,
+        )
+        .unwrap_or(Value::Null);
         let history = self.agents.runtime.history.clone();
         let mcp = agent::cli::companion("ondera-mcp");
         self.agents
@@ -1260,14 +1268,17 @@ impl AgentPanel {
         })
     }
     pub(crate) fn transcript_json(&self, limit: usize) -> Value {
+        let first = self.runtime.first_id;
         let entries: Vec<Value> = self
             .runtime
             .transcript
             .iter()
+            .enumerate()
             .rev()
             .take(limit)
-            .map(|entry| {
+            .map(|(index, entry)| {
                 let mut value = json!({
+                    "id": first + index as u64,
                     "role": match entry.role {
                         Role::User => "user",
                         Role::Assistant => "assistant",

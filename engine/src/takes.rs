@@ -20,6 +20,17 @@ struct Take {
     name: String,
     session: Session,
 }
+/// Take names and the active one without decoding the saved arrangements, for
+/// `session.overview`. `None` when the project has no takes.
+pub(crate) fn brief(session: &Session) -> Option<Value> {
+    let value = session.extra.get(KEY)?;
+    let entries = value["entries"].as_array().filter(|e| !e.is_empty())?;
+    let active = value["active"].as_str();
+    Some(json!({
+        "active": entries.iter().find(|t| t["id"].as_str() == active).map(|t| &t["name"]),
+        "takes": entries.iter().map(|t| json!({"id": t["id"], "name": t["name"]})).collect::<Vec<_>>(),
+    }))
+}
 fn read(session: &Session) -> Result<Takes> {
     let Some(value) = session.extra.get(KEY) else {
         return Ok(Takes::default());

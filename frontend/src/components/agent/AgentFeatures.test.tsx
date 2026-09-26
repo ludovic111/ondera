@@ -11,7 +11,7 @@ import {
 const mock = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mock.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
-import { AgentPanel } from "./AgentPanel";
+import { AgentPanel, threadItems } from "./AgentPanel";
 import { ModelSelector } from "./ModelSelector";
 import { AgentMessage, humanStatus } from "./AgentMessage";
 import { SessionProvider } from "../../state/session";
@@ -238,4 +238,19 @@ it("shows what the agent changed in plain words and sends the selection along", 
   expect(screen.getByText("Added an instrument track “Drums”")).toBeTruthy();
   expect(screen.getByText("Created a region 3 notes")).toBeTruthy();
   expect(screen.getByText("Track is full")).toBeTruthy();
+});
+it("keys conversation items by entry id so trimming keeps each item's identity", () => {
+  const tool = { name: "track.add", args: {}, ok: true, result: {} };
+  const before = threadItems([
+    { id: 7, role: "user", text: "a" },
+    { id: 8, role: "tool", text: "", tool },
+    { id: 9, role: "tool", text: "", tool },
+    { id: 10, role: "assistant", text: "b" },
+  ]);
+  const after = threadItems([
+    { id: 9, role: "tool", text: "", tool },
+    { id: 10, role: "assistant", text: "b" },
+  ]);
+  expect(before.map((i) => i.key)).toEqual(["7", "8", "10"]);
+  expect(after.map((i) => i.key)).toEqual(["9", "10"]);
 });

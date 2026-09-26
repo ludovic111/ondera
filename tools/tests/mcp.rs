@@ -394,3 +394,84 @@ fn mcp_serves_prompts_resources_and_parity_tools() {
         .unwrap()
         .contains("live mode"));
 }
+
+#[test]
+fn mcp_starts_from_the_overview_and_takes_names_for_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = Mcp::start(dir.path(), &["--headless"]);
+    let init = mcp.request(1, "initialize", json!({ "protocolVersion": "2025-06-18" }));
+    assert!(init["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("Start with session_overview"));
+    let tools = mcp.request(2, "tools/list", json!({}))["result"]["tools"].clone();
+    let overview = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "session_overview")
+        .cloned()
+        .expect("session_overview is a tool");
+    assert_eq!(overview["annotations"]["readOnlyHint"], true);
+    assert!(overview["inputSchema"]["properties"]["maxClips"].is_object());
+    for tool in [
+        "ui_state",
+        "strip_programs",
+        "strip_setProgram",
+        "strip_removeInsert",
+    ] {
+        assert!(
+            tools.as_array().unwrap().iter().any(|t| t["name"] == tool),
+            "{tool} missing"
+        );
+    }
+    mcp.tool(3, "session_new", json!({ "demo": true }));
+    let result = mcp.tool(4, "session_overview", json!({}));
+    let o = &result["structuredContent"];
+    assert_eq!(o["song"]["meter"], "4/4", "{result}");
+    assert!(o["tracks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["name"] == "Bass" && t["instrument"]["name"].is_string()));
+    let muted = mcp.tool(
+        5,
+        "track_setMute",
+        json!({ "trackId": "Bass", "muted": true }),
+    );
+    assert_eq!(muted["structuredContent"]["mute"], true, "{muted}");
+    let wrong = mcp.tool(
+        6,
+        "track_setMute",
+        json!({ "trackId": "Bas", "muted": true }),
+    );
+    assert_eq!(wrong["isError"], true);
+    assert!(wrong["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("Did you mean Bass?"));
+    let set = mcp.tool(
+        7,
+        "strip_setParameter",
+        json!({ "trackId": "Bass", "slot": 0, "parameter": "threshold", "text": "-24 dB" }),
+    );
+    assert_eq!(
+        set["structuredContent"]["changed"][0]["value"], -24.0,
+        "{set}"
+    );
+    let resource = mcp.request(
+        8,
+        "resources/read",
+        json!({ "uri": "ondera://session/overview" }),
+    );
+    let parsed: Value =
+        serde_json::from_str(resource["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+    let bass = parsed["tracks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "Bass")
+        .cloned()
+        .unwrap();
+    assert_eq!(bass["problems"][0], "muted", "{bass}");
+}

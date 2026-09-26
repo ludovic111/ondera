@@ -117,6 +117,16 @@ pub(crate) const TRACK_ID: Param = req(
 pub(crate) const CLIP_ID: Param = req("clipId", Kind::String, "Clip id, as listed by clip.list.");
 const NOTES_DOC: &str = "Array of {start, length, pitch, velocity?} with start/length in beats relative to the clip, pitch 0-127 (60 = C4), velocity 1-127 (default 100).";
 
+/// The hint for a number parameter given text on a command that takes display text as well
+/// (`strip.setParameter value="-6 dB"` means `text="-6 dB"`).
+pub fn text_hint(spec: &Spec) -> &'static str {
+    if spec.params.iter().any(|p| p.name == "text") {
+        "; to give display text such as \"-6 dB\" or \"Hall\", use `text` instead"
+    } else {
+        ""
+    }
+}
+
 /// Every public command. Names use `family.action` and map one-to-one to CLI commands and MCP
 /// tools (`family_action`).
 pub const BASE_COMMANDS: &[Spec] = &[
@@ -146,7 +156,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("session.save", "Save the session as a .ondera file. Writes atomically; the old file survives a failed save.", &[
         opt("path", Kind::String, "Destination file. Defaults to the file the session was opened from."),
     ]),
-    edit("session.rename", "Set the session name.", &[req("name", Kind::String, "New session name.")]),
+    edit("session.rename", "Set the session name shown in the title bar and used for exports. One undo step.", &[req("name", Kind::String, "New session name.")]),
     edit("session.bounce", "Render the whole arrangement offline to a stereo 48 kHz / 24-bit WAV file, including a 3-second effect tail.", &[
         req("path", Kind::String, "Destination .wav path."),
     ]),
@@ -157,26 +167,26 @@ pub const BASE_COMMANDS: &[Spec] = &[
     ]),
     edit("transport.play", "Start playback from the playhead. Needs the Ondera app (live mode).", &[]),
     edit("transport.record", "Record armed audio and MIDI tracks in the running app. Disable cycle before recording.", &[]),
-    edit("transport.stop", "Stop playback and recording.", &[]),
+    edit("transport.stop", "Stop playback and recording, like the Stop button.", &[]),
     edit("transport.locate", "Move the playhead. Give one of bar, beats or markerId.", &[
         opt("bar", Kind::Number, "Zero-based bar position."),
         opt("beats", Kind::Number, "Zero-based beat position."),
         opt("markerId", Kind::String, "A marker from marker.list: go to its bar."),
     ]),
     edit("transport.returnToStart", "Move the playhead to the beginning.", &[]),
-    edit("transport.setTempo", "Set the tempo.", &[req("bpm", Kind::Number, "Beats per minute, 20-400.")]),
-    edit("transport.setTimeSignature", "Set the time signature.", &[
+    edit("transport.setTempo", "Set the song tempo in beats per minute, like dragging the tempo display. One undo step.", &[req("bpm", Kind::Number, "Beats per minute, 20-400.")]),
+    edit("transport.setTimeSignature", "Set the meter. Clips keep their bar positions and automation moves with them, in one undo step.", &[
         req("numerator", Kind::Integer, "Beats per bar, 1-32."),
         req("denominator", Kind::Integer, "Beat unit: 1, 2, 4, 8, 16 or 32."),
     ]),
-    edit("transport.setKey", "Set the displayed song key.", &[req("key", Kind::String, "Key label such as \"C minor\".")]),
+    edit("transport.setKey", "Set the song key shown in the transport (a label; it does not transpose anything).", &[req("key", Kind::String, "Key label such as \"C minor\".")]),
     edit("transport.setCycle", "Enable or disable cycle (loop) playback and optionally set its range.", &[
         req("enabled", Kind::Boolean, "Cycle on or off."),
         opt("startBar", Kind::Number, "Cycle start bar."),
         opt("endBar", Kind::Number, "Cycle end bar; must be after startBar."),
     ]),
-    edit("transport.setMetronome", "Enable or disable the click.", &[req("enabled", Kind::Boolean, "Metronome on or off.")]),
-    edit("transport.setSnap", "Set the grid snap division.", &[req("division", Kind::Integer, "Notes per bar: 1, 2, 4, 8, 16, 32 or 64.")]),
+    edit("transport.setMetronome", "Turn the metronome click on or off for playback and recording.", &[req("enabled", Kind::Boolean, "Metronome on or off.")]),
+    edit("transport.setSnap", "Set the grid that drags, the playhead and clip.quantize snap to, in notes per bar.", &[req("division", Kind::Integer, "Notes per bar: 1, 2, 4, 8, 16, 32 or 64.")]),
     query("track.list", "List tracks in arrangement order with their instrument and clip count.", &[]),
     edit("track.add", "Add a track at the end of the arrangement and select it.", &[
         req("kind", Kind::String, "\"midi\" for an instrument track or \"audio\"."),
@@ -185,14 +195,14 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("instrument", Kind::String, "Instrument for a MIDI track; see session.catalog."),
     ]),
     edit("track.remove", "Delete a track and every clip on it.", &[TRACK_ID]),
-    edit("track.rename", "Rename a track.", &[TRACK_ID, req("name", Kind::String, "New name.")]),
-    edit("track.setMute", "Mute or unmute a track.", &[TRACK_ID, req("muted", Kind::Boolean, "Muted or not.")]),
-    edit("track.setSolo", "Solo or unsolo a track.", &[TRACK_ID, req("solo", Kind::Boolean, "Soloed or not.")]),
+    edit("track.rename", "Rename a track (names can then be used instead of its id). One undo step.", &[TRACK_ID, req("name", Kind::String, "New name.")]),
+    edit("track.setMute", "Mute or unmute a track, like its M button. One undo step.", &[TRACK_ID, req("muted", Kind::Boolean, "Muted or not.")]),
+    edit("track.setSolo", "Solo or unsolo a track, like its S button: while any track is soloed, the others are silent. One undo step.", &[TRACK_ID, req("solo", Kind::Boolean, "Soloed or not.")]),
     edit("track.setArmed", "Arm or disarm an audio or MIDI track for recording.", &[TRACK_ID, req("armed", Kind::Boolean, "Armed or not.")]),
     edit("track.setMonitor", "Hear the live input through an audio track's inserts, sends and fader. auto monitors while the track is armed and not playing back its own clip (and again while recording); on always; off never. audio.status reports whether the input is routed, the measured latency, and `blocked` when the built-in microphone would feed back through the built-in speakers.", &[TRACK_ID, req("monitor", Kind::String, "off, auto or on.")]),
-    edit("track.setVolume", "Set the fader.", &[TRACK_ID, req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity.")]),
-    edit("track.setPan", "Set stereo pan.", &[TRACK_ID, req("pan", Kind::Number, "-100 (left) to 100 (right).")]),
-    edit("track.setColor", "Set the track colour.", &[TRACK_ID, req("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h).")]),
+    edit("track.setVolume", "Set a track fader. The scale is the mixer's: 0.75 is 0 dB, 1.0 is +6 dB, 0 is silent. One undo step.", &[TRACK_ID, req("volume", Kind::Number, "0.0 (silent) to 1.0 (+6 dB); 0.75 is unity.")]),
+    edit("track.setPan", "Set a track's stereo pan, -100 (left) to 100 (right). One undo step.", &[TRACK_ID, req("pan", Kind::Number, "-100 (left) to 100 (right).")]),
+    edit("track.setColor", "Set a track's colour in the arrangement and mixer. One undo step.", &[TRACK_ID, req("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h).")]),
     edit("track.move", "Move a track to another position.", &[TRACK_ID, req("index", Kind::Integer, "Zero-based target index.")]),
     edit("track.select", "Select a track in the interface.", &[TRACK_ID]),
     query("clip.list", "List clips (regions) without their notes.", &[
@@ -213,8 +223,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("startBar", Kind::Number, "New zero-based start bar."),
         opt("trackId", Kind::String, "Destination track."),
     ]),
-    edit("clip.resize", "Change a clip's length.", &[CLIP_ID, req("lengthBars", Kind::Number, "New length in bars.")]),
-    edit("clip.rename", "Rename a clip.", &[CLIP_ID, req("name", Kind::String, "New name.")]),
+    edit("clip.resize", "Change a clip's length in bars, keeping its start, like dragging its right edge. One undo step.", &[CLIP_ID, req("lengthBars", Kind::Number, "New length in bars.")]),
+    edit("clip.rename", "Rename a clip (region); a unique name can then be used instead of its id. One undo step.", &[CLIP_ID, req("name", Kind::String, "New name.")]),
     edit("clip.split", "Split a clip at a bar, keeping notes and audio offsets aligned.", &[
         CLIP_ID,
         req("bar", Kind::Number, "Absolute bar inside the clip."),
@@ -226,7 +236,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("trackId", Kind::String, "Destination track. Defaults to the selected track when its kind fits, else the track the clip came from."),
         opt("bar", Kind::Number, "Zero-based start bar; defaults to the bar the playhead is in."),
     ]),
-    edit("clip.remove", "Delete a clip.", &[CLIP_ID]),
+    edit("clip.remove", "Delete a clip (region) and its notes or audio placement. One undo step.", &[CLIP_ID]),
     edit("clip.setNotes", "Replace every note of a MIDI clip in one undo step.", &[
         CLIP_ID,
         req("notes", Kind::Array, NOTES_DOC),
@@ -238,7 +248,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
     ]),
     edit("clip.select", "Select a clip and open it in the editor, optionally selecting one of its notes.", &[CLIP_ID, opt("noteId", Kind::String, "Note id from note.list to select inside the clip.")]),
     query("note.list", "List the notes of a MIDI clip.", &[CLIP_ID]),
-    edit("note.add", "Add a note to a MIDI clip.", &[
+    edit("note.add", "Add one note to a MIDI clip, like drawing it in the piano roll. One undo step.", &[
         CLIP_ID,
         req("start", Kind::Number, "Start in beats relative to the clip."),
         req("length", Kind::Number, "Length in beats, greater than 0."),
@@ -251,9 +261,9 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("start", Kind::Number, "Start in beats relative to the clip."),
         opt("length", Kind::Number, "Length in beats."),
         opt("pitch", Kind::Integer, "MIDI pitch 0-127."),
-        opt("velocity", Kind::Integer, "1-127."),
+        opt("velocity", Kind::Integer, "Velocity 1-127."),
     ]),
-    edit("note.remove", "Delete a note.", &[CLIP_ID, req("noteId", Kind::String, "Note id from note.list.")]),
+    edit("note.remove", "Delete one note from a MIDI clip. One undo step.", &[CLIP_ID, req("noteId", Kind::String, "Note id from note.list.")]),
     query("strip.get", "Return a track or bus channel strip: instrument, eight inserts and two sends. Bus IDs: master, bus-a, bus-b.", &[TRACK_ID]),
     edit("strip.setInstrument", "Choose the instrument of a MIDI track.", &[
         TRACK_ID,
@@ -270,21 +280,11 @@ pub const BASE_COMMANDS: &[Spec] = &[
         req("send", Kind::Integer, "0 for A · Reverb, 1 for B · Delay."),
         opt("levelDb", Kind::Number, "Level in dB, -100 to 0. Omit or null for off."),
     ]),
-    edit("strip.setPlugin", "Load a stock or installed external plugin. Omit slot for a MIDI instrument; pass slot 0-7 for an insert on a track or bus.", &[
+    edit("strip.setPlugin", "Load a stock or installed external plugin (CLAP, VST3, AU, native) as a MIDI track's instrument (omit slot) or as an insert (slot 0-7, or firstFreeSlot) on a track or bus. Name it by pluginId, or by plugin: a search such as \"pro q\" or \"diva\" that must single out one plugin of the right kind.", &[
         TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-        req("pluginId", Kind::String, "Stable descriptor ID from plugin.list, for example stock:Space."),
-    ]),
-    query("strip.parameters", "Read a plugin's parameter IDs, plain values, bounds and units. Omit slot for the MIDI instrument.", &[
-        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-    ]),
-    edit("strip.setParameter", "Set a plugin parameter using its plain value and ID from strip.parameters, in one undo step.", &[
-        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-        req("parameterId", Kind::Integer, "Parameter ID from strip.parameters."),
-        req("value", Kind::Number, "Plain parameter value within its min and max."),
-    ]),
-    edit("strip.setParameters", "Set several plugin parameters atomically in one undo step. Read strip.parameters first.", &[
-        TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
-        req("values", Kind::Object, "Object mapping parameter IDs to plain numeric values."),
+        opt("firstFreeSlot", Kind::Boolean, "Put the effect in the first empty insert slot (default false)."),
+        opt("pluginId", Kind::String, "Stable descriptor ID from plugin.list, for example stock:Space or vst3:…"),
+        opt("plugin", Kind::String, "Plugin name or search words, instead of pluginId."),
     ]),
     edit("strip.setBypass", "Bypass or enable a plugin without replacing its settings.", &[
         TRACK_ID, opt("slot", Kind::Integer, "Insert slot 0-7. Omit for the instrument."),
@@ -316,6 +316,8 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_controllers::SPECS)
         .chain(crate::control_app::SPECS)
+        .chain(crate::control_params::SPECS)
+        .chain(crate::control_overview::SPECS)
         .copied()
         .collect()
 });
@@ -420,23 +422,24 @@ pub trait Host {
     fn recording(&self) -> bool {
         false
     }
+    /// Every parameter of the plugin in a strip slot, with values and display text.
     fn plugin_parameters(&mut self, track: &str, slot: Option<usize>) -> Result<Value> {
-        let insert = selected_plugin(self.store().session(), track, slot)?;
-        let mut instance = plugin_host::instantiate(&insert.plugin_id(), &insert.name, 48000)?;
-        if !insert.blob.is_empty() {
-            instance
-                .editor
-                .load(&plugin_host::decode_blob(&insert.blob)?)?;
-        }
-        Ok(json!({
-            "pluginId": insert.plugin_id(),
-            "parameters": instance.editor.params().iter().map(|p| json!({
-                "id": p.id, "name": p.name, "min": p.min, "max": p.max,
-                "default": p.default, "unit": p.unit, "steps": p.steps,
-                "logarithmic": p.log, "labels": p.labels,
-                "value": insert.params.get(&p.id).copied().or_else(|| instance.editor.value(p.id)).unwrap_or(p.default),
-            })).collect::<Vec<_>>()
-        }))
+        crate::control_params::all_parameters(self, track, slot)
+    }
+    /// The editor of a plugin the host already has loaded for this insert. The window keeps
+    /// one per insert; a headless host has none, and callers instantiate a fresh one. It must
+    /// be the same plugin with the same saved state: between an edit (a new song reusing the
+    /// key, a program change, an undo) and the window's next reconcile, the loaded instance is
+    /// out of date and callers read the document through a fresh one instead.
+    fn loaded_editor(
+        &mut self,
+        _insert: &crate::model::Insert,
+    ) -> Option<&mut dyn crate::plugin::Editor> {
+        None
+    }
+    /// Plugins that failed to load, as (insert key, reason).
+    fn plugin_failures(&self) -> Vec<(String, String)> {
+        Vec::new()
     }
     fn stop(&mut self) -> Result<()>;
     fn locate(&mut self, beats: f64) -> Result<()>;
@@ -704,8 +707,13 @@ fn validate<'a>(spec: &'static Spec, params: &'a Value) -> Result<Args<'a>> {
             Kind::Any => true,
         };
         if !ok {
+            let hint = if p.kind == Kind::Number && value.is_string() {
+                text_hint(spec)
+            } else {
+                ""
+            };
             return Err(format!(
-                "Parameter `{key}` of {} must be a {}",
+                "Parameter `{key}` of {} must be a {}{hint}",
                 spec.name,
                 p.kind.schema_type()
             ));
@@ -748,6 +756,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             )
         }
     })?;
+    // Names stand for ids: `trackId: "Bass"` is the track called Bass.
+    let resolved = crate::control_refs::resolve(host.store().session(), spec, params)?;
+    let params = resolved.as_ref().unwrap_or(params);
     let a = validate(spec, params)?;
     if matches!(
         name,
@@ -780,6 +791,15 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     }
     if crate::control_app::SPECS.iter().any(|s| s.name == name) {
         return crate::control_app::call(host, name, &a, agent);
+    }
+    if crate::control_params::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_params::call(host, name, &a);
+    }
+    if crate::control_overview::SPECS
+        .iter()
+        .any(|s| s.name == name)
+    {
+        return crate::control_overview::call(host, name, &a);
     }
     let result = match name {
         "session.info" => Ok(info(host)),
@@ -892,23 +912,8 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "transport.setMetronome" => t.metronome = a.bool("enabled")?,
                 _ => t.snap_division = whole(a.int("division")?, "division")?,
             }
-            // Clips sit on bars and automation on beats: a new meter moves every clip, so
-            // the automation moves with them (by bar position), in the same undo step.
-            let session = host.store().session();
-            let (old, new) = (
-                session.beats_per_bar(),
-                t.time_signature.numerator as f64 * 4.0 / t.time_signature.denominator as f64,
-            );
-            let mut commands = vec![Command::SetTransport(t)];
-            if old != new && old > 0.0 {
-                for lane in &session.automation {
-                    let mut lane = lane.clone();
-                    for point in &mut lane.points {
-                        point.beat *= new / old;
-                    }
-                    commands.push(Command::PutAutomation(lane));
-                }
-            }
+            let mut commands = automation_on_bars(host.store().session(), &t.time_signature);
+            commands.insert(0, Command::SetTransport(t));
             host.dispatch(if commands.len() == 1 {
                 commands.remove(0)
             } else {
@@ -1291,6 +1296,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                         pitch: byte(a.int("pitch")?, "pitch")?,
                         velocity: byte(a.opt_int("velocity").unwrap_or(100), "velocity")?,
                         agent,
+                        channel: 0,
                     };
                     let id = note.id.clone();
                     notes.push(note);
@@ -1347,7 +1353,6 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             check_strip(host.store().session(), id)?;
             Ok(strip_json(host.store().session(), id))
         }
-        "strip.parameters" => host.plugin_parameters(a.str("trackId")?, plugin_slot(&a)?),
         "strip.getState" => {
             host.capture_states()?;
             Ok(json!(selected_plugin(
@@ -1356,33 +1361,35 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 plugin_slot(&a)?
             )?))
         }
-        "strip.setPlugin"
-        | "strip.setParameter"
-        | "strip.setParameters"
-        | "strip.setBypass"
-        | "strip.setState" => {
+        "strip.setPlugin" | "strip.setBypass" | "strip.setState" => {
             let id = a.str("trackId")?;
-            let slot = plugin_slot(&a)?;
+            let mut slot = plugin_slot(&a)?;
             check_strip(host.store().session(), id)?;
-            if slot.is_none() && find_track(host.store().session(), id)?.kind != "midi" {
-                return Err("Only MIDI tracks have an instrument".into());
-            }
             let mut strip = full_strip(host.store().session(), id);
-            let mut insert = if name == "strip.setPlugin" {
-                let plugin_id = a.str("pluginId")?;
-                let descriptor = plugin_host::scan::installed()
-                    .into_iter()
-                    .find(|d| d.id == plugin_id)
-                    .ok_or_else(|| {
-                        format!("Unknown plugin `{plugin_id}`. Run plugin.scan, then plugin.list.")
-                    })?;
-                if (slot.is_none() && !descriptor.instrument)
-                    || (slot.is_some() && !descriptor.effect)
-                {
-                    return Err(
-                        "The plugin is not compatible with this instrument or effect slot".into(),
-                    );
+            if name == "strip.setPlugin" && a.opt_bool("firstFreeSlot").unwrap_or(false) {
+                if slot.is_some() {
+                    return Err("Give slot or firstFreeSlot, not both".into());
                 }
+                slot =
+                    Some(strip.inserts.iter().position(Insert::is_empty).ok_or(
+                        "All eight insert slots are occupied; strip.removeInsert one first",
+                    )?);
+            }
+            if slot.is_none() && is_bus(id) {
+                return Err("Buses have no instrument; pass slot or firstFreeSlot".into());
+            }
+            if slot.is_none() && find_track(host.store().session(), id)?.kind != "midi" {
+                return Err(
+                    "Only MIDI tracks have an instrument; pass slot or firstFreeSlot for an effect"
+                        .into(),
+                );
+            }
+            let mut insert = if name == "strip.setPlugin" {
+                let descriptor = crate::control_plugins::choose(
+                    a.opt_str("pluginId"),
+                    a.opt_str("plugin"),
+                    Some(slot.is_none()),
+                )?;
                 // Verify loading before accepting an unusable plugin into the song.
                 plugin_host::instantiate(&descriptor.id, &descriptor.name, 48000)?;
                 Insert::new(new_id("plugin"), &descriptor.id, &descriptor.name)
@@ -1390,61 +1397,6 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 selected_plugin(host.store().session(), id, slot)?
             };
             match name {
-                "strip.setParameter" | "strip.setParameters" => {
-                    let values = if name == "strip.setParameter" {
-                        vec![(
-                            whole(a.int("parameterId")?, "parameterId")?,
-                            a.f64("value")?,
-                        )]
-                    } else {
-                        let values = a
-                            .get("values")
-                            .and_then(Value::as_object)
-                            .ok_or("Expected parameter values")?;
-                        if values.is_empty() || values.len() > 512 {
-                            return Err("Set between 1 and 512 parameters per call".into());
-                        }
-                        values
-                            .iter()
-                            .map(|(key, value)| {
-                                let id = key
-                                    .parse::<u32>()
-                                    .map_err(|_| "Parameter IDs must be unsigned integers")?;
-                                if id.to_string() != *key {
-                                    return Err(
-                                        "Use canonical parameter IDs from strip.parameters".into(),
-                                    );
-                                }
-                                let value = value
-                                    .as_f64()
-                                    .filter(|v| v.is_finite())
-                                    .ok_or("Parameter values must be finite numbers")?;
-                                Ok((id, value))
-                            })
-                            .collect::<Result<Vec<_>>>()?
-                    };
-                    let metadata = host.plugin_parameters(id, slot)?;
-                    for (parameter, value) in values {
-                        let param = metadata["parameters"]
-                            .as_array()
-                            .and_then(|p| p.iter().find(|p| p["id"] == parameter))
-                            .ok_or_else(|| {
-                                format!("Unknown parameter `{parameter}`. Use strip.parameters.")
-                            })?;
-                        let min = param["min"]
-                            .as_f64()
-                            .ok_or("Plugin parameter has invalid bounds")?;
-                        let max = param["max"]
-                            .as_f64()
-                            .ok_or("Plugin parameter has invalid bounds")?;
-                        if !(min..=max).contains(&value) {
-                            return Err(format!(
-                                "Parameter {parameter} must be between {min} and {max}"
-                            ));
-                        }
-                        insert.params.insert(parameter, value);
-                    }
-                }
                 "strip.setBypass" => {
                     insert.state = if a.bool("bypassed")? {
                         "bypassed"
@@ -1467,6 +1419,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 }
                 _ => {}
             }
+            let loaded = json!({
+                "slot": slot, "pluginId": insert.plugin_id(), "name": insert.name, "insertId": insert.id,
+            });
             if let Some(slot) = slot {
                 strip.inserts[slot] = insert;
             } else {
@@ -1476,7 +1431,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 track: id.into(),
                 strip,
             })?;
-            Ok(strip_json(host.store().session(), id))
+            let mut out = strip_json(host.store().session(), id);
+            if name == "strip.setPlugin" {
+                out["loaded"] = loaded;
+            }
+            Ok(out)
         }
         "strip.setInstrument" | "strip.setInsert" | "strip.setSendLevel" => {
             let id = a.str("trackId")?;
@@ -1586,8 +1545,14 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             "Command `{name}` is registered but not implemented"
         )),
     };
-    if name == "strip.setPlugin" && result.is_ok() {
-        crate::control_plugins::note_recent(host, a.str("pluginId")?);
+    if name == "strip.setPlugin" {
+        if let Some(plugin) = result
+            .as_ref()
+            .ok()
+            .and_then(|v| v["loaded"]["pluginId"].as_str())
+        {
+            crate::control_plugins::note_recent(host, plugin);
+        }
     }
     result
 }
@@ -1696,7 +1661,10 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
                 .as_object()
                 .ok_or_else(|| format!("Note {i} must be an object"))?;
             for key in obj.keys() {
-                if !["id", "start", "length", "pitch", "velocity", "agent"].contains(&key.as_str())
+                if ![
+                    "id", "start", "length", "pitch", "velocity", "agent", "channel",
+                ]
+                .contains(&key.as_str())
                 {
                     return Err(format!("Note {i} has an unknown field `{key}`"));
                 }
@@ -1724,6 +1692,14 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
             if !(1..=127).contains(&velocity) {
                 return Err(format!("Note {i} velocity must be 1-127"));
             }
+            let channel = match obj.get("channel") {
+                None | Some(Value::Null) => 0,
+                Some(v) => v
+                    .as_u64()
+                    .filter(|c| *c < 16)
+                    .ok_or_else(|| format!("Note {i} channel must be 0-15"))?
+                    as u8,
+            };
             Ok(Note {
                 id: obj
                     .get("id")
@@ -1735,6 +1711,7 @@ fn parse_notes(value: &Value, agent: bool) -> Result<Vec<Note>> {
                 pitch: byte(pitch, "pitch")?,
                 velocity: velocity as u8,
                 agent: obj.get("agent").and_then(Value::as_bool).unwrap_or(agent),
+                channel,
             })
         })
         .collect()
@@ -1765,6 +1742,28 @@ pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: St
         solo: false,
     }
 }
+/// Clips sit on bars and automation on beats: a new meter moves every clip, so the
+/// automation moves with them, by bar position. The commands that rewrite every lane for
+/// `meter`, to dispatch in the same undo step as the meter itself; none when the bar
+/// length does not change.
+pub(crate) fn automation_on_bars(session: &Session, meter: &TimeSignature) -> Vec<Command> {
+    let old = session.beats_per_bar();
+    let new = meter.numerator as f64 * 4.0 / meter.denominator as f64;
+    if old == new || old <= 0.0 || !new.is_finite() || new <= 0.0 {
+        return Vec::new();
+    }
+    session
+        .automation
+        .iter()
+        .map(|lane| {
+            let mut lane = lane.clone();
+            for point in &mut lane.points {
+                point.beat *= new / old;
+            }
+            Command::PutAutomation(lane)
+        })
+        .collect()
+}
 /// A strip padded to its eight inserts and two sends, as the inspector shows it.
 pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
     let mut strip = s.strips.get(track).cloned().unwrap_or_default();
@@ -1786,7 +1785,8 @@ pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
 fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
     let path = Path::new(a.str("path")?);
     let buffer = Arc::new(decode_file(path)?);
-    if audio::library_bytes(host.library()).saturating_add(buffer.frames.len() * 8)
+    if audio::session_bytes(host.store().session(), host.library())
+        .saturating_add(buffer.frames.len() * 8)
         > audio::MAX_LIBRARY_BYTES
     {
         return Err("Decoded audio library exceeds 1 GiB".into());
@@ -1906,6 +1906,7 @@ fn add_loop(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
             pitch: n["pitch"].as_u64().unwrap_or(60) as u8,
             velocity: n["velocity"].as_u64().unwrap_or(100) as u8,
             agent,
+            channel: 0,
         })
         .collect();
     // Patterns are authored in 4/4; length is translated to current bars.

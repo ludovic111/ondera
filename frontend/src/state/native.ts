@@ -49,6 +49,8 @@ export interface Overlays {
   palette: boolean;
 }
 export interface AgentEntry {
+  /** Stable for the entry's life, even after older entries are trimmed. */
+  id?: number;
   role: string;
   text: string;
   streaming?: boolean;

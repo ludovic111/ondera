@@ -9,16 +9,19 @@ palette and the shortcut sheet; window panels (mixer, help, settings…) are tog
 
 Themes (0.6): `frontend/src/theme` is the only place visual values live. `schema.ts` types a theme,
 `materials.ts` holds the physical recipes against a light model, and `modern.ts`, `skeuo.ts`,
-`aero.ts` each return a full `ThemeSpec` for `dark` and `light`. `tokens.ts` keeps live groups that
+`aero.ts`, `console.ts` (walnut, brass, amber lamps), `ink.ts` (paper and ink, state shown by
+inversion, square corners) and `neon.ts` (violet glass, magenta accent, cyan displays) each return a
+full `ThemeSpec` for `dark` and `light`; the ids also live in `engine/src/settings.rs` `THEMES`. `tokens.ts` keeps live groups that
 `setTheme()` refills (canvas code reads them at paint time); `applyAppearance(theme, mode)` emits the
 CSS properties and sets `data-theme` / `data-mode`. Skeuomorphic dark is the design source, value
-for value. Add a token to `schema.ts` and to all three themes, never a colour in a component;
+for value. Add a token to `schema.ts` and to every theme, never a colour in a component;
 structure that only one theme needs goes in `theme/<theme>.css` and takes its colours from that
-theme's `vars`. `appearance.test.ts` enforces contrast on all six variants: fix the palette, not
+theme's `vars` (`--<id>-frame`, `--<id>-bar`, `--<id>-lcd` also dress the Settings preview).
+`appearance.test.ts` enforces contrast on all twelve variants: fix the palette, not
 the threshold. Stock plugin panels are `components/plugin` (`response.ts` mirrors the engine DSP).
 `npm --prefix frontend run dev` in a plain browser serves a fixture song through `src/dev/mockHost.ts`
-(`?theme=&mode=&panel=`); run `node scripts/gen-site-tokens.mjs` after changing a theme so the
-site follows.
+(`?theme=&mode=&panel=`); run `node scripts/gen-site-tokens.mjs` after changing Skeuomorphic dark (the
+site wears only that one; other themes appear there as screenshots in its theme gallery).
 
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
@@ -107,7 +110,16 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   are `Message::RoutedControl`. CLAP gets controllers as MIDI only when its note port speaks MIDI;
   VST3 through `IMidiMapping` (`Shared.midi_map`), one queue point per value; AU through
   `Event::to_midi`. Lane UI: `canvas/controllerLane.ts`, `components/editor/ControllerLane.tsx`,
-  `ui.showPanel panel=controllers`. Audio clips carry `fade_in`/`fade_out` (seconds), `fade_curve`
+  `ui.showPanel panel=controllers`. Inserts hear a MIDI track's controllers (never its notes) when
+  `Processor::accepts_events` says so (native ABI 2, CLAP note port, VST3 event bus, AU music
+  effect); they ride the same per-track list, so chase and rest reach them. Channels: `Note` and
+  `Controller` carry `channel` 0-15, absent when 0; a lane is (kind, number, channel); the
+  renderer keeps voices and `applied` per channel and `Message::RoutedNote` carries it. Poly
+  pressure is `ControllerKind::PolyPressure` (`number` = key) inside `controllers`, but the file
+  writes it to its own `polyPressure` list (`ClipDataFile`/`ClipDataOut` in `model.rs`) so older
+  versions and the lane UI never see the kind; it is played, not chased or rested. VST3 mapped
+  controllers also reach the edit controller through `Shared.mapped` (atomics, read in `idle`).
+  Audio clips carry `fade_in`/`fade_out` (seconds), `fade_curve`
   and `gain_db`, absent when default; build them with `ClipData::audio(src, offset)`;
   `Command::PutClip` clamps fades (`model::clamp_fades`) and `render.rs` `clip_envelope` applies
   fades, gain and the 3 ms edge ramp per sample; `frontend/src/core/fade.ts` mirrors the curves.
@@ -122,6 +134,33 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   forms that show their own errors. `atomic_write` keeps the target's mode (0644 when new) and writes
   through symlinks. Engine regression tests live in `engine/tests/regressions.rs`. The agent's
   Changes list records only document edits that did not come from the window.
+- Agent control (decided 2026-09-25): an agent starts from `session.overview`
+  (`control_overview.rs`, bounded; the built-in agent gets a compact one each turn) and
+  `ui.state` (live). `control::call` runs `control_refs::resolve` first, so every `trackId`,
+  `clipId` and `markerId` also takes a unique name, and a wrong one lists what exists.
+  Plugin parameters and programs live in `control_params.rs`: read through
+  `Host::loaded_editor` (the window's instance) or a fresh one, set by name, plain value,
+  0-1 or display text (`Editor::parse_text`), programs through `Editor::programs` (VST3
+  program-change parameter, AU factory presets loaded into a fresh instance and saved as
+  state). `docs/AGENT_PARITY.md` is the audit of window interactions against the registry;
+  `engine/tests/agent_parity.rs` fails when an `actions.ts` action has no entry in
+  `docs/agent-parity.json`, when the frontend sends an unknown name, or when a command has
+  no real description. A new window interaction adds its row there.
+- 0.9 (2026-09-25, owner asked to "improve the app" and delegated): stock voices are scaled by
+  `dsp::HEADROOM` (0.5, -6 dB) because loops and chords clipped at unity; old songs play 6 dB
+  quieter on stock instruments, accepted. `store::empty()` starts Drums (Drum Machine), Bass
+  (Analog Bass) and Vocals (audio); strips exist only once edited, so set them with
+  `entry().or_default()`. `Host::loaded_editor(insert)` serves the window's instance only when
+  its plugin id and blob match the document (a new song reuses insert keys; reconcile runs a
+  frame later), otherwise callers read a fresh instance. A rebuilt `Renderer` glides a
+  sounding clip's envelope from the old graph (`glide_from`, 5 ms), never touching playback
+  without a rebuild. `plugin.list` rows fold formats and layouts (vendor + name; CLAP, VST3, AU
+  order, others under `formats`); search also matches `folder_words` and stock descriptions.
+  Side panels shrink to `size.*Min` floors so the arrangement keeps `arrangementMin` at the
+  1120 px minimum. `ui.screenshot` finishes running animations first (`settleMotion` in
+  `main.tsx`). Docs: `docs/COMMANDS.md` and `docs/SHORTCUTS.md` are generated and checked by
+  tests (`ONDERA_BLESS=1` regenerates); `USER_GUIDE.md`, `AI_CONTROL.md` and `DEVELOPMENT.md`
+  are written by hand, keep them true when behaviour changes.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ondera-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are

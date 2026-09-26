@@ -5,7 +5,7 @@ use ondera_engine::{
     audio::Library,
     host::native,
     midi_file,
-    model::{Clip, ClipData, Controller, ControllerKind, Note, Session, Strip},
+    model::{Clip, ClipData, Controller, ControllerKind, Note, Session},
     plugin::{event, Descriptor, Event, Format, ProcessContext, Rack},
     render::Renderer,
     stock, store,
@@ -51,6 +51,7 @@ fn point(kind: ControllerKind, number: Option<u8>, time: f64, value: i16) -> Con
         time,
         value,
         agent: false,
+        channel: 0,
     }
 }
 fn session(controllers: Vec<Controller>) -> Session {
@@ -75,6 +76,7 @@ fn session(controllers: Vec<Controller>) -> Session {
                 pitch: 60,
                 velocity: 100,
                 agent: false,
+                channel: 0,
             }],
             controllers,
         },
@@ -98,7 +100,8 @@ fn listening(s: Session) -> (Renderer, Rack) {
     let mut rack = Rack::new(1);
     rack.mount(0, instance.processor.take().unwrap());
     std::mem::forget(instance.editor);
-    let key = Strip::default().synth_key(&s.tracks[0].id);
+    let id = &s.tracks[0].id;
+    let key = s.strips.get(id).cloned().unwrap_or_default().synth_key(id);
     let renderer = Renderer::new(s, &Library::new(), 48000, &HashMap::from([(key, 0)])).unwrap();
     (renderer, rack)
 }

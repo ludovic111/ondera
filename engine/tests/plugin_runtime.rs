@@ -78,6 +78,7 @@ fn fixture() -> ondera_engine::model::Session {
                 pitch: 60,
                 velocity: 100,
                 agent: false,
+                channel: 0,
             }],
             controllers: vec![],
         },
@@ -205,6 +206,7 @@ fn preview_releases_and_sequence_events_are_chronological() {
         pitch: 64,
         velocity: 96,
         agent: false,
+        channel: 0,
     });
     let key = Strip::default().synth_key(&updated.tracks[0].id);
     let mut updated =
@@ -315,7 +317,13 @@ fn live_pedal_keeps_stock_audio_sounding_after_key_up_and_releases_on_pedal_up()
     let mut midi = ondera_engine::midi::MidiNotes::default();
     for bytes in [[0x90, 60, 100], [0xb0, 64, 127], [0x80, 60, 0]] {
         midi.receive(&bytes, route, |event| {
-            renderer.routed_note(event.route, event.on, event.pitch, event.velocity)
+            renderer.routed_note(
+                event.route,
+                event.on,
+                event.pitch,
+                event.velocity,
+                event.channel,
+            )
         });
     }
     let mut audio = vec![[0.0; 2]; 48000];
@@ -330,7 +338,13 @@ fn live_pedal_keeps_stock_audio_sounding_after_key_up_and_releases_on_pedal_up()
         "Sustain must keep the stock instrument audible: {held}"
     );
     midi.receive(&[0xb0, 64, 0], route, |event| {
-        renderer.routed_note(event.route, event.on, event.pitch, event.velocity)
+        renderer.routed_note(
+            event.route,
+            event.on,
+            event.pitch,
+            event.velocity,
+            event.channel,
+        )
     });
     renderer.render(&mut rack, &mut audio);
     let released = audio[44000..]
@@ -358,6 +372,7 @@ fn seeking_a_dense_chord_limits_chased_voices_and_releases_every_started_note() 
             pitch: 60,
             velocity: 100,
             agent: false,
+            channel: 0,
         });
     }
     let key = Strip::default().synth_key(&session.tracks[0].id);
@@ -391,12 +406,12 @@ fn routed_note_release_finds_original_track_after_reordering_the_session() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let mut rack = Rack::new(2);
     rack.mount(0, Box::new(NoteObserver(events.clone())));
-    renderer.routed_note(ondera_engine::midi::route_id(&first), true, 72, 100);
+    renderer.routed_note(ondera_engine::midi::route_id(&first), true, 72, 100, 0);
     renderer.render(&mut rack, &mut [[0.0; 2]; 256]);
     session.tracks.swap(0, 1);
     let mut updated = Renderer::new(session, &Library::new(), 48000, &slots).unwrap();
     updated.adopt(&renderer);
-    updated.routed_note(ondera_engine::midi::route_id(&first), false, 72, 0);
+    updated.routed_note(ondera_engine::midi::route_id(&first), false, 72, 0, 0);
     updated.render(&mut rack, &mut [[0.0; 2]; 256]);
     assert_eq!(
         events
@@ -485,8 +500,11 @@ fn stock_state_load_changes_audio_and_parameter_overrides_still_win() {
     assert!((audio[255][0] - 0.2 * 10f32.powf(-12.0 / 20.0)).abs() < 1e-6);
     instance.editor.load(&blob).unwrap();
     rack.set_param(0, 0, 0.0);
-    audio.fill([0.2; 2]);
-    rack.process(0, &mut audio, &[], &ProcessContext::default());
+    // The running plugin glides to the new gain; wait for it to settle.
+    for _ in 0..20 {
+        audio.fill([0.2; 2]);
+        rack.process(0, &mut audio, &[], &ProcessContext::default());
+    }
     assert!((audio[255][0] - 0.2).abs() < 1e-6);
 }
 #[test]

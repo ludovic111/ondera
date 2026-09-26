@@ -2,7 +2,7 @@
  * Development-only stand-in for the Rust host. `npm run dev` in a plain browser
  * has no Tauri bridge, so this answers the handful of commands the renderer
  * needs with a fixed song. It exists to check themes and layouts quickly:
- * `?theme=modern|skeuo|aero&mode=dark|light&panel=mixer|settings|export|plugin:<name>&clip=<id>`.
+ * `?theme=modern|skeuo|aero|console|ink|neon&mode=dark|light&panel=mixer|settings|export|plugin:<name>&clip=<id>`.
  * Never imported by a production build.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -799,12 +799,17 @@ function controllerCommand(method: string, params: Params): unknown {
     throw new Error("Only MIDI clips hold controllers");
   const data = clip.data as Params & { controllers?: Params[] };
   const points = (data.controllers ??= []);
+  const channel = Number(params.channel ?? 0);
   const inLane = (p: Params) =>
-    p.kind === params.kind && (p.kind !== "cc" || p.number === params.number);
-  const lane =
-    params.kind === "cc"
+    p.kind === params.kind &&
+    (p.kind !== "cc" || p.number === params.number) &&
+    Number(p.channel ?? 0) === channel;
+  const lane = {
+    ...(params.kind === "cc"
       ? { kind: "cc", number: params.number }
-      : { kind: params.kind };
+      : { kind: params.kind }),
+    ...(channel ? { channel } : {}),
+  };
   switch (method) {
     case "controller.add": {
       const existing = points.find((p) => inLane(p) && p.time === params.time);

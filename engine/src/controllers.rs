@@ -1,4 +1,5 @@
-//! MIDI controller points in clips: control changes, pitch bend and channel pressure. A point
+//! MIDI controller points in clips: control changes, pitch bend, channel pressure and
+//! polyphonic key pressure (whose "number" is the key it presses on). A point
 //! holds its value until the next point of its lane, so every edit that cuts a clip in time
 //! carries the value in force at the cut to the new start ("chasing" it), and reversing a clip
 //! reverses the held spans rather than only the points.
@@ -9,8 +10,8 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-/// A lane: the kind, and the controller number for control changes.
-pub type Lane = (ControllerKind, Option<u8>);
+/// A lane: the kind, the controller number for control changes, and the MIDI channel.
+pub type Lane = (ControllerKind, Option<u8>, u8);
 
 pub const SUSTAIN: u8 = 64;
 pub const MOD_WHEEL: u8 = 1;
@@ -121,6 +122,7 @@ pub struct Played {
     pub time: f64,
     pub kind: ControllerKind,
     pub number: Option<u8>,
+    pub channel: u8,
     pub value: i16,
     /// Sent at the clip's end to return a bend or a held pedal to rest.
     pub reset: bool,
@@ -137,12 +139,13 @@ pub fn playback(points: &[Controller], length: f64) -> Vec<Played> {
             time: p.time,
             kind: p.kind,
             number: p.number,
+            channel: p.channel,
             value: p.value,
             reset: false,
         })
         .collect();
     out.sort_by(|a, b| a.time.total_cmp(&b.time));
-    for ((kind, number), list) in lanes(points) {
+    for ((kind, number, channel), list) in lanes(points) {
         let resting = matches!(
             (kind, number),
             (ControllerKind::Bend, _)
@@ -156,6 +159,7 @@ pub fn playback(points: &[Controller], length: f64) -> Vec<Played> {
                     time: length,
                     kind,
                     number,
+                    channel,
                     value: 0,
                     reset: true,
                 });
@@ -173,6 +177,11 @@ pub fn from_event(e: &Event) -> Option<(ControllerKind, Option<u8>, i16)> {
         }
         event::PITCH_BEND => Some((ControllerKind::Bend, None, e.bend.clamp(-8192, 8191))),
         event::CHANNEL_PRESSURE => Some((ControllerKind::Pressure, None, e.value.min(127) as i16)),
+        event::POLY_PRESSURE => Some((
+            ControllerKind::PolyPressure,
+            Some(e.key.min(127)),
+            e.value.min(127) as i16,
+        )),
         _ => None,
     }
 }
@@ -192,7 +201,8 @@ pub fn recorded(
             continue;
         };
         let time = (beats - origin).max(0.0);
-        let lane = (kind, number);
+        let channel = e.channel.min(15);
+        let lane = (kind, number, channel);
         match out.iter_mut().rev().find(|p| p.lane() == lane) {
             Some(last) if (last.time - time).abs() < 1e-9 => {
                 last.value = value;
@@ -208,6 +218,7 @@ pub fn recorded(
             time,
             value,
             agent,
+            channel,
         });
     }
     sort(&mut out);
@@ -219,6 +230,8 @@ pub fn lane_name(kind: ControllerKind, number: Option<u8>) -> String {
     match (kind, number) {
         (ControllerKind::Bend, _) => "Pitch Bend".into(),
         (ControllerKind::Pressure, _) => "Pressure".into(),
+        (ControllerKind::PolyPressure, Some(key)) => format!("Poly Pressure (key {key})"),
+        (ControllerKind::PolyPressure, None) => "Poly Pressure".into(),
         (ControllerKind::Cc, Some(1)) => "Mod Wheel (CC1)".into(),
         (ControllerKind::Cc, Some(2)) => "Breath (CC2)".into(),
         (ControllerKind::Cc, Some(7)) => "Volume (CC7)".into(),
@@ -247,6 +260,7 @@ mod tests {
             time,
             value,
             agent: false,
+            channel: 0,
         }
     }
     #[test]

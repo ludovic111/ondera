@@ -14,6 +14,9 @@ const BLURB: Record<ThemeId, string> = {
   modern: "Flat, quiet, one accent",
   skeuo: "Milled hardware, lit from above",
   aero: "Glass, water and sky",
+  console: "Walnut, brass and amber lamps",
+  ink: "Paper, ink and a red pencil",
+  neon: "Violet glass lit from inside",
 };
 const CLIPS = [
   [TRACK_PALETTE.drums, 8, 46],
@@ -21,11 +24,16 @@ const CLIPS = [
   [TRACK_PALETTE.keys, 30, 52],
 ] as const;
 
-/** A window in miniature, painted with the real tokens of that theme. */
+/**
+ * A window in miniature, painted with the real tokens of that theme. A theme that
+ * dresses the window frame, the transport or the displays in its own stylesheet
+ * names them `--<id>-frame`, `--<id>-bar` and `--<id>-lcd`.
+ */
 function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
   const t = useMemo(() => buildTheme(id, mode), [id, mode]);
   const c = t.color;
-  const frame = t.vars["--aero-frame"];
+  const own = (part: string): string | undefined => t.vars[`--${id}-${part}`];
+  const frame = own("frame");
   return (
     <div
       className={styles.preview}
@@ -34,7 +42,7 @@ function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
       <div
         className={styles.bar}
         style={{
-          background: t.vars["--aero-bar"] ?? t.gradient.transport,
+          background: own("bar") ?? t.gradient.transport,
           boxShadow: t.shadow.transport,
         }}
       >
@@ -52,7 +60,7 @@ function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
         <span
           className={styles.lcd}
           style={{
-            background: t.vars["--aero-lcd"] ?? c.wellDeep,
+            background: own("lcd") ?? c.wellDeep,
             color: c.wellInk,
             boxShadow: t.shadow.wellDeep,
           }}

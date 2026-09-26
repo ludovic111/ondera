@@ -84,10 +84,11 @@ application control. Plain document edits are always allowed and always undoable
 
 ## Appearance and connection limits
 
-**Settings > Interface** offers three themes (**Modern**, **Skeuomorphic**, **Frutiger Aero**),
-each in dark and light, with an Auto mode that follows the system. The change is immediate and
-saved; agents and the CLI can set it with `settings.set --path interface.appearance --value
-modern|skeuo|aero` and `--path interface.mode --value dark|light|auto`.
+**Settings > Interface** offers six themes (**Modern**, **Skeuomorphic**, **Frutiger Aero**,
+**Console**, **Ink**, **Neon**), each in dark and light, with an Auto mode that follows the system.
+The change is immediate and saved; agents and the CLI can set it with `settings.set --path
+interface.appearance --value modern|skeuo|aero|console|ink|neon` and `--path interface.mode --value
+dark|light|auto`.
 
 Model discovery uses Codex app-server `model/list`, Claude Code's initialized model list, or an
 API's authenticated `/models` endpoint. It does not invent future model IDs or thinking modes.

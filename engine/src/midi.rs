@@ -164,12 +164,13 @@ impl MidiNotes {
 }
 
 /// A controller message worth playing and recording: control changes 0-119 (120-127 are
-/// channel mode messages, handled with the notes), pitch bend and channel pressure.
+/// channel mode messages, handled with the notes), pitch bend, channel pressure and
+/// polyphonic key pressure.
 pub fn controller(bytes: &[u8]) -> Option<Event> {
     let e = Event::from_midi(0, bytes)?;
     match e.kind {
         event::CONTROL if e.key < 120 => Some(e),
-        event::PITCH_BEND | event::CHANNEL_PRESSURE => Some(e),
+        event::PITCH_BEND | event::CHANNEL_PRESSURE | event::POLY_PRESSURE => Some(e),
         _ => None,
     }
 }
@@ -252,6 +253,7 @@ pub fn connect(
                             on: event.on,
                             pitch: event.pitch,
                             velocity: event.velocity,
+                            channel: event.channel,
                         })
                         .is_err();
                     overflow |= producer
@@ -352,6 +354,11 @@ mod tests {
         assert_eq!(
             (pressure.kind, pressure.value),
             (event::CHANNEL_PRESSURE, 70)
+        );
+        let poly = controller(&[0xa2, 61, 33]).unwrap();
+        assert_eq!(
+            (poly.kind, poly.channel, poly.key, poly.value),
+            (event::POLY_PRESSURE, 2, 61, 33)
         );
         assert!(controller(&[0xb0, 123, 0]).is_none());
         assert!(controller(&[0x90, 60, 100]).is_none());

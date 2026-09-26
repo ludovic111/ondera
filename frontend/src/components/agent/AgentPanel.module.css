@@ -2,7 +2,9 @@
   position: relative;
   z-index: 2;
   width: var(--size-agent-panel);
-  flex: none;
+  min-width: var(--size-agent-panel-min);
+  flex: 0 1 auto;
+  container: agent-panel / inline-size;
   display: flex;
   flex-direction: column;
   background: var(--color-agent-panel);

@@ -2,7 +2,8 @@
   position: relative;
   z-index: 2;
   width: var(--size-browser);
-  flex: none;
+  min-width: var(--size-browser-min);
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   background: var(--color-panel);

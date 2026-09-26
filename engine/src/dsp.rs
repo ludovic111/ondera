@@ -45,6 +45,11 @@ pub const EFFECTS: [&str; 23] = [
     "Pump",
 ];
 
+/// Every stock voice is scaled by this, so a chord or a full drum hit at unity gain leaves
+/// room on the master instead of clipping it (a five-note E-piano chord at velocity 110 peaked
+/// at +5 dBFS, the Four Floor loop at +3 dBFS).
+pub const HEADROOM: f32 = 0.5;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
     Synth,
@@ -371,7 +376,7 @@ impl Voice {
                 }
             }
         };
-        (value * env * gain * release) as f32 * self.velocity * p.level
+        (value * env * gain * release) as f32 * self.velocity * p.level * HEADROOM
     }
 }
 #[cfg(test)]

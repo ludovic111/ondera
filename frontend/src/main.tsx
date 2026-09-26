@@ -10,6 +10,9 @@ import "./theme/native.css";
 import "./theme/modern.css";
 import "./theme/skeuo.css";
 import "./theme/aero.css";
+import "./theme/console.css";
+import "./theme/ink.css";
+import "./theme/neon.css";
 import "./theme/motion.css";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
@@ -22,6 +25,20 @@ applyTokens();
 const root = createRoot(document.getElementById("root")!);
 const store = new NativeStore();
 root.render(<div className="startup">Opening Ondera…</div>);
+/**
+ * A screenshot shows the window as it settles, not mid-transition. macOS throttles a web view
+ * behind other windows, so a panel that opened there could be captured still transparent and
+ * buttons with their labels half faded; finishing every running animation first avoids that.
+ */
+function settleMotion(): void {
+  for (const animation of document.getAnimations?.() ?? []) {
+    try {
+      animation.finish();
+    } catch {
+      // An infinite animation (a pulse, a caret) cannot finish; it is fine as it is.
+    }
+  }
+}
 async function start() {
   // A plain browser (npm run dev) has no host; serve the fixture song instead.
   if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window))
@@ -29,6 +46,7 @@ async function start() {
   await listen("daw:capture", async () => {
     try {
       await document.fonts.ready;
+      settleMotion();
       window.dispatchEvent(new Event("ondera:before-capture"));
       if (store.platform === "macos") {
         const png = await invoke<string>("daw_snapshot");
