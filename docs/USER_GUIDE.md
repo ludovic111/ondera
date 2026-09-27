@@ -14,15 +14,16 @@ and in the app under Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows an
 4. [Instruments, loops and the browser](#instruments-loops-and-the-browser)
 5. [Regions in the arrangement](#regions-in-the-arrangement)
 6. [Editing MIDI](#editing-midi)
-7. [Recording](#recording)
-8. [Mixing](#mixing)
-9. [Automation](#automation)
-10. [Plugins](#plugins)
-11. [Files: save, import, export, recover](#files-save-import-export-recover)
-12. [The agent](#the-agent)
-13. [Themes and appearance](#themes-and-appearance)
-14. [Settings](#settings)
-15. [Limits](#limits)
+7. [Tempo](#tempo)
+8. [Recording](#recording)
+9. [Mixing](#mixing)
+10. [Automation](#automation)
+11. [Plugins](#plugins)
+12. [Files: save, import, export, recover](#files-save-import-export-recover)
+13. [The agent](#the-agent)
+14. [Themes and appearance](#themes-and-appearance)
+15. [Settings](#settings)
+16. [Limits](#limits)
 
 ## The window
 
@@ -36,11 +37,12 @@ From top to bottom and left to right:
   button. On a narrow window the least important readouts hide first.
 - **Browser** (left): tabs for Instruments, Loops, Plugins and Files, with a search field.
 - **Arrangement** (centre): the toolbar (Pointer, Pencil and Scissors tools, grid, cycle range,
-  Follow, Zoom), the ruler with markers and the cycle range, the track headers and the lanes.
+  Follow, Zoom), the ruler with markers and the cycle range, the tempo track when shown
+  (View > Tempo Track, `⇧T`), the track headers and the lanes.
 - **Editor** (below the arrangement): Piano Roll, Score or Step for the selected MIDI region, with
   an optional controller lane. The Mixer (View > Mixer, `X`) takes its place when open.
 - **Inspector** (right): the selected track's instrument, input and output, Channel EQ, the eight
-  insert slots, the two sends, pan and fader, and the selected region's properties.
+  insert slots, its sends, pan and fader, and the selected region's properties.
 - **Agent panel** (right edge): a conversation with the built-in assistant. It folds into a thin
   rail when closed (`⌘J` toggles it).
 
@@ -60,7 +62,9 @@ The command palette (`⌘P` or View > Command Palette) finds any action by name.
    rename it (*Verse*, *Chorus*…).
 6. **Mix**: select a track and use the inspector: pick an effect in an insert slot, turn the
    sends to the reverb (A) and delay (B) buses, set pan and level. `X` opens the full mixer.
-7. **Save** with `⌘S`, then **export** with File > Export audio… (`⌘B`): WAV, AIFF, FLAC or Ogg
+7. **Change the tempo** where the song needs it: `⇧T` shows the tempo track under the ruler;
+   click it to add a change, right-click a point to make it ramp (see [Tempo](#tempo)).
+8. **Save** with `⌘S`, then **export** with File > Export audio… (`⌘B`): WAV, AIFF, FLAC or Ogg
    Vorbis, as a stereo mix or one file per track.
 
 ## Tracks
@@ -129,6 +133,25 @@ The command palette (`⌘P` or View > Command Palette) finds any action by name.
   change the octave. A hardware MIDI keyboard works the same way (Settings > Audio > MIDI Input):
   notes, the mod wheel, pitch bend, the sustain pedal, pressure and other controllers play live.
 
+## Tempo
+
+A song starts at the tempo in the transport display and can change it anywhere after that.
+
+- **Tempo track**: View > Tempo Track (`⇧T`) shows it under the ruler. The line is the tempo over
+  the song, with each change as a point. Click the track to add a change at that bar (at the
+  height you clicked); drag a point sideways to move it and up or down to change its tempo (`⇧`
+  for tenths of a BPM, `⌥` off the grid); double-click a point to type a tempo.
+- **Ramps**: right-click a point and choose *Ramp from the Previous Tempo* for a ritardando or
+  an accelerando: the tempo glides from the one before to reach the point's tempo at its bar.
+- **The transport display** shows the tempo at the playhead. Dragging or typing it changes the
+  tempo in force there: the starting tempo, or the change the playhead is after.
+- **Music stays on its bars**: notes, regions, markers and automation keep their bars and beats;
+  only the speed changes. Audio regions keep their bars too and play their audio at its own
+  speed, so a region covers the seconds between its start and end.
+- **MIDI files** carry tempo changes both ways: export writes them (a ramp as a step every
+  sixteenth note), and import with *Use the file's tempo* follows them.
+- Time signature changes inside a song are not supported yet.
+
 ## Recording
 
 1. Choose your interface in Settings > Audio (input, output, buffer size).
@@ -149,13 +172,23 @@ controller lane shows them.
 
 ## Mixing
 
-- **Inspector**: Channel EQ, eight insert slots, sends A and B, pan and fader for the selected
-  track. Click an insert to open its panel: stock plugins have a front panel with a live display;
+- **Inspector**: Channel EQ, eight insert slots, sends, the Output menu, pan and fader for the
+  selected track. Click an insert to open its panel: stock plugins have a front panel with a live display;
   external plugins show their parameters and can open their own window.
 - **Mixer** (`X`): one strip per track plus the reverb bus (A), the delay bus (B) and the master,
   each with inserts, sends, pan, fader, mute, solo and meter.
-- **Buses**: A is a reverb and B a delay by default; any effect can go on them. Show their strips
-  from the Track menu.
+- **Buses A and B**: A is a reverb and B a delay by default; any effect can go on them. Show
+  their strips from the Track menu.
+- **Your own buses**: Track > Add bus makes a bus track. It holds no regions; it sums what reaches
+  it through its own inserts, fader, pan, mute and solo, then goes to the Stereo Out.
+  - *Groups*: route tracks to a bus with the inspector's **Output** menu (or right-click a track
+    and choose *Route Track to a New Bus*). One fader, one compressor for all the drums.
+  - *Aux returns*: point a send at a bus by clicking the send's name, or add one with **+ Send**
+    (up to four sends per track). The first two sends feed A and B until you point them elsewhere.
+  - Buses feed the Stereo Out, A and B, never another bus, so the mix cannot loop.
+  - Solo on a bus keeps the tracks that feed it audible, and solo on a track keeps its bus.
+  - Stems follow the routing: a track's stem goes through its bus when effects are included, and
+    a bus's stem is everything routed to it.
 - **Master**: its own eight inserts (put a limiter last) and the master fader.
 - **Faders**: 0 dB is unity. Double-click a dial to reset it; drag with ⇧ for fine steps.
 - **Plugin delay compensation** keeps parallel paths aligned.
@@ -191,8 +224,10 @@ click its automation button to open that parameter's lane.
   time, across windows and scripts.
 - **Import audio** (`⌘I`, or drop files): WAV, AIFF/AIFC, CAF, FLAC, MP3, AAC/M4A/MP4, Ogg Vorbis
   and the sound of video files (MKV, WebM…). Surround files are folded to stereo.
-- **Import and export MIDI** (File menu): notes and controllers, optionally the file's tempo and
-  time signature.
+- **Import and export MIDI** (File menu): notes, controllers and tempo changes, optionally the
+  file's tempo and time signature. Each MIDI channel becomes a track on channel 1; from a script,
+  `keepChannels=true` keeps one track per file track with every channel, for a multitimbral
+  instrument.
 - **Export audio** (`⌘B`): a stereo mix or one stem per track; WAV, AIFF, FLAC or Ogg Vorbis;
   44.1, 48 or 96 kHz; 16 or 24-bit PCM or 32-bit float for WAV; optional dither; the whole song
   or a bar range; up to 120 seconds of release tail. The report lists the files, the peak and any
@@ -255,7 +290,8 @@ shown in full once saved.
 
 ## Limits
 
-- No time stretching, comping, tempo changes inside a song or user-defined buses yet.
+- No time stretching, comping or time signature changes inside a song yet. Buses do not feed
+  other buses.
 - Recording latency is not measured or compensated automatically.
 - External plugin windows open on macOS; on Windows and Linux external plugins show their
   parameter list.

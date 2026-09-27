@@ -35,7 +35,14 @@ unmounted plugins are reclaimed off the audio thread. Plugin processors live in 
 callback owns; a rebuilt renderer adopts the old one (transport, held notes, controller state,
 the envelope of sounding clips) so edits during playback are seamless.
 
-**Capacity** is explicit: 128 tracks, 256 simultaneous arrangement events, 32 voices per stock
+**Time and routing.** Positions are bars and beats everywhere; `engine/src/tempo.rs` turns them
+into seconds through the song's tempo map (a starting tempo plus steps and linear ramps), and
+the renderer advances by it frame by frame while audio clips keep a clock in seconds. Channels
+are processed in stages: tracks, then bus tracks (what tracks route or send to them), then the
+A and B returns, then the master, with plugin delay compensation per stage.
+
+**Capacity** is explicit: 128 tracks (up to 32 of them buses), 1000 tempo changes, four sends
+per strip, 256 simultaneous arrangement events, 32 voices per stock
 instrument, 8 inserts per strip, 1024 rack slots, 512 MiB per decoded source, 1 GiB of session
 audio and 4-hour exports.
 

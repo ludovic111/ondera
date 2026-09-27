@@ -22,10 +22,10 @@ agent panel's **Changes** tab lists edits that came from the agent, the CLI or M
 
 ## Start with the overview
 
-`session.overview` returns the whole song in one bounded answer: tempo, meter, key, length and
-sections; every track with its instrument (name, format, vendor), inserts with the parameters
-changed from their defaults as the plugin displays them, sends, fader in dB, pan, mute, solo, arm
-and monitoring; **problems** that keep a track silent (muted, excluded by a solo, zero fader,
+`session.overview` returns the whole song in one bounded answer: tempo and tempo changes, meter,
+key, length and sections; every track with its instrument (name, format, vendor), inserts with
+the parameters changed from their defaults as the plugin displays them, sends, fader in dB, pan,
+mute, solo, arm and monitoring, the bus it is routed to (or, for a bus, what it sums); **problems** that keep a track silent (muted, excluded by a solo, zero fader,
 bypassed instrument, a plugin that is not installed or failed to load); clips with bars, note
 counts, pitch ranges, audio sources and fades; automation and controller lanes; the buses,
 selection, takes and undo history; and, in the running app, what the window shows. When a big
@@ -49,8 +49,10 @@ plugin's parameters, `automation.list`, `controller.list`, `ui.state` for the wi
 - **Names work wherever ids do**: `trackId`, `clipId` and `markerId` accept a unique name
   (`--trackId Bass`). A wrong or ambiguous name is refused with the list of what exists and the
   closest match ("Unknown track `Bas`. Did you mean Bass?").
-- Strip commands take a track, `master`, `bus-a` (reverb) or `bus-b` (delay); insert slots are
-  0–7; omit `slot` for a MIDI track's instrument.
+- Strip commands take a track (a bus track too), `master`, `bus-a` (reverb) or `bus-b` (delay);
+  insert slots are 0–7; omit `slot` for a MIDI track's instrument.
+- Tempo: `transport.setTempo` is the starting tempo; `tempo.set bar=…` adds a change later on
+  (bars stay bars, so the music keeps its place and only its speed changes).
 - Errors are written for the reader: they say what was expected and how to fix the call.
 
 ## The CLI
@@ -166,12 +168,42 @@ ondera-cli automation.create --target pluginParameter --trackId Vocals --slot 0 
   `changed=true` shows only what differs from the defaults.
 - A value is set as a plain number (`value`), a 0–1 position (`normalized`) or what the plugin
   displays (`text`: "-6 dB", "2.5k", "50%", "On", "Hall").
-- `strip.programs` / `strip.setProgram` reach VST3 program lists and Audio Unit factory presets;
-  Ondera's own presets are `preset.list`, `preset.save` and `preset.load`.
+- `strip.programs` / `strip.setProgram` reach VST3 program lists and Audio Unit factory presets,
+  with the current one when the plugin reports it; Ondera's own presets are `preset.list`,
+  `preset.save` and `preset.load`.
 - `strip.getState` / `strip.setState` read and restore a plugin's full saved state;
   `strip.setBypass`, `strip.moveInsert` and `strip.removeInsert` manage the chain;
   `ui.openPluginWindow` opens the plugin's own window (macOS).
 - Scanning (`plugin.scan`) runs in a separate process, so a faulty plugin cannot crash the app.
+
+### Tempo changes
+
+```sh
+ondera-cli tempo.set --bar 16 --bpm 96 --ramp true    # slow down into bar 17
+ondera-cli tempo.set --bar 24 --bpm 124               # a jump back up at bar 25
+ondera-cli tempo.list                                 # every change, in seconds too
+ondera-cli tempo.move --bar 24 --toBar 32
+ondera-cli tempo.clear --startBar 16
+```
+
+`transport.locate` answers with `tempoAtPosition` and `positionSeconds` once a song has changes.
+MIDI export writes them; `session.importMidi importTempo=true` follows a file's.
+
+### Buses: groups and aux returns
+
+```sh
+ondera-cli track.group --params '{"trackIds":["Kick","Snare","Hats"],"name":"Drums"}'
+ondera-cli strip.setPlugin --trackId Drums --plugin "Ondera Comp" --firstFreeSlot true
+ondera-cli track.add --kind bus --name "Plate"
+ondera-cli strip.setSend --trackId Vocals --send 2 --bus Plate --levelDb -12
+ondera-cli track.setOutput --trackId Snare --output "Stereo Out"
+```
+
+A bus track holds no clips; it sums what tracks route (`track.setOutput`) or send
+(`strip.setSend`) to it through its inserts, fader and pan. Sends 0 and 1 feed A · Reverb and
+B · Delay until pointed elsewhere; a strip has up to four. Buses feed the Stereo Out, A and B,
+never another bus. `session.overview` shows each track's `output` and each bus's `inputs`, and
+flags a track whose bus is muted.
 
 ### Check a mix
 
@@ -184,8 +216,8 @@ ondera-cli automation.create --target pluginParameter --trackId Vocals --slot 0 
 
 `ui.state` reports what the window shows: open panels and dialogs, a pending prompt, open plugin
 windows, the editor's clip and mode, zoom and visible bars, the tool, the browser, the selection
-and the theme. `ui.showPanel` opens the mixer, automation, controller lane, settings, help, the
-command palette and more; `view.set` scrolls and zooms; `ui.setTool` picks a tool;
+and the theme. `ui.showPanel` opens the mixer, automation, controller lane, tempo track,
+settings, help, the command palette and more; `view.set` scrolls and zooms; `ui.setTool` picks a tool;
 `ui.screenshot` saves a PNG of the window, captured once running animations have settled.
 
 ## What only a person does
