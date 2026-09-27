@@ -261,7 +261,7 @@ fn saving_old_revision_cannot_mark_new_edits_clean() {
 #[test]
 fn split_retains_crossing_notes() {
     let s = midi_session();
-    let (l, r) = store::split(&s.clips[0], 0.25, "right".into(), 4.0, 120.0).unwrap();
+    let (l, r) = store::split(&s, &s.clips[0], 0.25, "right".into()).unwrap();
     let ClipData::Midi { notes: a, .. } = l.data else {
         panic!()
     };
@@ -275,7 +275,7 @@ fn split_retains_crossing_notes() {
 #[test]
 fn split_audio_advances_source_offset() {
     let (s, _) = audio_session();
-    let (_, r) = store::split(&s.clips[0], 0.125, "right".into(), 4.0, 120.0).unwrap();
+    let (_, r) = store::split(&s, &s.clips[0], 0.125, "right".into()).unwrap();
     let ClipData::Audio { offset_seconds, .. } = r.data else {
         panic!()
     };
@@ -1298,7 +1298,7 @@ fn fades_gain_and_markers_round_trip_and_old_files_gain_no_keys() {
 #[test]
 fn split_gives_the_left_part_the_fade_in_and_the_right_the_fade_out() {
     let (s, _) = dc_session(0.2, 0.3, FadeCurve::Linear, 2.0);
-    let (left, right) = store::split(&s.clips[0], 0.25, "right".into(), 4.0, 120.0).unwrap();
+    let (left, right) = store::split(&s, &s.clips[0], 0.25, "right".into()).unwrap();
     let envelope = |c: &Clip| match &c.data {
         ClipData::Audio {
             fade_in,
@@ -1311,4 +1311,157 @@ fn split_gives_the_left_part_the_fade_in_and_the_right_the_fade_out() {
     };
     assert_eq!(envelope(&left), (0.2, 0.0, 2.0, 0.0));
     assert_eq!(envelope(&right), (0.0, 0.3, 2.0, 0.5));
+}
+
+/// A song that drops from 120 to 60 BPM at bar 1 and ramps from there back to 120 at bar 3,
+/// over audio whose sample value is its own time in seconds (divided by ten).
+fn tempo_session() -> (Session, Library) {
+    let (mut s, _) = dc_session(0.0, 0.0, FadeCurve::Linear, 0.0);
+    s.tempo_changes = vec![
+        ondera_engine::tempo::TempoPoint {
+            bar: 1.0,
+            bpm: 60.0,
+            ramp: false,
+        },
+        ondera_engine::tempo::TempoPoint {
+            bar: 3.0,
+            bpm: 120.0,
+            ramp: true,
+        },
+    ];
+    let frames = (0..48000 * 12)
+        .map(|i| {
+            let x = i as f32 / 48000.0 / 10.0;
+            [x, x]
+        })
+        .collect();
+    let buffer = Arc::new(AudioBuffer::new(48000, frames).unwrap());
+    s.sources.get_mut("src").unwrap().duration_seconds = buffer.duration();
+    s.clips[0].length_bars = 4.0;
+    s.validate().unwrap();
+    (s, Library::from([("src".into(), buffer)]))
+}
+
+#[test]
+fn the_playhead_follows_tempo_changes_and_ramps() {
+    let (s, library) = tempo_session();
+    let map = s.tempo_map();
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.playing = true;
+    r.locate(0.0);
+    let mut block = [[0.0f32; 2]; 480];
+    let mut seconds = 0.0;
+    // Checked every 10 ms, through the step and the ramp.
+    for _ in 0..1000 {
+        r.render(&mut rack, &mut block);
+        seconds += 0.01;
+        let expected = map.beat(seconds);
+        assert!(
+            (r.position() - expected).abs() < 1e-4,
+            "at {seconds} s: {} beats, expected {expected}",
+            r.position()
+        );
+    }
+    // Bar 1 starts after four beats at 120; the ramp from 60 to 120 over eight beats takes
+    // 60 / 7.5 · ln 2 seconds; then four beats at 120.
+    assert_eq!(map.seconds(4.0), 2.0);
+    let ramp = 8.0 * 2f64.ln();
+    assert!((map.seconds(12.0) - 2.0 - ramp).abs() < 1e-9);
+    assert!((map.seconds(16.0) - 4.0 - ramp).abs() < 1e-9);
+}
+
+#[test]
+fn audio_plays_at_its_own_speed_through_tempo_changes() {
+    let (s, library) = tempo_session();
+    let map = s.tempo_map();
+    let clip_seconds = map.seconds(16.0);
+    let frames = (clip_seconds * 48000.0) as usize;
+    let out = render_frames(s, &library, frames);
+    // Wherever the tempo is, the output at t seconds is the audio at t seconds.
+    for t in [0.5, 1.99, 2.5, 5.0, 6.5, 9.0, clip_seconds - 0.01] {
+        let v = out[(t * 48000.0) as usize][0] as f64;
+        assert!((v - t / 10.0).abs() < 1e-3, "at {t} s: {v}");
+    }
+}
+
+#[test]
+fn a_locate_lands_on_the_right_second_of_audio() {
+    let (s, library) = tempo_session();
+    let map = s.tempo_map();
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.playing = true;
+    let mut block = [[0.0f32; 2]; 64];
+    for beat in [3.0, 6.0, 10.0, 13.5] {
+        r.locate(beat);
+        // Past the 3 ms edge ramp a locate starts on.
+        for _ in 0..4 {
+            r.render(&mut rack, &mut block);
+        }
+        let t = map.seconds(beat) + 255.0 / 48000.0;
+        assert!(((block[63][0] as f64) - t / 10.0).abs() < 1e-3, "{beat}");
+    }
+}
+
+#[test]
+fn exports_last_as_long_as_the_tempo_map_says() {
+    let (s, library) = tempo_session();
+    let seconds = s.tempo_map().seconds(16.0);
+    let dir = std::env::temp_dir().join(format!("ondera-tempo-export-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mix.wav");
+    let options = ondera_engine::export::ExportOptions {
+        tail_seconds: 0.0,
+        ..Default::default()
+    };
+    let report = ondera_engine::export::mix(&s, &library, &path, &options).unwrap();
+    assert_eq!(report.frames, (seconds * 48000.0).ceil() as u64);
+    // A range inside the ramp lasts as long as the ramp takes there, 60 / 7.5 · ln 1.5.
+    let options = ondera_engine::export::ExportOptions {
+        start_bar: Some(1.0),
+        end_bar: Some(2.0),
+        tail_seconds: 0.0,
+        ..Default::default()
+    };
+    let report = ondera_engine::export::mix(&s, &library, &path, &options).unwrap();
+    assert_eq!(report.frames, (8.0 * 1.5f64.ln() * 48000.0).ceil() as u64);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn tempo_changes_allocate_nothing_on_the_audio_thread() {
+    let (mut s, library) = tempo_session();
+    s.transport.metronome = true;
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    ALLOCATIONS.with(|n| n.set(0));
+    DEALLOCATIONS.with(|n| n.set(0));
+    COUNTING.with(|v| v.set(true));
+    for i in 0..2000 {
+        if i == 1000 {
+            r.locate(9.0);
+        }
+        r.render(&mut rack, &mut block);
+        std::hint::black_box(&block);
+    }
+    COUNTING.with(|v| v.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(DEALLOCATIONS.with(Cell::get), 0);
+}
+
+#[test]
+fn tempo_changes_round_trip_and_refuse_bad_points() {
+    let (s, _) = tempo_session();
+    let text = serde_json::to_string(&s).unwrap();
+    assert!(text.contains(
+        r#""tempoChanges":[{"bar":1.0,"bpm":60.0},{"bar":3.0,"bpm":120.0,"ramp":true}]"#
+    ));
+    let back: Session = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.tempo_changes, s.tempo_changes);
+    let mut bad = back.clone();
+    bad.tempo_changes[1].bar = 0.5;
+    assert!(bad.validate().is_err(), "out of order");
+    let mut bad = back;
+    bad.tempo_changes[0].bpm = 1000.0;
+    assert!(bad.validate().is_err());
 }

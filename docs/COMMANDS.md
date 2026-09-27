@@ -2,7 +2,7 @@
 
 <!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `ONDERA_BLESS=1 cargo test -p ondera-tools --test command_docs`. -->
 
-Ondera has 182 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
+Ondera has 187 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
 
 Conventions: bars and beats are zero-based; note `start` and `length` are beats relative to their clip; pitch 60 is C4; velocity is 1–127; a fader value of 0.75 is unity gain. Strip commands accept a track id or `master`, `bus-a`, `bus-b`; insert slots are 0–7.
 
@@ -21,6 +21,7 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 - [history](#history) — `history.undo`, `history.redo`, `history.info`
 - [source](#source) — `source.peaks`
 - [marker](#marker) — `marker.list`, `marker.add`, `marker.rename`, `marker.move`, `marker.setColor`, `marker.remove`, `marker.goto`, `marker.next`, `marker.previous`, `marker.cycleSection`
+- [tempo](#tempo) — `tempo.list`, `tempo.set`, `tempo.move`, `tempo.remove`, `tempo.clear`
 - [automation](#automation) — `automation.list`, `automation.create`, `automation.setPoints`, `automation.setPoint`, `automation.removePoint`, `automation.setEnabled`, `automation.setInterpolation`, `automation.remove`
 - [controller](#controller) — `controller.list`, `controller.add`, `controller.update`, `controller.remove`, `controller.setPoints`
 - [rhythm](#rhythm) — `rhythm.create`, `rhythm.preview`
@@ -125,19 +126,19 @@ Decode an audio file (WAV, AIFF, FLAC, MP3, Ogg, AAC) into the session and place
 
 *Edits*
 
-Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-note positions are preserved; reports unsupported controller/tempo-map data.
+Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-note positions are preserved; reports what it could not import.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Source .mid or .midi file. |
 | `startBar` | number |  | Zero-based destination bar, default 0. |
-| `importTempo` | boolean |  | Apply the file's initial tempo and meter to the entire session (default false). Later changes are reported and ignored. |
+| `importTempo` | boolean |  | Make the file's tempo the song's (default false): its first tempo and meter for the whole song, its later tempo changes from startBar on, replacing the song's tempo changes. Later meter changes are reported and ignored. |
 
 ### `session.exportMidi`
 
 *Edits*
 
-Export arrangement notes as SMF type 1 at 960 PPQ with initial tempo/meter. Does not convert audio or embed plugins; includes muted tracks.
+Export arrangement notes as SMF type 1 at 960 PPQ with the meter and every tempo change (a ramp as a step each sixteenth note). Does not convert audio or embed plugins; includes muted tracks.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -223,7 +224,7 @@ Open a recovery snapshot in the window as an unsaved copy.
 
 ### `session.overview`
 
-Everything about the song in one compact answer; call it first. Song (tempo, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.
+Everything about the song in one compact answer; call it first. Song (tempo, tempo changes, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -356,7 +357,7 @@ Move the playhead to the beginning.
 
 *Edits*
 
-Set the song tempo in beats per minute, like dragging the tempo display. One undo step.
+Set the song's starting tempo in beats per minute, like dragging the tempo display. Tempo changes later in the song (tempo.list) keep theirs. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1274,6 +1275,57 @@ Cycle one song section: set the cycle from a marker to the next marker (or the e
 |---|---|---|---|
 | `markerId` | string |  | Marker that starts the section. Defaults to the section the playhead is in. |
 
+## tempo
+
+### `tempo.list`
+
+List the song's tempo: the starting tempo and every change after it in bar order, with where each one falls in seconds, and the tempo at the playhead.
+
+### `tempo.set`
+
+*Edits*
+
+Set the tempo from a bar on, like adding or dragging a point on the tempo track. Bar 0 sets the starting tempo; any later bar adds a change there or replaces the one already there. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `bar` | number | yes | Zero-based bar of the tempo change, as listed by tempo.list. |
+| `bpm` | number | yes | Beats per minute, 20-400. |
+| `ramp` | boolean |  | Glide from the previous tempo to reach this one at the bar, instead of jumping to it there (a ritardando or accelerando). Defaults to the ramp of the change already at that bar, else false. Not for bar 0. |
+
+### `tempo.move`
+
+*Edits*
+
+Move a tempo change to another bar, like dragging its point on the tempo track, keeping its ramp and, unless bpm is given, its tempo. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `bar` | number | yes | Zero-based bar of the tempo change, as listed by tempo.list. |
+| `toBar` | number | yes | New zero-based bar, after bar 0 and free of another change. |
+| `bpm` | number |  | A new tempo for it at the same time, 20-400. |
+
+### `tempo.remove`
+
+*Edits*
+
+Delete a tempo change: the tempo before it carries on. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `bar` | number | yes | Zero-based bar of the tempo change, as listed by tempo.list. |
+
+### `tempo.clear`
+
+*Edits*
+
+Delete every tempo change, or those in a range of bars, so the song keeps its starting tempo there. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `startBar` | number |  | First bar of the range (default 0). |
+| `endBar` | number |  | Bar where the range ends, exclusive (default: the end of the song). |
+
 ## automation
 
 ### `automation.list`
@@ -1676,7 +1728,7 @@ Capture the window to a PNG so an agent can see the interface. Returns the file 
 
 *Edits · Needs the app*
 
-Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.
+Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), tempo (the tempo track under the ruler), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

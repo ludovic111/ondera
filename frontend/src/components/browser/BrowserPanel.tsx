@@ -1,5 +1,6 @@
 import { useMemo, useState, type MouseEvent } from "react";
 import {
+  barAfterSeconds,
   commands,
   secondsToBars,
   type BrowserItem,
@@ -175,15 +176,16 @@ export function BrowserPanel() {
                 kind: "audio",
                 name: source.name,
               });
-        const { numerator, denominator } = s.transport.timeSignature;
-        const barSeconds =
-          (60 / s.transport.tempo) * numerator * (4 / denominator);
+        const startBar = playheadBar(s);
+        // The bars the audio covers from there, whatever the tempo does on the way.
+        const lengthBars =
+          barAfterSeconds(s, startBar, source.durationSeconds) - startBar;
         await store.run("clip.create", {
           trackId: track.id,
           sourceId: source.id,
           name: source.name,
-          startBar: playheadBar(s),
-          lengthBars: Math.max(0.25, source.durationSeconds / barSeconds),
+          startBar,
+          lengthBars: Math.max(0.25, lengthBars),
         });
         store.receive(await store.run("web.document"));
       } catch (error) {

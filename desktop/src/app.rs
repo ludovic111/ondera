@@ -123,6 +123,8 @@ pub struct Ondera {
     pub show_mixer: bool,
     /// The region editor shows the controller lane under the piano roll.
     pub show_controllers: bool,
+    /// The tempo track under the ruler.
+    pub show_tempo: bool,
     /// The command palette is open.
     pub show_palette: bool,
     /// The copied clip, shared by the window, the CLI and agents.
@@ -309,6 +311,7 @@ impl Ondera {
             show_help: false,
             show_mixer: false,
             show_controllers: false,
+            show_tempo: false,
             show_palette: false,
             clipboard: None,
             lane_width: 960.0,
@@ -375,6 +378,7 @@ impl Ondera {
                     | Command::Redo
                     | Command::RemoveTrack(_)
                     | Command::RestoreTake(_) => true,
+                    Command::SetTempoChanges(_) => true,
                     Command::SetTransport(t) => {
                         t.tempo != old.tempo
                             || t.time_signature.numerator != old.time_signature.numerator
@@ -611,7 +615,7 @@ impl Ondera {
         let end_position = self.position;
         // Key down/up can arrive in the same UI frame. Keep a one-millisecond
         // tap instead of silently deleting it because both saw one playhead time.
-        let minimum_length = self.store.session().transport.tempo / 60.0 * 0.001;
+        let minimum_length = self.store.session().tempo_map().bpm(end_position) / 60.0 * 0.001;
         let mut take = std::mem::take(&mut self.midi_take);
         let controls = std::mem::take(&mut self.midi_controls);
         for note in &mut take {
@@ -782,9 +786,8 @@ impl Ondera {
                             None,
                         );
                         let s = self.store.session();
-                        self.position += (duration * s.transport.tempo / 60.0 / s.beats_per_bar())
-                            .ceil()
-                            * s.beats_per_bar();
+                        let bpb = s.beats_per_bar();
+                        self.position += s.seconds_bars(self.position / bpb, duration).ceil() * bpb;
                     }
                     self.position = position;
                     self.status = "Audio imported".into();
@@ -1371,7 +1374,7 @@ impl Ondera {
             .iter()
             .find(|c| Some(&c.id) == s.view.selected_clip_id.as_ref())
         {
-            match store::split(clip, bar, id("clip"), s.beats_per_bar(), s.transport.tempo) {
+            match store::split(s, clip, bar, id("clip")) {
                 Ok((l, r)) => self.dispatch(Command::Batch(vec![
                     Command::PutClip(l),
                     Command::PutClip(r),
@@ -1425,7 +1428,7 @@ impl Ondera {
         let s = self.store.session();
         let bpb = s.beats_per_bar();
         let start_bar = recorded.as_ref().map_or(self.position, |(beat, _)| *beat) / bpb;
-        let length_bars = buffer.duration() * s.transport.tempo / 60.0 / bpb;
+        let length_bars = s.seconds_bars(start_bar, buffer.duration());
         let source = Source {
             id: source_id.clone(),
             name: name.into(),

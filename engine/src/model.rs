@@ -36,6 +36,10 @@ pub struct Session {
     /// Song sections on the ruler, in bar order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<Marker>,
+    /// Tempo changes after the start (`transport.tempo`), in bar order. Absent when the song
+    /// keeps one tempo, so such files read and write exactly as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tempo_changes: Vec<crate::tempo::TempoPoint>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -757,6 +761,28 @@ impl Session {
         self.transport.time_signature.numerator as f64 * 4.0
             / self.transport.time_signature.denominator as f64
     }
+    /// Seconds and tempo for every beat of the song.
+    pub fn tempo_map(&self) -> crate::tempo::TempoMap {
+        crate::tempo::TempoMap::new(
+            self.transport.tempo,
+            &self.tempo_changes,
+            self.beats_per_bar(),
+        )
+    }
+    /// Seconds between two bars.
+    pub fn bars_seconds(&self, start_bar: f64, end_bar: f64) -> f64 {
+        let bpb = self.beats_per_bar();
+        self.tempo_map().duration(start_bar * bpb, end_bar * bpb)
+    }
+    /// Bars that `seconds` of audio cover from `start_bar` on.
+    pub fn seconds_bars(&self, start_bar: f64, seconds: f64) -> f64 {
+        let bpb = self.beats_per_bar();
+        self.tempo_map().beats_for(start_bar * bpb, seconds) / bpb
+    }
+    /// The tempo at the start of `bar`.
+    pub fn tempo_at_bar(&self, bar: f64) -> f64 {
+        self.tempo_map().bpm(bar * self.beats_per_bar())
+    }
     pub fn end_bar(&self) -> f64 {
         self.clips
             .iter()
@@ -775,9 +801,10 @@ impl Session {
         if !valid_time(t.position_beats) || ![1, 2, 4, 8, 16, 32, 64].contains(&t.snap_division) {
             return Err("Invalid transport".into());
         }
-        if !t.tempo.is_finite() || !(20.0..=400.0).contains(&t.tempo) {
+        if !crate::tempo::valid_bpm(t.tempo) {
             return Err("Tempo must be between 20 and 400 BPM".into());
         }
+        crate::tempo::validate(&self.tempo_changes)?;
         if !(1..=32).contains(&t.time_signature.numerator)
             || ![1, 2, 4, 8, 16, 32].contains(&t.time_signature.denominator)
         {

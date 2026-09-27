@@ -109,9 +109,12 @@ pub(crate) fn preview(host: &dyn Host, params: &Value) -> Result<Value> {
         return Err("A preview is 1 to 4 bars".into());
     }
     let mut scratch = crate::control::Headless::new();
-    scratch.store.dispatch(crate::store::Command::SetTransport(
-        host.store().session().transport.clone(),
-    ))?;
+    // The groove plays at the tempo in force at the playhead.
+    let mut transport = host.store().session().transport.clone();
+    transport.tempo = host.store().session().tempo_map().bpm(host.position());
+    scratch
+        .store
+        .dispatch(crate::store::Command::SetTransport(transport))?;
     let seconds = bars as f64 * scratch.store.session().beats_per_bar() * 60.0
         / scratch.store.session().transport.tempo;
     if seconds > 30.0 {

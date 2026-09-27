@@ -10,12 +10,12 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 
 pub const SPECS:&[Spec]=&[
-    edit("session.importMidi","Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-note positions are preserved; reports unsupported controller/tempo-map data.",&[
+    edit("session.importMidi","Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-note positions are preserved; reports what it could not import.",&[
         req("path",Kind::String,"Source .mid or .midi file."),
         opt("startBar",Kind::Number,"Zero-based destination bar, default 0."),
-        opt("importTempo",Kind::Boolean,"Apply the file's initial tempo and meter to the entire session (default false). Later changes are reported and ignored."),
+        opt("importTempo",Kind::Boolean,"Make the file's tempo the song's (default false): its first tempo and meter for the whole song, its later tempo changes from startBar on, replacing the song's tempo changes. Later meter changes are reported and ignored."),
     ]),
-    edit("session.exportMidi","Export arrangement notes as SMF type 1 at 960 PPQ with initial tempo/meter. Does not convert audio or embed plugins; includes muted tracks.",&[
+    edit("session.exportMidi","Export arrangement notes as SMF type 1 at 960 PPQ with the meter and every tempo change (a ramp as a step each sixteenth note). Does not convert audio or embed plugins; includes muted tracks.",&[
         req("path",Kind::String,"Destination .mid file, replaced atomically after success."),
         opt("trackIds",Kind::Array,"MIDI track IDs to export; defaults to all MIDI tracks."),
     ]),

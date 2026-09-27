@@ -174,7 +174,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("markerId", Kind::String, "A marker from marker.list: go to its bar."),
     ]),
     edit("transport.returnToStart", "Move the playhead to the beginning.", &[]),
-    edit("transport.setTempo", "Set the song tempo in beats per minute, like dragging the tempo display. One undo step.", &[req("bpm", Kind::Number, "Beats per minute, 20-400.")]),
+    edit("transport.setTempo", "Set the song's starting tempo in beats per minute, like dragging the tempo display. Tempo changes later in the song (tempo.list) keep theirs. One undo step.", &[req("bpm", Kind::Number, "Beats per minute, 20-400.")]),
     edit("transport.setTimeSignature", "Set the meter. Clips keep their bar positions and automation moves with them, in one undo step.", &[
         req("numerator", Kind::Integer, "Beats per bar, 1-32."),
         req("denominator", Kind::Integer, "Beat unit: 1, 2, 4, 8, 16 or 32."),
@@ -312,6 +312,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_media::SPECS)
         .chain(crate::control_edit::SPECS)
         .chain(crate::control_arrange::SPECS)
+        .chain(crate::control_tempo::SPECS)
         .chain(crate::control_plugins::SPECS)
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_controllers::SPECS)
@@ -786,6 +787,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     if crate::control_arrange::SPECS.iter().any(|s| s.name == name) {
         return crate::control_arrange::call(host, name, &a);
     }
+    if crate::control_tempo::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_tempo::call(host, name, &a);
+    }
     if crate::control_media::SPECS.iter().any(|s| s.name == name) {
         return crate::control_media::call(host, name, params, agent);
     }
@@ -838,7 +842,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             let s = host.store().session();
             Ok(json!({
                 "path": path,
-                "seconds": s.end_bar() * s.beats_per_bar() * 60.0 / s.transport.tempo + 3.0,
+                "seconds": s.bars_seconds(0.0, s.end_bar()) + 3.0,
                 "sampleRate": 48000,
                 "bitDepth": 24,
             }))
@@ -1127,13 +1131,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         "clip.split" => {
             let s = host.store().session();
             let clip = find_clip(s, a.str("clipId")?)?;
-            let (left, right) = store::split(
-                clip,
-                a.f64("bar")?,
-                new_id("clip"),
-                s.beats_per_bar(),
-                s.transport.tempo,
-            )?;
+            let (left, right) = store::split(s, clip, a.f64("bar")?, new_id("clip"))?;
             let ids = [left.id.clone(), right.id.clone()];
             host.dispatch(Command::Batch(vec![
                 Command::PutClip(left),
@@ -1839,7 +1837,7 @@ fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
         agent,
         track_id: track,
         start_bar,
-        length_bars: buffer.duration() * s.transport.tempo / 60.0 / bpb,
+        length_bars: s.seconds_bars(start_bar, buffer.duration()),
         data: ClipData::audio(source.id.clone(), 0.0),
     };
     let (source_id, clip_id) = (source.id.clone(), clip.id.clone());
@@ -1977,7 +1975,7 @@ fn inspect(host: &dyn Host, include_notes: bool) -> Value {
     json!({
         "info":info(host),"tracks":session.tracks.iter().map(|t| track_json(session, t)).collect::<Vec<_>>(),"clips":clips,"sources":session.sources,
         "strips":strips,"automation":session.automation,"masterVolume":session.master_volume,
-        "markers":session.markers,
+        "markers":session.markers,"tempoChanges":session.tempo_changes,
         "includesNotes":include_notes,"includesPluginState":false
     })
 }
@@ -1985,7 +1983,7 @@ pub(crate) fn transport(host: &dyn Host) -> Value {
     let s = host.store().session();
     let t = &s.transport;
     let beats = host.position();
-    json!({
+    let mut value = json!({
         "playing": host.playing(),
         "recording": host.recording(),
         "positionBeats": beats,
@@ -1996,7 +1994,16 @@ pub(crate) fn transport(host: &dyn Host) -> Value {
         "snapDivision": t.snap_division,
         "cycle": { "enabled": t.cycle, "startBar": t.cycle_start_bar, "endBar": t.cycle_end_bar },
         "metronome": t.metronome,
-    })
+    });
+    // A song with tempo changes also says what plays at the playhead and how many there are;
+    // `tempo` stays the starting tempo, which `transport.setTempo` sets.
+    if !s.tempo_changes.is_empty() {
+        let map = s.tempo_map();
+        value["tempoAtPosition"] = json!(map.bpm(beats));
+        value["positionSeconds"] = json!(map.seconds(beats));
+        value["tempoChangeCount"] = json!(s.tempo_changes.len());
+    }
+    value
 }
 pub(crate) fn selection(host: &dyn Host) -> Value {
     let v = &host.store().session().view;

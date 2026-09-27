@@ -12,6 +12,7 @@ pub mod control_overview;
 pub mod control_params;
 pub mod control_plugins;
 pub mod control_refs;
+pub mod control_tempo;
 pub mod controllers;
 pub mod device;
 pub mod document;
@@ -30,6 +31,7 @@ pub mod session_file;
 pub mod settings;
 pub mod stock;
 pub mod store;
+pub mod tempo;
 
 pub type Result<T> = std::result::Result<T, String>;
 

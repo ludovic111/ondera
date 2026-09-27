@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  barsToSeconds,
+  barsSeconds,
   clipEnvelope,
   commands,
   snapBars,
@@ -20,9 +20,9 @@ import {
   barToX,
   clipEdgeAt,
   fadeHandleAt,
+  fadeRates,
   hitTestClip,
   laneGeometry,
-  pixelsPerSecond,
   xToBar,
   type LaneOverlay,
 } from "../../canvas/timeline";
@@ -279,19 +279,22 @@ export function useLaneInteraction() {
         });
       } else if (d.kind === "fade") {
         // Fades are seconds of audio: free, not on the bar grid, and never past the other fade.
-        const { tempo, timeSignature } = state.transport;
-        const length = barsToSeconds(d.clip.lengthBars, tempo, timeSignature);
-        const pps = pixelsPerSecond(state);
+        const length = barsSeconds(
+          state,
+          d.clip.startBar,
+          d.clip.startBar + d.clip.lengthBars,
+        );
+        const pps = fadeRates(state, d.clip);
         const x0 = barToX(d.clip.startBar, geo);
         const x1 = barToX(d.clip.startBar + d.clip.lengthBars, geo);
         const ms = (v: number) => Math.round(v * 1000) / 1000;
         if (d.handle === "in")
           d.fadeIn = ms(
-            Math.max(0, Math.min(length - d.fadeOut, (p.x - x0) / pps)),
+            Math.max(0, Math.min(length - d.fadeOut, (p.x - x0) / pps.in)),
           );
         else
           d.fadeOut = ms(
-            Math.max(0, Math.min(length - d.fadeIn, (x1 - p.x) / pps)),
+            Math.max(0, Math.min(length - d.fadeIn, (x1 - p.x) / pps.out)),
           );
         e.currentTarget.style.cursor = "ew-resize";
         setOverlay({

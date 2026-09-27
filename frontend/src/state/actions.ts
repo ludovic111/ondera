@@ -70,6 +70,7 @@ export type ActionId =
   | "transposeOctaveDown"
   | "toggleMixer"
   | "toggleControllerLane"
+  | "toggleTempoTrack"
   | "commandPalette"
   | "showShortcuts"
   | "addMarker"
@@ -621,6 +622,18 @@ function editingActions(): ActionDef[] {
         store.fire("ui.showPanel", {
           panel: "controllers",
           visible: !store.ui.controllers,
+        }),
+    },
+    {
+      // Tempo changes and ramps, under the ruler.
+      id: "toggleTempoTrack",
+      label: "Tempo Track",
+      shortcut: { key: "t", shift: true },
+      checked: (_s, store) => store.ui.tempo ?? false,
+      run: (store) =>
+        store.fire("ui.showPanel", {
+          panel: "tempo",
+          visible: !store.ui.tempo,
         }),
     },
     {

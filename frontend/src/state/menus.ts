@@ -189,6 +189,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("commandPalette"),
         a("toggleMixer"),
         a("toggleControllerLane"),
+        a("toggleTempoTrack"),
         panel("Automation", "automation"),
         separator,
         a("followPlayhead"),

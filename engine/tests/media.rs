@@ -726,3 +726,81 @@ fn ogg_stems_carry_the_track_name() {
         export::Container::Ogg
     );
 }
+
+#[test]
+fn midi_files_carry_tempo_changes_and_ramps_both_ways() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tempo.mid");
+    let mut host = song();
+    command(&mut host, "tempo.set", json!({"bar": 1, "bpm": 90}));
+    command(
+        &mut host,
+        "tempo.set",
+        json!({"bar": 2, "bpm": 150, "ramp": true}),
+    );
+    let source = host.store.session().tempo_map();
+    midi_file::export(host.store.session(), &path, None).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let parsed = midly::Smf::parse(&bytes).unwrap();
+    let tempos = parsed.tracks[0]
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.kind,
+                midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(_))
+            )
+        })
+        .count();
+    // The start, the step at bar 1 (whose tempo the ramp's first step replaces), sixteen
+    // sixteenths of ramp and the tempo it reaches.
+    assert_eq!(tempos, 1 + 16 + 1);
+
+    // Without importTempo the song keeps its tempo and says what it left out.
+    let plain = Headless::new();
+    let (_, report) = midi_file::import(
+        &path,
+        plain.store.session(),
+        &ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(report.tempo_changes, 0);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("changes tempo 17 times")),
+        "{:?}",
+        report.warnings
+    );
+
+    let mut destination = Headless::new();
+    let (batch, report) = midi_file::import(
+        &path,
+        destination.store.session(),
+        &ImportOptions {
+            start_bar: 0.0,
+            import_tempo: true,
+        },
+        false,
+    )
+    .unwrap();
+    destination.store.dispatch(batch).unwrap();
+    assert_eq!(report.file_tempo, 120.0);
+    assert_eq!(report.tempo_changes, 17);
+    let s = destination.store.session();
+    assert_eq!(s.tempo_changes[0].bar, 1.0);
+    assert_eq!(s.tempo_changes.last().unwrap().bpm, 150.0);
+    // The steps land every beat where the ramp put it, to well under a millisecond.
+    let imported = s.tempo_map();
+    for beat in [0.0, 4.0, 5.0, 6.5, 8.0, 12.0] {
+        assert!(
+            (imported.seconds(beat) - source.seconds(beat)).abs() < 5e-4,
+            "{beat}: {} vs {}",
+            imported.seconds(beat),
+            source.seconds(beat)
+        );
+    }
+    destination.store.dispatch(Command::Undo).unwrap();
+    assert!(destination.store.session().tempo_changes.is_empty());
+}

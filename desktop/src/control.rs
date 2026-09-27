@@ -289,11 +289,12 @@ impl Ondera {
                     control::protect_session_file(self.path.as_deref(), Path::new(path))?;
                 }
                 // An offline render: seconds of work that must not hold the interface, and that
-                // needs nothing from the open document but its tempo and meter.
+                // needs nothing from the open document but its meter and the tempo at the
+                // playhead.
                 let mut scratch = Headless::new();
-                scratch.store.dispatch(Command::SetTransport(
-                    self.store.session().transport.clone(),
-                ))?;
+                let mut transport = self.store.session().transport.clone();
+                transport.tempo = self.store.session().tempo_map().bpm(self.position);
+                scratch.store.dispatch(Command::SetTransport(transport))?;
                 let params_owned = params.clone();
                 return Ok(self.start_worker(method, params, source, move || {
                     control::call(&mut scratch, "rhythm.preview", &params_owned, false)
@@ -422,6 +423,9 @@ impl Ondera {
                     }
                     if job.method == "session.importMidi" {
                         commands.push(Command::SetTransport(next.transport.clone()));
+                        if next.tempo_changes != prior.tempo_changes {
+                            commands.push(Command::SetTempoChanges(next.tempo_changes.clone()));
+                        }
                     }
                     self.try_dispatch(Command::Batch(commands))?;
                     self.library = host.library;
@@ -687,6 +691,7 @@ impl Ondera {
             "help": self.show_help,
             "mixer": self.show_mixer,
             "controllers": self.show_controllers,
+            "tempo": self.show_tempo,
             "palette": self.show_palette,
             "tool": TOOLS[self.tool.min(2)],
             "musicalTyping": self.musical_typing,
@@ -776,6 +781,7 @@ impl Ondera {
                 "mixer": self.show_mixer,
                 "automation": self.automation.open,
                 "controllers": self.show_controllers,
+                "tempo": self.show_tempo,
                 "palette": self.show_palette,
                 "help": self.show_help,
                 "settings": if self.settings_ui.open {
@@ -1292,6 +1298,7 @@ impl Host for Ondera {
                     "help" => self.show_help = visible,
                     "mixer" => self.show_mixer = visible,
                     "controllers" => self.show_controllers = visible,
+                    "tempo" => self.show_tempo = visible,
                     "palette" => self.show_palette = visible,
                     "export" => {
                         if visible {
@@ -1316,7 +1323,7 @@ impl Host for Ondera {
                     }
                     other => {
                         return Err(format!(
-                            "Unknown panel `{other}`. Panels: agent, automation, mixer, controllers, palette, settings, help, export, recovery, master, bus-a, bus-b."
+                            "Unknown panel `{other}`. Panels: agent, automation, mixer, controllers, tempo, palette, settings, help, export, recovery, master, bus-a, bus-b."
                         ))
                     }
                 }

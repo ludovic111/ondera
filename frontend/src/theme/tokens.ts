@@ -183,6 +183,10 @@ export const size = {
   /** Fade handle at an audio clip's top corners, and its grab zone, in px. */
   fadeHandle: 7,
   fadeGrip: 6,
+  /** The tempo track under the ruler: its height, the radius of a point and its grab zone. */
+  tempoLane: 56,
+  tempoPoint: 3.5,
+  tempoGrip: 7,
   /** Marker flag in the ruler: its top and height, in px. */
   markerTop: 15,
   markerH: 12,

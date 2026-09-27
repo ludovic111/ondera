@@ -30,6 +30,8 @@ pub struct ImportReport {
     pub controllers: usize,
     pub file_tempo: f64,
     pub tempo_imported: bool,
+    /// Tempo changes after the file's start that became the song's (importTempo only).
+    pub tempo_changes: usize,
     pub warnings: Vec<String>,
 }
 
@@ -264,16 +266,30 @@ pub fn import_bytes(
     }
     // A file stores whole microseconds per quarter, so 90 BPM comes back as 89.99995:
     // thousandths of a BPM are all a tempo shows, and a round trip lands where it started.
-    let tempo = (60_000_000.0 / micros as f64 * 1000.0).round() / 1000.0;
+    let bpm = |micros: u32| (60_000_000.0 / micros as f64 * 1000.0).round() / 1000.0;
+    let tempo = bpm(micros);
     let mut warnings = vec![];
-    if tempo_events
-        .iter()
-        .any(|(tick, v)| *tick > 0 && *v != micros)
-    {
-        warnings.push(
-            "Later tempo changes are not imported; note positions remain in quarter-note beats."
-                .into(),
-        );
+    // Later changes, in beats from the file's start, each differing from the one before.
+    let mut later: Vec<(f64, f64)> = vec![];
+    for &(tick, value) in tempo_events.iter().filter(|(tick, _)| *tick > 0) {
+        if value == 0 {
+            return Err("MIDI tempo cannot be zero".into());
+        }
+        let beat = tick as f64 / ppq;
+        if later.last().is_some_and(|(b, _)| *b == beat) {
+            later.pop();
+        }
+        let previous = later.last().map_or(tempo, |(_, v)| *v);
+        let value = bpm(value);
+        if value != previous {
+            later.push((beat, value));
+        }
+    }
+    if !later.is_empty() && !options.import_tempo {
+        warnings.push(format!(
+            "The file changes tempo {} times; they were not imported (importTempo=true follows them). Note positions remain in quarter-note beats.",
+            later.len()
+        ));
     }
     if meters.iter().any(|(tick, _, _)| *tick > 0) {
         warnings.push("Later time-signature changes are not imported.".into());
@@ -318,11 +334,43 @@ pub fn import_bytes(
     let beats_per_bar = transport.time_signature.numerator as f64 * 4.0
         / transport.time_signature.denominator as f64;
     let mut commands = vec![];
+    let mut imported_changes = 0;
     if options.import_tempo {
+        // The file's tempo map becomes the song's: its first tempo from the start, as it
+        // always did, and its later changes from startBar on.
+        let mut points = vec![];
+        let mut clamped = false;
+        for (beat, value) in &later {
+            let bar = options.start_bar + beat / beats_per_bar;
+            if !valid_time(bar) || points.len() == crate::tempo::MAX_POINTS {
+                warnings.push(format!(
+                    "Only the first {} tempo changes were imported.",
+                    points.len()
+                ));
+                break;
+            }
+            let limited = value.clamp(crate::tempo::MIN_BPM, crate::tempo::MAX_BPM);
+            clamped |= limited != *value;
+            points.push(crate::tempo::TempoPoint {
+                bar,
+                bpm: limited,
+                ramp: false,
+            });
+        }
+        if clamped {
+            warnings.push("Tempo changes outside 20-400 BPM were limited to that range.".into());
+        }
+        if points.is_empty() && !session.tempo_changes.is_empty() {
+            warnings.push(
+                "The song's own tempo changes were replaced by the file's single tempo.".into(),
+            );
+        }
+        imported_changes = points.len();
         // A new meter moves the existing clips, so the automation follows them, as
         // `transport.setTimeSignature` does, in this same undo step.
         let lanes = crate::control::automation_on_bars(session, &transport.time_signature);
         commands.push(Command::SetTransport(transport));
+        commands.push(Command::SetTempoChanges(points));
         commands.extend(lanes);
     }
     let mut report = ImportReport {
@@ -332,6 +380,7 @@ pub fn import_bytes(
         controllers: controller_total,
         file_tempo: tempo,
         tempo_imported: options.import_tempo,
+        tempo_changes: imported_changes,
         warnings,
     };
     for (index, (name, channel, notes, controllers, end)) in lanes.into_iter().enumerate() {
@@ -402,17 +451,23 @@ pub fn export(
     if tracks.is_empty() {
         return Err("There are no MIDI tracks to export".into());
     }
-    let tempo = (60_000_000.0 / session.transport.tempo).round() as u32;
     let meter = &session.transport.time_signature;
     let mut smf = Smf::new(Header::new(
         Format::Parallel,
         Timing::Metrical(u15::new(PPQ)),
     ));
-    smf.tracks.push(vec![
-        TrackEvent {
-            delta: u28::new(0),
-            kind: TrackEventKind::Meta(MetaMessage::Tempo(u24::new(tempo))),
-        },
+    let mut conductor = vec![];
+    let mut previous = 0;
+    for (tick, micros) in tempo_events(session) {
+        conductor.push(TrackEvent {
+            delta: u28::new((tick - previous).min(0x0fff_ffff) as u32),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(u24::new(micros))),
+        });
+        previous = tick;
+    }
+    // The meter goes with the first tempo, at tick zero.
+    conductor.insert(
+        1,
         TrackEvent {
             delta: u28::new(0),
             kind: TrackEventKind::Meta(MetaMessage::TimeSignature(
@@ -422,11 +477,12 @@ pub fn export(
                 8,
             )),
         },
-        TrackEvent {
-            delta: u28::new(0),
-            kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
-        },
-    ]);
+    );
+    conductor.push(TrackEvent {
+        delta: u28::new(0),
+        kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+    });
+    smf.tracks.push(conductor);
     let mut count = 0;
     let mut controller_count = 0;
     for (index, track) in tracks.iter().enumerate() {
@@ -531,5 +587,34 @@ pub fn export(
     }
     document::atomic_write(path, |file| smf.write_std(file).map_err(|e| e.to_string()))?;
     Ok(MidiExportReport{path:path.into(),track_count:tracks.len(),note_count:count,controller_count,ticks_per_quarter:PPQ,
-        warnings:vec!["MIDI contains notes, controllers, pitch bend, pressure, track names and the session's initial tempo/meter. Audio, plugins, mixer settings and automation are not embedded.".into()]})
+        warnings:vec!["MIDI contains notes, controllers, pitch bend, pressure, track names, the tempo changes (a ramp as a step every sixteenth note) and the meter. Audio, plugins, mixer settings and automation are not embedded.".into()]})
+}
+
+/// The song's tempo as (tick, microseconds per quarter) at 960 PPQ, starting at tick zero.
+/// A file cannot glide, so a ramp becomes a step every sixteenth note, each lasting exactly
+/// as long as that stretch of the ramp: the notes after it land on the same seconds.
+fn tempo_events(session: &Session) -> Vec<(u64, u32)> {
+    let map = session.tempo_map();
+    let bpb = session.beats_per_bar();
+    let micros = |bpm: f64| (60_000_000.0 / bpm).round().clamp(1.0, 16_777_215.0) as u32;
+    let tick = |beat: f64| (beat * PPQ as f64).round() as u64;
+    let mut events = BTreeMap::from([(0, micros(session.transport.tempo))]);
+    let mut previous = 0.0;
+    for point in &session.tempo_changes {
+        let beat = point.bar * bpb;
+        if point.ramp {
+            let steps = ((beat - previous) * 4.0).ceil().max(1.0) as usize;
+            for i in 0..steps {
+                let from = previous + (beat - previous) * i as f64 / steps as f64;
+                let to = previous + (beat - previous) * (i + 1) as f64 / steps as f64;
+                events.insert(
+                    tick(from),
+                    micros(60.0 * (to - from) / map.duration(from, to)),
+                );
+            }
+        }
+        events.insert(tick(beat), micros(point.bpm));
+        previous = beat;
+    }
+    events.into_iter().collect()
 }

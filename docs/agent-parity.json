@@ -46,6 +46,7 @@
     "transposeOctaveDown": ["clip.transpose", "note.update"],
     "toggleMixer": ["ui.showPanel"],
     "toggleControllerLane": ["ui.showPanel"],
+    "toggleTempoTrack": ["ui.showPanel", "tempo.set", "tempo.move", "tempo.remove", "tempo.clear"],
     "commandPalette": ["ui.showPanel", "session.commands"],
     "showShortcuts": ["ui.showPanel", "session.commands"],
     "addMarker": ["marker.add"],

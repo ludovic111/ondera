@@ -158,6 +158,11 @@ const session = {
   })),
   clips,
   markers,
+  // A ramp into the bridge and a step back up for the last chorus.
+  tempoChanges: [
+    { bar: 8, bpm: 112, ramp: true },
+    { bar: 12, bpm: 124 },
+  ] as { bar: number; bpm: number; ramp?: boolean }[],
   sources: {
     src1: {
       id: "src1",
@@ -212,6 +217,7 @@ const ui = {
   help: false,
   mixer: panel === "mixer",
   controllers: panel === "controllers",
+  tempo: panel === "tempo",
   export: panel === "export",
   recovery: false,
   tool: "pointer",
@@ -531,6 +537,7 @@ const beatsPerBar = () =>
   (session.transport.timeSignature.numerator * 4) /
   session.transport.timeSignature.denominator;
 const secondsPerBar = () => (beatsPerBar() * 60) / session.transport.tempo;
+const sortTempo = () => session.tempoChanges.sort((a, b) => a.bar - b.bar);
 const publish = () => {
   session.snapshotSequence++;
   void emit("daw:document", { ...session, markers: [...markers] });
@@ -594,6 +601,42 @@ function arrange(method: string, params: Params): unknown {
       sortMarkers();
       break;
     }
+    // Mirrors engine/src/control_tempo.rs.
+    case "tempo.set": {
+      const bar = Number(params.bar);
+      const bpm = Math.min(400, Math.max(20, Number(params.bpm)));
+      if (bar <= 1e-6) session.transport.tempo = bpm;
+      else {
+        const point = session.tempoChanges.find(
+          (p) => Math.abs(p.bar - bar) < 1e-6,
+        );
+        if (point) {
+          point.bpm = bpm;
+          if (params.ramp !== undefined) point.ramp = Boolean(params.ramp);
+        } else
+          session.tempoChanges.push({ bar, bpm, ramp: Boolean(params.ramp) });
+        sortTempo();
+      }
+      break;
+    }
+    case "tempo.move":
+    case "tempo.remove": {
+      const i = session.tempoChanges.findIndex(
+        (p) => Math.abs(p.bar - Number(params.bar)) < 1e-6,
+      );
+      if (i < 0) throw `No tempo change at bar ${params.bar}`;
+      if (method === "tempo.remove") session.tempoChanges.splice(i, 1);
+      else {
+        session.tempoChanges[i]!.bar = Number(params.toBar);
+        if (params.bpm !== undefined)
+          session.tempoChanges[i]!.bpm = Number(params.bpm);
+      }
+      sortTempo();
+      break;
+    }
+    case "tempo.clear":
+      session.tempoChanges = [];
+      break;
     case "marker.goto":
     case "marker.next":
     case "marker.previous": {

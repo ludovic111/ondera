@@ -176,11 +176,11 @@ impl ExportOptions {
         if !valid_time(start) || !valid_time(end) || end <= start {
             return Err("Export range needs finite end > start >= 0".into());
         }
-        if end * 60.0 / session.transport.tempo + self.tail_seconds > 14400.0 {
+        let tempo = session.tempo_map();
+        if tempo.seconds(end) + self.tail_seconds > 14400.0 {
             return Err("Export, including pre-roll and tail, is limited to four hours".into());
         }
-        let frames = (((end - start) * 60.0 / session.transport.tempo + self.tail_seconds)
-            * self.sample_rate as f64)
+        let frames = ((tempo.duration(start, end) + self.tail_seconds) * self.sample_rate as f64)
             .ceil() as u64;
         if frames.saturating_mul(2 * self.format.bits() as u64 / 8) > u32::MAX as u64 - 128 {
             return Err(
@@ -220,9 +220,8 @@ pub fn mix(
     let plugin_tail = rack
         .longest_tail()
         .map(|(tail, name)| (tail, name.to_string()));
-    let seconds_per_beat = 60.0 / song.transport.tempo;
-    let frames = (((end - start) * seconds_per_beat + options.tail_seconds)
-        * options.sample_rate as f64)
+    let tempo = song.tempo_map();
+    let frames = ((tempo.duration(start, end) + options.tail_seconds) * options.sample_rate as f64)
         .ceil() as u64;
     let container = Container::of(path);
     let lossy = container == Container::Ogg;
@@ -245,7 +244,7 @@ pub fn mix(
     document::atomic_write(path, |file| {
         let mut writer = Sink::open(file, path, options, frames, &song.name)?;
         let mut block = [[0.0f32; 2]; MAX_BLOCK];
-        let mut skip = (start * seconds_per_beat * options.sample_rate as f64).round() as u64
+        let mut skip = (tempo.seconds(start) * options.sample_rate as f64).round() as u64
             + renderer.latency_samples() as u64;
         while skip > 0 {
             let n = skip.min(MAX_BLOCK as u64) as usize;

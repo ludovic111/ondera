@@ -26,6 +26,8 @@ export interface UiState {
   mixer?: boolean;
   /** The controller lane under the piano roll. */
   controllers?: boolean;
+  /** The tempo track under the ruler. */
+  tempo?: boolean;
   palette?: boolean;
   export: boolean;
   recovery: boolean;
@@ -102,10 +104,13 @@ interface NativeStrip extends ChannelStrip {
     plugin?: string;
   })[];
 }
-export interface DocumentData extends Omit<Session, "strips" | "markers"> {
+export interface DocumentData
+  extends Omit<Session, "strips" | "markers" | "tempoChanges"> {
   snapshotSequence?: number;
   /** Absent in documents from hosts that predate markers. */
   markers?: Session["markers"];
+  /** Absent in documents from hosts that predate tempo changes. */
+  tempoChanges?: Session["tempoChanges"];
   strips: Record<string, NativeStrip>;
   masterVolume: number;
   automation: AutomationLane[];
@@ -177,6 +182,7 @@ const CONTINUOUS = new Set([
   "strip.setSendLevel",
   "strip.setParameter",
   "transport.setTempo",
+  "tempo.set",
 ]);
 const continuousKey = (name: string, params: Params): string | null =>
   name === "view.set" && "editorLowPitch" in params
@@ -188,6 +194,7 @@ const continuousKey = (name: string, params: Params): string | null =>
           params.slot,
           params.sendIndex ?? params.send,
           params.parameterId,
+          params.bar,
         ].join("|")
       : null;
 /** Loops have no sound family yet; they cycle through the families for variety. */
@@ -226,6 +233,7 @@ const empty: Session = {
   tracks: [],
   clips: [],
   markers: [],
+  tempoChanges: [],
   sources: {},
   strips: {},
   view: defaultView,
@@ -527,6 +535,7 @@ export class NativeStore {
       ...this.state,
       ...doc,
       markers: doc.markers ?? [],
+      tempoChanges: doc.tempoChanges ?? [],
       strips,
       browser: {
         ...this.state.browser,

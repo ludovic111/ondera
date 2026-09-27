@@ -3,6 +3,7 @@
  * Time is expressed in beats (quarter notes) unless a field says otherwise.
  * Bars are 0-based internally; the UI adds 1 for display.
  */
+import type { TempoPoint } from "./tempo";
 
 export type TrackId = string;
 export type ClipId = string;
@@ -278,6 +279,8 @@ export interface Session {
   clips: Clip[];
   /** Song sections in bar order. */
   markers: Marker[];
+  /** Tempo changes after the start (`transport.tempo`), in bar order. */
+  tempoChanges: TempoPoint[];
   /** Audio sources referenced by audio clips, keyed by id. */
   sources: Record<string, AudioSource>;
   transport: Transport;

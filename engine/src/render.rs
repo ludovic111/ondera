@@ -10,6 +10,7 @@ use crate::{
         MASTER,
     },
     plugin::{event, Event, ProcessContext, Rack, MAX_BLOCK},
+    tempo::TempoMap,
     Result,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -160,6 +161,10 @@ fn clip_envelope(
 struct Scheduled {
     start: f64,
     end: f64,
+    /// `start` and `end` in seconds from the song's start: audio plays at its own speed
+    /// whatever the tempo does between them.
+    start_seconds: f64,
+    end_seconds: f64,
     track: usize,
     sound: Sound,
 }
@@ -240,6 +245,15 @@ struct PluginAutomation {
 pub struct Renderer {
     rate: u32,
     session: Session,
+    tempo: TempoMap,
+    /// The tempo segment `position` is in.
+    tempo_segment: usize,
+    /// `position` in seconds from the song's start; advances one frame at a time while
+    /// playing and is derived again on every locate.
+    seconds: f64,
+    /// The song position and tempo of each frame of the current block.
+    frame_beats: Vec<f64>,
+    frame_bpm: Vec<f64>,
     events: Vec<Scheduled>,
     controls: Vec<Control>,
     next_control: usize,
@@ -313,6 +327,7 @@ impl Renderer {
         let mut controls: Vec<(Control, bool)> = Vec::new();
         let mut channels = Vec::new();
         let bpb = session.beats_per_bar();
+        let tempo = session.tempo_map();
         let solo = session.tracks.iter().any(|t| t.solo);
         let chain = |inserts: &[crate::model::Insert]| -> Vec<u32> {
             inserts
@@ -402,6 +417,8 @@ impl Renderer {
                             events.push(Scheduled {
                                 start: start + note.start,
                                 end: (start + note.start + note.length).min(end),
+                                start_seconds: 0.0,
+                                end_seconds: 0.0,
                                 track: index,
                                 sound: Sound::Midi {
                                     pitch: note.pitch,
@@ -425,6 +442,8 @@ impl Renderer {
                         events.push(Scheduled {
                             start,
                             end,
+                            start_seconds: tempo.seconds(start),
+                            end_seconds: tempo.seconds(end),
                             track: index,
                             sound: Sound::Audio {
                                 clip: clip_key(&clip.id),
@@ -462,6 +481,11 @@ impl Renderer {
         let count = channels.len();
         Ok(Self {
             rate,
+            tempo,
+            tempo_segment: 0,
+            seconds: 0.0,
+            frame_beats: vec![0.0; MAX_BLOCK],
+            frame_bpm: vec![0.0; MAX_BLOCK],
             master_gain: fader_gain(session.master_volume),
             master_volume_lane: session
                 .automation
@@ -751,7 +775,6 @@ impl Renderer {
     }
     /// A sounding clip whose gain or fades changed starts from what it last played.
     fn glide_from(&mut self, old: &Renderer) {
-        let spb = 60.0 / self.session.transport.tempo;
         for slot in 0..MAX_VOICES {
             let Some(index) = self.active[slot] else {
                 continue;
@@ -776,8 +799,8 @@ impl Renderer {
             let Some(j) = previous else {
                 continue;
             };
-            let age = (self.position - e.start).max(0.0) * spb;
-            let left = (e.end - self.position) * spb;
+            let age = (self.seconds - e.start_seconds).max(0.0);
+            let left = e.end_seconds - self.seconds;
             let now = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
             let offset = old.envelope[j] - now;
             if offset.abs() > 1e-6 {
@@ -814,6 +837,8 @@ impl Renderer {
     /// Re-derive active events for the current position; send note-ons for
     /// notes that should sound and note-offs for held notes that should not.
     fn resync(&mut self) {
+        self.tempo_segment = self.tempo.segment(self.position);
+        self.seconds = self.tempo.seconds(self.position);
         self.active.fill(None);
         self.glide.fill(0.0);
         self.next = self.events.partition_point(|e| e.start < self.position);
@@ -1077,7 +1102,7 @@ impl Renderer {
     pub fn count_in(&mut self, beats: f64, count_beats: f64) {
         self.locate(beats);
         self.playing = false;
-        let frames = count_beats.max(0.0) * 60.0 / self.session.transport.tempo * self.rate as f64;
+        let frames = count_beats.max(0.0) * 60.0 / self.tempo.bpm(self.position) * self.rate as f64;
         self.count_in_left = frames.round() as u64;
         self.count_in_done = 0;
         if self.count_in_left == 0 {
@@ -1138,8 +1163,8 @@ impl Renderer {
                     self.locate(start + (self.position - end).rem_euclid(end - start));
                     self.automation_looped = true;
                 }
-                let dpb = 1.0 / (self.rate as f64 * 60.0 / self.session.transport.tempo);
-                let frames_left = ((end - self.position) / dpb).ceil().max(1.0) as usize;
+                let seconds_left = self.tempo.seconds(end) - self.seconds;
+                let frames_left = (seconds_left * self.rate as f64).ceil().max(1.0) as usize;
                 n = n.min(frames_left);
             }
             let live = if input.is_empty() {
@@ -1163,10 +1188,14 @@ impl Renderer {
         } else {
             self.idle_frames = 0;
         }
-        let spb = 60.0 / self.session.transport.tempo;
+        // The tempo where the block starts; per-frame positions below follow the tempo map.
+        let block_tempo = self.tempo.bpm_in(self.tempo_segment, self.position);
+        let spb = 60.0 / block_tempo;
         let dpb = 1.0 / (self.rate as f64 * spb);
         let bpb = self.session.beats_per_bar();
         let block_start = self.position;
+        let block_seconds = self.seconds;
+        let frame_seconds = 1.0 / self.rate as f64;
         for list in &mut self.notes {
             list.clear();
         }
@@ -1213,6 +1242,9 @@ impl Renderer {
         }
         if self.playing {
             for i in 0..n {
+                let bpm = self.tempo.bpm_in(self.tempo_segment, self.position);
+                self.frame_beats[i] = self.position;
+                self.frame_bpm[i] = bpm;
                 while self.next_control < self.controls.len()
                     && self.controls[self.next_control].beat <= self.position + 1e-9
                 {
@@ -1280,11 +1312,11 @@ impl Renderer {
                         curve,
                     } = &e.sound
                     {
-                        let age = (self.position - e.start).max(0.0) * spb;
+                        let age = (self.seconds - e.start_seconds).max(0.0);
                         let mut v = buffer.sample(age + offset);
                         // Fades and gain, on the sample; 3 ms boundary ramps keep trims and
                         // loops free of clicks even without a fade.
-                        let left = (e.end - self.position) * spb;
+                        let left = e.end_seconds - self.seconds;
                         let mut ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
                         if self.glide[slot] != 0.0 {
                             ramp += self.glide[slot];
@@ -1302,8 +1334,18 @@ impl Renderer {
                         self.channels[e.track].clip_sounding = true;
                     }
                 }
-                self.position += dpb;
+                self.position += 1.0 / (self.rate as f64 * 60.0 / bpm);
+                self.seconds += frame_seconds;
+                if self.position >= self.tempo.segment_end(self.tempo_segment) {
+                    // A new tempo starts: take the segment's exact time, so a ramp's small
+                    // step error never accumulates across the song.
+                    self.tempo_segment += 1;
+                    self.seconds = self.tempo.seconds(self.position);
+                }
             }
+        } else {
+            self.frame_beats[..n].fill(block_start);
+            self.frame_bpm[..n].fill(block_tempo);
         }
         // Previews may finish later in this block than sequenced note starts.
         // Every host expects chronological events; note-offs win ties so a
@@ -1314,9 +1356,9 @@ impl Renderer {
         let ctx = ProcessContext {
             playing: self.playing,
             recording: self.recording,
-            tempo: self.session.transport.tempo,
+            tempo: block_tempo,
             position_beats: block_start,
-            position_seconds: block_start * spb,
+            position_seconds: block_seconds,
             sample_time: self.sample_time,
             numerator: self.session.transport.time_signature.numerator,
             denominator: self.session.transport.time_signature.denominator,
@@ -1343,7 +1385,8 @@ impl Renderer {
         // Each lane's value on the block's first frame, then at its frame wherever it crosses a
         // breakpoint and every AUTOMATION_GRAIN frames while it moves.
         for automation in &self.plugin_automation {
-            let start = block_start - automation.offset as f64 * dpb;
+            let delay = automation.offset as f64 * dpb;
+            let start = block_start - delay;
             let first = automation_beat(start, automation_cycle);
             let mut cursor = self.session.automation[automation.lane].cursor(first);
             let Some(mut sent) = cursor.value(first) else {
@@ -1355,8 +1398,7 @@ impl Renderer {
             }
             let mut segment = cursor.segment();
             for frame in 1..n {
-                let beat =
-                    automation_beat(start + frame as f64 * automation_step, automation_cycle);
+                let beat = automation_beat(self.frame_beats[frame] - delay, automation_cycle);
                 let Some(value) = cursor.value(beat) else {
                     break;
                 };
@@ -1414,7 +1456,8 @@ impl Renderer {
                 };
                 rack.process(slot, buffer, events, &ctx);
             }
-            let start_beat = block_start - channel.automation_offset as f64 * dpb;
+            let delay = channel.automation_offset as f64 * dpb;
+            let start_beat = block_start - delay;
             let mut volume = channel.volume_lane.map(|lane| {
                 self.session.automation[lane].cursor(automation_beat(start_beat, automation_cycle))
             });
@@ -1422,8 +1465,7 @@ impl Renderer {
                 self.session.automation[lane].cursor(automation_beat(start_beat, automation_cycle))
             });
             for (i, frame) in buffer.iter_mut().enumerate() {
-                let beat =
-                    automation_beat(start_beat + i as f64 * automation_step, automation_cycle);
+                let beat = automation_beat(self.frame_beats[i] - delay, automation_cycle);
                 let gain = if channel.muted {
                     0.0
                 } else {
@@ -1476,7 +1518,8 @@ impl Renderer {
         let metronome = self.playing && self.session.transport.metronome;
         let counting = !self.playing && self.count_in_left > 0;
         let tick_unit = 4.0 / self.session.transport.time_signature.denominator as f64;
-        let master_beat = block_start - self.latency_samples as f64 * dpb;
+        let master_delay = self.latency_samples as f64 * dpb;
+        let master_beat = block_start - master_delay;
         let mut master_volume = self.master_volume_lane.map(|lane| {
             self.session.automation[lane].cursor(automation_beat(master_beat, automation_cycle))
         });
@@ -1485,7 +1528,7 @@ impl Renderer {
                 .as_mut()
                 .and_then(|lane| {
                     lane.value(automation_beat(
-                        master_beat + i as f64 * automation_step,
+                        self.frame_beats[i] - master_delay,
                         automation_cycle,
                     ))
                 })
@@ -1494,10 +1537,10 @@ impl Renderer {
             frame[1] *= gain;
             if metronome || counting {
                 // The count-in runs on its own clock from zero; the song position stays parked.
-                let position = if counting {
-                    (self.count_in_done + i as u64) as f64 * dpb
+                let (position, spb) = if counting {
+                    ((self.count_in_done + i as u64) as f64 * dpb, spb)
                 } else {
-                    block_start + i as f64 * dpb
+                    (self.frame_beats[i], 60.0 / self.frame_bpm[i])
                 };
                 let time = position.rem_euclid(tick_unit) * spb;
                 if time < 0.045 {
@@ -1610,7 +1653,7 @@ pub fn bounce(
     let mut s = session.clone();
     s.transport.cycle = false;
     s.transport.metronome = false;
-    let seconds = s.end_bar() * s.beats_per_bar() * 60.0 / s.transport.tempo + 3.0;
+    let seconds = s.bars_seconds(0.0, s.end_bar()) + 3.0;
     if seconds > 14_400.0 {
         return Err("Bounce is limited to four hours".into());
     }
