@@ -26,9 +26,11 @@ const CONTROLS: usize = 130;
 const BEND: usize = 128;
 const PRESSURE: usize = 129;
 /// Polyphonic pressure on a key is sequenced as slot `POLY + key`. It shapes a sounding note
-/// only, so it is played but neither chased on locate nor rested at stop: the notes it
-/// pressed on are released there anyway.
+/// only: a locate sends the value in force to each note it starts again, and stop returns
+/// every pressed key to zero, so the next note on it starts unpressed.
 const POLY: usize = CONTROLS;
+/// Polyphonic pressure per channel and key.
+type PolyKeys = [[i16; 128]; CHANNELS];
 const SUSTAIN: usize = 64;
 /// MIDI channels; every note and controller keeps the one it was played on.
 const CHANNELS: usize = 16;
@@ -72,11 +74,13 @@ fn control_event(slot: usize, value: i16, frame: u32, channel: u8) -> Event {
     .on_channel(channel & 15)
 }
 /// Order within one frame: releases, then controllers, then attacks, so a bend or a pedal
-/// is in place before the note it shapes and a repeated pitch can start again.
+/// is in place before the note it shapes and a repeated pitch can start again; polyphonic
+/// pressure last, since it presses on a note that must already sound.
 fn event_rank(e: &Event) -> u8 {
     match e.kind {
         event::NOTE_OFF => 0,
         event::NOTE_ON => 2,
+        event::POLY_PRESSURE => 3,
         _ => 1,
     }
 }
@@ -283,6 +287,10 @@ pub struct Renderer {
     chased: Vec<Controls>,
     /// Slots a track's clips drive, which a locate may return to rest.
     sequenced: Vec<[[bool; CONTROLS]; CHANNELS]>,
+    /// Polyphonic pressure each instrument was last sent, and scratch for the chase; only
+    /// for tracks whose clips hold some.
+    poly_applied: Vec<Option<Box<PolyKeys>>>,
+    poly_chased: Vec<Option<Box<PolyKeys>>>,
     channels: Vec<Channel>,
     /// Channels in processing order: every track, then every bus track.
     order: Vec<usize>,
@@ -541,6 +549,14 @@ impl Renderer {
         for control in controls.iter().filter(|c| c.slot < CONTROLS) {
             sequenced[control.track][control.channel as usize][control.slot] = true;
         }
+        let poly: Vec<Option<Box<PolyKeys>>> = (0..channels.len())
+            .map(|track| {
+                controls
+                    .iter()
+                    .any(|c| c.track == track && c.slot >= POLY)
+                    .then(|| Box::new([[UNSET; 128]; CHANNELS]))
+            })
+            .collect();
         let bus = |id: &str| {
             session
                 .strips
@@ -630,6 +646,8 @@ impl Renderer {
             applied: vec![[[UNSET; CONTROLS]; CHANNELS]; count],
             chased: vec![[[UNSET; CONTROLS]; CHANNELS]; count],
             sequenced,
+            poly_chased: poly.clone(),
+            poly_applied: poly,
             channels,
             active: [None; MAX_VOICES],
             envelope: [0.0; MAX_VOICES],
@@ -850,6 +868,12 @@ impl Renderer {
                 if same_instrument {
                     self.held[index] = old.held[prev];
                     self.applied[index] = old.applied[prev];
+                    if let (Some(new), Some(old)) = (
+                        self.poly_applied[index].as_mut(),
+                        old.poly_applied[prev].as_ref(),
+                    ) {
+                        **new = **old;
+                    }
                     for &(track, event) in &old.queued {
                         if track == prev {
                             self.queue(index, event);
@@ -1041,6 +1065,44 @@ impl Renderer {
                 }
             }
         }
+        self.chase_poly();
+    }
+    /// Polyphonic pressure after a locate: each key a note sounds on again gets the value in
+    /// force there; a pressed key with no note (or none in force) returns to zero.
+    fn chase_poly(&mut self) {
+        for track in 0..self.channels.len() {
+            // Taken out for the turn and put back: moving a Box allocates nothing.
+            let (Some(mut chased), Some(mut applied)) = (
+                self.poly_chased[track].take(),
+                self.poly_applied[track].take(),
+            ) else {
+                continue;
+            };
+            *chased = [[UNSET; 128]; CHANNELS];
+            for control in self.controls[..self.next_control]
+                .iter()
+                .filter(|c| c.track == track && c.slot >= POLY)
+            {
+                chased[control.channel as usize][(control.slot - POLY).min(127)] = control.value;
+            }
+            for channel in 0..CHANNELS {
+                for pitch in 0..128 {
+                    let sounding = self.held[track][key(channel as u8, pitch as u8)] > 0;
+                    let current = applied[channel][pitch];
+                    let target = match chased[channel][pitch] {
+                        value if sounding && value != UNSET => value,
+                        _ if current > 0 => 0,
+                        _ => continue,
+                    };
+                    if target != current {
+                        applied[channel][pitch] = target;
+                        self.queue(track, control_event(POLY + pitch, target, 0, channel as u8));
+                    }
+                }
+            }
+            self.poly_chased[track] = Some(chased);
+            self.poly_applied[track] = Some(applied);
+        }
     }
     /// Queue every controller value `track` is known to have, for an insert that joined it.
     /// Channel mode messages (120-127) are never repeated.
@@ -1165,6 +1227,9 @@ impl Renderer {
         if event.kind == event::POLY_PRESSURE {
             let key = event.key.min(127) as usize;
             let value = event.value.min(127) as i16;
+            if let Some(poly) = self.poly_applied[track].as_mut() {
+                poly[(event.channel & 15) as usize][key] = value;
+            }
             self.queue(
                 track,
                 control_event(POLY + key, value, 0, event.channel & 15),
@@ -1200,8 +1265,19 @@ impl Renderer {
         self.count_in_left = 0;
         self.active.fill(None);
         self.all_notes_off();
-        // Nothing stays bent or held after stop.
+        // Nothing stays bent, held or pressed after stop.
         for track in 0..self.channels.len() {
+            if let Some(mut poly) = self.poly_applied[track].take() {
+                for channel in 0..CHANNELS {
+                    for pitch in 0..128 {
+                        if poly[channel][pitch] > 0 {
+                            poly[channel][pitch] = 0;
+                            self.queue(track, control_event(POLY + pitch, 0, 0, channel as u8));
+                        }
+                    }
+                }
+                self.poly_applied[track] = Some(poly);
+            }
             for channel in 0..CHANNELS {
                 for slot in [SUSTAIN, BEND, PRESSURE] {
                     let current = self.applied[track][channel][slot];
@@ -1373,6 +1449,9 @@ impl Renderer {
                     self.next_control += 1;
                     if control.slot < CONTROLS {
                         self.applied[control.track][control.channel as usize][control.slot] =
+                            control.value;
+                    } else if let Some(poly) = self.poly_applied[control.track].as_mut() {
+                        poly[control.channel as usize][(control.slot - POLY).min(127)] =
                             control.value;
                     }
                     self.push_note(

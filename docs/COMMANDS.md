@@ -133,6 +133,7 @@ Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-no
 | `path` | string | yes | Source .mid or .midi file. |
 | `startBar` | number |  | Zero-based destination bar, default 0. |
 | `importTempo` | boolean |  | Make the file's tempo the song's (default false): its first tempo and meter for the whole song, its later tempo changes from startBar on, replacing the song's tempo changes. Later meter changes are reported and ignored. |
+| `keepChannels` | boolean |  | One track per track of the file, every note and controller on the MIDI channel it had, for a multitimbral instrument (default false: one track per channel, played on channel 1). |
 
 ### `session.exportMidi`
 

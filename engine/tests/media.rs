@@ -108,6 +108,7 @@ fn midi_roundtrip_preserves_arrangement_timing_meter_channel_and_note_clipping()
         &ImportOptions {
             start_bar: 1.0,
             import_tempo: true,
+            ..Default::default()
         },
         true,
     )
@@ -781,6 +782,7 @@ fn midi_files_carry_tempo_changes_and_ramps_both_ways() {
         &ImportOptions {
             start_bar: 0.0,
             import_tempo: true,
+            ..Default::default()
         },
         false,
     )
@@ -803,4 +805,49 @@ fn midi_files_carry_tempo_changes_and_ramps_both_ways() {
     }
     destination.store.dispatch(Command::Undo).unwrap();
     assert!(destination.store.session().tempo_changes.is_empty());
+}
+
+#[test]
+fn midi_import_can_keep_every_channel_on_one_track() {
+    // Type 0, PPQ 96: C4 on channel 1 and E4 on channel 2, with a mod wheel on channel 2.
+    let track = [
+        0x00, 0x90, 60, 100, 0x00, 0x91, 64, 90, 0x00, 0xb1, 1, 64, 0x60, 0x81, 64, 0, 0x00, 0x80,
+        60, 0, 0x00, 0xff, 0x2f, 0x00,
+    ];
+    let mut bytes = b"MThd\0\0\0\x06\0\0\0\x01\0\x60MTrk".to_vec();
+    bytes.extend_from_slice(&(track.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(&track);
+    let empty = Headless::new();
+    let options = ImportOptions {
+        keep_channels: true,
+        ..Default::default()
+    };
+    let (batch, report) =
+        midi_file::import_bytes(&bytes, empty.store.session(), &options, false).unwrap();
+    assert_eq!(report.track_ids.len(), 1);
+    let mut store = Store::new(empty.store.session().clone()).unwrap();
+    store.dispatch(batch).unwrap();
+    let clip = store
+        .session()
+        .clips
+        .iter()
+        .find(|c| c.id == report.clip_ids[0])
+        .unwrap();
+    let ClipData::Midi { notes, controllers } = &clip.data else {
+        panic!()
+    };
+    let mut channels: Vec<(u8, u8)> = notes.iter().map(|n| (n.pitch, n.channel)).collect();
+    channels.sort();
+    assert_eq!(channels, vec![(60, 0), (64, 1)]);
+    assert_eq!(controllers.len(), 1);
+    assert_eq!(controllers[0].channel, 1);
+    // Split by channel (the default), each lane plays on channel 1.
+    let (_, report) = midi_file::import_bytes(
+        &bytes,
+        empty.store.session(),
+        &ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(report.track_ids.len(), 2);
 }

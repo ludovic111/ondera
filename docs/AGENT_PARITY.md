@@ -224,6 +224,7 @@ below.
 | Double-click an effect (first free slot) | `strip.setPlugin` firstFreeSlot | added |
 | Double-click a loop | `clip.addLoop` | covered |
 | Double-click a project audio file | `clip.create` sourceId; `session.overview` lists the sources | covered |
+| Row menu: Load / Insert as another format (CLAP, VST3, Audio Unit) | `plugin.list` row `formats`, `strip.setPlugin` pluginId | added in 0.10 |
 | Star / favourites | `plugin.setFavorite` | covered |
 | Move to folder / new folder / automatic | `plugin.setFolder` | covered |
 | Import audio, scan plugins | `session.importAudio`, `plugin.scan` | covered |

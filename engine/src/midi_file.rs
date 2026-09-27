@@ -20,6 +20,9 @@ const PPQ: u16 = 960;
 pub struct ImportOptions {
     pub start_bar: f64,
     pub import_tempo: bool,
+    /// One track per file track with every event on its own channel, instead of a track per
+    /// channel played on channel 1.
+    pub keep_channels: bool,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -214,6 +217,25 @@ pub fn import_bytes(
                     channel: 0,
                 });
             }
+        }
+        if options.keep_channels && !notes.is_empty() {
+            // One lane for the whole file track: each note and controller keeps its channel.
+            let mut all_notes = vec![];
+            let mut all_controls = vec![];
+            for (channel, list) in std::mem::take(&mut notes) {
+                all_notes.extend(list.into_iter().map(|mut n| {
+                    n.channel = channel;
+                    n
+                }));
+            }
+            for (channel, list) in std::mem::take(&mut controls) {
+                all_controls.extend(list.into_iter().map(|mut c| {
+                    c.channel = channel;
+                    c
+                }));
+            }
+            notes.insert(0, all_notes);
+            controls.insert(0, all_controls);
         }
         let split = notes.len() > 1;
         // Controllers on a channel without notes belong to the track's only note channel;

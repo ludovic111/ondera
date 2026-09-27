@@ -310,6 +310,11 @@ pub trait Editor {
     fn program_parameter(&self) -> Option<u32> {
         None
     }
+    /// The factory program this instance is on, when the plugin says (Audio Units report
+    /// their present preset; a program parameter is read from its value instead).
+    fn current_program(&mut self) -> Option<usize> {
+        None
+    }
     /// Load program `index` into this instance (Audio Units). The host saves the state
     /// afterwards and restores it on the audio thread like any other state change.
     fn load_program(&mut self, _index: usize) -> Result<()> {

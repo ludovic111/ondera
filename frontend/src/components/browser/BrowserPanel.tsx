@@ -55,6 +55,14 @@ function readClosed(): Set<string> {
   }
 }
 
+/** How the browser names a plugin format. */
+const FORMAT_LABELS: Record<string, string> = {
+  clap: "CLAP",
+  vst3: "VST3",
+  au: "Audio Unit",
+  native: "Ondera plugin",
+};
+
 export function BrowserPanel() {
   const store = useStore();
   const dispatch = useDispatch();
@@ -114,11 +122,19 @@ export function BrowserPanel() {
   const openItemMenu = (e: MouseEvent, item: BrowserItem) => {
     if (!pluginTab || !item.id) return;
     e.preventDefault();
+    const verb = tab === "instruments" ? "Load" : "Insert";
+    // One row stands for every format of a plugin; the row loads CLAP, then VST3, then AU.
+    const plugin = store.plugins.find((p) => p.id === item.id);
+    const others = (plugin?.formats ?? []).filter((f) => f.id !== item.id);
     const items: MenuEntry[] = [
       {
         label: tab === "instruments" ? "Load on track" : "Insert on track",
         onSelect: () => void activate(item),
       },
+      ...others.map((f) => ({
+        label: `${verb} as ${FORMAT_LABELS[f.format] ?? f.format}`,
+        onSelect: () => void activate(item, f.id),
+      })),
       { separator: true },
       {
         label: item.favorite ? "Remove from Favourites" : "Add to Favourites",
@@ -156,7 +172,7 @@ export function BrowserPanel() {
     }))
     .filter((g) => g.items.length > 0);
 
-  const activate = async (item: BrowserItem) => {
+  const activate = async (item: BrowserItem, format?: string) => {
     const selected = store
       .getState()
       .tracks.find((t) => t.id === store.getState().view.selectedTrackId);
@@ -195,6 +211,7 @@ export function BrowserPanel() {
     }
     const plugin = store.plugins.find((p) => p.id === item.id);
     if (!plugin) return;
+    const pluginId = format ?? plugin.id;
     try {
       if (tab === "instruments") {
         const track =
@@ -206,7 +223,7 @@ export function BrowserPanel() {
               });
         await store.run("strip.setPlugin", {
           trackId: track.id,
-          pluginId: plugin.id,
+          pluginId,
         });
       } else if (store.getState().view.selectedTrackId) {
         const trackId = store.getState().view.selectedTrackId!;
@@ -221,7 +238,7 @@ export function BrowserPanel() {
         await store.run("strip.setPlugin", {
           trackId,
           slot,
-          pluginId: plugin.id,
+          pluginId,
         });
       }
     } catch (error) {

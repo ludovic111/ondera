@@ -14,6 +14,7 @@ pub const SPECS:&[Spec]=&[
         req("path",Kind::String,"Source .mid or .midi file."),
         opt("startBar",Kind::Number,"Zero-based destination bar, default 0."),
         opt("importTempo",Kind::Boolean,"Make the file's tempo the song's (default false): its first tempo and meter for the whole song, its later tempo changes from startBar on, replacing the song's tempo changes. Later meter changes are reported and ignored."),
+        opt("keepChannels",Kind::Boolean,"One track per track of the file, every note and controller on the MIDI channel it had, for a multitimbral instrument (default false: one track per channel, played on channel 1)."),
     ]),
     edit("session.exportMidi","Export arrangement notes as SMF type 1 at 960 PPQ with the meter and every tempo change (a ramp as a step each sixteenth note). Does not convert audio or embed plugins; includes muted tracks.",&[
         req("path",Kind::String,"Destination .mid file, replaced atomically after success."),
@@ -57,6 +58,8 @@ struct MidiImportArgs {
     start_bar: f64,
     #[serde(default)]
     import_tempo: bool,
+    #[serde(default)]
+    keep_channels: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -79,6 +82,7 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
             let options = ImportOptions {
                 start_bar: args.start_bar,
                 import_tempo: args.import_tempo,
+                keep_channels: args.keep_channels,
             };
             let (command, report) =
                 midi_file::import(&args.path, host.store().session(), &options, agent)?;

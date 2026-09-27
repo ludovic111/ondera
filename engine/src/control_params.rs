@@ -405,15 +405,15 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
             let (programs, parameter, current) = with_editor(host, &insert, |editor| {
                 let programs = editor.programs();
                 let parameter = editor.program_parameter();
-                let current = parameter.and_then(|id| {
-                    let value = insert
-                        .params
-                        .get(&id)
-                        .copied()
-                        .or_else(|| editor.value(id))?;
-                    let steps = programs.len().saturating_sub(1).max(1) as f64;
-                    Some((value * steps).round() as usize)
-                });
+                let current = match parameter {
+                    Some(id) => {
+                        let value = insert.params.get(&id).copied().or_else(|| editor.value(id));
+                        let steps = programs.len().saturating_sub(1).max(1) as f64;
+                        value.map(|v| (v * steps).round() as usize)
+                    }
+                    // An Audio Unit reports its present preset, restored with its state.
+                    None => editor.current_program(),
+                };
                 Ok((programs, parameter, current))
             })?;
             let presets: Vec<Value> = preset::list(Some(&plugin_id))?

@@ -92,6 +92,8 @@ export interface Plugin {
   /** Sound folder: automatic, or where the user filed it. */
   folder: string;
   favorite: boolean;
+  /** The same plugin in its other formats, when installed as several (CLAP first). */
+  formats?: { id: string; format: string }[];
 }
 export interface Catalog {
   instruments: string[];

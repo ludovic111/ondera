@@ -773,41 +773,95 @@ impl Editor for AuEditor {
         0
     }
     fn programs(&mut self) -> Vec<String> {
-        unsafe { factory_presets(self.shared.unit) }
+        unsafe { with_factory_presets(self.shared.unit, |presets| presets.to_vec()) }
             .into_iter()
             .map(|p| p.1)
             .collect()
     }
-    fn load_program(&mut self, index: usize) -> Result<()> {
-        let presets = unsafe { factory_presets(self.shared.unit) };
-        let (number, _, name) = presets.get(index).cloned().ok_or_else(|| {
-            format!(
-                "Program {index} does not exist ({} programs)",
-                presets.len()
-            )
-        })?;
-        let preset = AUPreset {
-            presetNumber: number,
-            presetName: name as *const CFString,
+    fn current_program(&mut self) -> Option<usize> {
+        let mut preset = AUPreset {
+            presetNumber: -1,
+            presetName: std::ptr::null(),
         };
+        let found = unsafe {
+            get_property(
+                self.shared.unit,
+                kAudioUnitProperty_PresentPreset,
+                kAudioUnitScope_Global,
+                0,
+                &mut preset,
+            ) == 0
+        };
+        // The name is the caller's to release, as every CF object an Audio Unit returns.
+        let name = if preset.presetName.is_null() {
+            None
+        } else {
+            let name = unsafe { cf_string(preset.presetName) };
+            unsafe { CFRelease(preset.presetName as *const c_void) };
+            Some(name)
+        };
+        if !found {
+            return None;
+        }
         unsafe {
-            check(
-                set_property(
-                    self.shared.unit,
-                    kAudioUnitProperty_PresentPreset,
-                    kAudioUnitScope_Global,
-                    0,
-                    &preset,
-                ),
-                "Loading the Audio Unit factory preset",
-            )
+            with_factory_presets(self.shared.unit, |presets| {
+                // A unit restored from saved state reports its preset as a user one (number
+                // -1) under the factory preset's name: the name finds it then.
+                presets
+                    .iter()
+                    .position(|p| preset.presetNumber >= 0 && p.0 == preset.presetNumber)
+                    .or_else(|| {
+                        let name = name.as_deref()?;
+                        let mut named = presets.iter().enumerate().filter(|(_, p)| p.1 == name);
+                        match (named.next(), named.next()) {
+                            (Some((i, _)), None) => Some(i),
+                            _ => None,
+                        }
+                    })
+            })
+        }
+    }
+    fn load_program(&mut self, index: usize) -> Result<()> {
+        let unit = self.shared.unit;
+        unsafe {
+            with_factory_presets(unit, |presets| {
+                let (number, _, name) = presets.get(index).cloned().ok_or_else(|| {
+                    format!(
+                        "Program {index} does not exist ({} programs)",
+                        presets.len()
+                    )
+                })?;
+                // Set while the array that holds the name is still alive.
+                let preset = AUPreset {
+                    presetNumber: number,
+                    presetName: name as *const CFString,
+                };
+                check(
+                    set_property(
+                        unit,
+                        kAudioUnitProperty_PresentPreset,
+                        kAudioUnitScope_Global,
+                        0,
+                        &preset,
+                    ),
+                    "Loading the Audio Unit factory preset",
+                )
+            })
         }
     }
 }
 
-/// The factory presets as (number, name, name pointer). The array stays with the Audio
-/// Unit: some units return one they keep, so releasing it here could free it under them.
-unsafe fn factory_presets(unit: AudioUnit) -> Vec<(i32, String, usize)> {
+extern "C" {
+    fn CFRelease(cf: *const c_void);
+}
+
+/// Calls `f` with the factory presets as (number, name, name pointer), then releases the
+/// array: Apple's documentation makes the caller the owner of every CF object an Audio Unit
+/// returns (AudioUnitProperties.h, PresentPreset). The name pointers live only inside `f`.
+unsafe fn with_factory_presets<T>(
+    unit: AudioUnit,
+    f: impl FnOnce(&[(i32, String, usize)]) -> T,
+) -> T {
     extern "C" {
         fn CFArrayGetCount(array: *const c_void) -> isize;
         fn CFArrayGetValueAtIndex(array: *const c_void, index: isize) -> *const c_void;
@@ -822,10 +876,10 @@ unsafe fn factory_presets(unit: AudioUnit) -> Vec<(i32, String, usize)> {
     ) != 0
         || array.is_null()
     {
-        return Vec::new();
+        return f(&[]);
     }
     let count = CFArrayGetCount(array).clamp(0, 4096);
-    (0..count)
+    let presets: Vec<(i32, String, usize)> = (0..count)
         .filter_map(|i| {
             let preset = CFArrayGetValueAtIndex(array, i) as *const AUPreset;
             let preset = preset.as_ref()?;
@@ -836,7 +890,10 @@ unsafe fn factory_presets(unit: AudioUnit) -> Vec<(i32, String, usize)> {
             };
             Some((preset.presetNumber, name, preset.presetName as usize))
         })
-        .collect()
+        .collect();
+    let out = f(&presets);
+    CFRelease(array);
+    out
 }
 impl Drop for AuEditor {
     fn drop(&mut self) {
