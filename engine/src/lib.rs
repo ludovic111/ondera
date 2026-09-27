@@ -12,6 +12,7 @@ pub mod control_overview;
 pub mod control_params;
 pub mod control_plugins;
 pub mod control_refs;
+pub mod control_routing;
 pub mod control_tempo;
 pub mod controllers;
 pub mod device;

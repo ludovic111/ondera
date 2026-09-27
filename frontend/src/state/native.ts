@@ -12,6 +12,7 @@ import type {
 } from "@ondera/core";
 import { library } from "../audio/library";
 import { beatsPerBar } from "../core/time";
+import { outputName, sendTargetName } from "../core/strip";
 
 export type Params = Record<string, unknown>;
 export interface UiState {
@@ -511,11 +512,15 @@ export class NativeStore {
       strips[id] = {
         ...strip,
         instrument: strip.synth?.name ?? strip.instrument,
-        input:
-          doc.tracks.find((t) => t.id === id)?.kind === "midi"
-            ? "Musical typing"
-            : "Input",
-        output: "Stereo Out",
+        input: {
+          midi: "Musical typing",
+          bus: "—",
+          audio: "Input",
+        }[doc.tracks.find((t) => t.id === id)?.kind ?? "audio"],
+        output: outputName(
+          doc.tracks,
+          doc.tracks.find((t) => t.id === id) ?? {},
+        ),
         inserts: Array.from(
           { length: 8 },
           (_, i) =>
@@ -525,10 +530,19 @@ export class NativeStore {
               meta: "",
             },
         ),
-        sends: [0, 1].map((i) => ({
-          name: i === 0 ? "A · Reverb" : "B · Delay",
-          levelDb: strip.sends[i]?.levelDb ?? -Infinity,
-        })),
+        sends: Array.from(
+          { length: Math.max(2, strip.sends.length) },
+          (_, i) => {
+            const send = strip.sends[i];
+            const bus =
+              send?.bus ?? (i === 0 ? "bus-a" : i === 1 ? "bus-b" : undefined);
+            return {
+              name: sendTargetName(doc.tracks, bus),
+              levelDb: send?.levelDb ?? -Infinity,
+              bus,
+            };
+          },
+        ),
       };
     }
     this.state = {

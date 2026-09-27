@@ -102,10 +102,12 @@ fn delay_compensation_aligns_tracks_sends_and_master_to_one_sample() {
                 Send {
                     name: BUS_A.into(),
                     level_db: Some(0.0),
+                    bus: None,
                 },
                 Send {
                     name: BUS_B.into(),
                     level_db: Some(0.0),
+                    bus: None,
                 },
             ],
             ..Default::default()

@@ -100,6 +100,8 @@ what was left out and `next` names the commands that drill down.
 | `toggleMixer` | X | `ui.showPanel` panel=mixer | covered |
 | `toggleControllerLane` | L | `ui.showPanel` panel=controllers | covered |
 | `toggleTempoTrack` | ⇧T | `ui.showPanel` panel=tempo | covered |
+| `addBusTrack` | | `track.add` kind=bus | added in 0.10 |
+| `groupSelectedTrack` | | `track.group` trackIds | added in 0.10 |
 | `commandPalette` | ⌘P | `ui.showPanel` panel=palette; an agent reads `session.commands` | covered |
 | `showShortcuts` | ⌘/ | `ui.showPanel` panel=help; `session.commands` | covered |
 | `addMarker` | ⇧M | `marker.add` | covered |

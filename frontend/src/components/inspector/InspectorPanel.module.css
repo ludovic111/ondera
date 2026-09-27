@@ -212,6 +212,27 @@
   font-size: var(--fs-value);
   font-weight: var(--fw-semibold);
   color: var(--color-ink100);
+  /* A button that reads as the label it replaces. */
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.sendName:hover {
+  color: var(--color-ink-bright);
+}
+
+.addSend {
+  height: 18px;
+  padding: 0 6px;
+  font-size: var(--fs-small);
 }
 
 /* A narrow window squeezes the inspector: one send per row keeps their names readable. */

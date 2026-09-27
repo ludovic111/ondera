@@ -593,11 +593,38 @@ pub fn stems(
         let mut song = session.clone();
         // The title an Ogg stem carries.
         song.name = format!("{} - {}", session.name, track.name);
-        song.tracks.retain(|t| t.id == track.id);
-        song.tracks[0].mute = false;
-        song.tracks[0].solo = false;
-        song.clips.retain(|c| c.track_id == track.id);
-        song.strips.retain(|id, _| id == &track.id || is_bus(id));
+        // A bus's stem is everything routed to it, through it; a track's stem goes through the
+        // buses it feeds when effects are included, and straight out when not.
+        let mut keep: HashSet<&str> = HashSet::from([track.id.as_str()]);
+        if track.is_bus() {
+            keep.extend(
+                session
+                    .tracks
+                    .iter()
+                    .filter(|t| t.output.as_deref() == Some(track.id.as_str()))
+                    .map(|t| t.id.as_str()),
+            );
+        } else if include_effects {
+            keep.extend(track.output.as_deref());
+            if let Some(strip) = session.strips.get(&track.id) {
+                keep.extend(
+                    strip
+                        .sends
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, send)| send.target(i))
+                        .filter(|id| session.bus_track(id).is_some()),
+                );
+            }
+        }
+        song.tracks.retain(|t| keep.contains(t.id.as_str()));
+        for t in &mut song.tracks {
+            t.mute = false;
+            t.solo = false;
+        }
+        song.clips.retain(|c| keep.contains(c.track_id.as_str()));
+        song.strips
+            .retain(|id, _| keep.contains(id.as_str()) || is_bus(id));
         if !include_effects {
             for (id, strip) in &mut song.strips {
                 if id != MASTER {
@@ -606,6 +633,7 @@ pub fn stems(
                 }
             }
         }
+        song.prune_routing();
         if !include_master {
             song.strips.remove(MASTER);
             song.master_volume = 0.75;

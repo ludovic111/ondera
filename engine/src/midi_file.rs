@@ -399,6 +399,7 @@ pub fn import_bytes(
             pan: 0.0,
             mute: false,
             solo: false,
+            output: None,
             extra,
         }));
         commands.push(Command::SetStrip {

@@ -137,7 +137,7 @@ export function useLaneInteraction() {
         return;
       }
 
-      if (tool === "pencil" && !clip && track) {
+      if (tool === "pencil" && !clip && track && track.kind !== "bus") {
         const anchor = Math.max(0, snap(state, bar, e.altKey));
         drag.current = {
           kind: "pencil",

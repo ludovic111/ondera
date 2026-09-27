@@ -7,7 +7,7 @@ use crate::{
     automation::AutomationTarget,
     model::{
         fader_gain, is_bus, ClipData, ControllerKind, FadeCurve, Monitor, Session, BUS_A, BUS_B,
-        MASTER,
+        MASTER, MAX_SENDS,
     },
     plugin::{event, Event, ProcessContext, Rack, MAX_BLOCK},
     tempo::TempoMap,
@@ -93,6 +93,15 @@ fn sort_events(events: &mut [Event]) {
     }
 }
 const PREVIEW_SECONDS: f64 = 0.3;
+
+/// `into += from * gain`, frame by frame.
+#[inline]
+fn add(into: &mut [[f32; 2]], from: &[[f32; 2]], gain: f32) {
+    for (a, b) in into.iter_mut().zip(from) {
+        a[0] += b[0] * gain;
+        a[1] += b[1] * gain;
+    }
+}
 
 /// Plugin parameter automation sends a value every this many frames while it moves, plus one
 /// on the exact frame of each breakpoint.
@@ -205,8 +214,18 @@ impl DelayLine {
         }
     }
 }
+/// Where a send goes: A · Reverb or B · Delay (0 or 1), or a bus track by channel index.
+#[derive(Clone, Copy, PartialEq)]
+enum SendTo {
+    Aux(usize),
+    Track(usize),
+}
 struct Channel {
     route: usize,
+    /// A bus track: processed after every track, from what they route and send to it.
+    bus: bool,
+    /// The bus track this channel's fader feeds; `None` for the Stereo Out.
+    output: Option<usize>,
     delay: DelayLine,
     automation_offset: u32,
     volume_lane: Option<usize>,
@@ -217,7 +236,8 @@ struct Channel {
     midi: bool,
     synth: Option<u32>,
     inserts: Vec<u32>,
-    sends: [f32; 2],
+    sends: [f32; MAX_SENDS],
+    send_to: [Option<SendTo>; MAX_SENDS],
     monitor: Monitor,
     armed: bool,
     /// One of this track's audio clips sounded during the current block.
@@ -264,6 +284,14 @@ pub struct Renderer {
     /// Slots a track's clips drive, which a locate may return to rest.
     sequenced: Vec<[[bool; CONTROLS]; CHANNELS]>,
     channels: Vec<Channel>,
+    /// Channels in processing order: every track, then every bus track.
+    order: Vec<usize>,
+    /// What the tracks send to the Stereo Out and to A and B, held back to meet the bus
+    /// tracks' outputs (see `set_latencies`).
+    early_mix: Vec<[f32; 2]>,
+    early_sends: [Vec<[f32; 2]>; 2],
+    early_delay: DelayLine,
+    early_send_delays: [DelayLine; 2],
     buses: [Vec<u32>; 2],
     master: Vec<u32>,
     master_gain: f32,
@@ -328,7 +356,41 @@ impl Renderer {
         let mut channels = Vec::new();
         let bpb = session.beats_per_bar();
         let tempo = session.tempo_map();
+        let index_of = |id: &str| session.tracks.iter().position(|t| t.id == id);
+        // Where each track's fader and sends go, as bus-track indices.
+        let feeds: Vec<Vec<usize>> = session
+            .tracks
+            .iter()
+            .map(|t| {
+                let strip = session.strips.get(&t.id);
+                t.output
+                    .iter()
+                    .map(String::as_str)
+                    .chain(strip.into_iter().flat_map(|s| {
+                        s.sends
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, send)| send.target(i))
+                    }))
+                    .filter_map(index_of)
+                    .filter(|&i| session.tracks[i].is_bus())
+                    .collect()
+            })
+            .collect();
         let solo = session.tracks.iter().any(|t| t.solo);
+        // Under solo, a soloed bus keeps what feeds it audible and a soloed track keeps the
+        // buses it feeds, so a group or an aux return never cuts out what it serves.
+        let audible = |index: usize| {
+            let t = &session.tracks[index];
+            !solo
+                || t.solo
+                || feeds[index].iter().any(|&b| session.tracks[b].solo)
+                || (t.is_bus()
+                    && feeds
+                        .iter()
+                        .enumerate()
+                        .any(|(i, f)| session.tracks[i].solo && f.contains(&index)))
+        };
         let chain = |inserts: &[crate::model::Insert]| -> Vec<u32> {
             inserts
                 .iter()
@@ -338,9 +400,30 @@ impl Renderer {
         };
         for (index, track) in session.tracks.iter().enumerate() {
             let strip = session.strips.get(&track.id).cloned().unwrap_or_default();
-            let muted = track.mute || (solo && !track.solo);
+            let muted = track.mute || !audible(index);
+            let mut sends = [0.0; MAX_SENDS];
+            let mut send_to = [None; MAX_SENDS];
+            for (k, send) in strip.sends.iter().enumerate().take(MAX_SENDS) {
+                send_to[k] = match send.target(k) {
+                    Some(BUS_A) => Some(SendTo::Aux(0)),
+                    Some(BUS_B) => Some(SendTo::Aux(1)),
+                    Some(bus) => index_of(bus)
+                        .filter(|&b| !track.is_bus() && session.tracks[b].is_bus())
+                        .map(SendTo::Track),
+                    None => None,
+                };
+                if !muted {
+                    sends[k] = send.level_db.map_or(0.0, |db| 10.0_f32.powf(db / 20.0));
+                }
+            }
             channels.push(Channel {
                 route: crate::midi::route_id(&track.id),
+                bus: track.is_bus(),
+                output: track
+                    .output
+                    .as_deref()
+                    .and_then(index_of)
+                    .filter(|&b| !track.is_bus() && session.tracks[b].is_bus()),
                 delay: DelayLine::default(),
                 automation_offset: 0,
                 volume_lane: session.automation.iter().position(|lane| {
@@ -373,17 +456,8 @@ impl Renderer {
                 armed: track.armed,
                 clip_sounding: false,
                 monitor_gain: 0.0,
-                sends: std::array::from_fn(|i| {
-                    if muted {
-                        0.0
-                    } else {
-                        strip
-                            .sends
-                            .get(i)
-                            .and_then(|s| s.level_db)
-                            .map_or(0.0, |db| 10.0_f32.powf(db / 20.0))
-                    }
-                }),
+                sends,
+                send_to,
             });
             for clip in session.clips.iter().filter(|c| c.track_id == track.id) {
                 let start = clip.start_bar * bpb;
@@ -479,8 +553,17 @@ impl Renderer {
             .iter()
             .position(|t| Some(&t.id) == session.view.selected_track_id.as_ref() && !is_bus(&t.id));
         let count = channels.len();
+        let order: Vec<usize> = (0..count)
+            .filter(|&i| !channels[i].bus)
+            .chain((0..count).filter(|&i| channels[i].bus))
+            .collect();
         Ok(Self {
             rate,
+            order,
+            early_mix: vec![[0.0; 2]; MAX_BLOCK],
+            early_sends: [vec![[0.0; 2]; MAX_BLOCK], vec![[0.0; 2]; MAX_BLOCK]],
+            early_delay: DelayLine::default(),
+            early_send_delays: std::array::from_fn(|_| DelayLine::default()),
             tempo,
             tempo_segment: 0,
             seconds: 0.0,
@@ -581,8 +664,10 @@ impl Renderer {
             selected,
         })
     }
-    /// Prepare static plugin delay compensation off the audio thread. Input
-    /// paths meet at the same sample before buses and again before the master.
+    /// Prepare static plugin delay compensation off the audio thread, in stages: the tracks
+    /// meet at the same sample before the bus tracks, whose outputs meet the tracks' own
+    /// (held back as long as the slowest bus) before A and B, which meet the dry mix before
+    /// the master. A song without bus tracks has an empty second stage.
     /// Rebuild this plan when a plugin reports changed latency.
     pub fn set_latencies(&mut self, latencies: &HashMap<u32, u32>) -> Result<()> {
         let sum = |slots: &[u32]| -> Result<u32> {
@@ -592,7 +677,7 @@ impl Renderer {
                     .ok_or_else(|| "Plugin latency overflow".to_string())
             })
         };
-        let tracks: Vec<u32> = self
+        let own: Vec<u32> = self
             .channels
             .iter()
             .map(|channel| {
@@ -606,14 +691,31 @@ impl Renderer {
                     .ok_or_else(|| "Plugin latency overflow".to_string())
             })
             .collect::<Result<_>>()?;
-        let track_max = tracks.iter().copied().max().unwrap_or(0);
+        let stage_max = |bus: bool| {
+            self.channels
+                .iter()
+                .zip(&own)
+                .filter(|(c, _)| c.bus == bus)
+                .map(|(_, n)| *n)
+                .max()
+                .unwrap_or(0)
+        };
+        let track_max = stage_max(false);
+        let group_max = stage_max(true);
         let buses = [sum(&self.buses[0])?, sum(&self.buses[1])?];
         let bus_max = buses.into_iter().max().unwrap_or(0);
         let total = track_max
-            .checked_add(bus_max)
+            .checked_add(group_max)
+            .and_then(|n| n.checked_add(bus_max))
             .and_then(|n| n.checked_add(sum(&self.master).ok()?))
             .ok_or("Plugin latency overflow")?;
-        let allocations = tracks.iter().map(|n| (track_max - n) as u64).sum::<u64>()
+        let allocations = self
+            .channels
+            .iter()
+            .zip(&own)
+            .map(|(c, n)| (if c.bus { group_max } else { track_max } - n) as u64)
+            .sum::<u64>()
+            + 3 * group_max as u64
             + bus_max as u64
             + buses.iter().map(|n| (bus_max - n) as u64).sum::<u64>();
         if total > self.rate * 10 || allocations > 8_388_608 {
@@ -621,7 +723,8 @@ impl Renderer {
         }
         let mut offsets = HashMap::new();
         for channel in &self.channels {
-            let mut offset = 0;
+            // A bus track hears the tracks once they have all been brought to `track_max`.
+            let mut offset = if channel.bus { track_max } else { 0 };
             if let Some(slot) = channel.synth {
                 offsets.insert(slot, offset);
                 offset += latencies.get(&slot).copied().unwrap_or(0);
@@ -632,13 +735,13 @@ impl Renderer {
             }
         }
         for bus in &self.buses {
-            let mut offset = track_max;
+            let mut offset = track_max + group_max;
             for slot in bus {
                 offsets.insert(*slot, offset);
                 offset += latencies.get(slot).copied().unwrap_or(0);
             }
         }
-        let mut offset = track_max + bus_max;
+        let mut offset = track_max + group_max + bus_max;
         for slot in &self.master {
             offsets.insert(*slot, offset);
             offset += latencies.get(slot).copied().unwrap_or(0);
@@ -646,10 +749,17 @@ impl Renderer {
         for automation in &mut self.plugin_automation {
             automation.offset = offsets.get(&automation.slot).copied().unwrap_or(0);
         }
-        for (channel, latency) in self.channels.iter_mut().zip(tracks) {
-            channel.automation_offset = latency;
-            channel.delay = DelayLine::new((track_max - latency) as usize);
+        for (channel, latency) in self.channels.iter_mut().zip(own) {
+            if channel.bus {
+                channel.automation_offset = track_max + latency;
+                channel.delay = DelayLine::new((group_max - latency) as usize);
+            } else {
+                channel.automation_offset = latency;
+                channel.delay = DelayLine::new((track_max - latency) as usize);
+            }
         }
+        self.early_delay = DelayLine::new(group_max as usize);
+        self.early_send_delays = std::array::from_fn(|_| DelayLine::new(group_max as usize));
         self.dry_delay = DelayLine::new(bus_max as usize);
         self.bus_delays = std::array::from_fn(|i| DelayLine::new((bus_max - buses[i]) as usize));
         self.latency_samples = total;
@@ -716,6 +826,14 @@ impl Renderer {
         self.sample_time = old.sample_time;
         self.idle_frames = old.idle_frames;
         self.dry_delay.adopt(&old.dry_delay);
+        self.early_delay.adopt(&old.early_delay);
+        for (delay, old_delay) in self
+            .early_send_delays
+            .iter_mut()
+            .zip(&old.early_send_delays)
+        {
+            delay.adopt(old_delay);
+        }
         for (delay, old_delay) in self.bus_delays.iter_mut().zip(&old.bus_delays) {
             delay.adopt(old_delay);
         }
@@ -1208,6 +1326,9 @@ impl Renderer {
         self.sends[0][..n].fill([0.0; 2]);
         self.sends[1][..n].fill([0.0; 2]);
         self.mix[..n].fill([0.0; 2]);
+        self.early_mix[..n].fill([0.0; 2]);
+        self.early_sends[0][..n].fill([0.0; 2]);
+        self.early_sends[1][..n].fill([0.0; 2]);
         // Most queued notes land at frame zero. A same-callback tap's release
         // follows its attack; carry it into the next block when necessary.
         let mut remaining = 0;
@@ -1410,8 +1531,14 @@ impl Renderer {
                 }
             }
         }
-        for (index, channel) in self.channels.iter_mut().enumerate() {
-            let buffer = &mut self.buffers[index][..n];
+        // Tracks first, then bus tracks, which by then hold everything routed or sent to them.
+        for step in 0..self.order.len() {
+            let index = self.order[step];
+            let channel = &mut self.channels[index];
+            // Taken out for the channel's turn so it can add to a bus track's buffer; handing a
+            // Vec back and forth allocates nothing.
+            let mut owned = std::mem::take(&mut self.buffers[index]);
+            let buffer = &mut owned[..n];
             let listen = monitoring
                 && match channel.monitor {
                     Monitor::Off => false,
@@ -1484,20 +1611,43 @@ impl Renderer {
             channel.delay.process(buffer);
             let selected = self.selected == Some(index);
             let mut track_peak = 0.0f32;
-            for (i, v) in buffer.iter().enumerate() {
+            for v in buffer.iter() {
                 for (c, value) in v.iter().enumerate() {
                     track_peak = track_peak.max(value.abs());
-                    self.mix[i][c] += value;
-                    self.sends[0][i][c] += value * channel.sends[0];
-                    self.sends[1][i][c] += value * channel.sends[1];
                     if selected {
                         self.channel_peak[c] = self.channel_peak[c].max(value.abs());
                     }
                 }
             }
+            // A track's output and sends to the Stereo Out, A and B wait in the early buffers
+            // for the bus tracks; a bus track's go straight on.
+            let (mix, aux) = if channel.bus {
+                (&mut self.mix, &mut self.sends)
+            } else {
+                (&mut self.early_mix, &mut self.early_sends)
+            };
+            match channel.output {
+                Some(bus) => add(&mut self.buffers[bus][..n], buffer, 1.0),
+                None => add(&mut mix[..n], buffer, 1.0),
+            }
+            for (to, &level) in channel.send_to.iter().zip(&channel.sends) {
+                match *to {
+                    _ if level == 0.0 => {}
+                    Some(SendTo::Aux(k)) => add(&mut aux[k][..n], buffer, level),
+                    Some(SendTo::Track(bus)) => add(&mut self.buffers[bus][..n], buffer, level),
+                    None => {}
+                }
+            }
             if let Some(slot) = self.track_peaks.get_mut(index) {
                 *slot = track_peak;
             }
+            self.buffers[index] = owned;
+        }
+        self.early_delay.process(&mut self.early_mix[..n]);
+        add(&mut self.mix[..n], &self.early_mix[..n], 1.0);
+        for k in 0..2 {
+            self.early_send_delays[k].process(&mut self.early_sends[k][..n]);
+            add(&mut self.sends[k][..n], &self.early_sends[k][..n], 1.0);
         }
         self.dry_delay.process(&mut self.mix[..n]);
         for bus in 0..2 {

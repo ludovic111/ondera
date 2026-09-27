@@ -8,7 +8,8 @@ import type { TempoPoint } from "./tempo";
 export type TrackId = string;
 export type ClipId = string;
 
-export type TrackKind = "audio" | "midi";
+/** A bus track holds no clips: it sums what tracks route (output) or send to it. */
+export type TrackKind = "audio" | "midi" | "bus";
 
 /** auto: while armed and not playing back the track's own clip. */
 export type Monitor = "off" | "auto" | "on";
@@ -28,6 +29,8 @@ export interface Track {
   armed: boolean;
   /** Hear the live input through this audio track; absent means off. */
   monitor?: Monitor;
+  /** The bus track this track's fader feeds; absent for the Stereo Out. */
+  output?: TrackId | null;
   /** True while an agent is actively editing this track. */
   agentActive: boolean;
 }
@@ -241,9 +244,12 @@ export interface InsertSlot {
 }
 
 export interface Send {
+  /** What it feeds, by name: "A · Reverb", "B · Delay" or a bus track's name. */
   name: string;
   /** -100 .. 0 dB, -Infinity for off. */
   levelDb: number;
+  /** The strip it feeds: "bus-a", "bus-b" or a bus track's id. */
+  bus?: string;
 }
 
 export interface ChannelStrip {

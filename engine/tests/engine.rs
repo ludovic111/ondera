@@ -381,10 +381,12 @@ fn mute_also_mutes_effect_sends() {
             Send {
                 level_db: Some(0.0),
                 name: "Reverb".into(),
+                bus: None,
             },
             Send {
                 level_db: Some(0.0),
                 name: "Delay".into(),
+                bus: None,
             },
         ],
         ..Default::default()
@@ -400,6 +402,7 @@ fn sends_feed_the_reverb_bus() {
         sends: vec![Send {
             level_db: Some(0.0),
             name: "Reverb".into(),
+            bus: None,
         }],
         ..Default::default()
     };
@@ -1464,4 +1467,51 @@ fn tempo_changes_round_trip_and_refuse_bad_points() {
     let mut bad = back;
     bad.tempo_changes[0].bpm = 1000.0;
     assert!(bad.validate().is_err());
+}
+
+#[test]
+fn bus_routing_allocates_nothing_on_the_audio_thread() {
+    let (mut s, library) = tempo_session();
+    let mut bus = s.tracks[0].clone();
+    bus.id = "group".into();
+    bus.name = "Group".into();
+    bus.kind = "bus".into();
+    s.tracks.push(bus);
+    s.tracks[0].output = Some("group".into());
+    s.strips.insert(
+        s.tracks[0].id.clone(),
+        Strip {
+            sends: vec![
+                Send {
+                    level_db: Some(-6.0),
+                    name: "A".into(),
+                    bus: None,
+                },
+                Send {
+                    level_db: Some(-6.0),
+                    name: "Group".into(),
+                    bus: Some("group".into()),
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    s.validate().unwrap();
+    let (mut r, mut rack) = offline(s, &library, 48000);
+    r.playing = true;
+    let mut block = [[0.0f32; 2]; 256];
+    ALLOCATIONS.with(|n| n.set(0));
+    DEALLOCATIONS.with(|n| n.set(0));
+    COUNTING.with(|v| v.set(true));
+    for i in 0..400 {
+        if i == 200 {
+            r.locate(3.0);
+        }
+        r.render(&mut rack, &mut block);
+        std::hint::black_box(&block);
+    }
+    COUNTING.with(|v| v.set(false));
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(DEALLOCATIONS.with(Cell::get), 0);
+    assert!(block.iter().any(|f| f[0] != 0.0), "the bus is heard");
 }

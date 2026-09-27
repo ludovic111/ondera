@@ -189,8 +189,8 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("transport.setSnap", "Set the grid that drags, the playhead and clip.quantize snap to, in notes per bar.", &[req("division", Kind::Integer, "Notes per bar: 1, 2, 4, 8, 16, 32 or 64.")]),
     query("track.list", "List tracks in arrangement order with their instrument and clip count.", &[]),
     edit("track.add", "Add a track at the end of the arrangement and select it.", &[
-        req("kind", Kind::String, "\"midi\" for an instrument track or \"audio\"."),
-        opt("name", Kind::String, "Track name. Defaults to Instrument N / Audio N."),
+        req("kind", Kind::String, "\"midi\" for an instrument track, \"audio\", or \"bus\" for a bus track that other tracks route or send to (see track.setOutput, strip.setSend, track.group)."),
+        opt("name", Kind::String, "Track name. Defaults to Instrument N / Audio N / Bus N."),
         opt("color", Kind::String, "CSS colour: #rrggbb or oklch(l c h). Defaults to the palette."),
         opt("instrument", Kind::String, "Instrument for a MIDI track; see session.catalog."),
     ]),
@@ -275,9 +275,9 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("effect", Kind::String, "Effect name from session.catalog. Omit it, and bypassed, to empty the slot."),
         opt("bypassed", Kind::Boolean, "Bypass the effect instead of running it (default false). Without effect, bypasses or enables the effect already in the slot."),
     ]),
-    edit("strip.setSendLevel", "Set a send level to the reverb (A) or delay (B) bus.", &[
+    edit("strip.setSendLevel", "Set a send's level; sends 0 and 1 feed the reverb (A) and delay (B) buses unless strip.setSend pointed them at a bus track.", &[
         TRACK_ID,
-        req("send", Kind::Integer, "0 for A · Reverb, 1 for B · Delay."),
+        req("send", Kind::Integer, "0 for A · Reverb, 1 for B · Delay (or where they point), 2 or 3 for a further send."),
         opt("levelDb", Kind::Number, "Level in dB, -100 to 0. Omit or null for off."),
     ]),
     edit("strip.setPlugin", "Load a stock or installed external plugin (CLAP, VST3, AU, native) as a MIDI track's instrument (omit slot) or as an insert (slot 0-7, or firstFreeSlot) on a track or bus. Name it by pluginId, or by plugin: a search such as \"pro q\" or \"diva\" that must single out one plugin of the right kind.", &[
@@ -313,6 +313,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_edit::SPECS)
         .chain(crate::control_arrange::SPECS)
         .chain(crate::control_tempo::SPECS)
+        .chain(crate::control_routing::SPECS)
         .chain(crate::control_plugins::SPECS)
         .chain(crate::control_automation::SPECS)
         .chain(crate::control_controllers::SPECS)
@@ -790,6 +791,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
     if crate::control_tempo::SPECS.iter().any(|s| s.name == name) {
         return crate::control_tempo::call(host, name, &a);
     }
+    if crate::control_routing::SPECS.iter().any(|s| s.name == name) {
+        return crate::control_routing::call(host, name, &a);
+    }
     if crate::control_media::SPECS.iter().any(|s| s.name == name) {
         return crate::control_media::call(host, name, params, agent);
     }
@@ -933,8 +937,8 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         }
         "track.add" => {
             let kind = a.str("kind")?;
-            if kind != "midi" && kind != "audio" {
-                return Err("Track kind must be \"midi\" or \"audio\"".into());
+            if !["midi", "audio", "bus"].contains(&kind) {
+                return Err("Track kind must be \"midi\", \"audio\" or \"bus\"".into());
             }
             let instrument = a.opt_str("instrument").map(str::to_string);
             if let Some(i) = &instrument {
@@ -986,7 +990,12 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                 "track.rename" => track.name = a.str("name")?.into(),
                 "track.setMute" => track.mute = a.bool("muted")?,
                 "track.setSolo" => track.solo = a.bool("solo")?,
-                "track.setArmed" => track.armed = a.bool("armed")?,
+                "track.setArmed" => {
+                    track.armed = a.bool("armed")?;
+                    if track.armed && track.is_bus() {
+                        return Err("A bus has no input to record; arm the tracks it hears".into());
+                    }
+                }
                 "track.setMonitor" => {
                     if track.kind != "audio" {
                         return Err("Only audio tracks monitor the input; an instrument track already plays what you play".into());
@@ -1492,8 +1501,11 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
                         );
                     }
                     let send = a.int("send")?;
-                    if !(0..2).contains(&send) {
-                        return Err("Send must be 0 (A · Reverb) or 1 (B · Delay)".into());
+                    if !(0..strip.sends.len() as i64).contains(&send) {
+                        return Err(format!(
+                            "Send must be 0 (A · Reverb) or 1 (B · Delay){}; point a further one at a bus with strip.setSend",
+                            if strip.sends.len() > 2 { format!(" up to {}", strip.sends.len() - 1) } else { String::new() }
+                        ));
                     }
                     let level = a.opt_f64("levelDb");
                     if level.is_some_and(|v| !(-100.0..=0.0).contains(&v)) {
@@ -1721,10 +1733,10 @@ pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: St
         name: name.unwrap_or_else(|| {
             format!(
                 "{} {}",
-                if kind == "audio" {
-                    "Audio"
-                } else {
-                    "Instrument"
+                match kind {
+                    "audio" => "Audio",
+                    "bus" => "Bus",
+                    _ => "Instrument",
                 },
                 index + 1
             )
@@ -1738,6 +1750,7 @@ pub(crate) fn new_track(s: &Session, kind: &str, name: Option<String>, color: St
         pan: 0.0,
         mute: false,
         solo: false,
+        output: None,
     }
 }
 /// Clips sit on bars and automation on beats: a new meter moves every clip, so the
@@ -1776,6 +1789,7 @@ pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
         strip.sends.push(Send {
             level_db: None,
             name: SEND_NAMES[strip.sends.len()].into(),
+            bus: None,
         });
     }
     strip
@@ -2061,6 +2075,13 @@ pub(crate) fn track_json(s: &Session, t: &Track) -> Value {
         "instrument": if t.kind == "midi" { Some(full_strip(s, &t.id).instrument_name()) } else { None },
         "clipCount": s.clips.iter().filter(|c| c.track_id == t.id).count(),
         "index": s.tracks.iter().position(|x| x.id == t.id),
+        "output": crate::control_routing::output_name(s, t),
+        "outputId": t.output,
+        "inputs": if t.is_bus() {
+            Some(s.tracks.iter().filter(|x| x.output.as_deref() == Some(t.id.as_str())).map(|x| x.name.as_str()).collect::<Vec<_>>())
+        } else {
+            None
+        },
     })
 }
 pub(crate) fn clip_summary(c: &Clip) -> Value {
@@ -2117,9 +2138,11 @@ pub(crate) fn strip_json(s: &Session, id: &str) -> Value {
         })).collect::<Vec<_>>(),
         "sends": strip.sends.iter().enumerate().map(|(i, send)| json!({
             "send": i,
-            "name": send.name,
+            "name": crate::control_routing::send_name(s, i, send.target(i)),
+            "bus": send.target(i),
             "levelDb": send.level_db,
         })).collect::<Vec<_>>(),
+        "output": s.tracks.iter().find(|t| t.id == id).map(|t| crate::control_routing::output_name(s, t)),
     })
 }
 

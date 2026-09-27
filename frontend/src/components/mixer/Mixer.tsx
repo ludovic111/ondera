@@ -7,6 +7,7 @@ import {
   dbToFader,
   faderToDb,
   formatDb,
+  outputName,
   type Track,
 } from "@ondera/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
@@ -69,6 +70,9 @@ function Strip({ track, index }: { track: Track; index: number }) {
       s.strips[track.id]?.inserts.filter((i) => i.state !== "empty").length ??
       0,
   );
+  const output = useSession((s) =>
+    track.output ? outputName(s.tracks, track) : null,
+  );
   return (
     <div
       className={styles.strip}
@@ -77,8 +81,9 @@ function Strip({ track, index }: { track: Track; index: number }) {
         selected || dispatch(commands.track.select({ trackId: track.id }))
       }
     >
-      <div className={styles.kind}>
-        {track.kind === "midi" ? "MIDI" : "AUD"} · {inserts} fx
+      <div className={styles.kind} title={output ? `Routed to ${output}` : undefined}>
+        {{ audio: "AUD", midi: "MIDI", bus: "BUS" }[track.kind]} ·{" "}
+        {output ? `→ ${output}` : `${inserts} fx`}
       </div>
       <Knob
         size="md"
@@ -136,21 +141,23 @@ function Strip({ track, index }: { track: Track; index: number }) {
         >
           S
         </Button>
-        <Button
-          size="sm"
-          title="Record arm"
-          lit={track.armed}
-          onClick={() =>
-            dispatch(
-              commands.track.setArmed({
-                trackId: track.id,
-                armed: !track.armed,
-              }),
-            )
-          }
-        >
-          <RecordSmallIcon />
-        </Button>
+        {track.kind !== "bus" && (
+          <Button
+            size="sm"
+            title="Record arm"
+            lit={track.armed}
+            onClick={() =>
+              dispatch(
+                commands.track.setArmed({
+                  trackId: track.id,
+                  armed: !track.armed,
+                }),
+              )
+            }
+          >
+            <RecordSmallIcon />
+          </Button>
+        )}
         {track.kind === "audio" && <MonitorButton track={track} />}
       </div>
       <div className={styles.name} title={track.name}>

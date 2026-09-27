@@ -233,6 +233,8 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             s.tracks.retain(|t| t.id != id);
             s.clips.retain(|c| c.track_id != id);
             s.strips.remove(&id);
+            // Tracks that fed a removed bus go back to the Stereo Out.
+            s.prune_routing();
             crate::automation::retain_targets(s);
             if s.view.selected_track_id.as_ref() == Some(&id) {
                 s.view.selected_track_id = s.tracks.first().map(|t| t.id.clone());

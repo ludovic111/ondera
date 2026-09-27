@@ -205,7 +205,17 @@ fn problems(
     if t.mute {
         out.push("muted".to_string());
     }
-    if !t.solo {
+    // A track feeding a soloed bus, and a bus fed by a soloed track, still play.
+    let feeds_solo = t
+        .output
+        .as_deref()
+        .and_then(|id| s.bus_track(id))
+        .is_some_and(|b| b.solo);
+    let fed_by_solo = t.is_bus()
+        && s.tracks
+            .iter()
+            .any(|x| x.solo && x.output.as_deref() == Some(t.id.as_str()));
+    if !t.solo && !feeds_solo && !fed_by_solo {
         let soloed: Vec<&str> = s
             .tracks
             .iter()
@@ -222,8 +232,30 @@ fn problems(
     if s.master_volume == 0.0 {
         out.push("master fader at -inf".into());
     }
-    if clips == 0 {
+    if clips == 0 && !t.is_bus() {
         out.push("no clips".into());
+    }
+    if let Some(bus) = t.output.as_deref().and_then(|id| s.bus_track(id)) {
+        if bus.mute {
+            out.push(format!("its bus {} is muted", bus.name));
+        }
+        if bus.volume == 0.0 {
+            out.push(format!("its bus {} has its fader at -inf", bus.name));
+        }
+    }
+    if t.is_bus()
+        && !s
+            .tracks
+            .iter()
+            .any(|x| x.output.as_deref() == Some(t.id.as_str()))
+        && !s.strips.iter().any(|(id, st)| {
+            id != &t.id
+                && st.sends.iter().enumerate().any(|(i, send)| {
+                    send.target(i) == Some(t.id.as_str()) && send.level_db.is_some()
+                })
+        })
+    {
+        out.push("nothing is routed or sent to this bus".into());
     }
     let instrument = (t.kind == "midi").then(|| {
         strip.synth.clone().unwrap_or_else(|| {
@@ -280,12 +312,12 @@ fn inserts_json(
         .collect()
 }
 
-fn sends_json(strip: &Strip) -> Value {
+fn sends_json(s: &Session, strip: &Strip) -> Value {
     let mut map = Map::new();
     for (i, send) in strip.sends.iter().enumerate() {
         if let Some(db) = send.level_db {
             map.insert(
-                if i == 0 { "A · Reverb" } else { "B · Delay" }.into(),
+                crate::control_routing::send_name(s, i, send.target(i)),
                 json!(round2(db as f64)),
             );
         }
@@ -358,7 +390,22 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &control::Args) -> Result
         if !inserts.is_empty() {
             v["inserts"] = json!(inserts);
         }
-        let sends = sends_json(&strip);
+        let sends = sends_json(&s, &strip);
+        if let Some(output) = &t.output {
+            v["output"] = json!(s
+                .tracks
+                .iter()
+                .find(|b| &b.id == output)
+                .map_or(output.as_str(), |b| b.name.as_str()));
+        }
+        if t.is_bus() {
+            v["inputs"] = json!(s
+                .tracks
+                .iter()
+                .filter(|x| x.output.as_deref() == Some(t.id.as_str()))
+                .map(|x| x.name.as_str())
+                .collect::<Vec<_>>());
+        }
         if sends.as_object().is_some_and(|m| !m.is_empty()) {
             v["sends"] = sends;
         }

@@ -7,6 +7,12 @@ pub const MASTER: &str = "master";
 pub const BUS_A: &str = "bus-a";
 pub const BUS_B: &str = "bus-b";
 pub const MAX_INSERTS: usize = 8;
+/// Sends per strip: the first two feed A · Reverb and B · Delay unless pointed elsewhere.
+pub const MAX_SENDS: usize = 4;
+/// Buses a song may add, as bus tracks.
+pub const MAX_BUS_TRACKS: usize = 32;
+/// The fixed strips (master and the two aux returns); a bus *track* is a track whose kind is
+/// `bus`, see [`Track::is_bus`].
 pub fn is_bus(id: &str) -> bool {
     id == MASTER || id == BUS_A || id == BUS_B
 }
@@ -106,6 +112,17 @@ pub struct Track {
     pub pan: f32,
     pub mute: bool,
     pub solo: bool,
+    /// The bus track this track's fader feeds; absent for the Stereo Out. Bus tracks always
+    /// feed the Stereo Out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+}
+impl Track {
+    /// A bus track: no clips, no input; it sums what tracks route or send to it through its
+    /// own inserts, fader and pan (a group or an aux return).
+    pub fn is_bus(&self) -> bool {
+        self.kind == "bus"
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -592,6 +609,20 @@ pub struct Send {
     pub level_db: Option<f32>,
     #[serde(default)]
     pub name: String,
+    /// Where it goes: a bus track, or `bus-a` / `bus-b`. Absent, the first send feeds
+    /// A · Reverb and the second B · Delay, as they always did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus: Option<String>,
+}
+impl Send {
+    /// The strip this send feeds when it is the `index`th of its strip.
+    pub fn target(&self, index: usize) -> Option<&str> {
+        self.bus.as_deref().or(match index {
+            0 => Some(BUS_A),
+            1 => Some(BUS_B),
+            _ => None,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -822,7 +853,8 @@ impl Session {
         let mut ids = HashSet::new();
         for track in &self.tracks {
             if !ids.insert(&track.id)
-                || !["audio", "midi"].contains(&track.kind.as_str())
+                || is_bus(&track.id)
+                || !["audio", "midi", "bus"].contains(&track.kind.as_str())
                 || !track.volume.is_finite()
                 || !(0.0..=1.0).contains(&track.volume)
                 || !track.pan.is_finite()
@@ -831,6 +863,7 @@ impl Session {
                 return Err("Invalid or duplicate track".into());
             }
         }
+        self.validate_routing()?;
         let mut clips = HashSet::new();
         let mut notes = 0;
         for c in &self.clips {
@@ -843,6 +876,9 @@ impl Session {
                 return Err("Invalid clip".into());
             }
             let track = self.tracks.iter().find(|t| t.id == c.track_id).unwrap();
+            if track.is_bus() {
+                return Err("Bus tracks hold no clips: route or send tracks to them".into());
+            }
             match &c.data {
                 ClipData::Midi {
                     notes: ns,
@@ -935,7 +971,7 @@ impl Session {
         }
         for strip in self.strips.values() {
             if strip.inserts.len() > MAX_INSERTS
-                || strip.sends.len() > 2
+                || strip.sends.len() > MAX_SENDS
                 || strip.sends.iter().any(|s| {
                     s.level_db
                         .is_some_and(|v| !v.is_finite() || !(-100.0..=0.0).contains(&v))
@@ -953,6 +989,90 @@ impl Session {
             }
         }
         Ok(())
+    }
+}
+impl Session {
+    pub fn bus_track(&self, id: &str) -> Option<&Track> {
+        self.tracks.iter().find(|t| t.id == id && t.is_bus())
+    }
+    /// Outputs and sends point at buses that exist, in one direction only: tracks feed bus
+    /// tracks, bus tracks feed A, B and the Stereo Out. So the graph never loops.
+    fn validate_routing(&self) -> Result<()> {
+        if self.tracks.iter().filter(|t| t.is_bus()).count() > MAX_BUS_TRACKS {
+            return Err(format!("A song holds at most {MAX_BUS_TRACKS} buses"));
+        }
+        for track in &self.tracks {
+            if track.is_bus() && (track.armed || track.monitor != Monitor::Off) {
+                return Err("A bus track cannot be armed or monitor an input".into());
+            }
+            if let Some(output) = &track.output {
+                if track.is_bus() {
+                    return Err(format!(
+                        "Bus \"{}\" feeds the Stereo Out; buses do not feed other buses",
+                        track.name
+                    ));
+                }
+                if self.bus_track(output).is_none() {
+                    return Err(format!(
+                        "Track \"{}\" outputs to `{output}`, which is not a bus track",
+                        track.name
+                    ));
+                }
+            }
+        }
+        for (id, strip) in &self.strips {
+            let from_bus = self.bus_track(id).is_some();
+            for (index, send) in strip.sends.iter().enumerate() {
+                match send.target(index) {
+                    None => return Err("A third or fourth send needs a bus".into()),
+                    Some(BUS_A | BUS_B) => {}
+                    Some(target) if !from_bus && !is_bus(id) && self.bus_track(target).is_some() => {}
+                    Some(target) => {
+                        return Err(format!(
+                            "A send from `{id}` cannot feed `{target}`: tracks send to bus tracks, A or B; buses send to A or B"
+                        ))
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Forget outputs and sends that point at a bus track no longer in the song: the track
+    /// goes back to the Stereo Out and the send back to its default (or away).
+    pub fn prune_routing(&mut self) {
+        let buses: HashSet<String> = self
+            .tracks
+            .iter()
+            .filter(|t| t.is_bus())
+            .map(|t| t.id.clone())
+            .collect();
+        for track in &mut self.tracks {
+            if track
+                .output
+                .as_ref()
+                .is_some_and(|o| !buses.contains(o) || track.kind == "bus")
+            {
+                track.output = None;
+            }
+        }
+        for strip in self.strips.values_mut() {
+            let mut index = 0;
+            strip.sends.retain_mut(|send| {
+                let dangling = send
+                    .bus
+                    .as_ref()
+                    .is_some_and(|b| b != BUS_A && b != BUS_B && !buses.contains(b));
+                let keep = if dangling {
+                    send.bus = None;
+                    send.level_db = None;
+                    index < 2
+                } else {
+                    true
+                };
+                index += 1;
+                keep
+            });
+        }
     }
 }
 pub fn valid_time(v: f64) -> bool {

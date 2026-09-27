@@ -207,11 +207,14 @@ export function drawLanes(
     const y = i * rowH;
     if (y + rowH < visibleTop || y > h) return;
     const selected = view.selectedTrackId === track.id;
+    // A bus holds no clips: its lane stays the empty colour unless selected.
     ctx.fillStyle = selected
       ? color.timelineSelected
       : track.agentActive
         ? color.timelineAgent
-        : color.timeline;
+        : track.kind === "bus"
+          ? color.timelineEmpty
+          : color.timeline;
     ctx.fillRect(0, y, w, rowH);
     if (overlay.dropTrackIndex === i) {
       ctx.fillStyle = cc(fill.dropTarget);
@@ -231,6 +234,26 @@ export function drawLanes(
 
   // Grid.
   drawGrid(ctx, w, tracksBottom, geo, transport.timeSignature);
+
+  // A bus lane names what it sums.
+  ctx.font = uiFont("small", "medium");
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  tracks.forEach((track, i) => {
+    if (track.kind !== "bus") return;
+    const y = i * rowH;
+    if (y + rowH < visibleTop || y > h) return;
+    const inputs = tracks.filter((t) => t.output === track.id).map((t) => t.name);
+    ctx.fillStyle = color.ink500;
+    ctx.fillText(
+      inputs.length > 0
+        ? `Bus · ${inputs.join(", ")}`
+        : "Bus · route tracks here from their Output, or send to it",
+      10,
+      y + rowH / 2,
+      Math.max(0, w - 20),
+    );
+  });
 
   // Markers: a line down every lane where a section starts.
   for (const m of markersWith(state, overlay.marker)) {

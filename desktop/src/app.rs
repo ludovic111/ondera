@@ -1327,6 +1327,7 @@ impl Ondera {
             armed: false,
             monitor: Default::default(),
             extra: HashMap::new(),
+            output: None,
         };
         self.dispatch(Command::AddTrack(track));
         id
