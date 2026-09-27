@@ -99,6 +99,9 @@ what was left out and `next` names the commands that drill down.
 | `transposeOctaveDown` | ⇧⌥↓ | `clip.transpose`, `note.update` | covered |
 | `toggleMixer` | X | `ui.showPanel` panel=mixer | covered |
 | `toggleControllerLane` | L | `ui.showPanel` panel=controllers | covered |
+| `toggleTempoTrack` | ⇧T | `ui.showPanel` panel=tempo | covered |
+| `addBusTrack` | | `track.add` kind=bus | added in 0.10 |
+| `groupSelectedTrack` | | `track.group` trackIds | added in 0.10 |
 | `commandPalette` | ⌘P | `ui.showPanel` panel=palette; an agent reads `session.commands` | covered |
 | `showShortcuts` | ⌘/ | `ui.showPanel` panel=help; `session.commands` | covered |
 | `addMarker` | ⇧M | `marker.add` | covered |
@@ -150,6 +153,7 @@ below.
 | Click, drag, rename, delete a marker flag | `marker.goto`, `marker.move`, `marker.rename`, `marker.remove` | covered |
 | Marker menu: Cycle this section / Add marker here | `marker.cycleSection` markerId, `marker.add` bar name | covered |
 | Marker colour | `marker.setColor` | covered (no window control yet) |
+| Tempo track: click to add a change, drag a point (bar and tempo), double-click to type, Ramp from the Previous Tempo, Delete, Clear | `tempo.set` bar bpm ramp, `tempo.move` bar toBar bpm, `tempo.remove`, `tempo.clear`, `tempo.list` | added in 0.10 |
 | Press a clip | `clip.select` | covered |
 | Drag a clip (same-kind tracks) | `clip.move` startBar trackId | covered |
 | Drag a clip edge | `clip.trim` (left edge), `clip.resize` | covered |
@@ -220,6 +224,7 @@ below.
 | Double-click an effect (first free slot) | `strip.setPlugin` firstFreeSlot | added |
 | Double-click a loop | `clip.addLoop` | covered |
 | Double-click a project audio file | `clip.create` sourceId; `session.overview` lists the sources | covered |
+| Row menu: Load / Insert as another format (CLAP, VST3, Audio Unit) | `plugin.list` row `formats`, `strip.setPlugin` pluginId | added in 0.10 |
 | Star / favourites | `plugin.setFavorite` | covered |
 | Move to folder / new folder / automatic | `plugin.setFolder` | covered |
 | Import audio, scan plugins | `session.importAudio`, `plugin.scan` | covered |
@@ -289,7 +294,7 @@ are not listed, as in the window.
 | Play, stop, record | `transport.play`, `transport.stop`, `transport.punch`, `transport.record` | covered |
 | Cycle, click | `transport.setCycle`, `transport.setMetronome` | covered |
 | Snap menu | `transport.setSnap` | covered |
-| Tempo drag or typed | `transport.setTempo` | covered |
+| Tempo drag or typed (the tempo at the playhead: the starting one, or the change in force there) | `transport.setTempo`, `tempo.set` bar | covered |
 | Signature, key | `transport.setTimeSignature`, `transport.setKey` | covered |
 | Count-in | `settings.set path=audio.countInBars` | covered |
 | Song name | `session.rename` | covered |

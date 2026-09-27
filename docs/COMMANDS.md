@@ -2,7 +2,7 @@
 
 <!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `ONDERA_BLESS=1 cargo test -p ondera-tools --test command_docs`. -->
 
-Ondera has 182 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
+Ondera has 190 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
 
 Conventions: bars and beats are zero-based; note `start` and `length` are beats relative to their clip; pitch 60 is C4; velocity is 1–127; a fader value of 0.75 is unity gain. Strip commands accept a track id or `master`, `bus-a`, `bus-b`; insert slots are 0–7.
 
@@ -13,14 +13,15 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 - [session](#session) — `session.info`, `session.get`, `session.inspect`, `session.catalog`, `session.commands`, `session.new`, `session.open`, `session.save`, `session.rename`, `session.bounce`, `session.importAudio`, `session.importMidi`, `session.exportMidi`, `session.exportAudio`, `session.exportStems`, `session.batch`, `session.saveRecoveredTake`, `session.snapshots`, `session.restoreSnapshot`, `session.overview`
 - [plugin](#plugin) — `plugin.list`, `plugin.scan`, `plugin.folders`, `plugin.setFavorite`, `plugin.setFolder`, `plugin.scaffold`, `plugin.install`, `plugin.describe`
 - [transport](#transport) — `transport.play`, `transport.record`, `transport.stop`, `transport.locate`, `transport.returnToStart`, `transport.setTempo`, `transport.setTimeSignature`, `transport.setKey`, `transport.setCycle`, `transport.setMetronome`, `transport.setSnap`, `transport.punch`
-- [track](#track) — `track.list`, `track.add`, `track.remove`, `track.rename`, `track.setMute`, `track.setSolo`, `track.setArmed`, `track.setMonitor`, `track.setVolume`, `track.setPan`, `track.setColor`, `track.move`, `track.select`, `track.duplicate`
+- [track](#track) — `track.list`, `track.add`, `track.remove`, `track.rename`, `track.setMute`, `track.setSolo`, `track.setArmed`, `track.setMonitor`, `track.setVolume`, `track.setPan`, `track.setColor`, `track.move`, `track.select`, `track.setOutput`, `track.group`, `track.duplicate`
 - [clip](#clip) — `clip.list`, `clip.get`, `clip.create`, `clip.move`, `clip.resize`, `clip.rename`, `clip.split`, `clip.duplicate`, `clip.copy`, `clip.cut`, `clip.paste`, `clip.remove`, `clip.setNotes`, `clip.addLoop`, `clip.select`, `clip.trim`, `clip.deselect`, `clip.setFades`, `clip.setGain`, `clip.humanize`, `clip.velocityRamp`, `clip.fitScale`, `clip.reverseMidi`, `clip.legato`, `clip.repeat`, `clip.quantize`, `clip.transpose`
 - [note](#note) — `note.list`, `note.add`, `note.update`, `note.remove`, `note.preview`, `note.hold`, `note.releaseAll`
-- [strip](#strip) — `strip.get`, `strip.setInstrument`, `strip.setInsert`, `strip.setSendLevel`, `strip.setPlugin`, `strip.setBypass`, `strip.getState`, `strip.setState`, `strip.moveInsert`, `strip.parameters`, `strip.setParameter`, `strip.setParameters`, `strip.programs`, `strip.setProgram`, `strip.removeInsert`
+- [strip](#strip) — `strip.get`, `strip.setInstrument`, `strip.setInsert`, `strip.setSendLevel`, `strip.setPlugin`, `strip.setBypass`, `strip.getState`, `strip.setState`, `strip.setSend`, `strip.moveInsert`, `strip.parameters`, `strip.setParameter`, `strip.setParameters`, `strip.programs`, `strip.setProgram`, `strip.removeInsert`
 - [master](#master) — `master.setVolume`
 - [history](#history) — `history.undo`, `history.redo`, `history.info`
 - [source](#source) — `source.peaks`
 - [marker](#marker) — `marker.list`, `marker.add`, `marker.rename`, `marker.move`, `marker.setColor`, `marker.remove`, `marker.goto`, `marker.next`, `marker.previous`, `marker.cycleSection`
+- [tempo](#tempo) — `tempo.list`, `tempo.set`, `tempo.move`, `tempo.remove`, `tempo.clear`
 - [automation](#automation) — `automation.list`, `automation.create`, `automation.setPoints`, `automation.setPoint`, `automation.removePoint`, `automation.setEnabled`, `automation.setInterpolation`, `automation.remove`
 - [controller](#controller) — `controller.list`, `controller.add`, `controller.update`, `controller.remove`, `controller.setPoints`
 - [rhythm](#rhythm) — `rhythm.create`, `rhythm.preview`
@@ -125,19 +126,20 @@ Decode an audio file (WAV, AIFF, FLAC, MP3, Ogg, AAC) into the session and place
 
 *Edits*
 
-Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-note positions are preserved; reports unsupported controller/tempo-map data.
+Import SMF type 0/1 MIDI into new instrument tracks in one undo step. Quarter-note positions are preserved; reports what it could not import.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Source .mid or .midi file. |
 | `startBar` | number |  | Zero-based destination bar, default 0. |
-| `importTempo` | boolean |  | Apply the file's initial tempo and meter to the entire session (default false). Later changes are reported and ignored. |
+| `importTempo` | boolean |  | Make the file's tempo the song's (default false): its first tempo and meter for the whole song, its later tempo changes from startBar on, replacing the song's tempo changes. Later meter changes are reported and ignored. |
+| `keepChannels` | boolean |  | One track per track of the file, every note and controller on the MIDI channel it had, for a multitimbral instrument (default false: one track per channel, played on channel 1). |
 
 ### `session.exportMidi`
 
 *Edits*
 
-Export arrangement notes as SMF type 1 at 960 PPQ with initial tempo/meter. Does not convert audio or embed plugins; includes muted tracks.
+Export arrangement notes as SMF type 1 at 960 PPQ with the meter and every tempo change (a ramp as a step each sixteenth note). Does not convert audio or embed plugins; includes muted tracks.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -223,7 +225,7 @@ Open a recovery snapshot in the window as an unsaved copy.
 
 ### `session.overview`
 
-Everything about the song in one compact answer; call it first. Song (tempo, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.
+Everything about the song in one compact answer; call it first. Song (tempo, tempo changes, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -356,7 +358,7 @@ Move the playhead to the beginning.
 
 *Edits*
 
-Set the song tempo in beats per minute, like dragging the tempo display. One undo step.
+Set the song's starting tempo in beats per minute, like dragging the tempo display. Tempo changes later in the song (tempo.list) keep theirs. One undo step.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -439,8 +441,8 @@ Add a track at the end of the arrangement and select it.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `kind` | string | yes | "midi" for an instrument track or "audio". |
-| `name` | string |  | Track name. Defaults to Instrument N / Audio N. |
+| `kind` | string | yes | "midi" for an instrument track, "audio", or "bus" for a bus track that other tracks route or send to (see track.setOutput, strip.setSend, track.group). |
+| `name` | string |  | Track name. Defaults to Instrument N / Audio N / Bus N. |
 | `color` | string |  | CSS colour: #rrggbb or oklch(l c h). Defaults to the palette. |
 | `instrument` | string |  | Instrument for a MIDI track; see session.catalog. |
 
@@ -562,6 +564,28 @@ Select a track in the interface.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `trackId` | string | yes | Track id, as listed by track.list. |
+
+### `track.setOutput`
+
+*Edits*
+
+Route a track's fader to a bus track (a group: drums into a Drums bus) or back to the Stereo Out, like the inspector's Output menu. Bus tracks always feed the Stereo Out. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `output` | string | yes | A bus track's id or name, or "Stereo Out" (also master or none). |
+
+### `track.group`
+
+*Edits*
+
+Make a bus and route tracks to it, like selecting tracks and choosing Group into Bus: a drum group, a vocal group. The bus comes right after the last of them. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackIds` | array | yes | Tracks to route, by id or name (not bus tracks). |
+| `name` | string |  | The bus's name. Defaults to "Group N". |
 
 ### `track.duplicate`
 
@@ -990,12 +1014,12 @@ Load, bypass or clear an insert effect slot.
 
 *Edits*
 
-Set a send level to the reverb (A) or delay (B) bus.
+Set a send's level; sends 0 and 1 feed the reverb (A) and delay (B) buses unless strip.setSend pointed them at a bus track.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `trackId` | string | yes | Track id, as listed by track.list. |
-| `send` | integer | yes | 0 for A · Reverb, 1 for B · Delay. |
+| `send` | integer | yes | 0 for A · Reverb, 1 for B · Delay (or where they point), 2 or 3 for a further send. |
 | `levelDb` | number |  | Level in dB, -100 to 0. Omit or null for off. |
 
 ### `strip.setPlugin`
@@ -1044,6 +1068,19 @@ Restore base64 state previously captured from this plugin, replacing its explici
 | `trackId` | string | yes | Track id, as listed by track.list. |
 | `slot` | integer |  | Insert slot 0-7. Omit for the instrument. |
 | `blob` | string | yes | Base64 plugin state from strip.getState or session.get. |
+
+### `strip.setSend`
+
+*Edits*
+
+Point one of a track's sends at a bus and/or set its level, like a send knob and its menu. Sends 0 and 1 feed A · Reverb and B · Delay unless pointed elsewhere; sends 2 and 3 exist once pointed at a bus. A track sends to bus tracks, A or B; a bus track to A or B. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string | yes | Track id, as listed by track.list. |
+| `send` | integer | yes | Send 0-3. |
+| `bus` | string |  | Where it goes: a bus track's id or name, A (A · Reverb) or B (B · Delay). "none" removes send 2 or 3, or gives send 0 or 1 back to A or B, off. |
+| `levelDb` | number |  | Level in dB, -100 to 0. Omit to keep it; null for off. |
 
 ### `strip.moveInsert`
 
@@ -1273,6 +1310,57 @@ Cycle one song section: set the cycle from a marker to the next marker (or the e
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `markerId` | string |  | Marker that starts the section. Defaults to the section the playhead is in. |
+
+## tempo
+
+### `tempo.list`
+
+List the song's tempo: the starting tempo and every change after it in bar order, with where each one falls in seconds, and the tempo at the playhead.
+
+### `tempo.set`
+
+*Edits*
+
+Set the tempo from a bar on, like adding or dragging a point on the tempo track. Bar 0 sets the starting tempo; any later bar adds a change there or replaces the one already there. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `bar` | number | yes | Zero-based bar of the tempo change, as listed by tempo.list. |
+| `bpm` | number | yes | Beats per minute, 20-400. |
+| `ramp` | boolean |  | Glide from the previous tempo to reach this one at the bar, instead of jumping to it there (a ritardando or accelerando). Defaults to the ramp of the change already at that bar, else false. Not for bar 0. |
+
+### `tempo.move`
+
+*Edits*
+
+Move a tempo change to another bar, like dragging its point on the tempo track, keeping its ramp and, unless bpm is given, its tempo. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `bar` | number | yes | Zero-based bar of the tempo change, as listed by tempo.list. |
+| `toBar` | number | yes | New zero-based bar, after bar 0 and free of another change. |
+| `bpm` | number |  | A new tempo for it at the same time, 20-400. |
+
+### `tempo.remove`
+
+*Edits*
+
+Delete a tempo change: the tempo before it carries on. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `bar` | number | yes | Zero-based bar of the tempo change, as listed by tempo.list. |
+
+### `tempo.clear`
+
+*Edits*
+
+Delete every tempo change, or those in a range of bars, so the song keeps its starting tempo there. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `startBar` | number |  | First bar of the range (default 0). |
+| `endBar` | number |  | Bar where the range ends, exclusive (default: the end of the song). |
 
 ## automation
 
@@ -1676,7 +1764,7 @@ Capture the window to a PNG so an agent can see the interface. Returns the file 
 
 *Edits · Needs the app*
 
-Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.
+Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), tempo (the tempo track under the ruler), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

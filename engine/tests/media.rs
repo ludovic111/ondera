@@ -108,6 +108,7 @@ fn midi_roundtrip_preserves_arrangement_timing_meter_channel_and_note_clipping()
         &ImportOptions {
             start_bar: 1.0,
             import_tempo: true,
+            ..Default::default()
         },
         true,
     )
@@ -725,4 +726,128 @@ fn ogg_stems_carry_the_track_name() {
         export::Container::of(std::path::Path::new("a.OGG")),
         export::Container::Ogg
     );
+}
+
+#[test]
+fn midi_files_carry_tempo_changes_and_ramps_both_ways() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tempo.mid");
+    let mut host = song();
+    command(&mut host, "tempo.set", json!({"bar": 1, "bpm": 90}));
+    command(
+        &mut host,
+        "tempo.set",
+        json!({"bar": 2, "bpm": 150, "ramp": true}),
+    );
+    let source = host.store.session().tempo_map();
+    midi_file::export(host.store.session(), &path, None).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let parsed = midly::Smf::parse(&bytes).unwrap();
+    let tempos = parsed.tracks[0]
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.kind,
+                midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(_))
+            )
+        })
+        .count();
+    // The start, the step at bar 1 (whose tempo the ramp's first step replaces), sixteen
+    // sixteenths of ramp and the tempo it reaches.
+    assert_eq!(tempos, 1 + 16 + 1);
+
+    // Without importTempo the song keeps its tempo and says what it left out.
+    let plain = Headless::new();
+    let (_, report) = midi_file::import(
+        &path,
+        plain.store.session(),
+        &ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(report.tempo_changes, 0);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("changes tempo 17 times")),
+        "{:?}",
+        report.warnings
+    );
+
+    let mut destination = Headless::new();
+    let (batch, report) = midi_file::import(
+        &path,
+        destination.store.session(),
+        &ImportOptions {
+            start_bar: 0.0,
+            import_tempo: true,
+            ..Default::default()
+        },
+        false,
+    )
+    .unwrap();
+    destination.store.dispatch(batch).unwrap();
+    assert_eq!(report.file_tempo, 120.0);
+    assert_eq!(report.tempo_changes, 17);
+    let s = destination.store.session();
+    assert_eq!(s.tempo_changes[0].bar, 1.0);
+    assert_eq!(s.tempo_changes.last().unwrap().bpm, 150.0);
+    // The steps land every beat where the ramp put it, to well under a millisecond.
+    let imported = s.tempo_map();
+    for beat in [0.0, 4.0, 5.0, 6.5, 8.0, 12.0] {
+        assert!(
+            (imported.seconds(beat) - source.seconds(beat)).abs() < 5e-4,
+            "{beat}: {} vs {}",
+            imported.seconds(beat),
+            source.seconds(beat)
+        );
+    }
+    destination.store.dispatch(Command::Undo).unwrap();
+    assert!(destination.store.session().tempo_changes.is_empty());
+}
+
+#[test]
+fn midi_import_can_keep_every_channel_on_one_track() {
+    // Type 0, PPQ 96: C4 on channel 1 and E4 on channel 2, with a mod wheel on channel 2.
+    let track = [
+        0x00, 0x90, 60, 100, 0x00, 0x91, 64, 90, 0x00, 0xb1, 1, 64, 0x60, 0x81, 64, 0, 0x00, 0x80,
+        60, 0, 0x00, 0xff, 0x2f, 0x00,
+    ];
+    let mut bytes = b"MThd\0\0\0\x06\0\0\0\x01\0\x60MTrk".to_vec();
+    bytes.extend_from_slice(&(track.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(&track);
+    let empty = Headless::new();
+    let options = ImportOptions {
+        keep_channels: true,
+        ..Default::default()
+    };
+    let (batch, report) =
+        midi_file::import_bytes(&bytes, empty.store.session(), &options, false).unwrap();
+    assert_eq!(report.track_ids.len(), 1);
+    let mut store = Store::new(empty.store.session().clone()).unwrap();
+    store.dispatch(batch).unwrap();
+    let clip = store
+        .session()
+        .clips
+        .iter()
+        .find(|c| c.id == report.clip_ids[0])
+        .unwrap();
+    let ClipData::Midi { notes, controllers } = &clip.data else {
+        panic!()
+    };
+    let mut channels: Vec<(u8, u8)> = notes.iter().map(|n| (n.pitch, n.channel)).collect();
+    channels.sort();
+    assert_eq!(channels, vec![(60, 0), (64, 1)]);
+    assert_eq!(controllers.len(), 1);
+    assert_eq!(controllers[0].channel, 1);
+    // Split by channel (the default), each lane plays on channel 1.
+    let (_, report) = midi_file::import_bytes(
+        &bytes,
+        empty.store.session(),
+        &ImportOptions::default(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(report.track_ids.len(), 2);
 }

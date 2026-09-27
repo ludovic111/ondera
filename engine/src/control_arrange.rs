@@ -155,7 +155,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
         "clip.setFades" | "clip.setGain" => {
             let s = host.store().session();
             let mut clip = find_clip(s, a.str("clipId")?)?.clone();
-            let seconds = clip.length_bars * s.beats_per_bar() * 60.0 / s.transport.tempo;
+            let seconds = s.bars_seconds(clip.start_bar, clip.start_bar + clip.length_bars);
             let ClipData::Audio {
                 fade_in,
                 fade_out,

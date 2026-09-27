@@ -176,11 +176,11 @@ impl ExportOptions {
         if !valid_time(start) || !valid_time(end) || end <= start {
             return Err("Export range needs finite end > start >= 0".into());
         }
-        if end * 60.0 / session.transport.tempo + self.tail_seconds > 14400.0 {
+        let tempo = session.tempo_map();
+        if tempo.seconds(end) + self.tail_seconds > 14400.0 {
             return Err("Export, including pre-roll and tail, is limited to four hours".into());
         }
-        let frames = (((end - start) * 60.0 / session.transport.tempo + self.tail_seconds)
-            * self.sample_rate as f64)
+        let frames = ((tempo.duration(start, end) + self.tail_seconds) * self.sample_rate as f64)
             .ceil() as u64;
         if frames.saturating_mul(2 * self.format.bits() as u64 / 8) > u32::MAX as u64 - 128 {
             return Err(
@@ -220,9 +220,8 @@ pub fn mix(
     let plugin_tail = rack
         .longest_tail()
         .map(|(tail, name)| (tail, name.to_string()));
-    let seconds_per_beat = 60.0 / song.transport.tempo;
-    let frames = (((end - start) * seconds_per_beat + options.tail_seconds)
-        * options.sample_rate as f64)
+    let tempo = song.tempo_map();
+    let frames = ((tempo.duration(start, end) + options.tail_seconds) * options.sample_rate as f64)
         .ceil() as u64;
     let container = Container::of(path);
     let lossy = container == Container::Ogg;
@@ -245,7 +244,7 @@ pub fn mix(
     document::atomic_write(path, |file| {
         let mut writer = Sink::open(file, path, options, frames, &song.name)?;
         let mut block = [[0.0f32; 2]; MAX_BLOCK];
-        let mut skip = (start * seconds_per_beat * options.sample_rate as f64).round() as u64
+        let mut skip = (tempo.seconds(start) * options.sample_rate as f64).round() as u64
             + renderer.latency_samples() as u64;
         while skip > 0 {
             let n = skip.min(MAX_BLOCK as u64) as usize;
@@ -594,11 +593,38 @@ pub fn stems(
         let mut song = session.clone();
         // The title an Ogg stem carries.
         song.name = format!("{} - {}", session.name, track.name);
-        song.tracks.retain(|t| t.id == track.id);
-        song.tracks[0].mute = false;
-        song.tracks[0].solo = false;
-        song.clips.retain(|c| c.track_id == track.id);
-        song.strips.retain(|id, _| id == &track.id || is_bus(id));
+        // A bus's stem is everything routed to it, through it; a track's stem goes through the
+        // buses it feeds when effects are included, and straight out when not.
+        let mut keep: HashSet<&str> = HashSet::from([track.id.as_str()]);
+        if track.is_bus() {
+            keep.extend(
+                session
+                    .tracks
+                    .iter()
+                    .filter(|t| t.output.as_deref() == Some(track.id.as_str()))
+                    .map(|t| t.id.as_str()),
+            );
+        } else if include_effects {
+            keep.extend(track.output.as_deref());
+            if let Some(strip) = session.strips.get(&track.id) {
+                keep.extend(
+                    strip
+                        .sends
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, send)| send.target(i))
+                        .filter(|id| session.bus_track(id).is_some()),
+                );
+            }
+        }
+        song.tracks.retain(|t| keep.contains(t.id.as_str()));
+        for t in &mut song.tracks {
+            t.mute = false;
+            t.solo = false;
+        }
+        song.clips.retain(|c| keep.contains(c.track_id.as_str()));
+        song.strips
+            .retain(|id, _| keep.contains(id.as_str()) || is_bus(id));
         if !include_effects {
             for (id, strip) in &mut song.strips {
                 if id != MASTER {
@@ -607,6 +633,7 @@ pub fn stems(
                 }
             }
         }
+        song.prune_routing();
         if !include_master {
             song.strips.remove(MASTER);
             song.master_volume = 0.75;

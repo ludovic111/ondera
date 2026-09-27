@@ -47,6 +47,7 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 | Record-Arm Track | `A` |
 | Input Monitoring: Off / Auto / On | `I` |
 | Duplicate Track | `⇧⌘D` |
+| Tempo Track | `⇧T` |
 
 ## Markers
 

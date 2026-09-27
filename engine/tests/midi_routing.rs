@@ -617,7 +617,7 @@ fn polyphonic_pressure_is_recorded_saved_apart_and_played_on_its_key_and_channel
     assert_eq!(older.controllers.len(), 1);
 
     // Playback: each key's pressure on its own sample and channel, to the instrument and to
-    // an insert that takes events; not chased on locate.
+    // an insert that takes events.
     let mut rack = Rack::new(2);
     let instrument = probe(&mut rack, 0, false);
     let insert = probe(&mut rack, 1, true);
@@ -641,10 +641,15 @@ fn polyphonic_pressure_is_recorded_saved_apart_and_played_on_its_key_and_channel
     instrument.lock().unwrap().clear();
     renderer.locate(1.0);
     renderer.render(&mut rack, &mut block);
-    assert!(
-        pressed(&instrument).is_empty(),
-        "Pressure belongs to a sounding key and is not chased"
-    );
+    // Pressure belongs to a sounding key: after a locate, keys of channel 1 (whose note is on
+    // channel 0) let go of theirs.
+    let mut released: Vec<_> = pressed(&instrument)
+        .into_iter()
+        .map(|(_, c, k, v)| (c, k, v))
+        .collect();
+    released.sort();
+    assert_eq!(released, vec![(1, 60, 0), (1, 64, 0)]);
+    instrument.lock().unwrap().clear();
     // Live pressure plays at once on its key and channel.
     renderer.control(0, Event::poly_pressure(0, 67, 33).on_channel(7));
     renderer.render(&mut rack, &mut block);
@@ -697,4 +702,43 @@ fn polyphonic_pressure_travels_through_standard_midi_files() {
         controllers[0].number = None;
     }
     assert!(broken.validate().is_err(), "Poly pressure names its key");
+}
+
+#[test]
+fn polyphonic_pressure_is_chased_onto_a_restarted_note_and_released_at_stop() {
+    let mut pressure = point(ControllerKind::PolyPressure, Some(60), 0.5, 90);
+    pressure.channel = 0;
+    let s = session(vec![pressure], &[]);
+    let mut rack = Rack::new(1);
+    let instrument = probe(&mut rack, 0, false);
+    let mut renderer = Renderer::new(s.clone(), &Library::new(), 48000, &slots(&s)).unwrap();
+    renderer.playing = true;
+    // Start in the middle of the note: it sounds again, then its pressure, in that order.
+    renderer.locate(2.0);
+    let mut block = [[0.0f32; 2]; 256];
+    renderer.render(&mut rack, &mut block);
+    let kinds: Vec<(u8, u8, u8)> = instrument
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, e)| e.key == 60)
+        .map(|(_, e)| (e.kind, e.key, e.value))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![(event::NOTE_ON, 60, 100), (event::POLY_PRESSURE, 60, 90)]
+    );
+    instrument.lock().unwrap().clear();
+    // Stop lets go of the note and of its pressure, so the next note starts unpressed.
+    renderer.stop();
+    renderer.render(&mut rack, &mut block);
+    let kinds: Vec<(u8, u8)> = instrument
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, e)| e.key == 60)
+        .map(|(_, e)| (e.kind, e.value))
+        .collect();
+    assert!(kinds.contains(&(event::POLY_PRESSURE, 0)), "{kinds:?}");
+    assert!(kinds.iter().any(|(k, _)| *k == event::NOTE_OFF));
 }

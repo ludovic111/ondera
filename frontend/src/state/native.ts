@@ -12,6 +12,7 @@ import type {
 } from "@ondera/core";
 import { library } from "../audio/library";
 import { beatsPerBar } from "../core/time";
+import { outputName, sendTargetName } from "../core/strip";
 
 export type Params = Record<string, unknown>;
 export interface UiState {
@@ -26,6 +27,8 @@ export interface UiState {
   mixer?: boolean;
   /** The controller lane under the piano roll. */
   controllers?: boolean;
+  /** The tempo track under the ruler. */
+  tempo?: boolean;
   palette?: boolean;
   export: boolean;
   recovery: boolean;
@@ -89,6 +92,8 @@ export interface Plugin {
   /** Sound folder: automatic, or where the user filed it. */
   folder: string;
   favorite: boolean;
+  /** The same plugin in its other formats, when installed as several (CLAP first). */
+  formats?: { id: string; format: string }[];
 }
 export interface Catalog {
   instruments: string[];
@@ -102,10 +107,13 @@ interface NativeStrip extends ChannelStrip {
     plugin?: string;
   })[];
 }
-export interface DocumentData extends Omit<Session, "strips" | "markers"> {
+export interface DocumentData
+  extends Omit<Session, "strips" | "markers" | "tempoChanges"> {
   snapshotSequence?: number;
   /** Absent in documents from hosts that predate markers. */
   markers?: Session["markers"];
+  /** Absent in documents from hosts that predate tempo changes. */
+  tempoChanges?: Session["tempoChanges"];
   strips: Record<string, NativeStrip>;
   masterVolume: number;
   automation: AutomationLane[];
@@ -177,6 +185,7 @@ const CONTINUOUS = new Set([
   "strip.setSendLevel",
   "strip.setParameter",
   "transport.setTempo",
+  "tempo.set",
 ]);
 const continuousKey = (name: string, params: Params): string | null =>
   name === "view.set" && "editorLowPitch" in params
@@ -188,6 +197,7 @@ const continuousKey = (name: string, params: Params): string | null =>
           params.slot,
           params.sendIndex ?? params.send,
           params.parameterId,
+          params.bar,
         ].join("|")
       : null;
 /** Loops have no sound family yet; they cycle through the families for variety. */
@@ -226,6 +236,7 @@ const empty: Session = {
   tracks: [],
   clips: [],
   markers: [],
+  tempoChanges: [],
   sources: {},
   strips: {},
   view: defaultView,
@@ -503,11 +514,15 @@ export class NativeStore {
       strips[id] = {
         ...strip,
         instrument: strip.synth?.name ?? strip.instrument,
-        input:
-          doc.tracks.find((t) => t.id === id)?.kind === "midi"
-            ? "Musical typing"
-            : "Input",
-        output: "Stereo Out",
+        input: {
+          midi: "Musical typing",
+          bus: "—",
+          audio: "Input",
+        }[doc.tracks.find((t) => t.id === id)?.kind ?? "audio"],
+        output: outputName(
+          doc.tracks,
+          doc.tracks.find((t) => t.id === id) ?? {},
+        ),
         inserts: Array.from(
           { length: 8 },
           (_, i) =>
@@ -517,16 +532,26 @@ export class NativeStore {
               meta: "",
             },
         ),
-        sends: [0, 1].map((i) => ({
-          name: i === 0 ? "A · Reverb" : "B · Delay",
-          levelDb: strip.sends[i]?.levelDb ?? -Infinity,
-        })),
+        sends: Array.from(
+          { length: Math.max(2, strip.sends.length) },
+          (_, i) => {
+            const send = strip.sends[i];
+            const bus =
+              send?.bus ?? (i === 0 ? "bus-a" : i === 1 ? "bus-b" : undefined);
+            return {
+              name: sendTargetName(doc.tracks, bus),
+              levelDb: send?.levelDb ?? -Infinity,
+              bus,
+            };
+          },
+        ),
       };
     }
     this.state = {
       ...this.state,
       ...doc,
       markers: doc.markers ?? [],
+      tempoChanges: doc.tempoChanges ?? [],
       strips,
       browser: {
         ...this.state.browser,

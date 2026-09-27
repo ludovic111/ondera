@@ -1,5 +1,5 @@
 import {
-  barsToSeconds,
+  barsSeconds,
   beatLineOffsets,
   beatsPerBar,
   beatsToBars,
@@ -71,10 +71,29 @@ export function markersWith(state: Session, drag?: MarkerDrag): Marker[] {
   return list.sort((a, b) => a.bar - b.bar);
 }
 
-/** Screen pixels per second of audio at the current zoom and tempo. */
-export function pixelsPerSecond(state: Session): number {
-  const { tempo, timeSignature } = state.transport;
-  return state.view.pixelsPerBar / barsToSeconds(1, tempo, timeSignature);
+/** Screen pixels per second of audio over a stretch of bars, at the current zoom and tempo. */
+export function pixelsPerSecond(
+  state: Session,
+  fromBar = 0,
+  toBar = fromBar + 1,
+): number {
+  return (
+    (state.view.pixelsPerBar * (toBar - fromBar)) /
+    barsSeconds(state, fromBar, toBar)
+  );
+}
+
+/** Pixels per second where a clip's fades lie: over its first bar and over its last. */
+export function fadeRates(
+  state: Session,
+  clip: Pick<Clip, "startBar" | "lengthBars">,
+): { in: number; out: number } {
+  const span = Math.min(1, clip.lengthBars);
+  const end = clip.startBar + clip.lengthBars;
+  return {
+    in: pixelsPerSecond(state, clip.startBar, clip.startBar + span),
+    out: pixelsPerSecond(state, end - span, end),
+  };
 }
 
 /** Fade lengths an audio clip is drawn with: the drag in progress, else its own. */
@@ -107,9 +126,9 @@ export function fadeHandleAt(
   const x1 = barToX(clip.startBar + clip.lengthBars, geo);
   if (x1 - x0 < size.fadeHandle * 4) return null;
   const env = clipEnvelope(clip.data);
-  const pps = pixelsPerSecond(state);
-  const hin = x0 + env.fadeIn * pps;
-  const hout = x1 - env.fadeOut * pps;
+  const pps = fadeRates(state, clip);
+  const hin = x0 + env.fadeIn * pps.in;
+  const hout = x1 - env.fadeOut * pps.out;
   const din = Math.abs(x - hin);
   const dout = Math.abs(x - hout);
   const grip = size.fadeGrip + size.fadeHandle / 2;
@@ -188,11 +207,14 @@ export function drawLanes(
     const y = i * rowH;
     if (y + rowH < visibleTop || y > h) return;
     const selected = view.selectedTrackId === track.id;
+    // A bus holds no clips: its lane stays the empty colour unless selected.
     ctx.fillStyle = selected
       ? color.timelineSelected
       : track.agentActive
         ? color.timelineAgent
-        : color.timeline;
+        : track.kind === "bus"
+          ? color.timelineEmpty
+          : color.timeline;
     ctx.fillRect(0, y, w, rowH);
     if (overlay.dropTrackIndex === i) {
       ctx.fillStyle = cc(fill.dropTarget);
@@ -212,6 +234,26 @@ export function drawLanes(
 
   // Grid.
   drawGrid(ctx, w, tracksBottom, geo, transport.timeSignature);
+
+  // A bus lane names what it sums.
+  ctx.font = uiFont("small", "medium");
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  tracks.forEach((track, i) => {
+    if (track.kind !== "bus") return;
+    const y = i * rowH;
+    if (y + rowH < visibleTop || y > h) return;
+    const inputs = tracks.filter((t) => t.output === track.id).map((t) => t.name);
+    ctx.fillStyle = color.ink500;
+    ctx.fillText(
+      inputs.length > 0
+        ? `Bus · ${inputs.join(", ")}`
+        : "Bus · route tracks here from their Output, or send to it",
+      10,
+      y + rowH / 2,
+      Math.max(0, w - 20),
+    );
+  });
 
   // Markers: a line down every lane where a section starts.
   for (const m of markersWith(state, overlay.marker)) {
@@ -299,7 +341,7 @@ export function drawLanes(
   }
 }
 
-function drawGrid(
+export function drawGrid(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
@@ -370,7 +412,7 @@ function drawClip(
   ctx.textAlign = "left";
   ctx.fillStyle = cc(line.clipName);
   const fades = fadesFor(clip, overlay);
-  const nameX = nameStart(ctx, clip.name, fades, x, w, selected, state);
+  const nameX = nameStart(ctx, clip.name, fades, x, w, selected, state, clip);
   ctx.fillText(
     clip.name,
     nameX,
@@ -390,7 +432,7 @@ function drawClip(
   const ch = h - titleH;
   if (fades) {
     drawAudioContent(ctx, clip, fades, x, cy, w, ch, state);
-    drawFades(ctx, fades, x, y, w, h, selected, state);
+    drawFades(ctx, fades, x, y, w, h, selected, fadeRates(state, clip));
   } else if (clip.data.kind === "midi") {
     drawMidiPreview(ctx, clip.data.notes, x, cy, w, ch, geo, state);
   }
@@ -424,12 +466,15 @@ export function nameStart(
   w: number,
   selected: boolean,
   state: Session,
+  clip?: Pick<Clip, "startBar" | "lengthBars">,
 ): number {
   const start = x + 6;
   if (!env || w < size.fadeHandle * 4) return start;
-  const fin = Math.min(w, env.fadeIn * pixelsPerSecond(state));
-  if (!selected && fin < 1 && env.fadeOut * pixelsPerSecond(state) < 1)
-    return start;
+  const pps = clip
+    ? fadeRates(state, clip)
+    : { in: pixelsPerSecond(state), out: pixelsPerSecond(state) };
+  const fin = Math.min(w, env.fadeIn * pps.in);
+  if (!selected && fin < 1 && env.fadeOut * pps.out < 1) return start;
   const hs = size.fadeHandle;
   const left = Math.max(x + 1, Math.min(x + w - hs - 1, x + fin - hs / 2));
   const end = start + ctx.measureText(name).width;
@@ -449,13 +494,12 @@ function drawFades(
   w: number,
   h: number,
   selected: boolean,
-  state: Session,
+  pps: { in: number; out: number },
 ): void {
-  const pps = pixelsPerSecond(state);
   const top = y + size.clipTitle;
   const ch = h - size.clipTitle;
-  const fin = Math.min(w, env.fadeIn * pps);
-  const fout = Math.min(w, env.fadeOut * pps);
+  const fin = Math.min(w, env.fadeIn * pps.in);
+  const fout = Math.min(w, env.fadeOut * pps.out);
   const steps = 24;
   const shade = (from: number, span: number, rising: boolean) => {
     if (span < 1) return;
@@ -506,29 +550,56 @@ function drawAudioContent(
   state: Session,
 ): void {
   if (clip.data.kind !== "audio") return;
-  const { tempo, timeSignature } = state.transport;
-  const clipSeconds = barsToSeconds(clip.lengthBars, tempo, timeSignature);
+  const data = clip.data;
+  const clipSeconds = barsSeconds(
+    state,
+    clip.startBar,
+    clip.startBar + clip.lengthBars,
+  );
   const visX0 = Math.max(x, 0);
   const visX1 = Math.min(x + w, ctx.canvas.clientWidth);
   if (visX1 <= visX0) return;
-  const f0 = (visX0 - x) / w;
-  const f1 = (visX1 - x) / w;
 
-  const real = library.peaksFor(clip.data.sourceId);
+  const real = library.peaksFor(data.sourceId);
   if (real) {
-    const first =
-      (clip.data.offsetSeconds + f0 * clipSeconds) *
-      library.rateFor(clip.data.sourceId);
-    const last =
-      (clip.data.offsetSeconds + f1 * clipSeconds) *
-      library.rateFor(clip.data.sourceId);
+    const rate = library.rateFor(data.sourceId);
+    // Seconds of audio at a pixel column: the audio plays at its own speed whatever the tempo
+    // does, so under a tempo change it no longer spreads evenly across the clip.
+    const steady = !(state.tempoChanges ?? []).some(
+      (p) => p.bar > clip.startBar && p.bar < clip.startBar + clip.lengthBars,
+    );
+    const ageAt = (px: number) =>
+      steady
+        ? ((px - x) / w) * clipSeconds
+        : barsSeconds(
+            state,
+            clip.startBar,
+            clip.startBar + ((px - x) / w) * clip.lengthBars,
+          );
     // Drawn as it sounds: scaled by the clip gain and the fades.
-    const perPx = clipSeconds / w;
-    const gainAt = (px: number) => {
-      const age = (visX0 - x + px + 0.5) * perPx;
-      return envelopeAt(env, age, clipSeconds - age);
+    const piece = (from: number, to: number) => {
+      const a0 = ageAt(from);
+      const a1 = ageAt(to);
+      const gainAt = (px: number) => {
+        const age = a0 + ((px + 0.5) / (to - from)) * (a1 - a0);
+        return envelopeAt(env, age, clipSeconds - age);
+      };
+      drawWaveform(
+        ctx,
+        real,
+        from,
+        y,
+        to - from,
+        h,
+        (data.offsetSeconds + a0) * rate,
+        (data.offsetSeconds + a1) * rate,
+        gainAt,
+      );
     };
-    drawWaveform(ctx, real, visX0, y, visX1 - visX0, h, first, last, gainAt);
+    if (steady) piece(visX0, visX1);
+    else
+      for (let px = visX0; px < visX1; px += 8)
+        piece(px, Math.min(visX1, px + 8));
     return;
   }
   // Keep the lane empty until the Rust decoder supplies actual peaks.

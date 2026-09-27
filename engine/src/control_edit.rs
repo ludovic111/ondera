@@ -145,7 +145,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool)
                         });
                 }
                 ClipData::Audio { offset_seconds, .. } => {
-                    let offset = *offset_seconds + delta * bpb * 60. / session.transport.tempo;
+                    let offset = *offset_seconds + session.bars_seconds(clip.start_bar, start);
                     if offset < 0. {
                         return Err("Cannot trim before the start of the audio".into());
                     }

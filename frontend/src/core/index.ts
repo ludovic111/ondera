@@ -6,6 +6,7 @@ export * from "./types";
 export * from "./time";
 export * from "./gain";
 export * from "./fade";
+export * from "./tempo";
 export * from "./strip";
 export * from "./palette";
 export type { NativeStore as SessionStore } from "../state/native";
@@ -48,6 +49,12 @@ export const commands = {
     remove: command("clip.remove"),
     setFades: command("clip.setFades"),
     setGain: command("clip.setGain"),
+  },
+  tempo: {
+    set: command("tempo.set"),
+    move: command("tempo.move"),
+    remove: command("tempo.remove"),
+    clear: command("tempo.clear"),
   },
   marker: {
     add: command("marker.add"),

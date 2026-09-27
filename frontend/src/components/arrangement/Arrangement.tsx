@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type MouseEvent,
 } from "react";
 import { beatsToBars, commands, snapBars } from "@ondera/core";
@@ -22,6 +23,7 @@ import { useTimelineWheel } from "./useTimelineWheel";
 import { useLaneInteraction } from "./useLaneInteraction";
 import { useRulerInteraction } from "./useRulerInteraction";
 import { TrackHeader } from "./TrackHeader";
+import { TempoRow } from "./TempoRow";
 import { CapsLabel } from "../primitives/CapsLabel";
 import { Button } from "../primitives/Button";
 import { InlineEdit } from "../primitives/InlineEdit";
@@ -37,9 +39,15 @@ import styles from "./Arrangement.module.css";
 
 /** Ruler row plus the scrolling track list: DOM headers on the left, one canvas for every lane. */
 export function Arrangement() {
+  const store = useStore();
+  const tempo = useSyncExternalStore(
+    store.subscribeMeta,
+    () => store.ui.tempo ?? false,
+  );
   return (
     <div className={styles.arrangement}>
       <RulerRow />
+      {tempo && <TempoRow />}
       <TrackList />
     </div>
   );

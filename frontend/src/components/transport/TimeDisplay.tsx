@@ -6,10 +6,11 @@ import {
 } from "react";
 import {
   beatsToBarBeat,
-  beatsToSeconds,
   commands,
   formatSmpte,
   secondsToSmpte,
+  tempoMap,
+  tempoSourceBar,
 } from "@ondera/core";
 import { useDispatch, useSession } from "../../state/session";
 import { InlineEdit } from "../primitives/InlineEdit";
@@ -34,21 +35,37 @@ const KEYS = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 export function TimeDisplay() {
   const dispatch = useDispatch();
   const positionBeats = useSession((s) => s.transport.positionBeats);
-  const tempo = useSession((s) => s.transport.tempo);
-  const sig = useSession((s) => s.transport.timeSignature);
+  const transport = useSession((s) => s.transport);
+  const tempoChanges = useSession((s) => s.tempoChanges);
+  const sig = transport.timeSignature;
+  const song = { transport, tempoChanges };
+  // The tempo playing at the playhead; with tempo changes, dragging or typing edits the one
+  // in force there (bar 0 is the starting tempo).
+  const map = tempoMap(song);
+  const tempo = map.bpm(positionBeats);
+  const sourceBar = tempoSourceBar(song, positionBeats);
+  const setTempo = (bpm: number) =>
+    dispatch(
+      sourceBar === 0
+        ? commands.transport.setTempo({ bpm })
+        : commands.tempo.set({ bar: sourceBar, bpm }),
+    );
   const key = useSession((s) => s.transport.key);
   const [editingTempo, setEditingTempo] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const tempoDrag = useRef<{ y: number; tempo: number } | null>(null);
 
   const pos = beatsToBarBeat(positionBeats, sig);
-  const smpte = formatSmpte(
-    secondsToSmpte(beatsToSeconds(positionBeats, tempo)),
-  );
+  const smpte = formatSmpte(secondsToSmpte(map.seconds(positionBeats)));
 
   const onTempoDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
-    tempoDrag.current = { y: e.clientY, tempo };
+    // Drag from the tempo being edited, not from where a ramp has glided to.
+    const own =
+      sourceBar === 0
+        ? transport.tempo
+        : (tempoChanges.find((p) => p.bar === sourceBar)?.bpm ?? tempo);
+    tempoDrag.current = { y: e.clientY, tempo: own };
   };
   const onTempoMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!tempoDrag.current || !e.currentTarget.hasPointerCapture(e.pointerId))
@@ -64,7 +81,7 @@ export function TimeDisplay() {
           ),
         ) * 10,
       ) / 10;
-    if (next !== tempo) dispatch(commands.transport.setTempo({ bpm: next }));
+    if (next !== tempo) setTempo(next);
   };
   const onTempoUp = () => {
     tempoDrag.current = null;
@@ -126,7 +143,11 @@ export function TimeDisplay() {
       </div>
       <div
         className={`${styles.cell} ${styles.editable}`}
-        title="Drag to change tempo · double-click to type"
+        title={
+          tempoChanges.length > 0
+            ? `Tempo at the playhead, set at bar ${sourceBar + 1} · drag to change · double-click to type`
+            : "Drag to change tempo · double-click to type"
+        }
         onPointerDown={editingTempo ? undefined : onTempoDown}
         onPointerMove={onTempoMove}
         onPointerUp={onTempoUp}
@@ -141,11 +162,7 @@ export function TimeDisplay() {
             onCommit={(text) => {
               const bpm = Number.parseFloat(text);
               if (Number.isFinite(bpm))
-                dispatch(
-                  commands.transport.setTempo({
-                    bpm: Math.min(400, Math.max(20, bpm)),
-                  }),
-                );
+                setTempo(Math.min(400, Math.max(20, bpm)));
               setEditingTempo(false);
             }}
             onCancel={() => setEditingTempo(false)}

@@ -16,6 +16,8 @@ import {
   defaultStrip,
   faderToDb,
   formatDb,
+  MAX_SENDS,
+  outputName,
   type InsertSlot,
   type Send,
   type Track,
@@ -25,6 +27,7 @@ import { Knob } from "../primitives/Knob";
 import { LedStrip } from "../primitives/LedStrip";
 import { CapsLabel } from "../primitives/CapsLabel";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
+import { separator } from "../../state/menus";
 import { size } from "../../theme/tokens";
 import styles from "./InspectorPanel.module.css";
 
@@ -76,6 +79,7 @@ export function InspectorPanel() {
         }
       : null);
   const stored = useSession((s) => (track ? s.strips[track.id] : undefined));
+  const tracks = useSession((s) => s.tracks);
   const meters = useSession((s) => s.meters);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -88,6 +92,93 @@ export function InspectorPanel() {
       </div>
     );
   const strip = stored ?? defaultStrip(track.kind);
+  const buses = tracks.filter((t) => t.kind === "bus");
+  const inputs = tracks.filter((t) => t.output === track.id);
+
+  // Where the fader goes: the Stereo Out or a bus track (a group). Buses feed the Stereo Out.
+  const openOutputMenu = (e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const route = (output: string) =>
+      store.fire("track.setOutput", { trackId: track.id, output });
+    setMenu({
+      x: r.left,
+      y: r.bottom + 4,
+      anchor: e.currentTarget,
+      items: [
+        {
+          label: "Stereo Out",
+          checked: !track.output,
+          onSelect: () => route("Stereo Out"),
+        },
+        ...buses.map((b) => ({
+          label: b.name,
+          checked: track.output === b.id,
+          onSelect: () => route(b.id),
+        })),
+        separator,
+        {
+          label: "New Bus",
+          onSelect: () =>
+            store.fire("track.group", { trackIds: [track.id] }),
+        },
+      ],
+    });
+  };
+
+  // What a send feeds: A, B or (from a track) a bus track; sends 2 and 3 can be removed.
+  const openSendMenu = (index: number) => (e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const current = strip.sends[index]?.bus;
+    const point = (bus: string) =>
+      store.fire("strip.setSend", { trackId: track.id, send: index, bus });
+    setMenu({
+      x: r.left,
+      y: r.bottom + 4,
+      anchor: e.currentTarget,
+      items: [
+        {
+          label: "A · Reverb",
+          checked: current === "bus-a",
+          onSelect: () => point("A"),
+        },
+        {
+          label: "B · Delay",
+          checked: current === "bus-b",
+          onSelect: () => point("B"),
+        },
+        ...(track.kind === "bus"
+          ? []
+          : buses.map((b) => ({
+              label: b.name,
+              checked: current === b.id,
+              onSelect: () => point(b.id),
+            }))),
+        separator,
+        {
+          label: index >= 2 ? "Remove Send" : "Reset to Default, Off",
+          onSelect: () => point("none"),
+        },
+      ],
+    });
+  };
+  const openAddSendMenu = (e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({
+      x: r.left,
+      y: r.bottom + 4,
+      anchor: e.currentTarget,
+      items: buses.map((b) => ({
+        label: b.name,
+        onSelect: () =>
+          store.fire("strip.setSend", {
+            trackId: track.id,
+            send: strip.sends.length,
+            bus: b.id,
+            levelDb: -6,
+          }),
+      })),
+    });
+  };
   const db = faderToDb(track.volume);
   const volume = (value: number) =>
     isBus
@@ -235,20 +326,24 @@ export function InspectorPanel() {
             ? selected === "master"
               ? "MASTER"
               : "AUX BUS"
-            : track.kind === "midi"
-              ? `MIDI · Ch ${store.getState().tracks.findIndex((t) => t.id === track.id) + 1}`
-              : "AUDIO · In 1"}
+            : track.kind === "bus"
+              ? `BUS · ${inputs.length} in`
+              : track.kind === "midi"
+                ? `MIDI · Ch ${store.getState().tracks.findIndex((t) => t.id === track.id) + 1}`
+                : "AUDIO · In 1"}
         </span>
       </div>
 
       {!isBus && (
         <>
           <div className={styles.rows}>
-            <Row
-              label="Instrument"
-              value={strip.instrument}
-              onClick={track.kind === "midi" ? openInstrumentMenu : undefined}
-            />
+            {track.kind !== "bus" && (
+              <Row
+                label="Instrument"
+                value={strip.instrument}
+                onClick={track.kind === "midi" ? openInstrumentMenu : undefined}
+              />
+            )}
             {track.kind === "midi" && (
               <button
                 className="m-button"
@@ -259,8 +354,19 @@ export function InspectorPanel() {
                 Instrument parameters
               </button>
             )}
-            <Row label="Input" value={strip.input} />
-            <Row label="Output" value={strip.output} />
+            {track.kind === "bus" ? (
+              <Row
+                label="Inputs"
+                value={inputs.map((t) => t.name).join(", ") || "—"}
+              />
+            ) : (
+              <Row label="Input" value={strip.input} />
+            )}
+            <Row
+              label="Output"
+              value={outputName(tracks, track)}
+              onClick={track.kind === "bus" ? undefined : openOutputMenu}
+            />
           </div>
 
           <div className={styles.section}>
@@ -331,12 +437,26 @@ export function InspectorPanel() {
 
       {!isBus && (
         <div className={styles.section}>
-          <CapsLabel style={{ marginBottom: 8 }}>Sends</CapsLabel>
+          <div className={styles.sectionHead}>
+            <CapsLabel>Sends</CapsLabel>
+            {track.kind !== "bus" &&
+              buses.length > 0 &&
+              strip.sends.length < MAX_SENDS && (
+                <button
+                  className={`m-button ${styles.addSend}`}
+                  onClick={openAddSendMenu}
+                  title="Send to a bus"
+                >
+                  + Send
+                </button>
+              )}
+          </div>
           <div className={styles.sends}>
             {strip.sends.map((s, i) => (
               <SendCard
-                key={s.name}
+                key={i}
                 send={s}
+                onPick={openSendMenu(i)}
                 onChange={(levelDb) =>
                   dispatch(
                     commands.strip.setSendLevel({
@@ -450,19 +570,21 @@ export function InspectorPanel() {
           >
             S
           </button>
-          <button
-            className="m-button"
-            aria-label="Arm track"
-            aria-pressed={track.armed}
-            onClick={() =>
-              store.fire("track.setArmed", {
-                trackId: track.id,
-                armed: !track.armed,
-              })
-            }
-          >
-            ●
-          </button>
+          {track.kind !== "bus" && (
+            <button
+              className="m-button"
+              aria-label="Arm track"
+              aria-pressed={track.armed}
+              onClick={() =>
+                store.fire("track.setArmed", {
+                  trackId: track.id,
+                  armed: !track.armed,
+                })
+              }
+            >
+              ●
+            </button>
+          )}
           {track.kind === "audio" && (
             <button
               className="m-button"
@@ -481,7 +603,7 @@ export function InspectorPanel() {
               {track.monitor === "auto" ? "A" : "I"}
             </button>
           )}
-          <span>Stereo Out</span>
+          <span>{outputName(tracks, track)}</span>
         </div>
       )}
       {!isBus && <Region />}
@@ -593,9 +715,11 @@ function Insert({
 function SendCard({
   send,
   onChange,
+  onPick,
 }: {
   send: Send;
   onChange: (levelDb: number) => void;
+  onPick: (e: MouseEvent<HTMLElement>) => void;
 }) {
   const value =
     send.levelDb === -Infinity
@@ -616,7 +740,13 @@ function SendCard({
         title="Drag to set the send level"
       />
       <div className={styles.sendText}>
-        <span className={styles.sendName}>{send.name}</span>
+        <button
+          className={styles.sendName}
+          onClick={onPick}
+          title="Choose where this send goes"
+        >
+          {send.name}
+        </button>
         <span className={styles.sendValue}>{formatDb(send.levelDb)} dB</span>
       </div>
     </div>

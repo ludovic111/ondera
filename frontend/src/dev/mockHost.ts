@@ -137,13 +137,28 @@ const strips = Object.fromEntries(
   ]),
 );
 
+interface MockTrack {
+  id: string;
+  name: string;
+  kind: "audio" | "midi" | "bus";
+  color: string;
+  volume: number;
+  pan: number;
+  mute: boolean;
+  solo: boolean;
+  armed: boolean;
+  monitor: "off" | "auto" | "on";
+  agentActive: boolean;
+  output: string | null;
+}
+
 const session = {
   name: "Night Drive",
   snapshotSequence: 1,
   masterVolume: 0.8,
   automation: [],
   audio: { sampleRate: 48000, bitDepth: 24, bufferSize: 128 },
-  tracks: TRACKS.map(([id, name, kind, color], i) => ({
+  tracks: TRACKS.map(([id, name, kind, color], i): MockTrack => ({
     id,
     name,
     kind,
@@ -153,11 +168,40 @@ const session = {
     mute: i === 5,
     solo: false,
     armed: i === 4,
-    monitor: (i === 4 ? "auto" : "off") as "off" | "auto" | "on",
+    monitor: i === 4 ? "auto" : "off",
     agentActive: i === 2,
-  })),
+    // `?buses=1` routes the rhythm section through a group bus.
+    output:
+      query.get("buses") && (id === "drums" || id === "bass")
+        ? "rhythm"
+        : (null as string | null),
+  })).concat(
+    query.get("buses")
+      ? [
+          {
+            id: "rhythm",
+            name: "Rhythm bus",
+            kind: "bus",
+            color: "oklch(0.72 0.14 40)",
+            volume: 0.75,
+            pan: 0,
+            mute: false,
+            solo: false,
+            armed: false,
+            monitor: "off",
+            agentActive: false,
+            output: null,
+          },
+        ]
+      : [],
+  ),
   clips,
   markers,
+  // A ramp into the bridge and a step back up for the last chorus.
+  tempoChanges: [
+    { bar: 8, bpm: 112, ramp: true },
+    { bar: 12, bpm: 124 },
+  ] as { bar: number; bpm: number; ramp?: boolean }[],
   sources: {
     src1: {
       id: "src1",
@@ -187,7 +231,9 @@ const session = {
     scrollBars: 0,
     agentPanelOpen: true,
     // `?clip=cv` selects the vocal region to show the audio inspector.
-    selectedTrackId: query.get("clip") === "cv" ? "vox" : "keys",
+    // `?track=<id>` selects another track for the inspector.
+    selectedTrackId:
+      query.get("track") ?? (query.get("clip") === "cv" ? "vox" : "keys"),
     selectedClipId: query.get("clip") ?? "c3",
     editorClipId: "c3",
     selectedNoteId: null,
@@ -212,6 +258,7 @@ const ui = {
   help: false,
   mixer: panel === "mixer",
   controllers: panel === "controllers",
+  tempo: panel === "tempo",
   export: panel === "export",
   recovery: false,
   tool: "pointer",
@@ -531,6 +578,7 @@ const beatsPerBar = () =>
   (session.transport.timeSignature.numerator * 4) /
   session.transport.timeSignature.denominator;
 const secondsPerBar = () => (beatsPerBar() * 60) / session.transport.tempo;
+const sortTempo = () => session.tempoChanges.sort((a, b) => a.bar - b.bar);
 const publish = () => {
   session.snapshotSequence++;
   void emit("daw:document", { ...session, markers: [...markers] });
@@ -594,6 +642,42 @@ function arrange(method: string, params: Params): unknown {
       sortMarkers();
       break;
     }
+    // Mirrors engine/src/control_tempo.rs.
+    case "tempo.set": {
+      const bar = Number(params.bar);
+      const bpm = Math.min(400, Math.max(20, Number(params.bpm)));
+      if (bar <= 1e-6) session.transport.tempo = bpm;
+      else {
+        const point = session.tempoChanges.find(
+          (p) => Math.abs(p.bar - bar) < 1e-6,
+        );
+        if (point) {
+          point.bpm = bpm;
+          if (params.ramp !== undefined) point.ramp = Boolean(params.ramp);
+        } else
+          session.tempoChanges.push({ bar, bpm, ramp: Boolean(params.ramp) });
+        sortTempo();
+      }
+      break;
+    }
+    case "tempo.move":
+    case "tempo.remove": {
+      const i = session.tempoChanges.findIndex(
+        (p) => Math.abs(p.bar - Number(params.bar)) < 1e-6,
+      );
+      if (i < 0) throw `No tempo change at bar ${params.bar}`;
+      if (method === "tempo.remove") session.tempoChanges.splice(i, 1);
+      else {
+        session.tempoChanges[i]!.bar = Number(params.toBar);
+        if (params.bpm !== undefined)
+          session.tempoChanges[i]!.bpm = Number(params.bpm);
+      }
+      sortTempo();
+      break;
+    }
+    case "tempo.clear":
+      session.tempoChanges = [];
+      break;
     case "marker.goto":
     case "marker.next":
     case "marker.previous": {
@@ -961,6 +1045,54 @@ function command(method: string, params: Params): unknown {
       return {};
     case "preset.list":
       return { presets: [{ name: "Vocal glue", factory: true }] };
+    // Mirrors engine/src/control_routing.rs.
+    case "track.setOutput": {
+      const track = session.tracks.find((t) => t.id === params.trackId);
+      const out = String(params.output);
+      if (track)
+        track.output = session.tracks.some((t) => t.id === out) ? out : null;
+      session.snapshotSequence++;
+      void emit("daw:document", { ...session, tracks: [...session.tracks] });
+      return {};
+    }
+    case "track.group": {
+      const ids = params.trackIds as string[];
+      const id = `bus${Date.now()}`;
+      const n = session.tracks.filter((t) => t.kind === "bus").length;
+      session.tracks.push({
+        ...session.tracks[0]!,
+        id,
+        name: `Group ${n + 1}`,
+        kind: "bus",
+        output: null,
+        mute: false,
+        solo: false,
+        armed: false,
+      });
+      for (const t of session.tracks) if (ids.includes(t.id)) t.output = id;
+      session.snapshotSequence++;
+      void emit("daw:document", { ...session, tracks: [...session.tracks] });
+      return { id };
+    }
+    case "strip.setSend": {
+      const strip = (session.strips as Record<string, Params>)[
+        String(params.trackId)
+      ];
+      if (!strip) return {};
+      const sends = strip.sends as Params[];
+      const i = Number(params.send);
+      sends[i] ??= { levelDb: -Infinity };
+      const bus = String(params.bus ?? "");
+      if (bus === "none") {
+        if (i >= 2) sends.splice(i, 1);
+        else sends[i] = { levelDb: -Infinity };
+      } else if (params.bus !== undefined)
+        sends[i]!.bus = bus === "A" ? "bus-a" : bus === "B" ? "bus-b" : bus;
+      if (params.levelDb !== undefined) sends[i]!.levelDb = params.levelDb;
+      session.snapshotSequence++;
+      void emit("daw:document", { ...session });
+      return {};
+    }
     case "track.setArmed":
     case "track.setMonitor": {
       const track = session.tracks.find((t) => t.id === params.trackId);

@@ -725,8 +725,7 @@ impl Ondera {
                             (old.start_bar + old.length_bars - step).max(old.start_bar),
                         );
                         if left > old.start_bar {
-                            if let Ok((_, right)) =
-                                store::split(old, left, old.id.clone(), bpb, state.transport.tempo)
+                            if let Ok((_, right)) = store::split(&state, old, left, old.id.clone())
                             {
                                 drag.current = right;
                             }

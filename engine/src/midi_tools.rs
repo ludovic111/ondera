@@ -56,7 +56,8 @@ pub(crate) fn call(host: &mut dyn Host, method: &str, a: &Args<'_>, agent: bool)
                 state ^= state << 17;
                 (state >> 11) as f64 / ((1u64 << 53) as f64) * 2.0 - 1.0
             };
-            let beats = timing / 1000.0 * host.store().session().transport.tempo / 60.0;
+            let tempo = host.store().session().tempo_at_bar(clip.start_bar);
+            let beats = timing / 1000.0 * tempo / 60.0;
             for n in notes.iter_mut() {
                 n.start = (n.start + random() * beats).clamp(0.0, (length - 0.001).max(0.0));
                 n.length = n.length.min(length - n.start);

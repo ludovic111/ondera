@@ -117,7 +117,8 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   renderer keeps voices and `applied` per channel and `Message::RoutedNote` carries it. Poly
   pressure is `ControllerKind::PolyPressure` (`number` = key) inside `controllers`, but the file
   writes it to its own `polyPressure` list (`ClipDataFile`/`ClipDataOut` in `model.rs`) so older
-  versions and the lane UI never see the kind; it is played, not chased or rested. VST3 mapped
+  versions and the lane UI never see the kind; it is played, chased onto notes a locate restarts
+  (`Renderer::chase_poly`, keys without a note go to 0), rested at stop and ranked after note-ons. VST3 mapped
   controllers also reach the edit controller through `Shared.mapped` (atomics, read in `idle`).
   Audio clips carry `fade_in`/`fade_out` (seconds), `fade_curve`
   and `gain_db`, absent when default; build them with `ClipData::audio(src, offset)`;
@@ -161,6 +162,24 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   `main.tsx`). Docs: `docs/COMMANDS.md` and `docs/SHORTCUTS.md` are generated and checked by
   tests (`ONDERA_BLESS=1` regenerates); `USER_GUIDE.md`, `AI_CONTROL.md` and `DEVELOPMENT.md`
   are written by hand, keep them true when behaviour changes.
+- 0.10 (2026-09-27, owner asked for the next update and delegated): tempo changes live in
+  `Session.tempo_changes` (`TempoPoint { bar, bpm, ramp }`, bar order, after bar 0, absent when
+  empty); `transport.tempo` is the starting tempo. `engine/src/tempo.rs` `TempoMap` (steps and
+  ramps linear in beats, closed-form seconds both ways) is the only place beats become seconds:
+  use `Session::bars_seconds` / `seconds_bars` / `tempo_map()`, never `60 / tempo`. The renderer
+  advances `position` by the segment's tempo each frame, keeps `seconds` for audio clips
+  (`Scheduled.start_seconds`), resnaps it at segment ends and fills `frame_beats` for
+  automation and the click. `frontend/src/core/tempo.ts` mirrors the map; the tempo track is
+  `TempoRow.tsx` + `canvas/tempoLane.ts` (`ui.showPanel panel=tempo`). Commands are
+  `control_tempo.rs`; MIDI export writes ramps as sixteenth steps of equal duration. Meter
+  changes inside a song are not supported. Buses: a track of kind `bus` (no clips, never armed)
+  sums tracks routed to it (`Track.output`) or sending to it (`Send.bus`; sends 0/1 default to
+  bus-a/bus-b, up to `MAX_SENDS` 4). Tracks feed bus tracks, bus tracks feed A, B and the Stereo
+  Out only (`Session::validate_routing`); `prune_routing` on track removal. The renderer's
+  `order` runs tracks then buses; track outputs to the Stereo Out/A/B wait in `early_*` buffers
+  delayed by the slowest bus so every path meets (PDC stages: tracks, buses, A/B, master).
+  Commands in `control_routing.rs`. Audio Unit CF objects from `AudioUnitGetProperty` are the
+  caller's to release (factory preset arrays, PresentPreset names); `Editor::current_program`.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ondera-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are

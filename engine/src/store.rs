@@ -20,6 +20,8 @@ pub enum Command {
     /// Add or replace a marker by id; markers stay in bar order.
     PutMarker(Marker),
     RemoveMarker(String),
+    /// Replace the tempo changes after the start; `SetTransport` sets the starting tempo.
+    SetTempoChanges(Vec<crate::tempo::TempoPoint>),
     SetStrip {
         track: String,
         strip: Strip,
@@ -231,6 +233,8 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             s.tracks.retain(|t| t.id != id);
             s.clips.retain(|c| c.track_id != id);
             s.strips.remove(&id);
+            // Tracks that fed a removed bus go back to the Stereo Out.
+            s.prune_routing();
             crate::automation::retain_targets(s);
             if s.view.selected_track_id.as_ref() == Some(&id) {
                 s.view.selected_track_id = s.tracks.first().map(|t| t.id.clone());
@@ -248,7 +252,7 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
         }
         Command::PutClip(mut clip) => {
             // Trims, resizes and tempo-free edits all land here: keep fades inside the clip.
-            let seconds = clip.length_bars * s.beats_per_bar() * 60.0 / s.transport.tempo;
+            let seconds = s.bars_seconds(clip.start_bar, clip.start_bar + clip.length_bars);
             if let ClipData::Audio {
                 fade_in, fade_out, ..
             } = &mut clip.data
@@ -300,6 +304,10 @@ fn apply(s: &mut Session, command: Command, depth: usize) -> Result<()> {
             if s.markers.len() == before {
                 return Err("Marker not found".into());
             }
+        }
+        Command::SetTempoChanges(mut points) => {
+            points.sort_by(|a, b| a.bar.total_cmp(&b.bar));
+            s.tempo_changes = points;
         }
         Command::SetTransport(t) => s.transport = t,
         Command::SetMasterVolume(v) => s.master_volume = v,
@@ -407,7 +415,8 @@ pub fn empty() -> Session {
 
 /// Clip splitting keeps offsets and notes aligned, including notes crossing the cut. The
 /// right half starts with each controller's value at the cut.
-pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<(Clip, Clip)> {
+pub fn split(session: &Session, clip: &Clip, bar: f64, id: String) -> Result<(Clip, Clip)> {
+    let bpb = session.beats_per_bar();
     let relative = bar - clip.start_bar;
     if relative <= 0.0 || relative >= clip.length_bars {
         return Err("Split position must be inside the clip".into());
@@ -426,7 +435,8 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
             ..
         } => {
             // The cut is a hard edge: the left part keeps the fade-in, the right the fade-out.
-            let seconds = |bars: f64| bars * bpb * 60.0 / tempo;
+            // Seconds of audio between the clip's start and `bars` into it.
+            let seconds = |bars: f64| session.bars_seconds(clip.start_bar, clip.start_bar + bars);
             if let ClipData::Audio {
                 fade_in: left_in,
                 fade_out: left_out,
@@ -443,7 +453,11 @@ pub fn split(clip: &Clip, bar: f64, id: String, bpb: f64, tempo: f64) -> Result<
             } = &mut right.data
             {
                 *right_offset = offset_seconds + seconds(relative);
-                (*right_in, *right_out) = clamp_fades(0.0, *fade_out, seconds(right.length_bars));
+                (*right_in, *right_out) = clamp_fades(
+                    0.0,
+                    *fade_out,
+                    seconds(clip.length_bars) - seconds(relative),
+                );
             }
         }
         ClipData::Midi { notes, controllers } => {

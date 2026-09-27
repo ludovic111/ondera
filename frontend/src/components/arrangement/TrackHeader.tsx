@@ -1,5 +1,10 @@
 import { useRef, useState, type MouseEvent } from "react";
-import { commands, TRACK_PALETTE, type Track } from "@ondera/core";
+import {
+  commands,
+  outputName,
+  TRACK_PALETTE,
+  type Track,
+} from "@ondera/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { Button } from "../primitives/Button";
 import { HSlider } from "../primitives/HSlider";
@@ -25,6 +30,7 @@ export function TrackHeader({ track }: { track: Track }) {
   const selected = useSession((s) => s.view.selectedTrackId === track.id);
   const index = useSession((s) => s.tracks.findIndex((t) => t.id === track.id));
   const count = useSession((s) => s.tracks.length);
+  const tracks = useSession((s) => s.tracks);
   const state = selected
     ? styles.selected
     : track.agentActive
@@ -64,8 +70,9 @@ export function TrackHeader({ track }: { track: Track }) {
         { label: "Rename…", onSelect: () => setRenaming(true) },
         item("muteSelectedTrack"),
         item("soloSelectedTrack"),
-        item("armSelectedTrack"),
+        ...(track.kind === "bus" ? [] : [item("armSelectedTrack")]),
         ...(track.kind === "audio" ? [item("cycleMonitorSelectedTrack")] : []),
+        ...(track.kind === "bus" ? [] : [item("groupSelectedTrack")]),
         item("duplicateTrack"),
         separator,
         {
@@ -89,6 +96,7 @@ export function TrackHeader({ track }: { track: Track }) {
         separator,
         item("addAudioTrack"),
         item("addMidiTrack"),
+        item("addBusTrack"),
         item("removeSelectedTrack"),
         separator,
         item("askAgent", "Ask Agent About This Track…"),
@@ -123,8 +131,18 @@ export function TrackHeader({ track }: { track: Track }) {
             {track.name}
           </span>
         )}
-        <span className={styles.kind}>
-          {track.kind === "audio" ? "AUD" : "MIDI"}
+        <span
+          className={styles.kind}
+          title={
+            track.kind === "bus"
+              ? "Bus: sums the tracks routed or sent to it"
+              : track.output
+                ? `Routed to ${outputName(tracks, track)}`
+                : undefined
+          }
+        >
+          {{ audio: "AUD", midi: "MIDI", bus: "BUS" }[track.kind]}
+          {track.output ? ` → ${outputName(tracks, track)}` : ""}
         </span>
         {track.agentActive && (
           <span className={`${styles.agentDot} m-accent-dot`} />
@@ -162,21 +180,23 @@ export function TrackHeader({ track }: { track: Track }) {
           >
             S
           </Button>
-          <Button
-            size="sm"
-            title="Record arm"
-            lit={track.armed}
-            onClick={() =>
-              dispatch(
-                commands.track.setArmed({
-                  trackId: track.id,
-                  armed: !track.armed,
-                }),
-              )
-            }
-          >
-            <RecordSmallIcon />
-          </Button>
+          {track.kind !== "bus" && (
+            <Button
+              size="sm"
+              title="Record arm"
+              lit={track.armed}
+              onClick={() =>
+                dispatch(
+                  commands.track.setArmed({
+                    trackId: track.id,
+                    armed: !track.armed,
+                  }),
+                )
+              }
+            >
+              <RecordSmallIcon />
+            </Button>
+          )}
           {track.kind === "audio" && <MonitorButton track={track} />}
         </div>
         {track.armed && track.kind === "audio" && <InputLevel />}

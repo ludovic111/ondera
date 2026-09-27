@@ -137,6 +137,8 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
       return [
         a("addMidiTrack", "Add instrument track"),
         a("addAudioTrack", "Add audio track"),
+        a("addBusTrack", "Add bus"),
+        a("groupSelectedTrack"),
         a("duplicateTrack"),
         a("removeSelectedTrack"),
         separator,
@@ -189,6 +191,7 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         a("commandPalette"),
         a("toggleMixer"),
         a("toggleControllerLane"),
+        a("toggleTempoTrack"),
         panel("Automation", "automation"),
         separator,
         a("followPlayhead"),

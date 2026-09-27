@@ -70,6 +70,9 @@ export type ActionId =
   | "transposeOctaveDown"
   | "toggleMixer"
   | "toggleControllerLane"
+  | "toggleTempoTrack"
+  | "addBusTrack"
+  | "groupSelectedTrack"
   | "commandPalette"
   | "showShortcuts"
   | "addMarker"
@@ -276,6 +279,31 @@ export const actions = define([
       ),
   },
   {
+    // A bus sums what tracks route or send to it: a group, or an aux return.
+    id: "addBusTrack",
+    label: "New Bus",
+    run: (store) =>
+      store.dispatch(
+        commands.track.add({
+          trackId: newId("track"),
+          kind: "bus",
+          ...insertIndex(store),
+        }),
+      ),
+  },
+  {
+    id: "groupSelectedTrack",
+    label: "Route Track to a New Bus",
+    enabled: (s) => {
+      const track = selectedTrack(s);
+      return track !== null && track.kind !== "bus";
+    },
+    run: (store) => {
+      const track = selectedTrack(store.getState());
+      if (track) store.fire("track.group", { trackIds: [track.id] });
+    },
+  },
+  {
     id: "addMidiTrack",
     label: "New MIDI Track",
     shortcut: { key: "s", meta: true, alt: true },
@@ -330,7 +358,7 @@ export const actions = define([
     id: "armSelectedTrack",
     label: "Record-Arm Track",
     shortcut: { key: "a" },
-    enabled: (s) => selectedTrack(s) !== null,
+    enabled: (s) => (selectedTrack(s)?.kind ?? "bus") !== "bus",
     checked: (s) => selectedTrack(s)?.armed ?? false,
     run: (store) => {
       const track = selectedTrack(store.getState());
@@ -621,6 +649,18 @@ function editingActions(): ActionDef[] {
         store.fire("ui.showPanel", {
           panel: "controllers",
           visible: !store.ui.controllers,
+        }),
+    },
+    {
+      // Tempo changes and ramps, under the ruler.
+      id: "toggleTempoTrack",
+      label: "Tempo Track",
+      shortcut: { key: "t", shift: true },
+      checked: (_s, store) => store.ui.tempo ?? false,
+      run: (store) =>
+        store.fire("ui.showPanel", {
+          panel: "tempo",
+          visible: !store.ui.tempo,
         }),
     },
     {

@@ -24,6 +24,20 @@
   box-shadow: var(--shadow-ruler-corner);
 }
 
+.tempoRow {
+  position: relative;
+  height: var(--size-tempo-lane);
+  flex: none;
+  display: flex;
+}
+
+.tempoValue {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--color-ink300);
+}
+
 .addTrack {
   width: 22px;
   height: 18px;

@@ -7,9 +7,10 @@ use crate::{
     automation::AutomationTarget,
     model::{
         fader_gain, is_bus, ClipData, ControllerKind, FadeCurve, Monitor, Session, BUS_A, BUS_B,
-        MASTER,
+        MASTER, MAX_SENDS,
     },
     plugin::{event, Event, ProcessContext, Rack, MAX_BLOCK},
+    tempo::TempoMap,
     Result,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -25,9 +26,11 @@ const CONTROLS: usize = 130;
 const BEND: usize = 128;
 const PRESSURE: usize = 129;
 /// Polyphonic pressure on a key is sequenced as slot `POLY + key`. It shapes a sounding note
-/// only, so it is played but neither chased on locate nor rested at stop: the notes it
-/// pressed on are released there anyway.
+/// only: a locate sends the value in force to each note it starts again, and stop returns
+/// every pressed key to zero, so the next note on it starts unpressed.
 const POLY: usize = CONTROLS;
+/// Polyphonic pressure per channel and key.
+type PolyKeys = [[i16; 128]; CHANNELS];
 const SUSTAIN: usize = 64;
 /// MIDI channels; every note and controller keeps the one it was played on.
 const CHANNELS: usize = 16;
@@ -71,11 +74,13 @@ fn control_event(slot: usize, value: i16, frame: u32, channel: u8) -> Event {
     .on_channel(channel & 15)
 }
 /// Order within one frame: releases, then controllers, then attacks, so a bend or a pedal
-/// is in place before the note it shapes and a repeated pitch can start again.
+/// is in place before the note it shapes and a repeated pitch can start again; polyphonic
+/// pressure last, since it presses on a note that must already sound.
 fn event_rank(e: &Event) -> u8 {
     match e.kind {
         event::NOTE_OFF => 0,
         event::NOTE_ON => 2,
+        event::POLY_PRESSURE => 3,
         _ => 1,
     }
 }
@@ -92,6 +97,15 @@ fn sort_events(events: &mut [Event]) {
     }
 }
 const PREVIEW_SECONDS: f64 = 0.3;
+
+/// `into += from * gain`, frame by frame.
+#[inline]
+fn add(into: &mut [[f32; 2]], from: &[[f32; 2]], gain: f32) {
+    for (a, b) in into.iter_mut().zip(from) {
+        a[0] += b[0] * gain;
+        a[1] += b[1] * gain;
+    }
+}
 
 /// Plugin parameter automation sends a value every this many frames while it moves, plus one
 /// on the exact frame of each breakpoint.
@@ -160,6 +174,10 @@ fn clip_envelope(
 struct Scheduled {
     start: f64,
     end: f64,
+    /// `start` and `end` in seconds from the song's start: audio plays at its own speed
+    /// whatever the tempo does between them.
+    start_seconds: f64,
+    end_seconds: f64,
     track: usize,
     sound: Sound,
 }
@@ -200,8 +218,18 @@ impl DelayLine {
         }
     }
 }
+/// Where a send goes: A · Reverb or B · Delay (0 or 1), or a bus track by channel index.
+#[derive(Clone, Copy, PartialEq)]
+enum SendTo {
+    Aux(usize),
+    Track(usize),
+}
 struct Channel {
     route: usize,
+    /// A bus track: processed after every track, from what they route and send to it.
+    bus: bool,
+    /// The bus track this channel's fader feeds; `None` for the Stereo Out.
+    output: Option<usize>,
     delay: DelayLine,
     automation_offset: u32,
     volume_lane: Option<usize>,
@@ -212,7 +240,8 @@ struct Channel {
     midi: bool,
     synth: Option<u32>,
     inserts: Vec<u32>,
-    sends: [f32; 2],
+    sends: [f32; MAX_SENDS],
+    send_to: [Option<SendTo>; MAX_SENDS],
     monitor: Monitor,
     armed: bool,
     /// One of this track's audio clips sounded during the current block.
@@ -240,6 +269,15 @@ struct PluginAutomation {
 pub struct Renderer {
     rate: u32,
     session: Session,
+    tempo: TempoMap,
+    /// The tempo segment `position` is in.
+    tempo_segment: usize,
+    /// `position` in seconds from the song's start; advances one frame at a time while
+    /// playing and is derived again on every locate.
+    seconds: f64,
+    /// The song position and tempo of each frame of the current block.
+    frame_beats: Vec<f64>,
+    frame_bpm: Vec<f64>,
     events: Vec<Scheduled>,
     controls: Vec<Control>,
     next_control: usize,
@@ -249,7 +287,19 @@ pub struct Renderer {
     chased: Vec<Controls>,
     /// Slots a track's clips drive, which a locate may return to rest.
     sequenced: Vec<[[bool; CONTROLS]; CHANNELS]>,
+    /// Polyphonic pressure each instrument was last sent, and scratch for the chase; only
+    /// for tracks whose clips hold some.
+    poly_applied: Vec<Option<Box<PolyKeys>>>,
+    poly_chased: Vec<Option<Box<PolyKeys>>>,
     channels: Vec<Channel>,
+    /// Channels in processing order: every track, then every bus track.
+    order: Vec<usize>,
+    /// What the tracks send to the Stereo Out and to A and B, held back to meet the bus
+    /// tracks' outputs (see `set_latencies`).
+    early_mix: Vec<[f32; 2]>,
+    early_sends: [Vec<[f32; 2]>; 2],
+    early_delay: DelayLine,
+    early_send_delays: [DelayLine; 2],
     buses: [Vec<u32>; 2],
     master: Vec<u32>,
     master_gain: f32,
@@ -313,7 +363,42 @@ impl Renderer {
         let mut controls: Vec<(Control, bool)> = Vec::new();
         let mut channels = Vec::new();
         let bpb = session.beats_per_bar();
+        let tempo = session.tempo_map();
+        let index_of = |id: &str| session.tracks.iter().position(|t| t.id == id);
+        // Where each track's fader and sends go, as bus-track indices.
+        let feeds: Vec<Vec<usize>> = session
+            .tracks
+            .iter()
+            .map(|t| {
+                let strip = session.strips.get(&t.id);
+                t.output
+                    .iter()
+                    .map(String::as_str)
+                    .chain(strip.into_iter().flat_map(|s| {
+                        s.sends
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, send)| send.target(i))
+                    }))
+                    .filter_map(index_of)
+                    .filter(|&i| session.tracks[i].is_bus())
+                    .collect()
+            })
+            .collect();
         let solo = session.tracks.iter().any(|t| t.solo);
+        // Under solo, a soloed bus keeps what feeds it audible and a soloed track keeps the
+        // buses it feeds, so a group or an aux return never cuts out what it serves.
+        let audible = |index: usize| {
+            let t = &session.tracks[index];
+            !solo
+                || t.solo
+                || feeds[index].iter().any(|&b| session.tracks[b].solo)
+                || (t.is_bus()
+                    && feeds
+                        .iter()
+                        .enumerate()
+                        .any(|(i, f)| session.tracks[i].solo && f.contains(&index)))
+        };
         let chain = |inserts: &[crate::model::Insert]| -> Vec<u32> {
             inserts
                 .iter()
@@ -323,9 +408,30 @@ impl Renderer {
         };
         for (index, track) in session.tracks.iter().enumerate() {
             let strip = session.strips.get(&track.id).cloned().unwrap_or_default();
-            let muted = track.mute || (solo && !track.solo);
+            let muted = track.mute || !audible(index);
+            let mut sends = [0.0; MAX_SENDS];
+            let mut send_to = [None; MAX_SENDS];
+            for (k, send) in strip.sends.iter().enumerate().take(MAX_SENDS) {
+                send_to[k] = match send.target(k) {
+                    Some(BUS_A) => Some(SendTo::Aux(0)),
+                    Some(BUS_B) => Some(SendTo::Aux(1)),
+                    Some(bus) => index_of(bus)
+                        .filter(|&b| !track.is_bus() && session.tracks[b].is_bus())
+                        .map(SendTo::Track),
+                    None => None,
+                };
+                if !muted {
+                    sends[k] = send.level_db.map_or(0.0, |db| 10.0_f32.powf(db / 20.0));
+                }
+            }
             channels.push(Channel {
                 route: crate::midi::route_id(&track.id),
+                bus: track.is_bus(),
+                output: track
+                    .output
+                    .as_deref()
+                    .and_then(index_of)
+                    .filter(|&b| !track.is_bus() && session.tracks[b].is_bus()),
                 delay: DelayLine::default(),
                 automation_offset: 0,
                 volume_lane: session.automation.iter().position(|lane| {
@@ -358,17 +464,8 @@ impl Renderer {
                 armed: track.armed,
                 clip_sounding: false,
                 monitor_gain: 0.0,
-                sends: std::array::from_fn(|i| {
-                    if muted {
-                        0.0
-                    } else {
-                        strip
-                            .sends
-                            .get(i)
-                            .and_then(|s| s.level_db)
-                            .map_or(0.0, |db| 10.0_f32.powf(db / 20.0))
-                    }
-                }),
+                sends,
+                send_to,
             });
             for clip in session.clips.iter().filter(|c| c.track_id == track.id) {
                 let start = clip.start_bar * bpb;
@@ -402,6 +499,8 @@ impl Renderer {
                             events.push(Scheduled {
                                 start: start + note.start,
                                 end: (start + note.start + note.length).min(end),
+                                start_seconds: 0.0,
+                                end_seconds: 0.0,
                                 track: index,
                                 sound: Sound::Midi {
                                     pitch: note.pitch,
@@ -425,6 +524,8 @@ impl Renderer {
                         events.push(Scheduled {
                             start,
                             end,
+                            start_seconds: tempo.seconds(start),
+                            end_seconds: tempo.seconds(end),
                             track: index,
                             sound: Sound::Audio {
                                 clip: clip_key(&clip.id),
@@ -448,6 +549,14 @@ impl Renderer {
         for control in controls.iter().filter(|c| c.slot < CONTROLS) {
             sequenced[control.track][control.channel as usize][control.slot] = true;
         }
+        let poly: Vec<Option<Box<PolyKeys>>> = (0..channels.len())
+            .map(|track| {
+                controls
+                    .iter()
+                    .any(|c| c.track == track && c.slot >= POLY)
+                    .then(|| Box::new([[UNSET; 128]; CHANNELS]))
+            })
+            .collect();
         let bus = |id: &str| {
             session
                 .strips
@@ -460,8 +569,22 @@ impl Renderer {
             .iter()
             .position(|t| Some(&t.id) == session.view.selected_track_id.as_ref() && !is_bus(&t.id));
         let count = channels.len();
+        let order: Vec<usize> = (0..count)
+            .filter(|&i| !channels[i].bus)
+            .chain((0..count).filter(|&i| channels[i].bus))
+            .collect();
         Ok(Self {
             rate,
+            order,
+            early_mix: vec![[0.0; 2]; MAX_BLOCK],
+            early_sends: [vec![[0.0; 2]; MAX_BLOCK], vec![[0.0; 2]; MAX_BLOCK]],
+            early_delay: DelayLine::default(),
+            early_send_delays: std::array::from_fn(|_| DelayLine::default()),
+            tempo,
+            tempo_segment: 0,
+            seconds: 0.0,
+            frame_beats: vec![0.0; MAX_BLOCK],
+            frame_bpm: vec![0.0; MAX_BLOCK],
             master_gain: fader_gain(session.master_volume),
             master_volume_lane: session
                 .automation
@@ -523,6 +646,8 @@ impl Renderer {
             applied: vec![[[UNSET; CONTROLS]; CHANNELS]; count],
             chased: vec![[[UNSET; CONTROLS]; CHANNELS]; count],
             sequenced,
+            poly_chased: poly.clone(),
+            poly_applied: poly,
             channels,
             active: [None; MAX_VOICES],
             envelope: [0.0; MAX_VOICES],
@@ -557,8 +682,10 @@ impl Renderer {
             selected,
         })
     }
-    /// Prepare static plugin delay compensation off the audio thread. Input
-    /// paths meet at the same sample before buses and again before the master.
+    /// Prepare static plugin delay compensation off the audio thread, in stages: the tracks
+    /// meet at the same sample before the bus tracks, whose outputs meet the tracks' own
+    /// (held back as long as the slowest bus) before A and B, which meet the dry mix before
+    /// the master. A song without bus tracks has an empty second stage.
     /// Rebuild this plan when a plugin reports changed latency.
     pub fn set_latencies(&mut self, latencies: &HashMap<u32, u32>) -> Result<()> {
         let sum = |slots: &[u32]| -> Result<u32> {
@@ -568,7 +695,7 @@ impl Renderer {
                     .ok_or_else(|| "Plugin latency overflow".to_string())
             })
         };
-        let tracks: Vec<u32> = self
+        let own: Vec<u32> = self
             .channels
             .iter()
             .map(|channel| {
@@ -582,14 +709,31 @@ impl Renderer {
                     .ok_or_else(|| "Plugin latency overflow".to_string())
             })
             .collect::<Result<_>>()?;
-        let track_max = tracks.iter().copied().max().unwrap_or(0);
+        let stage_max = |bus: bool| {
+            self.channels
+                .iter()
+                .zip(&own)
+                .filter(|(c, _)| c.bus == bus)
+                .map(|(_, n)| *n)
+                .max()
+                .unwrap_or(0)
+        };
+        let track_max = stage_max(false);
+        let group_max = stage_max(true);
         let buses = [sum(&self.buses[0])?, sum(&self.buses[1])?];
         let bus_max = buses.into_iter().max().unwrap_or(0);
         let total = track_max
-            .checked_add(bus_max)
+            .checked_add(group_max)
+            .and_then(|n| n.checked_add(bus_max))
             .and_then(|n| n.checked_add(sum(&self.master).ok()?))
             .ok_or("Plugin latency overflow")?;
-        let allocations = tracks.iter().map(|n| (track_max - n) as u64).sum::<u64>()
+        let allocations = self
+            .channels
+            .iter()
+            .zip(&own)
+            .map(|(c, n)| (if c.bus { group_max } else { track_max } - n) as u64)
+            .sum::<u64>()
+            + 3 * group_max as u64
             + bus_max as u64
             + buses.iter().map(|n| (bus_max - n) as u64).sum::<u64>();
         if total > self.rate * 10 || allocations > 8_388_608 {
@@ -597,7 +741,8 @@ impl Renderer {
         }
         let mut offsets = HashMap::new();
         for channel in &self.channels {
-            let mut offset = 0;
+            // A bus track hears the tracks once they have all been brought to `track_max`.
+            let mut offset = if channel.bus { track_max } else { 0 };
             if let Some(slot) = channel.synth {
                 offsets.insert(slot, offset);
                 offset += latencies.get(&slot).copied().unwrap_or(0);
@@ -608,13 +753,13 @@ impl Renderer {
             }
         }
         for bus in &self.buses {
-            let mut offset = track_max;
+            let mut offset = track_max + group_max;
             for slot in bus {
                 offsets.insert(*slot, offset);
                 offset += latencies.get(slot).copied().unwrap_or(0);
             }
         }
-        let mut offset = track_max + bus_max;
+        let mut offset = track_max + group_max + bus_max;
         for slot in &self.master {
             offsets.insert(*slot, offset);
             offset += latencies.get(slot).copied().unwrap_or(0);
@@ -622,10 +767,17 @@ impl Renderer {
         for automation in &mut self.plugin_automation {
             automation.offset = offsets.get(&automation.slot).copied().unwrap_or(0);
         }
-        for (channel, latency) in self.channels.iter_mut().zip(tracks) {
-            channel.automation_offset = latency;
-            channel.delay = DelayLine::new((track_max - latency) as usize);
+        for (channel, latency) in self.channels.iter_mut().zip(own) {
+            if channel.bus {
+                channel.automation_offset = track_max + latency;
+                channel.delay = DelayLine::new((group_max - latency) as usize);
+            } else {
+                channel.automation_offset = latency;
+                channel.delay = DelayLine::new((track_max - latency) as usize);
+            }
         }
+        self.early_delay = DelayLine::new(group_max as usize);
+        self.early_send_delays = std::array::from_fn(|_| DelayLine::new(group_max as usize));
         self.dry_delay = DelayLine::new(bus_max as usize);
         self.bus_delays = std::array::from_fn(|i| DelayLine::new((bus_max - buses[i]) as usize));
         self.latency_samples = total;
@@ -692,6 +844,14 @@ impl Renderer {
         self.sample_time = old.sample_time;
         self.idle_frames = old.idle_frames;
         self.dry_delay.adopt(&old.dry_delay);
+        self.early_delay.adopt(&old.early_delay);
+        for (delay, old_delay) in self
+            .early_send_delays
+            .iter_mut()
+            .zip(&old.early_send_delays)
+        {
+            delay.adopt(old_delay);
+        }
         for (delay, old_delay) in self.bus_delays.iter_mut().zip(&old.bus_delays) {
             delay.adopt(old_delay);
         }
@@ -708,6 +868,12 @@ impl Renderer {
                 if same_instrument {
                     self.held[index] = old.held[prev];
                     self.applied[index] = old.applied[prev];
+                    if let (Some(new), Some(old)) = (
+                        self.poly_applied[index].as_mut(),
+                        old.poly_applied[prev].as_ref(),
+                    ) {
+                        **new = **old;
+                    }
                     for &(track, event) in &old.queued {
                         if track == prev {
                             self.queue(index, event);
@@ -751,7 +917,6 @@ impl Renderer {
     }
     /// A sounding clip whose gain or fades changed starts from what it last played.
     fn glide_from(&mut self, old: &Renderer) {
-        let spb = 60.0 / self.session.transport.tempo;
         for slot in 0..MAX_VOICES {
             let Some(index) = self.active[slot] else {
                 continue;
@@ -776,8 +941,8 @@ impl Renderer {
             let Some(j) = previous else {
                 continue;
             };
-            let age = (self.position - e.start).max(0.0) * spb;
-            let left = (e.end - self.position) * spb;
+            let age = (self.seconds - e.start_seconds).max(0.0);
+            let left = e.end_seconds - self.seconds;
             let now = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
             let offset = old.envelope[j] - now;
             if offset.abs() > 1e-6 {
@@ -814,6 +979,8 @@ impl Renderer {
     /// Re-derive active events for the current position; send note-ons for
     /// notes that should sound and note-offs for held notes that should not.
     fn resync(&mut self) {
+        self.tempo_segment = self.tempo.segment(self.position);
+        self.seconds = self.tempo.seconds(self.position);
         self.active.fill(None);
         self.glide.fill(0.0);
         self.next = self.events.partition_point(|e| e.start < self.position);
@@ -897,6 +1064,44 @@ impl Renderer {
                     }
                 }
             }
+        }
+        self.chase_poly();
+    }
+    /// Polyphonic pressure after a locate: each key a note sounds on again gets the value in
+    /// force there; a pressed key with no note (or none in force) returns to zero.
+    fn chase_poly(&mut self) {
+        for track in 0..self.channels.len() {
+            // Taken out for the turn and put back: moving a Box allocates nothing.
+            let (Some(mut chased), Some(mut applied)) = (
+                self.poly_chased[track].take(),
+                self.poly_applied[track].take(),
+            ) else {
+                continue;
+            };
+            *chased = [[UNSET; 128]; CHANNELS];
+            for control in self.controls[..self.next_control]
+                .iter()
+                .filter(|c| c.track == track && c.slot >= POLY)
+            {
+                chased[control.channel as usize][(control.slot - POLY).min(127)] = control.value;
+            }
+            for channel in 0..CHANNELS {
+                for pitch in 0..128 {
+                    let sounding = self.held[track][key(channel as u8, pitch as u8)] > 0;
+                    let current = applied[channel][pitch];
+                    let target = match chased[channel][pitch] {
+                        value if sounding && value != UNSET => value,
+                        _ if current > 0 => 0,
+                        _ => continue,
+                    };
+                    if target != current {
+                        applied[channel][pitch] = target;
+                        self.queue(track, control_event(POLY + pitch, target, 0, channel as u8));
+                    }
+                }
+            }
+            self.poly_chased[track] = Some(chased);
+            self.poly_applied[track] = Some(applied);
         }
     }
     /// Queue every controller value `track` is known to have, for an insert that joined it.
@@ -1022,6 +1227,9 @@ impl Renderer {
         if event.kind == event::POLY_PRESSURE {
             let key = event.key.min(127) as usize;
             let value = event.value.min(127) as i16;
+            if let Some(poly) = self.poly_applied[track].as_mut() {
+                poly[(event.channel & 15) as usize][key] = value;
+            }
             self.queue(
                 track,
                 control_event(POLY + key, value, 0, event.channel & 15),
@@ -1057,8 +1265,19 @@ impl Renderer {
         self.count_in_left = 0;
         self.active.fill(None);
         self.all_notes_off();
-        // Nothing stays bent or held after stop.
+        // Nothing stays bent, held or pressed after stop.
         for track in 0..self.channels.len() {
+            if let Some(mut poly) = self.poly_applied[track].take() {
+                for channel in 0..CHANNELS {
+                    for pitch in 0..128 {
+                        if poly[channel][pitch] > 0 {
+                            poly[channel][pitch] = 0;
+                            self.queue(track, control_event(POLY + pitch, 0, 0, channel as u8));
+                        }
+                    }
+                }
+                self.poly_applied[track] = Some(poly);
+            }
             for channel in 0..CHANNELS {
                 for slot in [SUSTAIN, BEND, PRESSURE] {
                     let current = self.applied[track][channel][slot];
@@ -1077,7 +1296,7 @@ impl Renderer {
     pub fn count_in(&mut self, beats: f64, count_beats: f64) {
         self.locate(beats);
         self.playing = false;
-        let frames = count_beats.max(0.0) * 60.0 / self.session.transport.tempo * self.rate as f64;
+        let frames = count_beats.max(0.0) * 60.0 / self.tempo.bpm(self.position) * self.rate as f64;
         self.count_in_left = frames.round() as u64;
         self.count_in_done = 0;
         if self.count_in_left == 0 {
@@ -1138,8 +1357,8 @@ impl Renderer {
                     self.locate(start + (self.position - end).rem_euclid(end - start));
                     self.automation_looped = true;
                 }
-                let dpb = 1.0 / (self.rate as f64 * 60.0 / self.session.transport.tempo);
-                let frames_left = ((end - self.position) / dpb).ceil().max(1.0) as usize;
+                let seconds_left = self.tempo.seconds(end) - self.seconds;
+                let frames_left = (seconds_left * self.rate as f64).ceil().max(1.0) as usize;
                 n = n.min(frames_left);
             }
             let live = if input.is_empty() {
@@ -1163,10 +1382,14 @@ impl Renderer {
         } else {
             self.idle_frames = 0;
         }
-        let spb = 60.0 / self.session.transport.tempo;
+        // The tempo where the block starts; per-frame positions below follow the tempo map.
+        let block_tempo = self.tempo.bpm_in(self.tempo_segment, self.position);
+        let spb = 60.0 / block_tempo;
         let dpb = 1.0 / (self.rate as f64 * spb);
         let bpb = self.session.beats_per_bar();
         let block_start = self.position;
+        let block_seconds = self.seconds;
+        let frame_seconds = 1.0 / self.rate as f64;
         for list in &mut self.notes {
             list.clear();
         }
@@ -1179,6 +1402,9 @@ impl Renderer {
         self.sends[0][..n].fill([0.0; 2]);
         self.sends[1][..n].fill([0.0; 2]);
         self.mix[..n].fill([0.0; 2]);
+        self.early_mix[..n].fill([0.0; 2]);
+        self.early_sends[0][..n].fill([0.0; 2]);
+        self.early_sends[1][..n].fill([0.0; 2]);
         // Most queued notes land at frame zero. A same-callback tap's release
         // follows its attack; carry it into the next block when necessary.
         let mut remaining = 0;
@@ -1213,6 +1439,9 @@ impl Renderer {
         }
         if self.playing {
             for i in 0..n {
+                let bpm = self.tempo.bpm_in(self.tempo_segment, self.position);
+                self.frame_beats[i] = self.position;
+                self.frame_bpm[i] = bpm;
                 while self.next_control < self.controls.len()
                     && self.controls[self.next_control].beat <= self.position + 1e-9
                 {
@@ -1220,6 +1449,9 @@ impl Renderer {
                     self.next_control += 1;
                     if control.slot < CONTROLS {
                         self.applied[control.track][control.channel as usize][control.slot] =
+                            control.value;
+                    } else if let Some(poly) = self.poly_applied[control.track].as_mut() {
+                        poly[control.channel as usize][(control.slot - POLY).min(127)] =
                             control.value;
                     }
                     self.push_note(
@@ -1280,11 +1512,11 @@ impl Renderer {
                         curve,
                     } = &e.sound
                     {
-                        let age = (self.position - e.start).max(0.0) * spb;
+                        let age = (self.seconds - e.start_seconds).max(0.0);
                         let mut v = buffer.sample(age + offset);
                         // Fades and gain, on the sample; 3 ms boundary ramps keep trims and
                         // loops free of clicks even without a fade.
-                        let left = (e.end - self.position) * spb;
+                        let left = e.end_seconds - self.seconds;
                         let mut ramp = clip_envelope(age, left, *gain, *fade_in, *fade_out, *curve);
                         if self.glide[slot] != 0.0 {
                             ramp += self.glide[slot];
@@ -1302,8 +1534,18 @@ impl Renderer {
                         self.channels[e.track].clip_sounding = true;
                     }
                 }
-                self.position += dpb;
+                self.position += 1.0 / (self.rate as f64 * 60.0 / bpm);
+                self.seconds += frame_seconds;
+                if self.position >= self.tempo.segment_end(self.tempo_segment) {
+                    // A new tempo starts: take the segment's exact time, so a ramp's small
+                    // step error never accumulates across the song.
+                    self.tempo_segment += 1;
+                    self.seconds = self.tempo.seconds(self.position);
+                }
             }
+        } else {
+            self.frame_beats[..n].fill(block_start);
+            self.frame_bpm[..n].fill(block_tempo);
         }
         // Previews may finish later in this block than sequenced note starts.
         // Every host expects chronological events; note-offs win ties so a
@@ -1314,9 +1556,9 @@ impl Renderer {
         let ctx = ProcessContext {
             playing: self.playing,
             recording: self.recording,
-            tempo: self.session.transport.tempo,
+            tempo: block_tempo,
             position_beats: block_start,
-            position_seconds: block_start * spb,
+            position_seconds: block_seconds,
             sample_time: self.sample_time,
             numerator: self.session.transport.time_signature.numerator,
             denominator: self.session.transport.time_signature.denominator,
@@ -1343,7 +1585,8 @@ impl Renderer {
         // Each lane's value on the block's first frame, then at its frame wherever it crosses a
         // breakpoint and every AUTOMATION_GRAIN frames while it moves.
         for automation in &self.plugin_automation {
-            let start = block_start - automation.offset as f64 * dpb;
+            let delay = automation.offset as f64 * dpb;
+            let start = block_start - delay;
             let first = automation_beat(start, automation_cycle);
             let mut cursor = self.session.automation[automation.lane].cursor(first);
             let Some(mut sent) = cursor.value(first) else {
@@ -1355,8 +1598,7 @@ impl Renderer {
             }
             let mut segment = cursor.segment();
             for frame in 1..n {
-                let beat =
-                    automation_beat(start + frame as f64 * automation_step, automation_cycle);
+                let beat = automation_beat(self.frame_beats[frame] - delay, automation_cycle);
                 let Some(value) = cursor.value(beat) else {
                     break;
                 };
@@ -1368,8 +1610,14 @@ impl Renderer {
                 }
             }
         }
-        for (index, channel) in self.channels.iter_mut().enumerate() {
-            let buffer = &mut self.buffers[index][..n];
+        // Tracks first, then bus tracks, which by then hold everything routed or sent to them.
+        for step in 0..self.order.len() {
+            let index = self.order[step];
+            let channel = &mut self.channels[index];
+            // Taken out for the channel's turn so it can add to a bus track's buffer; handing a
+            // Vec back and forth allocates nothing.
+            let mut owned = std::mem::take(&mut self.buffers[index]);
+            let buffer = &mut owned[..n];
             let listen = monitoring
                 && match channel.monitor {
                     Monitor::Off => false,
@@ -1414,7 +1662,8 @@ impl Renderer {
                 };
                 rack.process(slot, buffer, events, &ctx);
             }
-            let start_beat = block_start - channel.automation_offset as f64 * dpb;
+            let delay = channel.automation_offset as f64 * dpb;
+            let start_beat = block_start - delay;
             let mut volume = channel.volume_lane.map(|lane| {
                 self.session.automation[lane].cursor(automation_beat(start_beat, automation_cycle))
             });
@@ -1422,8 +1671,7 @@ impl Renderer {
                 self.session.automation[lane].cursor(automation_beat(start_beat, automation_cycle))
             });
             for (i, frame) in buffer.iter_mut().enumerate() {
-                let beat =
-                    automation_beat(start_beat + i as f64 * automation_step, automation_cycle);
+                let beat = automation_beat(self.frame_beats[i] - delay, automation_cycle);
                 let gain = if channel.muted {
                     0.0
                 } else {
@@ -1442,20 +1690,43 @@ impl Renderer {
             channel.delay.process(buffer);
             let selected = self.selected == Some(index);
             let mut track_peak = 0.0f32;
-            for (i, v) in buffer.iter().enumerate() {
+            for v in buffer.iter() {
                 for (c, value) in v.iter().enumerate() {
                     track_peak = track_peak.max(value.abs());
-                    self.mix[i][c] += value;
-                    self.sends[0][i][c] += value * channel.sends[0];
-                    self.sends[1][i][c] += value * channel.sends[1];
                     if selected {
                         self.channel_peak[c] = self.channel_peak[c].max(value.abs());
                     }
                 }
             }
+            // A track's output and sends to the Stereo Out, A and B wait in the early buffers
+            // for the bus tracks; a bus track's go straight on.
+            let (mix, aux) = if channel.bus {
+                (&mut self.mix, &mut self.sends)
+            } else {
+                (&mut self.early_mix, &mut self.early_sends)
+            };
+            match channel.output {
+                Some(bus) => add(&mut self.buffers[bus][..n], buffer, 1.0),
+                None => add(&mut mix[..n], buffer, 1.0),
+            }
+            for (to, &level) in channel.send_to.iter().zip(&channel.sends) {
+                match *to {
+                    _ if level == 0.0 => {}
+                    Some(SendTo::Aux(k)) => add(&mut aux[k][..n], buffer, level),
+                    Some(SendTo::Track(bus)) => add(&mut self.buffers[bus][..n], buffer, level),
+                    None => {}
+                }
+            }
             if let Some(slot) = self.track_peaks.get_mut(index) {
                 *slot = track_peak;
             }
+            self.buffers[index] = owned;
+        }
+        self.early_delay.process(&mut self.early_mix[..n]);
+        add(&mut self.mix[..n], &self.early_mix[..n], 1.0);
+        for k in 0..2 {
+            self.early_send_delays[k].process(&mut self.early_sends[k][..n]);
+            add(&mut self.sends[k][..n], &self.early_sends[k][..n], 1.0);
         }
         self.dry_delay.process(&mut self.mix[..n]);
         for bus in 0..2 {
@@ -1476,7 +1747,8 @@ impl Renderer {
         let metronome = self.playing && self.session.transport.metronome;
         let counting = !self.playing && self.count_in_left > 0;
         let tick_unit = 4.0 / self.session.transport.time_signature.denominator as f64;
-        let master_beat = block_start - self.latency_samples as f64 * dpb;
+        let master_delay = self.latency_samples as f64 * dpb;
+        let master_beat = block_start - master_delay;
         let mut master_volume = self.master_volume_lane.map(|lane| {
             self.session.automation[lane].cursor(automation_beat(master_beat, automation_cycle))
         });
@@ -1485,7 +1757,7 @@ impl Renderer {
                 .as_mut()
                 .and_then(|lane| {
                     lane.value(automation_beat(
-                        master_beat + i as f64 * automation_step,
+                        self.frame_beats[i] - master_delay,
                         automation_cycle,
                     ))
                 })
@@ -1494,10 +1766,10 @@ impl Renderer {
             frame[1] *= gain;
             if metronome || counting {
                 // The count-in runs on its own clock from zero; the song position stays parked.
-                let position = if counting {
-                    (self.count_in_done + i as u64) as f64 * dpb
+                let (position, spb) = if counting {
+                    ((self.count_in_done + i as u64) as f64 * dpb, spb)
                 } else {
-                    block_start + i as f64 * dpb
+                    (self.frame_beats[i], 60.0 / self.frame_bpm[i])
                 };
                 let time = position.rem_euclid(tick_unit) * spb;
                 if time < 0.045 {
@@ -1610,7 +1882,7 @@ pub fn bounce(
     let mut s = session.clone();
     s.transport.cycle = false;
     s.transport.metronome = false;
-    let seconds = s.end_bar() * s.beats_per_bar() * 60.0 / s.transport.tempo + 3.0;
+    let seconds = s.bars_seconds(0.0, s.end_bar()) + 3.0;
     if seconds > 14_400.0 {
         return Err("Bounce is limited to four hours".into());
     }

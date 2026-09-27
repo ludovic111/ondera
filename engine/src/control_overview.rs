@@ -16,7 +16,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 pub const SPECS: &[Spec] = &[
-    query("session.overview", "Everything about the song in one compact answer; call it first. Song (tempo, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.", &[
+    query("session.overview", "Everything about the song in one compact answer; call it first. Song (tempo, tempo changes, meter, key, length in bars and seconds), transport (playhead, cycle, metronome), sections (markers), every track with its instrument (name, format, vendor), inserts (plugin, bypass, parameters changed from their defaults as displayed), sends, fader in dB, pan, mute/solo/arm/monitor, problems that keep it silent, clips (bars, names, note counts and pitch ranges, audio sources, fades), automation lanes and controller lanes; the buses, selection, takes, undo history and, in the app, what the window shows (ui.state). Clips per track are capped by maxClips; `truncated` says what was left out and `next` names the commands that give the details.", &[
         opt("trackId", Kind::String, "Only this track (id or name), with every clip."),
         opt("maxClips", Kind::Integer, "Clips listed per track, 0-200. Default: 12, fewer in songs with many tracks (about 48 in all); the rest are counted and their bars shown in covers."),
         opt("parameters", Kind::Boolean, "List changed plugin parameters (default true, at most 6 per plugin)."),
@@ -205,7 +205,17 @@ fn problems(
     if t.mute {
         out.push("muted".to_string());
     }
-    if !t.solo {
+    // A track feeding a soloed bus, and a bus fed by a soloed track, still play.
+    let feeds_solo = t
+        .output
+        .as_deref()
+        .and_then(|id| s.bus_track(id))
+        .is_some_and(|b| b.solo);
+    let fed_by_solo = t.is_bus()
+        && s.tracks
+            .iter()
+            .any(|x| x.solo && x.output.as_deref() == Some(t.id.as_str()));
+    if !t.solo && !feeds_solo && !fed_by_solo {
         let soloed: Vec<&str> = s
             .tracks
             .iter()
@@ -222,8 +232,30 @@ fn problems(
     if s.master_volume == 0.0 {
         out.push("master fader at -inf".into());
     }
-    if clips == 0 {
+    if clips == 0 && !t.is_bus() {
         out.push("no clips".into());
+    }
+    if let Some(bus) = t.output.as_deref().and_then(|id| s.bus_track(id)) {
+        if bus.mute {
+            out.push(format!("its bus {} is muted", bus.name));
+        }
+        if bus.volume == 0.0 {
+            out.push(format!("its bus {} has its fader at -inf", bus.name));
+        }
+    }
+    if t.is_bus()
+        && !s
+            .tracks
+            .iter()
+            .any(|x| x.output.as_deref() == Some(t.id.as_str()))
+        && !s.strips.iter().any(|(id, st)| {
+            id != &t.id
+                && st.sends.iter().enumerate().any(|(i, send)| {
+                    send.target(i) == Some(t.id.as_str()) && send.level_db.is_some()
+                })
+        })
+    {
+        out.push("nothing is routed or sent to this bus".into());
     }
     let instrument = (t.kind == "midi").then(|| {
         strip.synth.clone().unwrap_or_else(|| {
@@ -280,12 +312,12 @@ fn inserts_json(
         .collect()
 }
 
-fn sends_json(strip: &Strip) -> Value {
+fn sends_json(s: &Session, strip: &Strip) -> Value {
     let mut map = Map::new();
     for (i, send) in strip.sends.iter().enumerate() {
         if let Some(db) = send.level_db {
             map.insert(
-                if i == 0 { "A · Reverb" } else { "B · Delay" }.into(),
+                crate::control_routing::send_name(s, i, send.target(i)),
                 json!(round2(db as f64)),
             );
         }
@@ -310,6 +342,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &control::Args) -> Result
     let failures = host.plugin_failures();
     let s = host.store().session().clone();
     let bpb = s.beats_per_bar();
+    let tempo = s.tempo_map();
     let bar_seconds = bpb * 60.0 / s.transport.tempo;
     let end = s.end_bar();
     let mut truncated: Vec<String> = vec![];
@@ -357,7 +390,22 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &control::Args) -> Result
         if !inserts.is_empty() {
             v["inserts"] = json!(inserts);
         }
-        let sends = sends_json(&strip);
+        let sends = sends_json(&s, &strip);
+        if let Some(output) = &t.output {
+            v["output"] = json!(s
+                .tracks
+                .iter()
+                .find(|b| &b.id == output)
+                .map_or(output.as_str(), |b| b.name.as_str()));
+        }
+        if t.is_bus() {
+            v["inputs"] = json!(s
+                .tracks
+                .iter()
+                .filter(|x| x.output.as_deref() == Some(t.id.as_str()))
+                .map(|x| x.name.as_str())
+                .collect::<Vec<_>>());
+        }
         if sends.as_object().is_some_and(|m| !m.is_empty()) {
             v["sends"] = sends;
         }
@@ -454,12 +502,12 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &control::Args) -> Result
             "tempo": t.tempo,
             "meter": format!("{}/{}", t.time_signature.numerator, t.time_signature.denominator),
             "key": t.key, "snap": format!("1/{}", t.snap_division),
-            "lengthBars": round2(end), "lengthSeconds": round2(end * bar_seconds),
+            "lengthBars": round2(end), "lengthSeconds": round2(tempo.seconds(end * bpb)),
             "barSeconds": round2(bar_seconds * 1000.0) / 1000.0,
         },
         "transport": {
             "playing": host.playing(), "recording": host.recording(),
-            "positionBar": round2(position / bpb), "positionSeconds": round2(position * 60.0 / t.tempo),
+            "positionBar": round2(position / bpb), "positionSeconds": round2(tempo.seconds(position)),
             "cycle": if t.cycle { json!([round2(t.cycle_start_bar), round2(t.cycle_end_bar)]) } else { Value::Null },
             "metronome": t.metronome,
         },
@@ -504,6 +552,24 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &control::Args) -> Result
         if sources.len() > 40 {
             truncated.push(format!("{} audio sources", sources.len() - 40));
         }
+    }
+    if !s.tempo_changes.is_empty() {
+        // `tempo` above is the starting tempo; these take over from their bar (zero-based).
+        out["song"]["tempoChanges"] = json!(s
+            .tempo_changes
+            .iter()
+            .take(40)
+            .map(|p| if p.ramp {
+                json!({ "bar": round2(p.bar), "bpm": p.bpm, "ramp": true })
+            } else {
+                json!({ "bar": round2(p.bar), "bpm": p.bpm })
+            })
+            .collect::<Vec<_>>());
+        out["song"]["tempoAtPlayhead"] = json!(round2(tempo.bpm(position)));
+        if s.tempo_changes.len() > 40 {
+            truncated.push(format!("{} tempo changes", s.tempo_changes.len() - 40));
+        }
+        out["next"]["tempo"] = json!("tempo.list");
     }
     if let Some(takes) = crate::takes::brief(&s) {
         out["takes"] = takes;
