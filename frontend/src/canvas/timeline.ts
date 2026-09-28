@@ -11,7 +11,7 @@ import {
   type Session,
   type TimeSignature,
   type Track,
-} from "@ondera/core";
+} from "@ryolune/core";
 import {
   canvasShadow,
   clipMix,

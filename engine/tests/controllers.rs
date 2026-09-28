@@ -1,7 +1,7 @@
 //! MIDI controllers end to end: clips that carry them, the renderer that plays them at their
 //! sample through the ABI 2 path, chasing on locate, rest at stop, the stock instruments
 //! that answer them, and Standard MIDI Files that carry them both ways.
-use ondera_engine::{
+use ryolune_engine::{
     audio::Library,
     host::native,
     midi_file,
@@ -10,7 +10,7 @@ use ondera_engine::{
     render::Renderer,
     stock, store,
 };
-use ondera_plugin::{ffi, prelude::*};
+use ryolune_plugin::{ffi, prelude::*};
 use std::{collections::HashMap, sync::Mutex};
 
 /// Every event an instance received, at its absolute sample.
@@ -19,7 +19,7 @@ static HEARD: Mutex<Vec<(i64, Event)>> = Mutex::new(Vec::new());
 /// An ABI 2 instrument that writes down what reaches it.
 struct Listener;
 impl Plugin for Listener {
-    const INFO: Info = Info::instrument("org.ondera.tests.listener", "Listener", "Tests");
+    const INFO: Info = Info::instrument("org.ryolune.tests.listener", "Listener", "Tests");
     fn params() -> Vec<ParamSpec> {
         vec![]
     }
@@ -87,7 +87,7 @@ fn session(controllers: Vec<Controller>) -> Session {
 fn listening(s: Session) -> (Renderer, Rack) {
     let manifest = ffi::Manifest::of::<Listener>();
     let descriptor = Descriptor {
-        id: "native:org.ondera.tests.listener".into(),
+        id: "native:org.ryolune.tests.listener".into(),
         format: Format::Native,
         name: "Listener".into(),
         vendor: "Tests".into(),
@@ -334,7 +334,7 @@ fn pitch_of(audio: &[[f32; 2]]) -> f64 {
     crossings as f64 * 48000.0 / audio.len() as f64
 }
 fn play(
-    processor: &mut Box<dyn ondera_engine::plugin::Processor>,
+    processor: &mut Box<dyn ryolune_engine::plugin::Processor>,
     first: &[Event],
     blocks: usize,
 ) -> Vec<[f32; 2]> {
@@ -381,7 +381,7 @@ fn stock_instruments_bend_two_semitones_and_hold_notes_on_the_pedal() {
     processor.reset();
 
     // The pedal keeps a released key sounding until it lifts.
-    let mut synth = stock::create("Ondera Synth", 48000).unwrap();
+    let mut synth = stock::create("ryolune Synth", 48000).unwrap();
     let mut processor = synth.processor.take().unwrap();
     play(
         &mut processor,
@@ -416,7 +416,7 @@ fn stock_instruments_bend_two_semitones_and_hold_notes_on_the_pedal() {
 
 #[test]
 fn stock_instruments_hear_controllers_and_effects_keep_their_single_instance() {
-    for name in ondera_engine::dsp::INSTRUMENTS {
+    for name in ryolune_engine::dsp::INSTRUMENTS {
         let mut instance = stock::create(name, 48000).unwrap();
         let mut processor = instance.processor.take().unwrap();
         // Nothing breaks when every kind arrives, known or not.

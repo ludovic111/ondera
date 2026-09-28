@@ -1,12 +1,12 @@
 //! Public command registry shared by every client of the store.
 //!
-//! The desktop window, `ondera-cli` and `ondera-mcp` are peers: each named command here becomes
+//! The desktop window, `ryolune-cli` and `ryolune-mcp` are peers: each named command here becomes
 //! a validated [`store::Command`] or a host action (open, save, bounce, transport). Nothing is
 //! privileged and nothing bypasses the store, so undo, validation and dirty tracking behave the
 //! same whether a person or an agent made the edit. The registry is introspectable: the CLI
 //! help and the MCP tool list are generated from [`COMMANDS`], never hand-written.
 //!
-//! Bars and beats are zero-based floats, matching the `.ondera` file. Note times are beats
+//! Bars and beats are zero-based floats, matching the `.ryolune` file. Note times are beats
 //! relative to their clip.
 
 pub mod wire;
@@ -28,7 +28,7 @@ use std::{
 };
 
 /// Default track colours, mirroring `TRACKS` in `desktop/src/theme.rs`. They are session data
-/// (the `.ondera` file stores them), not paint tokens.
+/// (the `.ryolune` file stores them), not paint tokens.
 pub const TRACK_PALETTE: [&str; 8] = [
     "#ed835e", "#b191ea", "#6ab3fd", "#d991d2", "#e0af3b", "#95bd69", "#eb8182", "#ee9748",
 ];
@@ -150,10 +150,10 @@ pub const BASE_COMMANDS: &[Spec] = &[
     edit("session.new", "Replace the open session with an empty one (or the bundled Nightfall demo). Unsaved changes are discarded.", &[
         opt("demo", Kind::Boolean, "Load the Nightfall demo instead of an empty session."),
     ]),
-    edit("session.open", "Open a .ondera session file, replacing the current session. Unsaved changes are discarded.", &[
-        req("path", Kind::String, "Path to a .ondera file."),
+    edit("session.open", "Open a .ryolune session file, replacing the current session. Unsaved changes are discarded.", &[
+        req("path", Kind::String, "Path to a .ryolune file."),
     ]),
-    edit("session.save", "Save the session as a .ondera file. Writes atomically; the old file survives a failed save.", &[
+    edit("session.save", "Save the session as a .ryolune file. Writes atomically; the old file survives a failed save.", &[
         opt("path", Kind::String, "Destination file. Defaults to the file the session was opened from."),
     ]),
     edit("session.rename", "Set the session name shown in the title bar and used for exports. One undo step.", &[req("name", Kind::String, "New session name.")]),
@@ -165,7 +165,7 @@ pub const BASE_COMMANDS: &[Spec] = &[
         opt("trackId", Kind::String, "Audio track to place the clip on. Defaults to the selected audio track, or a new one."),
         opt("startBar", Kind::Number, "Bar to place the clip at. Defaults to the playhead."),
     ]),
-    edit("transport.play", "Start playback from the playhead. Needs the Ondera app (live mode).", &[]),
+    edit("transport.play", "Start playback from the playhead. Needs the ryolune app (live mode).", &[]),
     edit("transport.record", "Record armed audio and MIDI tracks in the running app. Disable cycle before recording.", &[]),
     edit("transport.stop", "Stop playback and recording, like the Stop button.", &[]),
     edit("transport.locate", "Move the playhead. Give one of bar, beats or markerId.", &[
@@ -419,7 +419,7 @@ pub trait Host {
     }
     fn play(&mut self) -> Result<()>;
     fn record(&mut self) -> Result<()> {
-        Err("Recording needs the Ondera app in live mode.".into())
+        Err("Recording needs the ryolune app in live mode.".into())
     }
     fn recording(&self) -> bool {
         false
@@ -453,7 +453,7 @@ pub trait Host {
     /// perform (`ui.*`, `audio.*`, `app.*`, `agent.*`, snapshot restore).
     fn live(&mut self, action: &str, _params: &Value) -> Result<Value> {
         Err(format!(
-            "{action} needs the running Ondera app: start `ondera` and use live mode."
+            "{action} needs the running ryolune app: start `ryolune` and use live mode."
         ))
     }
     /// The view as the interface shows it: zoom in pixels per bar and the first visible bar.
@@ -578,7 +578,10 @@ impl Host for Headless {
         self.position
     }
     fn play(&mut self) -> Result<()> {
-        Err("Playback needs the Ondera app: start `ondera`, or render with session.bounce.".into())
+        Err(
+            "Playback needs the ryolune app: start `ryolune`, or render with session.bounce."
+                .into(),
+        )
     }
     fn stop(&mut self) -> Result<()> {
         Ok(())
@@ -1877,7 +1880,7 @@ fn add_loop(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
             loop_names(&patterns).join(", ")
         )
     })?;
-    let instrument = pattern["instrument"].as_str().unwrap_or("Ondera Synth");
+    let instrument = pattern["instrument"].as_str().unwrap_or("ryolune Synth");
     let s = host.store().session();
     let track = match a.opt_str("trackId") {
         Some(t) => {

@@ -64,7 +64,7 @@ was installed and used for the visual review. Provider SVGs are local assets fro
 - Workspace debug build passes. Rust tests cover malformed/truncated streams, rejected partial
   tool requests, interleaved activity, bidirectional JSON-RPC ID collisions, atomic plugin edits, save/reopen/Undo of takes, MIDI
   transformation invariants and exhaustive Euclidean pulse counts/spacing.
-- Dedicated `/tmp/Ondera QA.app` and private data/settings/control directory isolate live tests
+- Dedicated `/tmp/ryolune QA.app` and private data/settings/control directory isolate live tests
   from the installed application and the user's project.
 - Real Codex account: discovered five available models and their reasoning levels. Actual
   no-tool French reply sampled 85 times: 48 distinct positive text lengths (24 to 1,708

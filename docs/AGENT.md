@@ -1,7 +1,7 @@
-# The Ondera agent
+# The ryolune agent
 
-Ondera can be driven four ways: the window, `ondera-cli`, `ondera-mcp` and the built-in
-agent panel. All four call the same command registry (`ondera-cli commands` lists it), so an
+ryolune can be driven four ways: the window, `ryolune-cli`, `ryolune-mcp` and the built-in
+agent panel. All four call the same command registry (`ryolune-cli commands` lists it), so an
 agent's edits are ordinary undo steps, appear in the Activity log with an Undo button, and are
 marked in the arrangement with the accent colour.
 
@@ -10,11 +10,11 @@ marked in the arrangement with the accent colour.
 Open the Agent panel and choose **Set up agent**, or use its settings button. Both open
 **Settings > Agent** directly. Choose an AI service; only the fields for that service appear.
 
-- **Codex / Claude Code:** Ondera looks for the installed companion and checks its sign-in.
+- **Codex / Claude Code:** ryolune looks for the installed companion and checks its sign-in.
   If it is missing or outdated, use the installation help, install/update it, and choose
   **Check connection**. If it is installed but signed out, choose **Sign in**, finish in your
-  browser, and return to Ondera. Existing CLI credentials stay with the provider. Fresh
-  companion installation is still a separate step; Ondera does not install vendor software.
+  browser, and return to ryolune. Existing CLI credentials stay with the provider. Fresh
+  companion installation is still a separate step; ryolune does not install vendor software.
 - **Anthropic / OpenAI API:** paste a key and choose **Save connection**. These APIs have
   their own billing, separate from a chat subscription. Stored keys are never prefilled in the
   input; entering a replacement or removing a key is explicit.
@@ -48,7 +48,7 @@ Settings > Agent chooses how the agent thinks:
 | OpenAI API | API key in Settings or `OPENAI_API_KEY` | `api.openai.com` directly |
 | OpenAI-compatible | base URL and optional key | your server (Ollama, LM Studio, OpenRouter…) |
 
-The CLI providers run in their own process group and receive this window's Ondera tools.
+The CLI providers run in their own process group and receive this window's ryolune tools.
 Codex streams through app-server dynamic tools; Claude Code uses the local MCP bridge.
 Personal shell tools, hooks and unrelated integrations are excluded from these music sessions. The API providers
 stream replies and tool calls directly; keys live in `settings.json` (mode 0600) and are shown
@@ -56,7 +56,7 @@ masked everywhere, including `settings.get`.
 
 ## Permissions
 
-Settings > Agent > Permissions gates what any agent (the panel, MCP clients, `ondera-cli
+Settings > Agent > Permissions gates what any agent (the panel, MCP clients, `ryolune-cli
 --agent`) may do: file operations, transport, replacing the session, changing settings and
 application control. Plain document edits are always allowed and always undoable.
 
@@ -101,5 +101,5 @@ state, presets and native editor exposed by the host; it cannot guarantee every 
 ## From the outside
 
 `agent.send`, `agent.stop`, `agent.status`, `agent.transcript`, `agent.providers` and
-`agent.clear` and `agent.configure` drive the panel from `ondera-cli` or MCP. `ui.screenshot` returns a PNG of the
+`agent.clear` and `agent.configure` drive the panel from `ryolune-cli` or MCP. `ui.screenshot` returns a PNG of the
 window so a model can see it; `ui.showPanel`, `view.set` and `ui.status` complete the picture.

@@ -1,8 +1,8 @@
 {
-  "name": "ondera-site",
+  "name": "ryolune-site",
   "private": true,
   "version": "0.1.0",
-  "description": "Marketing site for Ondera. Static files served by a dependency-free Node server.",
+  "description": "Marketing site for ryolune. Static files served by a dependency-free Node server.",
   "type": "module",
   "engines": {
     "node": ">=22"

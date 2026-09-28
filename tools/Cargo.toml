@@ -1,24 +1,24 @@
 [package]
-name = "ondera-tools"
+name = "ryolune-tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Ondera command-line client and MCP server"
+description = "ryolune command-line client and MCP server"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "ondera-cli"
-path = "src/bin/ondera-cli.rs"
+name = "ryolune-cli"
+path = "src/bin/ryolune-cli.rs"
 
 [[bin]]
-name = "ondera-mcp"
-path = "src/bin/ondera-mcp.rs"
+name = "ryolune-mcp"
+path = "src/bin/ryolune-mcp.rs"
 
 [dependencies]
-ondera-engine = { path = "../engine" }
+ryolune-engine = { path = "../engine" }
 serde_json.workspace = true
 
 [dev-dependencies]

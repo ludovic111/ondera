@@ -1,7 +1,7 @@
 //! Where a track's MIDI events go: controllers, bend and pressure reach the instrument and
 //! every insert that takes events (native ABI 2, CLAP note ports, VST3 event buses, AU music
 //! effects), chase and rest included; stock and ABI 1 effects hear nothing.
-use ondera_engine::{
+use ryolune_engine::{
     audio::Library,
     host::native,
     model::{Clip, ClipData, Controller, ControllerKind, Insert, Note, Session, Strip},
@@ -9,7 +9,7 @@ use ondera_engine::{
     render::Renderer,
     stock, store,
 };
-use ondera_plugin::{ffi, prelude::*};
+use ryolune_plugin::{ffi, prelude::*};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -235,7 +235,7 @@ static EFFECT_HEARD: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 static EFFECT_NOTES: Mutex<Vec<NoteEvent>> = Mutex::new(Vec::new());
 struct EffectListener;
 impl Plugin for EffectListener {
-    const INFO: Info = Info::effect("org.ondera.tests.fx", "Fx Listener", "Tests", "Utility");
+    const INFO: Info = Info::effect("org.ryolune.tests.fx", "Fx Listener", "Tests", "Utility");
     fn params() -> Vec<ParamSpec> {
         vec![]
     }
@@ -263,7 +263,7 @@ static EFFECT_V1: ffi::PluginVTable = ffi::vtable::<EffectListener>();
 fn native_abi_2_effects_take_events_and_abi_1_and_stock_effects_do_not() {
     let manifest = ffi::Manifest::of::<EffectListener>();
     let descriptor = Descriptor {
-        id: "native:org.ondera.tests.fx".into(),
+        id: "native:org.ryolune.tests.fx".into(),
         format: Format::Native,
         name: "Fx Listener".into(),
         vendor: "Tests".into(),
@@ -288,7 +288,7 @@ fn native_abi_2_effects_take_events_and_abi_1_and_stock_effects_do_not() {
     let mut audio = [[0.0f32; 2]; 64];
     rack.process(0, &mut audio, &events, &ProcessContext::default());
     assert_eq!(*EFFECT_HEARD.lock().unwrap(), events);
-    for name in ondera_engine::dsp::EFFECTS {
+    for name in ryolune_engine::dsp::EFFECTS {
         let mut instance = stock::create(name, 48000).unwrap();
         assert!(
             !instance.processor.take().unwrap().accepts_events(),
@@ -423,7 +423,7 @@ fn notes_and_controllers_keep_their_channel_through_playback_chase_rest_and_live
     renderer.stop();
     renderer.render(&mut rack, &mut block);
     instrument.lock().unwrap().clear();
-    let route = ondera_engine::midi::route_id(&s.tracks[0].id);
+    let route = ryolune_engine::midi::route_id(&s.tracks[0].id);
     renderer.routed_note(route, true, 72, 90, 9);
     renderer.routed_control(route, Event::pitch_bend(0, -1.0).on_channel(9));
     renderer.render(&mut rack, &mut block);
@@ -477,7 +477,7 @@ fn channels_are_absent_from_the_file_on_channel_0_and_kept_otherwise() {
     assert_eq!((notes[0].channel, notes[1].channel), (0, 15));
     assert_eq!((controllers[0].channel, controllers[1].channel), (0, 2));
     assert_eq!(
-        ondera_engine::controllers::lanes(controllers).len(),
+        ryolune_engine::controllers::lanes(controllers).len(),
         2,
         "The same controller on two channels is two lanes"
     );
@@ -503,7 +503,7 @@ fn a_take_records_each_channel_as_its_own_lane() {
         (1.0, Event::control(0, 1, 70).on_channel(4)),
         (2.0, Event::pitch_bend(0, 0.5).on_channel(4)),
     ];
-    let points = ondera_engine::controllers::recorded(&events, 0.0, false, || "p".into());
+    let points = ryolune_engine::controllers::recorded(&events, 0.0, false, || "p".into());
     let summary: Vec<_> = points
         .iter()
         .map(|p| (p.channel, p.kind, p.number, p.time, p.value))
@@ -534,11 +534,11 @@ fn standard_midi_files_keep_a_note_s_own_channel() {
     }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("channel.mid");
-    ondera_engine::midi_file::export(&s, &path, None).unwrap();
-    let (command, _) = ondera_engine::midi_file::import(
+    ryolune_engine::midi_file::export(&s, &path, None).unwrap();
+    let (command, _) = ryolune_engine::midi_file::import(
         &path,
         &store::empty(),
-        &ondera_engine::midi_file::ImportOptions::default(),
+        &ryolune_engine::midi_file::ImportOptions::default(),
         false,
     )
     .unwrap();
@@ -567,7 +567,7 @@ fn polyphonic_pressure_is_recorded_saved_apart_and_played_on_its_key_and_channel
         (0.25, Event::poly_pressure(0, 60, 10).on_channel(1)),
         (0.5, Event::poly_pressure(0, 60, 90).on_channel(1)),
     ];
-    let points = ondera_engine::controllers::recorded(&events, 0.0, false, || "p".into());
+    let points = ryolune_engine::controllers::recorded(&events, 0.0, false, || "p".into());
     let summary: Vec<_> = points
         .iter()
         .map(|p| (p.kind, p.number, p.channel, p.time, p.value))
@@ -605,7 +605,7 @@ fn polyphonic_pressure_is_recorded_saved_apart_and_played_on_its_key_and_channel
         json["clips"],
         "Round trip"
     );
-    // An older Ondera's clip reader: the same shape without polyPressure still loads.
+    // An older ryolune's clip reader: the same shape without polyPressure still loads.
     #[derive(serde::Deserialize)]
     #[allow(dead_code)]
     struct OlderMidi {
@@ -674,12 +674,12 @@ fn polyphonic_pressure_travels_through_standard_midi_files() {
     s.validate().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("poly.mid");
-    let report = ondera_engine::midi_file::export(&s, &path, None).unwrap();
+    let report = ryolune_engine::midi_file::export(&s, &path, None).unwrap();
     assert_eq!(report.controller_count, 1, "Poly pressure is not rested");
-    let (command, _) = ondera_engine::midi_file::import(
+    let (command, _) = ryolune_engine::midi_file::import(
         &path,
         &store::empty(),
-        &ondera_engine::midi_file::ImportOptions::default(),
+        &ryolune_engine::midi_file::ImportOptions::default(),
         false,
     )
     .unwrap();

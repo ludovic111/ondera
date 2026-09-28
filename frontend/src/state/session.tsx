@@ -5,7 +5,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { Command, Session, SessionStore } from "@ondera/core";
+import type { Command, Session, SessionStore } from "@ryolune/core";
 
 const StoreContext = createContext<SessionStore | null>(null);
 

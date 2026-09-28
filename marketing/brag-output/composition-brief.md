@@ -1,7 +1,7 @@
-# Hyperframes Composition Brief: Ondera
+# Hyperframes Composition Brief: ryolune
 
 ## Objective
-Create a short launch-style brag video for Ondera 0.10.
+Create a short launch-style brag video for ryolune 0.10.
 
 ## Output
 - Composition directory: `marketing/brag-output/composition/`
@@ -10,16 +10,16 @@ Create a short launch-style brag video for Ondera 0.10.
 - Duration: 22.5 seconds
 
 ## Source Material
-- Project root: the Ondera repository
+- Project root: the ryolune repository
 - Primary files read: `site/index.html`, `site/tokens.css`, `site/styles.css`, `README.md`, `frontend/src/dev/mockHost.ts`, `frontend/src/state/native.ts`, `CLAUDE.md`
-- Product name: Ondera
+- Product name: ryolune
 - Tagline / strongest claim: "Finish the song. Hand the busywork to an agent." / "Every edit it makes is one undo away."
-- Key UI moment: the real window, recorded frame by frame from the frontend (`work/record.mjs`) into `assets/footage/`: `composer.mp4` (the agent composer at 4x), `session.mp4` (typing → agent steps → teal notes land → ⌘Z at 9.4s), `mixer.mp4`, `plugin.mp4` (Ondera Comp), `themes.mp4` (six themes switch on 16.52, 17.02, 17.52, 18.02, 18.52 composition time). Each file starts at its composition start time; the window is 1600 × 1000 CSS px.
+- Key UI moment: the real window, recorded frame by frame from the frontend (`work/record.mjs`) into `assets/footage/`: `composer.mp4` (the agent composer at 4x), `session.mp4` (typing → agent steps → teal notes land → ⌘Z at 9.4s), `mixer.mp4`, `plugin.mp4` (ryolune Comp), `themes.mp4` (six themes switch on 16.52, 17.02, 17.52, 18.02, 18.52 composition time). Each file starts at its composition start time; the window is 1600 × 1000 CSS px.
 - Copy that must appear verbatim:
   - "A free DAW you can finish songs in."
   - "Every edit is one ⌘Z away." (site: "every edit it makes is one undo away")
   - "34 stock plugins" and "VST3, CLAP and AU"
-  - github.com/ludovic111/ondera
+  - github.com/ludovic111/ryolune
 
 ## Creative Direction
 - Tone preset: default
@@ -40,7 +40,7 @@ Create a short launch-style brag video for Ondera 0.10.
 1. Hook — 0–3.2s — composer close-up types the request; "Your DAW takes requests now."
 2. Agent works — 3.2–8.2s — zoom-out to the live window; steps tick in; teal notes land. "It does the busywork."
 3. Undo — 8.2–11.2s — Chords region and piano roll; ⌘Z at 9.4s. "Every edit is one ⌘Z away."
-4. Real DAW — 11.2–16.0s — mixer, then Ondera Comp. "A real mixer." / "34 stock plugins. Plus yours."
+4. Real DAW — 11.2–16.0s — mixer, then ryolune Comp. "A real mixer." / "34 stock plugins. Plus yours."
 5. Themes — 16.0–19.2s — themes switch on the beat. "Six themes."
 6. Outro — 19.2–22.5s — lockup on 20.02s, tagline, chips, URL.
 

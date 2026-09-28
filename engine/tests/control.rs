@@ -1,4 +1,4 @@
-use ondera_engine::control::{self, wire, Headless, Host, COMMANDS};
+use ryolune_engine::control::{self, wire, Headless, Host, COMMANDS};
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
@@ -187,8 +187,8 @@ fn every_registered_command_is_implemented() {
 #[test]
 fn parity_commands_cover_view_regions_tracks_inserts_presets_and_settings() {
     let dir = tempfile::tempdir().unwrap();
-    std::env::set_var("ONDERA_DATA_DIR", dir.path());
-    std::env::set_var("ONDERA_SETTINGS", dir.path().join("settings.json"));
+    std::env::set_var("RYOLUNE_DATA_DIR", dir.path());
+    std::env::set_var("RYOLUNE_SETTINGS", dir.path().join("settings.json"));
     let mut host = Headless::new();
     let track = call(&mut host, "track.add", json!({"kind":"midi","name":"Keys"}))["id"].clone();
     let clip = call(
@@ -352,15 +352,15 @@ fn parity_commands_cover_view_regions_tracks_inserts_presets_and_settings() {
     let devices = call(&mut host, "audio.devices", json!({}));
     assert!(devices["outputs"].is_array());
     let err = fail(&mut host, "ui.screenshot", json!({}));
-    assert!(err.contains("needs the running Ondera app"), "{err}");
+    assert!(err.contains("needs the running ryolune app"), "{err}");
     assert!(fail(&mut host, "agent.send", json!({"prompt":"hi"})).contains("live mode"));
-    std::env::remove_var("ONDERA_SETTINGS");
-    std::env::remove_var("ONDERA_DATA_DIR");
+    std::env::remove_var("RYOLUNE_SETTINGS");
+    std::env::remove_var("RYOLUNE_DATA_DIR");
 }
 
 #[test]
 fn agent_permissions_gate_dangerous_commands() {
-    use ondera_engine::{control_app, settings::Permissions};
+    use ryolune_engine::{control_app, settings::Permissions};
     let strict = Permissions {
         file_operations: false,
         transport: false,
@@ -559,7 +559,7 @@ fn headless_host_builds_a_song_with_one_history() {
 #[test]
 fn file_mode_round_trips_audio_and_renders() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let mix = dir.path().join("mix.wav");
     let mut host = Headless::new();
     call(&mut host, "transport.setTempo", json!({ "bpm": 124 }));
@@ -754,13 +754,13 @@ fn plugin_routing_parameters_state_and_master_round_trip() {
     call(
         &mut host,
         "strip.setInstrument",
-        json!({"trackId":track,"instrument":"Ondera Synth"}),
+        json!({"trackId":track,"instrument":"ryolune Synth"}),
     );
     assert!(host.store.session().strips[track.as_str().unwrap()]
         .synth
         .is_none());
-    let mut instance = ondera_engine::host::instantiate("stock:Space", "Space", 48000).unwrap();
-    let blob = ondera_engine::host::encode_blob(&instance.editor.save().unwrap());
+    let mut instance = ryolune_engine::host::instantiate("stock:Space", "Space", 48000).unwrap();
+    let blob = ryolune_engine::host::encode_blob(&instance.editor.save().unwrap());
     call(
         &mut host,
         "strip.setState",
@@ -924,11 +924,11 @@ fn monitoring_is_a_track_setting_that_saves_undoes_and_stays_out_of_old_files() 
         json!({"trackId":audio,"monitor":"auto"}),
     );
     let text = serde_json::to_string(host.store().session()).unwrap();
-    let reloaded: ondera_engine::model::Session = serde_json::from_str(&text).unwrap();
+    let reloaded: ryolune_engine::model::Session = serde_json::from_str(&text).unwrap();
     let id = audio.as_str().unwrap();
     assert_eq!(
         reloaded.tracks.iter().find(|t| t.id == id).unwrap().monitor,
-        ondera_engine::model::Monitor::Auto
+        ryolune_engine::model::Monitor::Auto
     );
     call(&mut host, "history.undo", json!({}));
     assert_eq!(monitor_of(&mut host, &audio), "off");
@@ -1227,7 +1227,7 @@ fn controller_points_are_edited_like_notes_and_follow_every_clip_edit() {
 
     // The file carries them and reads them back.
     let text = serde_json::to_string(host.store().session()).unwrap();
-    let reloaded: ondera_engine::model::Session = serde_json::from_str(&text).unwrap();
+    let reloaded: ryolune_engine::model::Session = serde_json::from_str(&text).unwrap();
     assert_eq!(
         serde_json::to_value(&reloaded).unwrap()["clips"],
         serde_json::to_value(host.store().session()).unwrap()["clips"]

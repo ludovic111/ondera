@@ -6,7 +6,7 @@ import {
   type Clip,
   type Session,
   type SessionStore,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { newId } from "./ids";
 import type { Shortcut } from "./shortcuts";
 

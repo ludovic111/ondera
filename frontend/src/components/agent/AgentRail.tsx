@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { commands } from "@ondera/core";
+import { commands } from "@ryolune/core";
 import { useDispatch, useStore } from "../../state/session";
 import styles from "./AgentRail.module.css";
 

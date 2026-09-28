@@ -174,7 +174,7 @@ pub fn decode(data: Vec<u8>, extension: Option<&str>) -> Result<AudioBuffer> {
         )
         .map_err(|e| match e {
             Error::Unsupported(_) => {
-                "Not an audio file Ondera can read (WAV, AIFF, FLAC, MP3, Ogg, AAC/M4A, CAF)"
+                "Not an audio file ryolune can read (WAV, AIFF, FLAC, MP3, Ogg, AAC/M4A, CAF)"
                     .to_string()
             }
             other => other.to_string(),
@@ -423,7 +423,7 @@ mod decode_tests {
     fn a_file_that_is_not_audio_says_so_plainly() {
         let error = decode(b"just some text, not audio".to_vec(), Some("wav")).unwrap_err();
         assert!(
-            error.starts_with("Not an audio file Ondera can read"),
+            error.starts_with("Not an audio file ryolune can read"),
             "{error}"
         );
     }

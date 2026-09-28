@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { TRACK_PALETTE } from "@ondera/core";
+import { TRACK_PALETTE } from "@ryolune/core";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import {
   normalizeTheme,

@@ -198,7 +198,7 @@ pub struct MidiInput {
     pub disconnected: bool,
 }
 pub fn ports() -> Vec<String> {
-    let Ok(input) = Port::new("Ondera") else {
+    let Ok(input) = Port::new("ryolune") else {
         return vec![];
     };
     input
@@ -215,7 +215,7 @@ pub fn connect(
     sender: Sender,
     route: Arc<AtomicUsize>,
 ) -> Result<MidiInput> {
-    let mut input = Port::new("Ondera").map_err(|e| e.to_string())?;
+    let mut input = Port::new("ryolune").map_err(|e| e.to_string())?;
     input.ignore(midir::Ignore::All);
     let ports = input.ports();
     let chosen = match port {
@@ -237,7 +237,7 @@ pub fn connect(
     let connection = input
         .connect(
             &chosen,
-            "ondera-in",
+            "ryolune-in",
             move |_, bytes, _| {
                 // Channel pressure is the one two-byte message played and recorded.
                 if bytes.len() < 2 || callback_failed.load(Ordering::Relaxed) {

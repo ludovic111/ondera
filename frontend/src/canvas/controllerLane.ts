@@ -4,7 +4,7 @@ import {
   type Controller,
   type ControllerKind,
   type Session,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { color, fill, line, size } from "../theme/tokens";
 import { withLightness } from "../theme/color";
 import { cc, hline, monoFont } from "./paint";

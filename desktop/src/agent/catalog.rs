@@ -1,6 +1,6 @@
 //! Model discovery uses the connected account/server. No inference request is sent.
 use super::{bounded, cli, read_line_limited};
-use ondera_engine::{
+use ryolune_engine::{
     settings::{Provider, Settings},
     Result,
 };
@@ -282,7 +282,7 @@ fn cli_models(settings: &Settings, provider: Provider) -> Result<Vec<Model>> {
             send(
                 &mut input,
                 if codex {
-                    json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"ondera","version":env!("CARGO_PKG_VERSION")}}})
+                    json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"ryolune","version":env!("CARGO_PKG_VERSION")}}})
                 } else {
                     json!({"type":"control_request","request_id":"models","request":{"subtype":"initialize"}})
                 },

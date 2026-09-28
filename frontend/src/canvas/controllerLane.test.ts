@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Clip, Controller } from "@ondera/core";
+import type { Clip, Controller } from "@ryolune/core";
 import {
   hitPoint,
   laneOf,

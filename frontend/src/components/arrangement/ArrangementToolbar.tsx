@@ -4,7 +4,7 @@ import {
   ZOOM_MAX_PX_PER_BAR,
   ZOOM_MIN_PX_PER_BAR,
   type ArrangeTool,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useDispatch, useSession } from "../../state/session";
 import { SegmentedControl } from "../primitives/SegmentedControl";
 import { PencilIcon, PointerIcon, ScissorsIcon } from "../primitives/Icons";

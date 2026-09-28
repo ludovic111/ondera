@@ -1,12 +1,12 @@
-//! Ondera native plugin SDK.
+//! ryolune native plugin SDK.
 //!
-//! An Ondera plugin is a plain Rust type that implements [`Plugin`]: it declares an
+//! A ryolune plugin is a plain Rust type that implements [`Plugin`]: it declares an
 //! [`Info`] block, a list of [`ParamSpec`]s, and renders stereo audio in `process`. The
-//! same type can be linked statically (Ondera's own stock library does this) or built as a
-//! dynamic library that Ondera loads at runtime through the C ABI in [`ffi`]:
+//! same type can be linked statically (ryolune's own stock library does this) or built as a
+//! dynamic library that ryolune loads at runtime through the C ABI in [`ffi`]:
 //!
 //! ```ignore
-//! use ondera_plugin::{prelude::*, export_plugins};
+//! use ryolune_plugin::{prelude::*, export_plugins};
 //!
 //! struct Gain { gain: f32 }
 //! impl Plugin for Gain {
@@ -23,8 +23,8 @@
 //! export_plugins!(Gain);
 //! ```
 //!
-//! Build it as a `cdylib`, drop the library into an Ondera plugin directory and rescan.
-//! Parameters are document state in Ondera: they undo, save and automate without any work
+//! Build it as a `cdylib`, drop the library into a ryolune plugin directory and rescan.
+//! Parameters are document state in ryolune: they undo, save and automate without any work
 //! on the plugin side. `process` runs on the audio thread and must not allocate, block or log.
 //!
 //! A plugin that panics is contained: the host stops calling it, an effect passes audio
@@ -39,7 +39,7 @@ pub mod testing;
 pub use plugin::*;
 
 /// The newest ABI this SDK speaks and [`export_plugins!`] exports, behind
-/// [`ENTRY_SYMBOL_V2`]. Ondera refuses versions it does not know instead of guessing at
+/// [`ENTRY_SYMBOL_V2`]. ryolune refuses versions it does not know instead of guessing at
 /// their layout.
 pub const ABI_VERSION: u32 = 2;
 /// The first ABI, still exported beside the newest so older hosts load newer plugins, and
@@ -47,10 +47,16 @@ pub const ABI_VERSION: u32 = 2;
 pub const BASE_ABI_VERSION: u32 = 1;
 /// Largest block handed to `process`. Hosts split longer buffers.
 pub const MAX_BLOCK: usize = 256;
-/// The symbol Ondera looks up in a plugin library.
-pub const ENTRY_SYMBOL: &str = "ondera_plugin_entry";
+/// The symbol ryolune looks up in a plugin library.
+pub const ENTRY_SYMBOL: &str = "ryolune_plugin_entry";
 /// The ABI 2 entry. A host looks for it first and falls back to [`ENTRY_SYMBOL`].
-pub const ENTRY_SYMBOL_V2: &str = "ondera_plugin_entry_v2";
+pub const ENTRY_SYMBOL_V2: &str = "ryolune_plugin_entry_v2";
+/// [`ENTRY_SYMBOL`] under the project's former name, Ondera. Libraries export both names and
+/// hosts accept both, so plugins built before the rename keep loading and new ones still load
+/// in older hosts.
+pub const LEGACY_ENTRY_SYMBOL: &str = "ondera_plugin_entry";
+/// [`ENTRY_SYMBOL_V2`] under the former name.
+pub const LEGACY_ENTRY_SYMBOL_V2: &str = "ondera_plugin_entry_v2";
 
 /// Everything a plugin usually needs.
 pub mod prelude {
@@ -78,12 +84,12 @@ macro_rules! plugin_table {
     };
 }
 
-/// Export the listed plugin types from a `cdylib` under the symbol Ondera scans for.
+/// Export the listed plugin types from a `cdylib` under the symbol ryolune scans for.
 #[macro_export]
 macro_rules! export_plugins {
     ($($plugin:ty),+ $(,)?) => {
         #[doc(hidden)]
-        pub mod __ondera_export {
+        pub mod __ryolune_export {
             use super::*;
             pub static TABLES: [$crate::ffi::PluginVTable; $crate::count!($($plugin),+)] =
                 $crate::plugin_table!($($plugin),+);
@@ -112,12 +118,21 @@ macro_rules! export_plugins {
         }
         /// ABI 1, for hosts that predate ABI 2.
         #[no_mangle]
+        pub extern "C" fn ryolune_plugin_entry() -> *const $crate::ffi::Entry {
+            &__ryolune_export::ENTRY
+        }
+        #[no_mangle]
+        pub extern "C" fn ryolune_plugin_entry_v2() -> *const $crate::ffi::Entry2 {
+            &__ryolune_export::ENTRY_V2
+        }
+        /// The same entries under the former name, for hosts released before the rename.
+        #[no_mangle]
         pub extern "C" fn ondera_plugin_entry() -> *const $crate::ffi::Entry {
-            &__ondera_export::ENTRY
+            &__ryolune_export::ENTRY
         }
         #[no_mangle]
         pub extern "C" fn ondera_plugin_entry_v2() -> *const $crate::ffi::Entry2 {
-            &__ondera_export::ENTRY_V2
+            &__ryolune_export::ENTRY_V2
         }
     };
 }

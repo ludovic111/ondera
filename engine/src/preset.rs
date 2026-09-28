@@ -20,7 +20,7 @@ pub struct PluginPreset {
     /// Base64 plugin state, for plugins whose sound is not fully described by parameters.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub blob: String,
-    /// Shipped with Ondera; cannot be deleted or overwritten.
+    /// Shipped with ryolune; cannot be deleted or overwritten.
     #[serde(default)]
     pub factory: bool,
 }
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn presets_round_trip_and_factory_presets_are_protected() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("ONDERA_DATA_DIR", dir.path());
+        std::env::set_var("RYOLUNE_DATA_DIR", dir.path());
         let factory_count = list(Some("stock:Space")).unwrap().len();
         assert!(factory_count >= 2);
         let preset = PluginPreset {
@@ -251,6 +251,6 @@ mod tests {
             ..preset.clone()
         })
         .is_err());
-        std::env::remove_var("ONDERA_DATA_DIR");
+        std::env::remove_var("RYOLUNE_DATA_DIR");
     }
 }

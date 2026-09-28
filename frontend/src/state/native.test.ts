@@ -164,7 +164,7 @@ describe("Rust document ownership", () => {
     const ui = { ...store.ui, palette: false };
     store.receiveUi(ui);
     expect(store.getOverlays().palette).toBe(false);
-    // ondera-cli ui.showPanel panel=palette
+    // ryolune-cli ui.showPanel panel=palette
     store.receiveUi({ ...ui, palette: true });
     expect(store.getOverlays().palette).toBe(true);
     // An unrelated update that still carries the old value does not close what was just opened.

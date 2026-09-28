@@ -1,4 +1,4 @@
-use ondera_engine::{
+use ryolune_engine::{
     audio::{AudioBuffer, Library},
     automation::{AutomationLane, AutomationPoint, AutomationTarget, Interpolation},
     control::{self, Headless},
@@ -10,7 +10,7 @@ use ondera_engine::{
 };
 use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
-fn fixture() -> (ondera_engine::model::Session, Library) {
+fn fixture() -> (ryolune_engine::model::Session, Library) {
     let mut session = store::empty();
     session.tracks.truncate(1);
     session.tracks[0].kind = "audio".into();
@@ -95,7 +95,7 @@ fn linear_volume_and_pan_automation_change_samples_without_changing_the_manual_f
     session.automation.push(pan);
     let renderer = Renderer::new(session.clone(), &library, 48000, &HashMap::new()).unwrap();
     let audio = samples(renderer, Rack::new(1), 2600);
-    let gain = ondera_engine::model::fader_gain(0.375);
+    let gain = ryolune_engine::model::fader_gain(0.375);
     assert!((audio[1200][0] - 0.2 * gain).abs() < 1e-5);
     assert!((audio[1200][0] - audio[1200][1]).abs() < 1e-5);
     assert!(audio[2450][0].abs() < 1e-6);
@@ -144,13 +144,13 @@ fn delayed_audio_keeps_the_previous_cycles_automation_until_its_audio_crosses_th
         frames: [[f32; 2]; 64],
         position: usize,
     }
-    impl ondera_engine::plugin::Processor for Delay {
+    impl ryolune_engine::plugin::Processor for Delay {
         fn process(
             &mut self,
             audio: &mut [[f32; 2]],
-            _: &[ondera_engine::plugin::Event],
-            _: &[ondera_engine::plugin::ParamChange],
-            _: &ondera_engine::plugin::ProcessContext,
+            _: &[ryolune_engine::plugin::Event],
+            _: &[ryolune_engine::plugin::ParamChange],
+            _: &ryolune_engine::plugin::ProcessContext,
         ) {
             for frame in audio {
                 std::mem::swap(frame, &mut self.frames[self.position]);
@@ -291,7 +291,7 @@ fn lane_points_are_transactional_persistent_and_deleted_with_their_track() {
     store.dispatch(Command::Redo).unwrap();
     assert_eq!(store.session().automation[0], lane);
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("automation.ondera");
+    let path = directory.path().join("automation.ryolune");
     document::save(store.session(), &library, &path).unwrap();
     let (loaded, _) = document::load(&path).unwrap();
     assert_eq!(loaded.automation, vec![lane.clone()]);
@@ -441,7 +441,7 @@ fn linear_step_and_range_tail_hold_have_defined_endpoint_behavior() {
     assert_eq!(automation.value_at(2.0), Some(0.2));
     automation.interpolation = Interpolation::Linear;
     session.automation.push(automation);
-    ondera_engine::automation::hold_after(&mut session, 2.0);
+    ryolune_engine::automation::hold_after(&mut session, 2.0);
     assert!((session.automation[0].value_at(5.0).unwrap() - 0.5).abs() < 1e-12);
 }
 
@@ -450,13 +450,13 @@ struct Changes {
     timed: bool,
     seen: Arc<std::sync::Mutex<Vec<(i64, f64)>>>,
 }
-impl ondera_engine::plugin::Processor for Changes {
+impl ryolune_engine::plugin::Processor for Changes {
     fn process(
         &mut self,
         _: &mut [[f32; 2]],
-        _: &[ondera_engine::plugin::Event],
-        params: &[ondera_engine::plugin::ParamChange],
-        ctx: &ondera_engine::plugin::ProcessContext,
+        _: &[ryolune_engine::plugin::Event],
+        params: &[ryolune_engine::plugin::ParamChange],
+        ctx: &ryolune_engine::plugin::ProcessContext,
     ) {
         let mut seen = self.seen.lock().unwrap();
         for change in params {

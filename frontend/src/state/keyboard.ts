@@ -9,7 +9,7 @@ import {
   openSession,
   saveSession,
 } from "./document";
-import type { SessionStore } from "@ondera/core";
+import type { SessionStore } from "@ryolune/core";
 
 /** File operations are not commands (they talk to the host), so they get their own table. */
 const FILE_SHORTCUTS: {

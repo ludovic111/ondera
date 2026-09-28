@@ -1,9 +1,9 @@
 //! Native audio export and MIDI file settings. File choosers run on workers;
 //! file operations use the same asynchronous registry path as CLI and MCP.
 
-use crate::{app::Ondera, theme::*};
+use crate::{app::Ryolune, theme::*};
 use eframe::egui::{self, vec2};
-use ondera_engine::{model::Session, Result};
+use ryolune_engine::{model::Session, Result};
 use serde_json::{json, Value};
 use std::{collections::BTreeSet, path::PathBuf, sync::mpsc};
 
@@ -99,7 +99,7 @@ impl ExportDialog {
             1.0
         };
         self.end_bar = session.end_bar().max(1.0) + 1.0;
-        self.folder_name = format!("{} stems", session.name.trim_end_matches(".ondera"));
+        self.folder_name = format!("{} stems", session.name.trim_end_matches(".ryolune"));
         self.tracks = session
             .tracks
             .iter()
@@ -204,7 +204,7 @@ impl ExportDialog {
         let mode = self.mode;
         let stems = mode == Mode::Audio && self.stems;
         let folder = self.folder_name.trim().to_string();
-        let name = session.name.trim_end_matches(".ondera").to_string();
+        let name = session.name.trim_end_matches(".ryolune").to_string();
         let (tx, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let path = match mode {
@@ -421,7 +421,7 @@ impl ExportDialog {
     }
 }
 
-impl Ondera {
+impl Ryolune {
     pub(crate) fn open_export_dialog(&mut self) {
         self.export
             .show(Mode::Audio, self.store.session(), self.position);
@@ -534,7 +534,7 @@ fn report(method: &str, value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ondera_engine::store;
+    use ryolune_engine::store;
 
     #[test]
     fn musical_bar_range_maps_to_shared_export_parameters() {

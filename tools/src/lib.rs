@@ -1,7 +1,7 @@
-//! Shared plumbing for `ondera-cli` and `ondera-mcp`: run registry commands either inside the
-//! running Ondera window (live) or on a `.ondera` file in this process (headless).
+//! Shared plumbing for `ryolune-cli` and `ryolune-mcp`: run registry commands either inside the
+//! running ryolune window (live) or on a `.ryolune` file in this process (headless).
 
-use ondera_engine::{
+use ryolune_engine::{
     control::{self, wire::Client, Headless, Host},
     session_file::SessionFileLock,
     Result,
@@ -218,9 +218,9 @@ pub fn parse_batch_line(line: &str) -> Result<(String, Value)> {
     Ok((name, params))
 }
 
-/// Health report for `ondera-cli doctor`: discovery, reachability, versions, companions.
+/// Health report for `ryolune-cli doctor`: discovery, reachability, versions, companions.
 pub fn doctor() -> Value {
-    use ondera_engine::{host::scan, settings::Settings};
+    use ryolune_engine::{host::scan, settings::Settings};
     let discovery_path = control::wire::discovery_path();
     let discovery = control::wire::read_discovery(&discovery_path);
     let mut checks = vec![];
@@ -245,7 +245,7 @@ pub fn doctor() -> Value {
             push(
                 "app",
                 true,
-                format!("Ondera {} answers on the bridge", client.app_version),
+                format!("ryolune {} answers on the bridge", client.app_version),
             );
             Some(client.app_version)
         }
@@ -260,13 +260,13 @@ pub fn doctor() -> Value {
         app_version.as_deref().is_none_or(|v| v == mine),
         match &app_version {
             Some(v) if v != &mine => format!("CLI {mine} but app {v}: update both together"),
-            _ => format!("ondera-cli {mine}"),
+            _ => format!("ryolune-cli {mine}"),
         },
     );
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf));
-    for name in ["ondera", "ondera-mcp"] {
+    for name in ["ryolune", "ryolune-mcp"] {
         let path = exe_dir
             .as_ref()
             .map(|d| d.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)));
@@ -298,7 +298,7 @@ pub fn doctor() -> Value {
         true,
         format!(
             "{} stock + {} scanned in {}",
-            ondera_engine::stock::descriptors().len(),
+            ryolune_engine::stock::descriptors().len(),
             cache.descriptors().len(),
             scan::cache_path().display()
         ),
@@ -326,10 +326,10 @@ pub fn scan_child(args: &[String]) -> Option<Result<()>> {
         if args.len() != 3 {
             return Err("Usage: --scan-plugin <clap|vst3> <bundle>".into());
         }
-        let format = ondera_engine::plugin::Format::parse(&format!("{}:x", args[1]))
+        let format = ryolune_engine::plugin::Format::parse(&format!("{}:x", args[1]))
             .map(|(f, _)| f)
             .ok_or("Unknown plugin format")?;
-        let result = ondera_engine::host::scan::probe(format, Path::new(&args[2]));
+        let result = ryolune_engine::host::scan::probe(format, Path::new(&args[2]));
         println!(
             "{}",
             serde_json::to_string(&result).map_err(|e| e.to_string())?

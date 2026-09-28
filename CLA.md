@@ -1,22 +1,22 @@
-# Ondera Contributor License Agreement
+# ryolune Contributor License Agreement
 
-Thank you for contributing to Ondera. This agreement explains the rights you give when you send
+Thank you for contributing to ryolune. This agreement explains the rights you give when you send
 a contribution, so that the project can keep being maintained, relicensed or passed on without
 having to find every contributor again. You keep the copyright in your work.
 
 You accept this agreement by ticking the box in the pull request template, or by writing "I agree
-to the Ondera CLA" in a pull request or issue that carries your contribution. It applies to that
-contribution and to every later contribution you make to Ondera.
+to the ryolune CLA" in a pull request or issue that carries your contribution. It applies to that
+contribution and to every later contribution you make to ryolune.
 
 ## 1. Definitions
 
 - **"You"** means the person, or the organisation that person is authorised to act for, who
   sends a Contribution.
-- **"Contribution"** means any work you intentionally submit to the Ondera project (code,
+- **"Contribution"** means any work you intentionally submit to the ryolune project (code,
   documentation, designs, sounds, translations or anything else), by pull request, patch, issue,
   comment or other means, that the project may include.
 - **"The Maintainer"** means Ludovic Marie, and any person or company to which Ludovic Marie
-  transfers ownership of the Ondera project, together with their successors.
+  transfers ownership of the ryolune project, together with their successors.
 
 ## 2. Copyright licence
 
@@ -53,7 +53,7 @@ purpose.
 
 ## 6. What the Maintainer promises
 
-Every version of Ondera that includes your Contribution and is published under the MIT licence
+Every version of ryolune that includes your Contribution and is published under the MIT licence
 stays available under the MIT licence. The Maintainer is not required to use your Contribution.
 
 ## 7. No warranty

@@ -7,6 +7,24 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::Write, path::Path, sync::Arc};
 
+/// Extension of a session file.
+pub const EXTENSION: &str = "ryolune";
+/// Extension of session files saved before the project was renamed from Ondera; they open
+/// unchanged and keep their name when saved again.
+pub const LEGACY_EXTENSION: &str = "ondera";
+/// Every extension a session file may carry, newest first.
+pub const EXTENSIONS: [&str; 2] = [EXTENSION, LEGACY_EXTENSION];
+const FORMAT: &str = "ryolune-session";
+/// The `format` field of files written before the rename.
+const LEGACY_FORMAT: &str = "ondera-session";
+
+/// Whether `path` names a session file by its extension.
+pub fn is_session_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
 #[derive(Deserialize, Serialize)]
 struct SessionFile {
     format: String,
@@ -21,8 +39,8 @@ pub fn decode_session(json: &str) -> Result<(Session, Library)> {
     }
     let mut file: SessionFile =
         serde_json::from_str(json).map_err(|e| format!("Invalid session: {e}"))?;
-    if file.format != "ondera-session" || file.version != 1 {
-        return Err("Unsupported Ondera session format or version".into());
+    if ![FORMAT, LEGACY_FORMAT].contains(&file.format.as_str()) || file.version != 1 {
+        return Err("Unsupported ryolune session format or version".into());
     }
     file.session.normalize();
     file.session.validate()?;
@@ -82,7 +100,7 @@ pub fn save(session: &Session, library: &Library, path: &Path) -> Result<()> {
     stopped.transport.playing = false;
     stopped.transport.recording = false;
     let file = SessionFile {
-        format: "ondera-session".into(),
+        format: FORMAT.into(),
         version: 1,
         session: stopped,
         audio,

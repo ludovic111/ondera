@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Ondera app icon and write desktop/assets/Ondera.icns (macOS only: uses sips and
+"""Render the ryolune app icon and write desktop/assets/ryolune.icns (macOS only: uses sips and
 iconutil). Pure Python so it needs no image libraries. Colours are the theme's PANEL charcoal,
 the raised-control face and the teal accent from desktop/src/theme.rs."""
 import math, os, struct, subprocess, sys, tempfile, zlib
@@ -74,12 +74,12 @@ def png(rows):
 
 
 def main():
-    out = os.path.join(os.path.dirname(__file__), "..", "desktop", "assets", "Ondera.icns")
+    out = os.path.join(os.path.dirname(__file__), "..", "desktop", "assets", "ryolune.icns")
     with tempfile.TemporaryDirectory() as tmp:
         master = os.path.join(tmp, "master.png")
         with open(master, "wb") as f:
             f.write(png(render()))
-        iconset = os.path.join(tmp, "Ondera.iconset")
+        iconset = os.path.join(tmp, "ryolune.iconset")
         os.mkdir(iconset)
         for size in (16, 32, 128, 256, 512):
             for scale in (1, 2):

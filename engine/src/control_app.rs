@@ -66,7 +66,7 @@ pub const SPECS: &[Spec] = &[
         req("from", Kind::Integer, "Slot 0-7 to move."),
         req("to", Kind::Integer, "Destination slot 0-7."),
     ]),
-    query("plugin.describe", "Describe an installed plugin without placing it: format, vendor, category, latency, whether it has its own window, its factory programs and Ondera presets, and its parameters with ids, ranges, units, defaults as displayed and whether they can be automated.", &[
+    query("plugin.describe", "Describe an installed plugin without placing it: format, vendor, category, latency, whether it has its own window, its factory programs and ryolune presets, and its parameters with ids, ranges, units, defaults as displayed and whether they can be automated.", &[
         req("pluginId", Kind::String, "Descriptor ID from plugin.list (stock:Space, vst3:…), or the plugin's name."),
         opt("query", Kind::String, "Only parameters whose name matches these words."),
         opt("limit", Kind::Integer, "Parameters to return, 1-10000, default 200."),
@@ -158,8 +158,8 @@ pub const SPECS: &[Spec] = &[
     edit("app.confirm", "Answer the unsaved-changes prompt the window shows before New, Open, Quit or Relaunch. ui.status reports it as `prompt`.", &[
         req("choice", Kind::String, "save, discard or cancel."),
     ]),
-    edit("app.openGuide", "Open one of Ondera's pages in the web browser.", &[
-        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: pay what you want for Ondera, once (no subscription)."),
+    edit("app.openGuide", "Open one of ryolune's pages in the web browser.", &[
+        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: pay what you want for ryolune, once (no subscription)."),
     ]),
     edit("app.relaunch", "Relaunch the app, for example after an update was installed. Unsaved changes prompt first.", &[]),
     edit("session.saveRecoveredTake", "Write a recording that could not be placed on a track to a WAV file, which frees the window to open other sessions. ui.status reports it as `recoveredTake`.", &[
@@ -220,7 +220,7 @@ pub fn is_live_only(name: &str) -> bool {
 }
 
 /// Agent permission check from Settings > Agent. `None` when a command is allowed.
-/// `denied_for_agent` for a whole request: commands that write only to Ondera's own data
+/// `denied_for_agent` for a whole request: commands that write only to ryolune's own data
 /// folder by default count as file operations when they are given a `path`.
 pub fn denied_for_agent_request(
     name: &str,
@@ -677,7 +677,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
                 "mode": host.mode(),
                 "session": host.path().map(|p| p.to_path_buf()),
                 "commands": control::COMMANDS.len(),
-                "pluginAbi": ondera_plugin::ABI_VERSION,
+                "pluginAbi": ryolune_plugin::ABI_VERSION,
             });
             if let Ok(live) = host.live("app.status", &json!({})) {
                 if let Some(map) = live.as_object() {
@@ -730,5 +730,5 @@ pub fn default_screenshot_path() -> PathBuf {
         .map_or(0, |d| d.as_secs());
     plugin_host::scan::data_dir()
         .join("screenshots")
-        .join(format!("ondera-{stamp}.png"))
+        .join(format!("ryolune-{stamp}.png"))
 }

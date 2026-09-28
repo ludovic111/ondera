@@ -1,6 +1,6 @@
-# Controlling Ondera from AI and scripts
+# Controlling ryolune from AI and scripts
 
-Everything a person can do in the Ondera window, an AI or a script can do too, through one
+Everything a person can do in the ryolune window, an AI or a script can do too, through one
 command registry. This page explains the four ways in, what an agent should call first, and how
 to drive tracks, notes, mixing and external plugins. The full list of commands and parameters
 is the generated [command reference](COMMANDS.md); the audit that maps every window interaction
@@ -11,9 +11,9 @@ to its command is [AGENT_PARITY.md](AGENT_PARITY.md).
 | Way in | For | How it connects |
 | --- | --- | --- |
 | The window | people | menus, shortcuts and drags call the registry by name |
-| The built-in agent | talking to Ondera in your own words | Agent panel, see [AGENT.md](AGENT.md) |
-| `ondera-cli` | scripts, terminals, other programs | the running app, or a song file |
-| `ondera-mcp` | Claude Code, Claude Desktop, Codex, any MCP client | the running app, or its own session |
+| The built-in agent | talking to ryolune in your own words | Agent panel, see [AGENT.md](AGENT.md) |
+| `ryolune-cli` | scripts, terminals, other programs | the running app, or a song file |
+| `ryolune-mcp` | Claude Code, Claude Desktop, Codex, any MCP client | the running app, or its own session |
 
 All four share the same undo history. Every edit is an ordinary undo step (a `session.batch` is
 one step for many edits), so anything an AI does can be undone from the Edit menu or with
@@ -33,8 +33,8 @@ song does not fit, `truncated` says what was left out and `next` names the comma
 detail.
 
 ```sh
-ondera-cli session.overview
-ondera-cli session.overview --trackId Bass       # one track in full
+ryolune-cli session.overview
+ryolune-cli session.overview --trackId Bass       # one track in full
 ```
 
 Then drill down only where needed: `clip.get` or `note.list` for notes, `strip.parameters` for a
@@ -57,21 +57,21 @@ plugin's parameters, `automation.list`, `controller.list`, `ui.state` for the wi
 
 ## The CLI
 
-`ondera-cli` talks to the running app over a local bridge: the app writes a port and a random
-token to `control.json` in its data folder (readable only by you; `ONDERA_CONTROL` overrides the
+`ryolune-cli` talks to the running app over a local bridge: the app writes a port and a random
+token to `control.json` in its data folder (readable only by you; `RYOLUNE_CONTROL` overrides the
 path) and accepts only clients that present the token. Without a running app, `--file` edits a
 song directly and saves atomically after every change.
 
 ```sh
-ondera-cli commands                     # every command (add --json for the full schema)
-ondera-cli help strip.setParameter      # one command's parameters
-ondera-cli doctor                       # bridge, versions, settings and plugin cache
-ondera-cli --file song.ondera session.new
-ondera-cli --file song.ondera session.exportAudio --path mix.flac
+ryolune-cli commands                     # every command (add --json for the full schema)
+ryolune-cli help strip.setParameter      # one command's parameters
+ryolune-cli doctor                       # bridge, versions, settings and plugin cache
+ryolune-cli --file song.ryolune session.new
+ryolune-cli --file song.ryolune session.exportAudio --path mix.flac
 ```
 
 Parameters are `--name value` or `name=value`; arrays and objects are JSON. `--compact` prints
-one line of JSON. `ondera-cli batch` reads one `{"command": …, "params": {…}}` per line from
+one line of JSON. `ryolune-cli batch` reads one `{"command": …, "params": {…}}` per line from
 standard input and stops at the first error (`--continue` keeps going).
 
 A song open in the window belongs to the window: `--file` on the same file is refused. Use the
@@ -79,31 +79,31 @@ live commands instead.
 
 ## MCP
 
-`ondera-mcp` is a stdio Model Context Protocol server. Each command is a tool, with the dot
+`ryolune-mcp` is a stdio Model Context Protocol server. Each command is a tool, with the dot
 replaced by an underscore (`track.add` is `track_add`), its description and JSON schema taken
 from the registry.
 
 ```sh
 # Claude Code
-claude mcp add ondera -- /Applications/Ondera.app/Contents/MacOS/ondera-mcp --live
+claude mcp add ryolune -- /Applications/ryolune.app/Contents/MacOS/ryolune-mcp --live
 ```
 
 ```json
-{"mcpServers": {"ondera": {"command": "/path/to/ondera-mcp", "args": ["--live"]}}}
+{"mcpServers": {"ryolune": {"command": "/path/to/ryolune-mcp", "args": ["--live"]}}}
 ```
 
 - `--live` requires the running app and controls it; `--headless` hosts an independent session;
-  `--file <song.ondera>` edits a file. Without a flag it uses the app when it runs.
-- **Resources**: `ondera://session/overview` (read it first), `ondera://session`,
-  `ondera://session/info`, `ondera://session/inspect`, `ondera://catalog`, `ondera://plugins`,
-  `ondera://presets`, `ondera://settings` and the app state.
+  `--file <song.ryolune>` edits a file. Without a flag it uses the app when it runs.
+- **Resources**: `ryolune://session/overview` (read it first), `ryolune://session`,
+  `ryolune://session/info`, `ryolune://session/inspect`, `ryolune://catalog`, `ryolune://plugins`,
+  `ryolune://presets`, `ryolune://settings` and the app state.
 - **Prompts**: `compose`, `mix-review` and `see-the-window` start common tasks.
 - The Agents section of Settings copies a ready configuration with the right path.
 
 ## Permissions
 
 Settings > Agent > Permissions decide what an agent may do: the built-in agent, MCP clients and
-`ondera-cli --agent`. Editing the song is always allowed (and always undoable); these are
+`ryolune-cli --agent`. Editing the song is always allowed (and always undoable); these are
 switches for the rest:
 
 | Permission | Covers |
@@ -121,11 +121,11 @@ Connecting an AI service, signing in and changing these permissions stay with th
 ### Write a part
 
 ```sh
-ondera-cli track.add --kind midi --name Keys --instrument "E-Piano Mk I"
-ondera-cli clip.create --trackId Keys --startBar 0 --lengthBars 2 \
+ryolune-cli track.add --kind midi --name Keys --instrument "E-Piano Mk I"
+ryolune-cli clip.create --trackId Keys --startBar 0 --lengthBars 2 \
   --notes '[{"start":0,"length":2,"pitch":60,"velocity":90},{"start":0,"length":2,"pitch":64},{"start":0,"length":2,"pitch":67}]'
-ondera-cli clip.addLoop --trackId Drums --name "Four Floor 124" --startBar 0
-ondera-cli marker.add --bar 0 --name Intro
+ryolune-cli clip.addLoop --trackId Drums --name "Four Floor 124" --startBar 0
+ryolune-cli marker.add --bar 0 --name Intro
 ```
 
 `clip.setNotes` replaces a clip's notes in one step; `clip.quantize`, `clip.transpose`,
@@ -135,7 +135,7 @@ ondera-cli marker.add --bar 0 --name Intro
 ### Many edits, one undo step
 
 ```sh
-ondera-cli session.batch --commands '[
+ryolune-cli session.batch --commands '[
   {"command":"track.setVolume","params":{"trackId":"Drums","volume":0.6}},
   {"command":"track.setPan","params":{"trackId":"Keys","pan":-20}},
   {"command":"strip.setPlugin","params":{"trackId":"master","plugin":"Limiter","firstFreeSlot":true}}
@@ -146,18 +146,18 @@ With `atomic` (the default) a failing command rolls back the ones before it.
 
 ### External plugins
 
-Any installed CLAP, VST3, Audio Unit or Ondera native plugin can be found, loaded and set.
+Any installed CLAP, VST3, Audio Unit or ryolune native plugin can be found, loaded and set.
 
 ```sh
-ondera-cli plugin.list --query reverb                  # by name, vendor or what it does
-ondera-cli strip.setPlugin --trackId Vocals --plugin "pro q 3" --firstFreeSlot true
-ondera-cli strip.parameters --trackId Vocals --slot 0 --query "band 1"
-ondera-cli strip.setParameter --trackId Vocals --slot 0 --parameter "Band 1 Gain" --text "-4.5 dB"
-ondera-cli strip.setParameters --trackId Vocals --slot 0 \
+ryolune-cli plugin.list --query reverb                  # by name, vendor or what it does
+ryolune-cli strip.setPlugin --trackId Vocals --plugin "pro q 3" --firstFreeSlot true
+ryolune-cli strip.parameters --trackId Vocals --slot 0 --query "band 1"
+ryolune-cli strip.setParameter --trackId Vocals --slot 0 --parameter "Band 1 Gain" --text "-4.5 dB"
+ryolune-cli strip.setParameters --trackId Vocals --slot 0 \
   --values '{"Band 1 Frequency":"250 Hz","Band 1 Q":{"normalized":0.3}}'
-ondera-cli strip.programs --trackId Bass --slot 0         # the plugin's own factory programs
-ondera-cli strip.setProgram --trackId Bass --slot 0 --name Cathedral
-ondera-cli automation.create --target pluginParameter --trackId Vocals --slot 0 \
+ryolune-cli strip.programs --trackId Bass --slot 0         # the plugin's own factory programs
+ryolune-cli strip.setProgram --trackId Bass --slot 0 --name Cathedral
+ryolune-cli automation.create --target pluginParameter --trackId Vocals --slot 0 \
   --parameter "Band 1 Gain" --points '[{"beat":0,"value":0},{"beat":16,"value":-6}]'
 ```
 
@@ -169,7 +169,7 @@ ondera-cli automation.create --target pluginParameter --trackId Vocals --slot 0 
 - A value is set as a plain number (`value`), a 0–1 position (`normalized`) or what the plugin
   displays (`text`: "-6 dB", "2.5k", "50%", "On", "Hall").
 - `strip.programs` / `strip.setProgram` reach VST3 program lists and Audio Unit factory presets,
-  with the current one when the plugin reports it; Ondera's own presets are `preset.list`,
+  with the current one when the plugin reports it; ryolune's own presets are `preset.list`,
   `preset.save` and `preset.load`.
 - `strip.getState` / `strip.setState` read and restore a plugin's full saved state;
   `strip.setBypass`, `strip.moveInsert` and `strip.removeInsert` manage the chain;
@@ -179,11 +179,11 @@ ondera-cli automation.create --target pluginParameter --trackId Vocals --slot 0 
 ### Tempo changes
 
 ```sh
-ondera-cli tempo.set --bar 16 --bpm 96 --ramp true    # slow down into bar 17
-ondera-cli tempo.set --bar 24 --bpm 124               # a jump back up at bar 25
-ondera-cli tempo.list                                 # every change, in seconds too
-ondera-cli tempo.move --bar 24 --toBar 32
-ondera-cli tempo.clear --startBar 16
+ryolune-cli tempo.set --bar 16 --bpm 96 --ramp true    # slow down into bar 17
+ryolune-cli tempo.set --bar 24 --bpm 124               # a jump back up at bar 25
+ryolune-cli tempo.list                                 # every change, in seconds too
+ryolune-cli tempo.move --bar 24 --toBar 32
+ryolune-cli tempo.clear --startBar 16
 ```
 
 `transport.locate` answers with `tempoAtPosition` and `positionSeconds` once a song has changes.
@@ -192,11 +192,11 @@ MIDI export writes them; `session.importMidi importTempo=true` follows a file's.
 ### Buses: groups and aux returns
 
 ```sh
-ondera-cli track.group --params '{"trackIds":["Kick","Snare","Hats"],"name":"Drums"}'
-ondera-cli strip.setPlugin --trackId Drums --plugin "Ondera Comp" --firstFreeSlot true
-ondera-cli track.add --kind bus --name "Plate"
-ondera-cli strip.setSend --trackId Vocals --send 2 --bus Plate --levelDb -12
-ondera-cli track.setOutput --trackId Snare --output "Stereo Out"
+ryolune-cli track.group --params '{"trackIds":["Kick","Snare","Hats"],"name":"Drums"}'
+ryolune-cli strip.setPlugin --trackId Drums --plugin "ryolune Comp" --firstFreeSlot true
+ryolune-cli track.add --kind bus --name "Plate"
+ryolune-cli strip.setSend --trackId Vocals --send 2 --bus Plate --levelDb -12
+ryolune-cli track.setOutput --trackId Snare --output "Stereo Out"
 ```
 
 A bus track holds no clips; it sums what tracks route (`track.setOutput`) or send

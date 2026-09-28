@@ -5,7 +5,7 @@ import {
   secondsToBars,
   type BrowserItem,
   type BrowserTab,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { importAudioFiles } from "../../state/document";
 import { playheadBar } from "../../state/actions";
@@ -46,7 +46,7 @@ const HINT: Record<BrowserTab, string> = {
 };
 
 /** Folders the user has closed, remembered between launches. */
-const CLOSED_KEY = "ondera.browser.closedFolders";
+const CLOSED_KEY = "ryolune.browser.closedFolders";
 function readClosed(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]"));
@@ -60,7 +60,7 @@ const FORMAT_LABELS: Record<string, string> = {
   clap: "CLAP",
   vst3: "VST3",
   au: "Audio Unit",
-  native: "Ondera plugin",
+  native: "ryolune plugin",
 };
 
 export function BrowserPanel() {

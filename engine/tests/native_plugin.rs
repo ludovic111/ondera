@@ -1,11 +1,11 @@
 //! The native plugin path: the example bundle through the in-process ABI, the stock library
 //! through the same vtables, and the built dynamic library through the scanner when present.
-use ondera_engine::{
+use ryolune_engine::{
     host::native,
     plugin::{ParamChange, ProcessContext},
     stock,
 };
-use ondera_plugin::ffi;
+use ryolune_plugin::ffi;
 
 fn manifests_of(tables: &[&'static ffi::PluginVTable]) -> Vec<ffi::Manifest> {
     tables
@@ -16,7 +16,7 @@ fn manifests_of(tables: &[&'static ffi::PluginVTable]) -> Vec<ffi::Manifest> {
 
 #[test]
 fn example_bundle_exports_its_plugins_through_the_abi() {
-    let entry = ondera_plugin_gain::ondera_plugin_entry();
+    let entry = ryolune_plugin_gain::ryolune_plugin_entry();
     let tables = unsafe { native::tables_from_entry(entry) }.unwrap();
     let manifests = manifests_of(&tables);
     assert_eq!(
@@ -26,12 +26,12 @@ fn example_bundle_exports_its_plugins_through_the_abi() {
             .collect::<Vec<_>>(),
         ["Trim", "Tilt EQ", "Bend Sine"]
     );
-    assert_eq!(manifests[0].id, "org.ondera.examples.trim");
-    assert_eq!(manifests[0].kind, ondera_plugin::Kind::Effect);
+    assert_eq!(manifests[0].id, "org.ryolune.examples.trim");
+    assert_eq!(manifests[0].kind, ryolune_plugin::Kind::Effect);
     assert_eq!(manifests[0].params[2].labels, ["Off", "On"]);
-    let descriptor = ondera_engine::plugin::Descriptor {
+    let descriptor = ryolune_engine::plugin::Descriptor {
         id: format!("native:{}", manifests[0].id),
-        format: ondera_engine::plugin::Format::Native,
+        format: ryolune_engine::plugin::Format::Native,
         name: manifests[0].name.clone(),
         vendor: manifests[0].vendor.clone(),
         path: "in-process".into(),
@@ -74,14 +74,14 @@ fn stock_library_serves_every_plugin_through_the_same_abi() {
     assert_eq!(tables.len(), 34);
     let manifests = native::manifests(tables).unwrap();
     for manifest in &manifests {
-        assert!(manifest.id.starts_with("org.ondera.stock."));
+        assert!(manifest.id.starts_with("org.ryolune.stock."));
         // The manifest format is ABI 1's, which is what lets ABI 1 hosts read ABI 2 plugins.
-        assert_eq!(manifest.abi, ondera_plugin::BASE_ABI_VERSION);
+        assert_eq!(manifest.abi, ryolune_plugin::BASE_ABI_VERSION);
         assert!(!manifest.description.is_empty(), "{}", manifest.name);
         let descriptor = stock::descriptor(&manifest.name).unwrap();
         assert_eq!(
             descriptor.instrument,
-            manifest.kind == ondera_plugin::Kind::Instrument
+            manifest.kind == ryolune_plugin::Kind::Instrument
         );
     }
     // Legacy stock state (a bare JSON array) still loads.
@@ -104,7 +104,7 @@ fn built_dynamic_library_scans_and_instantiates_when_present() {
     // the copy one level up is only refreshed by a workspace build and may be stale.
     let exe = std::env::current_exe().unwrap();
     let name = format!(
-        "{}ondera_plugin_gain.{}",
+        "{}ryolune_plugin_gain.{}",
         std::env::consts::DLL_PREFIX,
         native::library_extension()
     );
@@ -119,24 +119,27 @@ fn built_dynamic_library_scans_and_instantiates_when_present() {
     let descriptors = native::scan(&library).unwrap();
     assert_eq!(descriptors.len(), 3);
     assert_eq!(native::abi_of(&library).unwrap(), 2);
-    assert_eq!(descriptors[1].id, "native:org.ondera.examples.tilt");
-    assert_eq!(descriptors[1].format, ondera_engine::plugin::Format::Native);
+    assert_eq!(descriptors[1].id, "native:org.ryolune.examples.tilt");
+    assert_eq!(
+        descriptors[1].format,
+        ryolune_engine::plugin::Format::Native
+    );
     assert!(native::library_path(&library)
         .unwrap()
         .ends_with(library.file_name().unwrap()));
     assert!(native::looks_like_plugin(&library));
 }
 
-fn bend_sine(rate: u32) -> ondera_engine::plugin::Instance {
-    let entry = ondera_plugin_gain::ondera_plugin_entry_v2();
+fn bend_sine(rate: u32) -> ryolune_engine::plugin::Instance {
+    let entry = ryolune_plugin_gain::ryolune_plugin_entry_v2();
     let tables = unsafe { native::tables_from_entry_v2(entry) }.unwrap();
     assert_eq!(tables.len(), 3);
     assert!(tables.iter().all(|t| t.abi() == 2));
     let manifest = unsafe { ffi::read_manifest(tables[2].base) }.unwrap();
     assert_eq!(manifest.name, "Bend Sine");
-    let descriptor = ondera_engine::plugin::Descriptor {
+    let descriptor = ryolune_engine::plugin::Descriptor {
         id: format!("native:{}", manifest.id),
-        format: ondera_engine::plugin::Format::Native,
+        format: ryolune_engine::plugin::Format::Native,
         name: manifest.name.clone(),
         vendor: manifest.vendor.clone(),
         path: "in-process".into(),
@@ -155,9 +158,9 @@ fn pitch_of(audio: &[[f32; 2]], rate: f64) -> f64 {
     crossings as f64 * rate / audio.len() as f64
 }
 fn render(
-    processor: &mut Box<dyn ondera_engine::plugin::Processor>,
+    processor: &mut Box<dyn ryolune_engine::plugin::Processor>,
     blocks: usize,
-    first: &[ondera_engine::plugin::Event],
+    first: &[ryolune_engine::plugin::Event],
     params: &[ParamChange],
 ) -> Vec<[f32; 2]> {
     let mut out = vec![];
@@ -177,8 +180,8 @@ fn render(
 #[test]
 fn an_abi_2_plugin_keeps_state_of_its_own_in_the_insert_blob() {
     use base64::Engine as _;
-    let a4 = [ondera_engine::plugin::Event::from(
-        ondera_engine::plugin::NoteEvent {
+    let a4 = [ryolune_engine::plugin::Event::from(
+        ryolune_engine::plugin::NoteEvent {
             frame: 0,
             on: true,
             pitch: 69,

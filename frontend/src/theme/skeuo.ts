@@ -1,5 +1,5 @@
 /**
- * Skeuomorphic. Dark is the graphite hardware of design/Ondera Arrangement.dc.html,
+ * Skeuomorphic. Dark is the graphite hardware of design/ryolune Arrangement.dc.html,
  * spec sheet 02, value for value. Light is the same unit in champagne aluminium:
  * the neutral ramp keeps the warm hue (oklch 80°), displays stay dark glass as on
  * real gear, and the material recipes are re-lit rather than redrawn.

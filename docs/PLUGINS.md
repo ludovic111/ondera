@@ -1,6 +1,6 @@
-# Plugins in Ondera
+# Plugins in ryolune
 
-Ondera hosts external audio plugins alongside its own stock library. Every insert and every
+ryolune hosts external audio plugins alongside its own stock library. Every insert and every
 instrument is the same kind of object to the engine: a `Processor` that runs on the audio thread
 and an `Editor` that stays on the main thread (parameters, state, native window).
 
@@ -8,14 +8,14 @@ and an `Editor` that stays on the main thread (parameters, state, native window)
 
 | Format | Platforms | Loader | Notes |
 | --- | --- | --- | --- |
-| Ondera stock | all | in process, through the SDK ABI | 16 effects and 8 instruments, see below |
-| Ondera native | all | `ondera-plugin` C ABI, `ondera_plugin_entry` | Rust plugins built with the SDK; see [NATIVE_PLUGINS.md](NATIVE_PLUGINS.md) |
+| ryolune stock | all | in process, through the SDK ABI | 16 effects and 8 instruments, see below |
+| ryolune native | all | `ryolune-plugin` C ABI, `ryolune_plugin_entry` | Rust plugins built with the SDK; see [NATIVE_PLUGINS.md](NATIVE_PLUGINS.md) |
 | CLAP | macOS, Linux, Windows | `clap-sys` bindings, `clap_entry` | main-thread / audio-thread split as the spec defines |
 | VST3 | macOS, Linux, Windows | `vst3` COM bindings, `GetPluginFactory` | component + edit controller, `IPlugView` editors |
 | Audio Units | macOS | AudioToolbox component API | effects, music effects, instruments and generators exposed by the system registry |
 
 VST2 and AAX are not supported. Use a plugin's CLAP, VST3 or supported Audio Unit installation.
-The binary architecture must match Ondera: Apple Silicon and Intel Mac builds are separate.
+The binary architecture must match ryolune: Apple Silicon and Intel Mac builds are separate.
 Format support and a successful scan do not guarantee compatibility with every installed unit.
 
 Plugin ids are stable strings stored in the session: `stock:<name>`, `native:<plugin id>`,
@@ -26,17 +26,17 @@ plugin reports on the platform that scanned it.
 
 **Mix > Rescan plugins** (or Settings > Plugins, or the *Scan plugins* button under the browser
 tabs) looks in the standard directories, the extra folders from Settings > Plugins and
-`CLAP_PATH` / `VST3_PATH` / `ONDERA_PLUGIN_PATH`:
+`CLAP_PATH` / `VST3_PATH` / `RYOLUNE_PLUGIN_PATH`:
 
 - macOS: `~/Library/Audio/Plug-Ins/{CLAP,VST3}`, `/Library/Audio/Plug-Ins/{CLAP,VST3}`, the Audio Unit registry
 - Linux: `~/.clap`, `/usr/lib/clap`, `/usr/local/lib/clap`, `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3`
 - Windows: `%COMMONPROGRAMFILES%\{CLAP,VST3}`, `%LOCALAPPDATA%\Programs\Common\{CLAP,VST3}`
 
-CLAP and VST3 bundles are probed in a child process (`ondera --scan-plugin <format> <path>`) with
+CLAP and VST3 bundles are probed in a child process (`ryolune --scan-plugin <format> <path>`) with
 a 30-second timeout, so a crashing or hanging plugin only loses its own entry. Results are cached
-in `plugins.json` under the application data directory (`~/Library/Application Support/Ondera`,
-`~/.config/ondera` or `%APPDATA%\Ondera`; override with `ONDERA_DATA_DIR`). Unchanged bundles are
-not probed again. `ondera --plugins` prints the cache; `ondera --scan-plugins` rescans from a
+in `plugins.json` under the application data directory (`~/Library/Application Support/ryolune`,
+`~/.config/ryolune` or `%APPDATA%\ryolune`; override with `RYOLUNE_DATA_DIR`). Unchanged bundles are
+not probed again. `ryolune --plugins` prints the cache; `ryolune --scan-plugins` rescans from a
 terminal.
 
 ## Using plugins
@@ -66,10 +66,10 @@ The Agents tab, CLI and MCP expose the same plugin registry. First scan, then se
 and copy a stable ID from the returned page:
 
 ```sh
-ondera-cli plugin.scan
-ondera-cli plugin.list --kind effect --format stock --query limiter
-ondera-cli strip.setPlugin --trackId master --slot 7 --pluginId stock:Limiter
-ondera-cli strip.parameters --trackId master --slot 7
+ryolune-cli plugin.scan
+ryolune-cli plugin.list --kind effect --format stock --query limiter
+ryolune-cli strip.setPlugin --trackId master --slot 7 --pluginId stock:Limiter
+ryolune-cli strip.parameters --trackId master --slot 7
 ```
 
 `plugin.scan` returns a count and any scan errors. `plugin.list` accepts `query` (name, vendor or
@@ -113,8 +113,8 @@ reports an error rather than silently exporting a different mix.
 
 ## Stock library
 
-Effects: Ondera Comp, Channel EQ, Tape Sat, Chorus, Space (reverb), Echo (tempo-synced delay),
+Effects: ryolune Comp, Channel EQ, Tape Sat, Chorus, Space (reverb), Echo (tempo-synced delay),
 Gate, Limiter, Filter (SVF), Phaser, Tremolo, Bitcrusher, Stereo Width, Utility, Overdrive,
-Transient. Instruments: Ondera Synth (ADSR, filter envelope, three waves), E-Piano Mk I, Drum
+Transient. Instruments: ryolune Synth (ADSR, filter envelope, three waves), E-Piano Mk I, Drum
 Machine, Sampler, Sub Bass 808, Glass Keys, Choir Pad, Riser. The A bus carries Space and the
 B bus carries Echo by default; both can be replaced.

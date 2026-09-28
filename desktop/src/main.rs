@@ -22,18 +22,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut screenshot = None;
     let mut control = true;
     let mut show_agents = false;
-    let mut check_updates = std::env::var_os("ONDERA_NO_UPDATE").is_none_or(|v| v.is_empty());
+    let mut check_updates = std::env::var_os("RYOLUNE_NO_UPDATE").is_none_or(|v| v.is_empty());
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--version" | "-V" => {
-                println!("ondera {}", env!("CARGO_PKG_VERSION"));
+                println!("ryolune {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             "--validate" => {
                 let file = args
                     .next()
-                    .ok_or("Usage: ondera --validate session.ondera")?;
-                let (s, _) = ondera_engine::document::load(std::path::Path::new(&file))?;
+                    .ok_or("Usage: ryolune --validate session.ryolune")?;
+                let (s, _) = ryolune_engine::document::load(std::path::Path::new(&file))?;
                 println!(
                     "Valid session: {} ({} tracks, {} clips)",
                     s.name,
@@ -45,10 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--bounce" => {
                 let file = args
                     .next()
-                    .ok_or("Usage: ondera --bounce session.ondera output.wav")?;
+                    .ok_or("Usage: ryolune --bounce session.ryolune output.wav")?;
                 let target = args.next().ok_or("Missing WAV output path")?;
-                let (s, library) = ondera_engine::document::load(std::path::Path::new(&file))?;
-                ondera_engine::render::bounce(&s, &library, std::path::Path::new(&target), 48000)?;
+                let (s, library) = ryolune_engine::document::load(std::path::Path::new(&file))?;
+                ryolune_engine::render::bounce(&s, &library, std::path::Path::new(&target), 48000)?;
                 println!("Exported {target}");
                 return Ok(());
             }
@@ -56,17 +56,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Child process used by the scanner: probe one bundle and print JSON.
                 let format = args.next().ok_or("Missing plugin format")?;
                 let bundle = args.next().ok_or("Missing plugin path")?;
-                let format = ondera_engine::plugin::Format::parse(&format!("{format}:x"))
+                let format = ryolune_engine::plugin::Format::parse(&format!("{format}:x"))
                     .map(|(f, _)| f)
                     .ok_or("Unknown plugin format")?;
-                let result: std::result::Result<Vec<ondera_engine::plugin::Descriptor>, String> =
-                    ondera_engine::host::scan::probe(format, std::path::Path::new(&bundle));
+                let result: std::result::Result<Vec<ryolune_engine::plugin::Descriptor>, String> =
+                    ryolune_engine::host::scan::probe(format, std::path::Path::new(&bundle));
                 println!("{}", serde_json::to_string(&result)?);
                 return Ok(());
             }
             "--scan-plugins" => {
                 let cache =
-                    ondera_engine::host::scan::scan_all(|path| eprintln!("Scanning {path}"));
+                    ryolune_engine::host::scan::scan_all(|path| eprintln!("Scanning {path}"));
                 for d in cache.descriptors() {
                     println!(
                         "{:<5} {:<40} {:<24} {}",
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             "--plugins" => {
-                for d in ondera_engine::host::scan::installed() {
+                for d in ryolune_engine::host::scan::installed() {
                     println!(
                         "{:<6} {:<40} {:<24} {}",
                         d.format.label(),
@@ -102,12 +102,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--agents" => show_agents = true,
             "--update" => {
                 match update::check()? {
-                    None => println!("Ondera {} is up to date", update::current_version()),
+                    None => println!("ryolune {} is up to date", update::current_version()),
                     Some(release) => {
-                        println!("Downloading Ondera {}…", release.version);
+                        println!("Downloading ryolune {}…", release.version);
                         let target = update::install(&release)?;
                         println!(
-                            "Installed Ondera {} at {}",
+                            "Installed ryolune {} at {}",
                             release.version,
                             target.display()
                         );
@@ -119,17 +119,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--release-keygen" => {
                 let out = std::path::PathBuf::from(
                     args.next()
-                        .ok_or("Usage: ondera --release-keygen <secret-key-file>")?,
+                        .ok_or("Usage: ryolune --release-keygen <secret-key-file>")?,
                 );
                 let public = update::write_keypair(&out)?;
                 println!("Public key (put it in desktop/assets/update-signing.pub):\n{public}");
-                println!("Secret key written to {} (keep it in the ONDERA_SIGNING_KEY GitHub secret, never in the repository)", out.display());
+                println!("Secret key written to {} (keep it in the RYOLUNE_SIGNING_KEY GitHub secret, never in the repository)", out.display());
                 return Ok(());
             }
             "--sign-release" => {
                 let key = args
                     .next()
-                    .ok_or("Usage: ondera --sign-release <secret-key-file> <SHA256SUMS>")?;
+                    .ok_or("Usage: ryolune --sign-release <secret-key-file> <SHA256SUMS>")?;
                 let file = args.next().ok_or("Missing the file to sign")?;
                 let path =
                     update::sign_file(std::path::Path::new(&key), std::path::Path::new(&file))?;
@@ -139,13 +139,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--verify-release" => {
                 let file = args
                     .next()
-                    .ok_or("Usage: ondera --verify-release <SHA256SUMS>")?;
+                    .ok_or("Usage: ryolune --verify-release <SHA256SUMS>")?;
                 update::verify_file(std::path::Path::new(&file))?;
                 println!("Signature valid for {file}");
                 return Ok(());
             }
             "--help" | "-h" => {
-                println!("Ondera — native Rust DAW\n  ondera [session.ondera]\n  ondera --validate session.ondera\n  ondera --bounce session.ondera output.wav\n  ondera --scan-plugins\n  ondera --plugins\n  ondera --agents       open the Agents tab\n  ondera --no-control   disable CLI / MCP connections\n  ondera --screenshot image.png\n  ondera --update            install the latest GitHub release\n  ondera --no-update-check   skip the startup update check (or set ONDERA_NO_UPDATE=1)\n  ondera --release-keygen <file>          create a release signing key pair\n  ondera --sign-release <key> <file>      write <file>.sig for a release\n  ondera --verify-release <file>          check <file>.sig against the built-in public key");
+                println!("ryolune — native Rust DAW\n  ryolune [session.ryolune]\n  ryolune --validate session.ryolune\n  ryolune --bounce session.ryolune output.wav\n  ryolune --scan-plugins\n  ryolune --plugins\n  ryolune --agents       open the Agents tab\n  ryolune --no-control   disable CLI / MCP connections\n  ryolune --screenshot image.png\n  ryolune --update            install the latest GitHub release\n  ryolune --no-update-check   skip the startup update check (or set RYOLUNE_NO_UPDATE=1)\n  ryolune --release-keygen <file>          create a release signing key pair\n  ryolune --sign-release <key> <file>      write <file>.sig for a release\n  ryolune --verify-release <file>          check <file>.sig against the built-in public key");
                 return Ok(());
             }
             _ => {

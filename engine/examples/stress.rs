@@ -1,6 +1,6 @@
 //! Reproducible offline callback-cost probe, not a hardware latency certification.
-//! `cargo run --release -p ondera-engine --example stress`
-use ondera_engine::{
+//! `cargo run --release -p ryolune-engine --example stress`
+use ryolune_engine::{
     control::{self, Headless},
     render, Result,
 };
@@ -46,7 +46,7 @@ fn scenario(tracks: usize) -> Result<Value> {
             &json!({"trackId":id,"startBar":0,"lengthBars":4,"notes":notes}),
             false,
         )?;
-        for (slot, effect) in [(0, "stock:Channel EQ"), (1, "stock:Ondera Comp")] {
+        for (slot, effect) in [(0, "stock:Channel EQ"), (1, "stock:ryolune Comp")] {
             control::call(
                 &mut host,
                 "strip.setPlugin",

@@ -37,8 +37,8 @@ export function applyAppearance(
   root.dataset.mode = mode;
   root.style.colorScheme = mode;
   // Canvases repaint from the live token objects.
-  window.dispatchEvent(new Event("ondera:before-capture"));
-  window.dispatchEvent(new Event("ondera:theme"));
+  window.dispatchEvent(new Event("ryolune:before-capture"));
+  window.dispatchEvent(new Event("ryolune:theme"));
 }
 
 export function applyTokens(

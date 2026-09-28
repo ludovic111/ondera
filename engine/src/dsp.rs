@@ -1,13 +1,13 @@
 //! Native synthesis primitives for the stock instruments. Filters, delays and gain helpers
 //! come from the plugin SDK so third-party native plugins share the same building blocks.
 
-pub use ondera_plugin::dsp::{
+pub use ryolune_plugin::dsp::{
     coef, db, db_to_gain, saw, square, triangle, Biquad, Delay, Smoother, Svf,
 };
 use std::f64::consts::TAU;
 
 pub const INSTRUMENTS: [&str; 11] = [
-    "Ondera Synth",
+    "ryolune Synth",
     "E-Piano Mk I",
     "Drum Machine",
     "Sampler",
@@ -20,7 +20,7 @@ pub const INSTRUMENTS: [&str; 11] = [
     "Analog Bass",
 ];
 pub const EFFECTS: [&str; 23] = [
-    "Ondera Comp",
+    "ryolune Comp",
     "Channel EQ",
     "Tape Sat",
     "Chorus",

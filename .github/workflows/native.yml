@@ -68,31 +68,31 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: Ondera-${{ matrix.os }}
-          path: dist/Ondera-macos-*.zip
+          name: ryolune-${{ matrix.os }}
+          path: dist/ryolune-macos-*.zip
       - name: Upload Linux binaries
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: Ondera-linux-x86_64
+          name: ryolune-linux-x86_64
           path: |
-            target/release/ondera
-            target/release/ondera-cli
-            target/release/ondera-mcp
+            target/release/ryolune
+            target/release/ryolune-cli
+            target/release/ryolune-mcp
       - name: Upload Windows binaries
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Ondera-windows-x86_64
+          name: ryolune-windows-x86_64
           path: |
-            target/release/ondera.exe
-            target/release/ondera-cli.exe
-            target/release/ondera-mcp.exe
+            target/release/ryolune.exe
+            target/release/ryolune-cli.exe
+            target/release/ryolune-mcp.exe
       - name: Upload macOS command-line tools
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: Ondera-tools-${{ matrix.os }}
+          name: ryolune-tools-${{ matrix.os }}
           path: |
-            target/release/ondera-cli
-            target/release/ondera-mcp
+            target/release/ryolune-cli
+            target/release/ryolune-mcp

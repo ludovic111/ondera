@@ -1,10 +1,10 @@
-//! Ondera native plugins: libraries built with the `ondera-plugin` SDK and loaded through
+//! ryolune native plugins: libraries built with the `ryolune-plugin` SDK and loaded through
 //! its C ABI. The stock library is linked into the engine and goes through the very same
 //! vtables, so the ABI adapter below runs in every session, not only when a third-party
 //! library is installed.
 //!
-//! Two ABI versions are served. A library is asked for `ondera_plugin_entry_v2` first; one
-//! built before ABI 2 only has `ondera_plugin_entry` and runs through its ABI 1 table exactly
+//! Two ABI versions are served. A library is asked for `ryolune_plugin_entry_v2` first; one
+//! built before ABI 2 only has `ryolune_plugin_entry` and runs through its ABI 1 table exactly
 //! as it always did: notes only, parameters at block starts, state made of parameter values.
 //! An ABI 2 plugin also gets controllers, pitch bend and pressure, parameter changes at
 //! their frames, an opaque state blob, a tail length and latency-change notices.
@@ -19,11 +19,12 @@ use crate::{
     Result,
 };
 use base64::Engine as _;
-use ondera_plugin::{
+use ryolune_plugin::{
     ffi::{
         self, Entry, Entry2, Entry2Fn, EntryFn, Manifest, PluginVTable, PluginVTable2, RawContext,
     },
     Event, Kind, NoteEvent, ProcessContext, TimedParam, ENTRY_SYMBOL, ENTRY_SYMBOL_V2,
+    LEGACY_ENTRY_SYMBOL, LEGACY_ENTRY_SYMBOL_V2,
 };
 use std::{
     collections::HashMap,
@@ -131,12 +132,12 @@ unsafe fn tables_of(entry: *const Entry) -> Result<Vec<&'static PluginVTable>> {
         return Err("Plugin entry is null".into());
     }
     let entry = &*entry;
-    if entry.abi_version != ondera_plugin::BASE_ABI_VERSION {
+    if entry.abi_version != ryolune_plugin::BASE_ABI_VERSION {
         return Err(format!(
-            "Plugin ABI {} is not supported by this Ondera (ABI {} to {})",
+            "Plugin ABI {} is not supported by this ryolune (ABI {} to {})",
             entry.abi_version,
-            ondera_plugin::BASE_ABI_VERSION,
-            ondera_plugin::ABI_VERSION
+            ryolune_plugin::BASE_ABI_VERSION,
+            ryolune_plugin::ABI_VERSION
         ));
     }
     if entry.plugin_count == 0 || entry.plugin_count > 256 {
@@ -164,7 +165,7 @@ unsafe fn tables_of_v2(entry: *const Entry2) -> Result<Vec<Table>> {
     let entry = &*entry;
     if entry.abi_version != 2 {
         return Err(format!(
-            "Plugin ABI {} is newer than this Ondera",
+            "Plugin ABI {} is newer than this ryolune",
             entry.abi_version
         ));
     }
@@ -189,16 +190,22 @@ fn load(bundle: &Path) -> Result<Arc<Loaded>> {
     let library = unsafe { libloading::Library::new(&binary) }
         .map_err(|e| format!("Cannot load {}: {e}", binary.display()))?;
     let tables = unsafe {
-        let newer = library
-            .get::<Entry2Fn>(format!("{ENTRY_SYMBOL_V2}\0").as_bytes())
-            .ok()
-            .and_then(|entry| tables_of_v2(entry()).ok());
+        // Libraries built before the rename export the same entries as `ondera_plugin_entry*`.
+        let newer = [ENTRY_SYMBOL_V2, LEGACY_ENTRY_SYMBOL_V2]
+            .iter()
+            .find_map(|name| {
+                library
+                    .get::<Entry2Fn>(format!("{name}\0").as_bytes())
+                    .ok()
+                    .and_then(|entry| tables_of_v2(entry()).ok())
+            });
         match newer {
             Some(tables) => tables,
             None => {
                 let entry: libloading::Symbol<EntryFn> = library
                     .get(format!("{ENTRY_SYMBOL}\0").as_bytes())
-                    .map_err(|e| format!("Not an Ondera plugin ({e})"))?;
+                    .or_else(|_| library.get(format!("{LEGACY_ENTRY_SYMBOL}\0").as_bytes()))
+                    .map_err(|e| format!("Not a ryolune plugin ({e})"))?;
                 tables_of(entry())?.into_iter().map(Table::from).collect()
             }
         }
@@ -645,14 +652,14 @@ impl Drop for NativeProcessor {
 /// Load a library from a raw entry pointer, for tests that link a plugin crate directly.
 ///
 /// # Safety
-/// `entry` must come from the SDK's `ondera_plugin_entry`.
+/// `entry` must come from the SDK's `ryolune_plugin_entry`.
 pub unsafe fn tables_from_entry(entry: *const Entry) -> Result<Vec<&'static PluginVTable>> {
     tables_of(entry)
 }
 /// The ABI 2 counterpart of [`tables_from_entry`].
 ///
 /// # Safety
-/// `entry` must come from the SDK's `ondera_plugin_entry_v2`.
+/// `entry` must come from the SDK's `ryolune_plugin_entry_v2`.
 pub unsafe fn tables_from_entry_v2(entry: *const Entry2) -> Result<Vec<Table>> {
     tables_of_v2(entry)
 }

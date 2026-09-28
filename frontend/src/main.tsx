@@ -24,7 +24,7 @@ import { App } from "./App";
 applyTokens();
 const root = createRoot(document.getElementById("root")!);
 const store = new NativeStore();
-root.render(<div className="startup">Opening Ondera…</div>);
+root.render(<div className="startup">Opening ryolune…</div>);
 /**
  * A screenshot shows the window as it settles, not mid-transition. macOS throttles a web view
  * behind other windows, so a panel that opened there could be captured still transparent and
@@ -47,7 +47,7 @@ async function start() {
     try {
       await document.fonts.ready;
       settleMotion();
-      window.dispatchEvent(new Event("ondera:before-capture"));
+      window.dispatchEvent(new Event("ryolune:before-capture"));
       if (store.platform === "macos") {
         const png = await invoke<string>("daw_snapshot");
         await native("web.capture", { png });
@@ -73,7 +73,7 @@ async function start() {
 void start().catch((error) =>
   root.render(
     <div className="startup" role="alert">
-      Ondera could not connect to its audio engine.<pre>{String(error)}</pre>
+      ryolune could not connect to its audio engine.<pre>{String(error)}</pre>
       <button onClick={() => location.reload()}>Retry</button>
     </div>,
   ),

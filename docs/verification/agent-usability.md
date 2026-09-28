@@ -1,6 +1,6 @@
 # Agent setup and everyday usability review
 
-14 September 2026 · based on `bbc4821` (Ondera 0.4.0). These changes are a local
+14 September 2026 · based on `bbc4821` (ryolune 0.4.0). These changes are a local
 review branch, not a published release.
 
 ## Changes

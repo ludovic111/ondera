@@ -6,7 +6,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { commands, snapBeats } from "@ondera/core";
+import { commands, snapBeats } from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { useCanvasSurface } from "../../canvas/surface";
 import { beatAtX, editorClip, rollGeometry } from "../../canvas/pianoRoll";

@@ -1,6 +1,6 @@
 {
   "identifier": "main",
-  "description": "Local Ondera window",
+  "description": "Local ryolune window",
   "windows": ["main"],
   "permissions": [
     "core:default",

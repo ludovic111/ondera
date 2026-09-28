@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../../state/session";
-import type { SessionStore } from "@ondera/core";
+import type { SessionStore } from "@ryolune/core";
 import { actions } from "../../state/actions";
 import {
   MENU_TITLES,

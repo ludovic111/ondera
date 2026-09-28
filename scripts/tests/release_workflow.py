@@ -18,9 +18,9 @@ PACKAGE_SPEC = importlib.util.spec_from_file_location("package_portable", ROOT /
 PACKAGE = importlib.util.module_from_spec(PACKAGE_SPEC)
 PACKAGE_SPEC.loader.exec_module(PACKAGE)
 ASSETS = [
-    "Ondera-macos-arm64.zip", "Ondera-macos-x86_64.zip",
-    "Ondera-linux-x86_64.zip", "Ondera-linux-x86_64.tar.gz", "Ondera-windows-x86_64.zip",
-    "ondera-linux-x86_64", "ondera-windows-x86_64.exe", "Ondera-Afterglow-demo.zip",
+    "ryolune-macos-arm64.zip", "ryolune-macos-x86_64.zip",
+    "ryolune-linux-x86_64.zip", "ryolune-linux-x86_64.tar.gz", "ryolune-windows-x86_64.zip",
+    "ryolune-linux-x86_64", "ryolune-windows-x86_64.exe", "ryolune-Afterglow-demo.zip",
 ]
 FAKE_GH = '''#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -73,7 +73,7 @@ class ReleaseWorkflow(unittest.TestCase):
             (self.root / "dist" / name).write_bytes(payload)
             sums.append(hashlib.sha256(payload).hexdigest() + "  " + name)
         (self.root / "dist/SHA256SUMS").write_text("\n".join(sums) + "\n")
-        (self.root / "dist/SHA256SUMS.sig").write_text("ondera-ed25519 c2lnbmF0dXJl\n")
+        (self.root / "dist/SHA256SUMS.sig").write_text("ryolune-ed25519 c2lnbmF0dXJl\n")
         for name, script in [("gh", FAKE_GH), ("git", FAKE_GIT)]:
             path = self.root / "bin" / name
             path.write_text(script)
@@ -128,7 +128,7 @@ class ReleaseWorkflow(unittest.TestCase):
                 if case == "moved-tag": self.env["REMOTE_SHA"] = "b" * 40
                 if case == "missing-notes": moved = self.root / "docs/releases/0.3.1.md"
                 if case == "missing-asset": moved = self.root / "dist" / ASSETS[0]
-                if case == "missing-demo": moved = self.root / "dist/Ondera-Afterglow-demo.zip"
+                if case == "missing-demo": moved = self.root / "dist/ryolune-Afterglow-demo.zip"
                 if case == "missing-signature": moved = self.root / "dist/SHA256SUMS.sig"
                 if moved: moved.rename(moved.with_suffix(".held"))
                 result = self.run_release()
@@ -146,7 +146,7 @@ class PortablePackaging(unittest.TestCase):
 
     def test_binary_archives_have_exact_updater_names(self):
         for kind, suffix in [("linux", ""), ("windows", ".exe")]:
-            expected = [name + suffix for name in ["ondera", "ondera-cli", "ondera-mcp"]]
+            expected = [name + suffix for name in ["ryolune", "ryolune-cli", "ryolune-mcp"]]
             for name in expected:
                 (self.root / name).write_bytes(b"binary")
             output = self.root / (kind + ".zip")
@@ -158,7 +158,7 @@ class PortablePackaging(unittest.TestCase):
                 PACKAGE.package(self.root, output, kind)
 
     def test_demo_requires_complete_stock_verification_and_matching_audio(self):
-        for name in ["Afterglow.ondera", "Afterglow.wav", "Afterglow.mid"]:
+        for name in ["Afterglow.ryolune", "Afterglow.wav", "Afterglow.mid"]:
             (self.root / name).write_bytes(name.encode())
         report = {"instrument": "stock", "effect": "stock", "mode": "headless",
                   "validation": "Valid session: Afterglow",
@@ -167,7 +167,7 @@ class PortablePackaging(unittest.TestCase):
         output = self.root / "demo.zip"
         PACKAGE.package(self.root, output, "demo")
         with zipfile.ZipFile(output) as archive:
-            self.assertEqual(archive.namelist(), ["Afterglow.ondera", "Afterglow.wav", "Afterglow.mid", "verification.json"])
+            self.assertEqual(archive.namelist(), ["Afterglow.ryolune", "Afterglow.wav", "Afterglow.mid", "verification.json"])
         for change in [{"instrument": "external"}, {"mode": "live"}, {"sha256": "wrong"}, {"validation": ""}]:
             (self.root / "verification.json").write_text(json.dumps(dict(report, **change)))
             with self.assertRaises(ValueError):

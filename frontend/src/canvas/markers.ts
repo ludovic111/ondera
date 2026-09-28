@@ -1,4 +1,4 @@
-import type { Marker, Session } from "@ondera/core";
+import type { Marker, Session } from "@ryolune/core";
 import { color, fill, line, radius, size } from "../theme/tokens";
 import { cc, roundRectPath, uiFont } from "./paint";
 import {

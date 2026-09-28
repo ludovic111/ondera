@@ -3,12 +3,12 @@
 //! for parameters, state capture and native windows.
 
 use crate::{
-    app::{id, Ondera},
+    app::{id, Ryolune},
     native::NativeWindow,
     theme::*,
 };
 use eframe::egui::{self, vec2, Align2, Rect, Sense, Vec2};
-use ondera_engine::{
+use ryolune_engine::{
     device::{Message, Retired},
     host,
     model::*,
@@ -81,7 +81,7 @@ pub fn find_insert(session: &Session, key: &str) -> Option<(String, Insert, bool
 
 pub fn format_icon(format: Format) -> &'static str {
     match format {
-        Format::Stock => "Ondera",
+        Format::Stock => "ryolune",
         Format::Native => "Native",
         Format::Clap => "CLAP",
         Format::Vst3 => "VST3",
@@ -89,7 +89,7 @@ pub fn format_icon(format: Format) -> &'static str {
     }
 }
 
-impl Ondera {
+impl Ryolune {
     /// Make the loaded plugins match the session: create, mount, unload and
     /// forward parameter changes. External plugins load one per frame so the
     /// interface keeps painting their names while they initialise.
@@ -384,7 +384,7 @@ impl Ondera {
             let mut parameters = insert.params.clone();
             let mut automated = BTreeMap::new();
             for lane in &desired.automation {
-                if let ondera_engine::automation::AutomationTarget::PluginParameter {
+                if let ryolune_engine::automation::AutomationTarget::PluginParameter {
                     insert_id,
                     plugin_id,
                     parameter_id,
@@ -639,7 +639,7 @@ impl Ondera {
                 .iter()
                 .position(|i| i.id == key);
             let presets =
-                ondera_engine::preset::list(Some(&insert.plugin_id())).unwrap_or_default();
+                ryolune_engine::preset::list(Some(&insert.plugin_id())).unwrap_or_default();
             egui::Window::new(title)
                 .id(egui::Id::new(("plugin-window", &key)))
                 .open(&mut open)
@@ -1119,12 +1119,12 @@ pub fn truncate(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::app::Intent;
-    use ondera_engine::{control::Host, store};
+    use ryolune_engine::{control::Host, store};
 
     /// Use the real stock state serializer as a deterministic native-editor stand-in:
     /// direct editor changes bypass the store just like an external plugin's own UI.
-    fn captured_editor() -> (Ondera, String, u32, f64, f64) {
-        let mut app = Ondera::from_session(store::empty(), None);
+    fn captured_editor() -> (Ryolune, String, u32, f64, f64) {
+        let mut app = Ryolune::from_session(store::empty(), None);
         let track = app.store.session().tracks[0].id.clone();
         app.add_effect_to(&track, "stock:Utility", "Utility");
         app.reconcile_plugins();
@@ -1217,7 +1217,7 @@ mod tests {
 
     #[test]
     fn native_change_after_generic_override_survives_fresh_processing_and_undo() {
-        use ondera_engine::plugin::{ParamChange, ProcessContext};
+        use ryolune_engine::plugin::{ParamChange, ProcessContext};
 
         let (mut app, key, parameter, min, max) = captured_editor();
         let generic = min + (max - min) * 0.25;
@@ -1310,7 +1310,7 @@ mod tests {
 
     #[test]
     fn capturing_read_automation_preserves_manual_parameter_values() {
-        use ondera_engine::automation::{
+        use ryolune_engine::automation::{
             AutomationLane, AutomationPoint, AutomationTarget, Interpolation,
         };
 
@@ -1394,7 +1394,7 @@ mod tests {
 
     #[test]
     fn first_parameter_edit_undo_restores_the_loaded_preset() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         let track = app.store.session().tracks[0].id.clone();
         app.add_effect_to(&track, "stock:Utility", "Utility");
         app.reconcile_plugins();
@@ -1416,7 +1416,7 @@ mod tests {
 
     #[test]
     fn live_registry_can_inspect_implicit_stock_instrument() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.reconcile_plugins();
         let track = app
             .store

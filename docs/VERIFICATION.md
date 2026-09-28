@@ -1,4 +1,4 @@
-# Ondera 0.3.1 verification
+# ryolune 0.3.1 verification
 
 Verification date: 13 September 2026, on the development Mac (Apple Silicon, macOS 26). This
 records exercised behaviour and the limits of the evidence; it is not a certification of every
@@ -6,7 +6,7 @@ audio interface, plugin, model provider or production workload.
 
 ## Registry parity, live
 
-With the 0.3.1 debug build running, `ondera-cli doctor` reported the bridge, matching versions,
+With the 0.3.1 debug build running, `ryolune-cli doctor` reported the bridge, matching versions,
 both companions, the settings file and the plugin cache. Over the bridge the CLI opened the
 agent panel and the Settings window (`ui.showPanel`), zoomed the arrangement (`view.set`),
 captured three PNG screenshots of the real window (`ui.screenshot`, 3200×2000), read and reset
@@ -23,7 +23,7 @@ agent panel.
 
 `engine/tests/native_plugin.rs` exercises the example bundle through the in-process ABI, the
 whole stock library through the same vtables (24 manifests, legacy JSON-array state) and the
-built dynamic library through the scanner. `ondera --scan-plugin native <dylib>` probed the
+built dynamic library through the scanner. `ryolune --scan-plugin native <dylib>` probed the
 example library in a child process and returned both descriptors. All 24 stock plugins are
 instantiated through the ABI in the existing DSP regression tests; the bit-identical voice test
 and the stock effect decay tests pass unchanged.
@@ -40,7 +40,7 @@ provider turn (Codex, Claude Code, Anthropic or OpenAI) was not run in this veri
 `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
 `cargo test --workspace` and `python3 scripts/tests/release_workflow.py` all pass.
 
-# Ondera 0.2.0 verification
+# ryolune 0.2.0 verification
 
 Verification date: 12 September 2026. This records exercised behavior and the limits of the
 evidence; it is not a certification of every audio interface, plugin or production workload.
@@ -57,7 +57,7 @@ The same run exports 960-PPQ MIDI, imports it and undoes the import, exports a s
 96 kHz / 32-bit float, and exports five aligned 44.1 kHz / 16-bit stems into a new folder. It
 checks decoded audio, non-silence, format, peak, clipping, persistence and the command results.
 The release workflow runs this scenario on macOS ARM and Intel, Linux and Windows. The
-`Ondera-Afterglow-demo.zip` release asset contains the stock-plugin project, mix, MIDI and report.
+`ryolune-Afterglow-demo.zip` release asset contains the stock-plugin project, mix, MIDI and report.
 
 The native macOS run also passed with FabFilter Twin 3 in CLAP and Apple's AUDelay Audio Unit.
 Playback advanced on the MacBook Pro speakers at the selected 44.1 kHz device rate; the same
@@ -102,7 +102,7 @@ settings and larger projects can change the result.
 The song script reports individual command timings. In the recorded native run, ordinary
 commands had an 8.30 ms median and 16.47 ms 95th percentile. These include the UI dispatch and
 validation path. Plugin initialization and file work are excluded from that percentile and
-remain separately reported. `cargo run --release -p ondera-engine --example stress` probes
+remain separately reported. `cargo run --release -p ryolune-engine --example stress` probes
 4/8/16/32 instrument tracks with two effects and an automation lane per track.
 
 The 78-command registry is shared by the app, CLI and MCP. `session.inspect` omits opaque plugin

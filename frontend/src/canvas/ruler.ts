@@ -4,7 +4,7 @@ import {
   beatsToBars,
   formatBarBeatShort,
   type Session,
-} from "@ondera/core";
+} from "@ryolune/core";
 import {
   canvasShadow,
   color,

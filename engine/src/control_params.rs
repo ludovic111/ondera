@@ -51,8 +51,8 @@ pub const SPECS: &[Spec] = &[
         TRACK_ID, SLOT,
         req("values", Kind::Object, "Object mapping parameter ids or names to a plain number, a display string or {normalized}."),
     ]),
-    query("strip.programs", "List the programs of the plugin on a strip: its own factory programs (Audio Unit factory presets, a VST3 program list) with the current one, and the Ondera presets saved for it (preset.list). CLAP preset discovery and plugins that only show presets in their own window are not listed.", &[TRACK_ID, SLOT]),
-    edit("strip.setProgram", "Load one of the plugin's programs, by index or by name, in one undo step. A name that is not a factory program loads the Ondera preset of that name (preset.load).", &[
+    query("strip.programs", "List the programs of the plugin on a strip: its own factory programs (Audio Unit factory presets, a VST3 program list) with the current one, and the ryolune presets saved for it (preset.list). CLAP preset discovery and plugins that only show presets in their own window are not listed.", &[TRACK_ID, SLOT]),
+    edit("strip.setProgram", "Load one of the plugin's programs, by index or by name, in one undo step. A name that is not a factory program loads the ryolune preset of that name (preset.load).", &[
         TRACK_ID, SLOT,
         opt("index", Kind::Integer, "Program index from strip.programs."),
         opt("name", Kind::String, "Program or preset name."),
@@ -468,7 +468,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args) -> Result<Value> {
                     match exact.or_else(fuzzy) {
                         Some(i) => i,
                         None => {
-                            // Not a factory program: an Ondera preset of that name.
+                            // Not a factory program: a ryolune preset of that name.
                             let mut params = json!({ "trackId": track, "name": wanted });
                             if let Some(slot) = slot {
                                 params["slot"] = json!(slot);

@@ -1,4 +1,4 @@
-# Ondera
+# ryolune
 
 **The open-source DAW your AI can drive.** A complete digital audio workstation for macOS,
 Windows and Linux in which every action, from adding a track to mixing a plugin's parameters, is
@@ -15,36 +15,35 @@ same song, and every edit it makes is one undo away.
   compensation, input monitoring, count-in, crash-isolated plugin scanning. Nothing audio runs in
   JavaScript.
 - **34 stock instruments and effects** with front panels that draw what the audio does, plus
-  your own CLAP, VST3, Audio Unit (macOS) and Ondera native plugins.
+  your own CLAP, VST3, Audio Unit (macOS) and ryolune native plugins.
 - **Six themes**, each in dark and light: Modern, Skeuomorphic, Frutiger Aero, Console, Ink and
   Neon.
 - **Built for AI control**: everything a person can do in the window is a command that the
-  built-in agent, `ondera-cli` and any MCP client can call, with a one-call overview of the whole
+  built-in agent, `ryolune-cli` and any MCP client can call, with a one-call overview of the whole
   song and full access to external plugins' parameters and state.
-- **Offline and private**: no account, no subscription, no telemetry. Songs are single `.ondera`
+- **Offline and private**: no account, no subscription, no telemetry. Songs are single `.ryolune`
   files with the audio inside.
 
 ## Install
 
 Download the file for your computer from the
-[latest release](https://github.com/ludovic111/ondera/releases/latest):
+[latest release](https://github.com/ludovic111/ryolune/releases/latest):
 
 | Computer | File |
 | --- | --- |
-| Mac with Apple silicon | `Ondera-macos-arm64.zip` |
-| Mac with Intel | `Ondera-macos-x86_64.zip` |
-| Windows | `Ondera-windows-x86_64.zip` |
-| Linux | `Ondera-linux-x86_64.zip` (or `.tar.gz`) |
+| Mac with Apple silicon | `ryolune-macos-arm64.zip` |
+| Mac with Intel | `ryolune-macos-x86_64.zip` |
+| Windows | `ryolune-windows-x86_64.zip` |
+| Linux | `ryolune-linux-x86_64.zip` (or `.tar.gz`) |
 
-**macOS**: unzip and drag `Ondera.app` to Applications. The app is signed ad hoc, not notarized,
-so the first launch is blocked: open System Settings > Privacy & Security and choose Open Anyway,
-or run `xattr -dr com.apple.quarantine /Applications/Ondera.app`.
-**Windows and Linux**: extract all three executables (`ondera`, `ondera-cli`, `ondera-mcp`) into
+**macOS**: unzip and drag `ryolune.app` to Applications. The app is signed with a Developer ID
+and notarized by Apple, so it opens like any other app (from 0.11.0).
+**Windows and Linux**: extract all three executables (`ryolune`, `ryolune-cli`, `ryolune-mcp`) into
 one folder. Windows needs the Microsoft Edge WebView2 runtime.
 
-Ondera checks for updates when it starts (Help > Check for updates…). An update is installed
+ryolune checks for updates when it starts (Help > Check for updates…). An update is installed
 only after its Ed25519 signature, download host, checksum and binary versions are verified; the
-previous copy is kept until the new one starts. `ONDERA_NO_UPDATE=1` turns the check off.
+previous copy is kept until the new one starts. `RYOLUNE_NO_UPDATE=1` turns the check off.
 
 ## Start
 
@@ -56,26 +55,26 @@ previous copy is kept until the new one starts. `ONDERA_NO_UPDATE=1` turns the c
 Or open File > Open demo to explore a finished song. The [user guide](docs/USER_GUIDE.md) walks
 through everything.
 
-## Control Ondera from scripts and AI
+## Control ryolune from scripts and AI
 
-The window, the built-in agent, `ondera-cli` and `ondera-mcp` all run the same
+The window, the built-in agent, `ryolune-cli` and `ryolune-mcp` all run the same
 [command registry](docs/COMMANDS.md), with the same undo history. While the app runs, clients
 connect over a local, token-protected bridge; without it they edit a song file directly.
 
 ```sh
-ondera-cli session.overview                    # the whole song in one call
-ondera-cli track.add --kind midi --name Keys --instrument "E-Piano Mk I"
-ondera-cli clip.create --trackId Keys --startBar 0 --lengthBars 2 \
+ryolune-cli session.overview                    # the whole song in one call
+ryolune-cli track.add --kind midi --name Keys --instrument "E-Piano Mk I"
+ryolune-cli clip.create --trackId Keys --startBar 0 --lengthBars 2 \
     --notes '[{"start":0,"length":2,"pitch":60},{"start":2,"length":2,"pitch":64}]'
-ondera-cli plugin.list --query reverb
-ondera-cli history.undo
-ondera-cli --file song.ondera session.exportAudio --path mix.flac
+ryolune-cli plugin.list --query reverb
+ryolune-cli history.undo
+ryolune-cli --file song.ryolune session.exportAudio --path mix.flac
 ```
 
-Add Ondera to Claude Code or any MCP client:
+Add ryolune to Claude Code or any MCP client:
 
 ```sh
-claude mcp add ondera -- /Applications/Ondera.app/Contents/MacOS/ondera-mcp --live
+claude mcp add ryolune -- /Applications/ryolune.app/Contents/MacOS/ryolune-mcp --live
 ```
 
 See [AI_CONTROL.md](docs/AI_CONTROL.md) for the agent, the CLI, MCP, permissions and recipes.
@@ -86,11 +85,11 @@ See [AI_CONTROL.md](docs/AI_CONTROL.md) for the agent, the CLI, MCP, permissions
 | --- | --- |
 | [User guide](docs/USER_GUIDE.md) | The window, tracks, recording, editing, mixing, automation, files, themes, settings |
 | [Keyboard shortcuts](docs/SHORTCUTS.md) | Every shortcut (generated from the app) |
-| [AI control](docs/AI_CONTROL.md) | The built-in agent, `ondera-cli`, `ondera-mcp`, permissions, recipes |
+| [AI control](docs/AI_CONTROL.md) | The built-in agent, `ryolune-cli`, `ryolune-mcp`, permissions, recipes |
 | [Command reference](docs/COMMANDS.md) | Every command and parameter (generated from the registry) |
 | [The agent panel](docs/AGENT.md) | Providers, sign-in, the conversation, Changes and Takes |
 | [Plugins](docs/PLUGINS.md) | CLAP, VST3 and Audio Unit hosting |
-| [Native plugins](docs/NATIVE_PLUGINS.md) | Writing plugins in Rust with the Ondera SDK |
+| [Native plugins](docs/NATIVE_PLUGINS.md) | Writing plugins in Rust with the ryolune SDK |
 | [Development](docs/DEVELOPMENT.md) | Code layout, building, checks, releases |
 | [Release notes](docs/releases/) | What changed in each version |
 | [Verification](docs/VERIFICATION.md) | What has been tested and how |
@@ -111,13 +110,13 @@ in [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 No time stretching, comping or time signature changes inside a song yet, and buses do not feed
 other buses. Recording latency is not compensated automatically. External plugin windows open on macOS; elsewhere
 external plugins show their parameter list. VST2 and AAX are not supported. There is no MP3
-export. Builds are not notarized.
+export. Windows builds are not code-signed.
 
-## Support Ondera
+## Support ryolune
 
-Ondera is free, and every feature is in the free download. If it earns a place in your music,
+ryolune is free, and every feature is in the free download. If it earns a place in your music,
 [pay what you want for it, once](https://site-production-7751.up.railway.app/support): no
-subscription, no account, nothing unlocked or removed. It keeps Ondera built full time.
+subscription, no account, nothing unlocked or removed. It keeps ryolune built full time.
 
 ## Contributing
 

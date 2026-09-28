@@ -1,11 +1,11 @@
-//! The Settings window: every preference Ondera keeps, edited in place and applied at once.
+//! The Settings window: every preference ryolune keeps, edited in place and applied at once.
 //! The document of record is `engine::settings::Settings`; the window holds the live copy
 //! the rest of the app reads and writes it back through `apply_settings`, which is also
 //! what `settings.set` from the CLI, MCP and agents ends up calling.
 
-use crate::{app::Ondera, theme::*};
+use crate::{app::Ryolune, theme::*};
 use eframe::egui::{self, pos2, vec2, Align2, Rect, Sense, Vec2};
-use ondera_engine::{
+use ryolune_engine::{
     device, midi,
     plugin::Format,
     settings::{Provider, Settings},
@@ -59,7 +59,7 @@ struct CliJob {
     receiver: mpsc::Receiver<Result<String>>,
 }
 
-impl Ondera {
+impl Ryolune {
     pub(crate) fn open_settings(&mut self, section: Option<usize>) {
         self.settings_ui.open = true;
         if let Some(section) = section {
@@ -337,7 +337,7 @@ impl Ondera {
                 changed |= row_switch(
                     ui,
                     "Reopen the last session at start",
-                    "Otherwise Ondera opens the demo arrangement.",
+                    "Otherwise ryolune opens the demo arrangement.",
                     &mut draft.general.reopen_last_session,
                 );
                 changed |= row_switch(
@@ -363,7 +363,7 @@ impl Ondera {
                     ui,
                     format!(
                         "Snapshots live in {}",
-                        ondera_engine::recovery::directory().display()
+                        ryolune_engine::recovery::directory().display()
                     ),
                 );
                 if !draft.general.recent_sessions.is_empty() {
@@ -438,7 +438,7 @@ impl Ondera {
                 changed |= row_switch(
                     ui,
                     "Connect at start",
-                    "Reconnect the chosen port when Ondera opens.",
+                    "Reconnect the chosen port when ryolune opens.",
                     &mut draft.audio.connect_midi_on_start,
                 );
                 if ports.is_empty() {
@@ -465,7 +465,7 @@ impl Ondera {
                 changed |= row_switch(
                     ui,
                     "Open the agent panel",
-                    "Show the agent conversation when Ondera starts.",
+                    "Show the agent conversation when ryolune starts.",
                     &mut draft.interface.agent_panel_open_on_start,
                 );
                 changed |= row_switch(
@@ -478,7 +478,7 @@ impl Ondera {
             3 => changed |= self.agent_settings(ui, draft),
             4 => {
                 section_header(ui, "Scanning");
-                changed |= row_switch(ui, "Scan at start", "Look for new CLAP, VST3, Audio Unit and Ondera native plugins when the app opens.", &mut draft.plugins.scan_on_start);
+                changed |= row_switch(ui, "Scan at start", "Look for new CLAP, VST3, Audio Unit and ryolune native plugins when the app opens.", &mut draft.plugins.scan_on_start);
                 ui.horizontal(|ui| {
                     if text_button(
                         ui,
@@ -507,7 +507,7 @@ impl Ondera {
                 });
                 for (title, format, paths) in [
                     (
-                        "Ondera native plugin folders",
+                        "ryolune native plugin folders",
                         Format::Native,
                         &mut draft.plugins.extra_native_paths,
                     ),
@@ -523,7 +523,7 @@ impl Ondera {
                     ),
                 ] {
                     section_header(ui, title);
-                    let standard = ondera_engine::host::scan::directories(format);
+                    let standard = ryolune_engine::host::scan::directories(format);
                     for dir in standard
                         .iter()
                         .filter(|d| !paths.iter().any(|p| Path::new(p) == d.as_path()))
@@ -569,10 +569,10 @@ impl Ondera {
                     });
                 }
                 section_header(ui, "Native plugins");
-                row_note(ui, format!("Ondera native plugins are Rust libraries built with the ondera-plugin SDK (ABI {}). Drop an .onplug bundle or a bare library into a folder above and scan.", ondera_plugin::ABI_VERSION));
+                row_note(ui, format!("ryolune native plugins are Rust libraries built with the ryolune-plugin SDK (ABI {}). Drop an .onplug bundle or a bare library into a folder above and scan.", ryolune_plugin::ABI_VERSION));
                 ui.horizontal(|ui| {
                     if text_button(ui, "Open plugin folder", Face::Raised).clicked() {
-                        let dir = ondera_engine::host::scan::data_dir().join("plugins");
+                        let dir = ryolune_engine::host::scan::data_dir().join("plugins");
                         let _ = std::fs::create_dir_all(&dir);
                         reveal(&dir);
                     }
@@ -580,7 +580,7 @@ impl Ondera {
             }
             5 => {
                 section_header(ui, "Local bridge");
-                changed |= row_switch(ui, "Serve the CLI and MCP bridge", "ondera-cli and ondera-mcp control this window over 127.0.0.1 with a private token.", &mut draft.control.enable_bridge);
+                changed |= row_switch(ui, "Serve the CLI and MCP bridge", "ryolune-cli and ryolune-mcp control this window over 127.0.0.1 with a private token.", &mut draft.control.enable_bridge);
                 let connection = self
                     .control
                     .as_ref()
@@ -610,7 +610,7 @@ impl Ondera {
                     }
                 });
                 section_header(ui, "Registry");
-                row_note(ui, format!("{} commands are shared by the window, ondera-cli, ondera-mcp and the built-in agent. Run `ondera-cli commands` to list them.", ondera_engine::control::COMMANDS.len()));
+                row_note(ui, format!("{} commands are shared by the window, ryolune-cli, ryolune-mcp and the built-in agent. Run `ryolune-cli commands` to list them.", ryolune_engine::control::COMMANDS.len()));
             }
             6 => {
                 section_header(ui, "Releases");
@@ -636,7 +636,7 @@ impl Ondera {
                 row_note(
                     ui,
                     format!(
-                        "Ondera {} · {}",
+                        "ryolune {} · {}",
                         crate::update::current_version(),
                         crate::update::signing_summary()
                     ),
@@ -644,31 +644,31 @@ impl Ondera {
                 row_note(ui, "Downloads are verified against SHA256SUMS and the release signature before the installed copy is replaced; the previous copy is kept until the new one starts.".to_string());
             }
             _ => {
-                section_header(ui, "Ondera");
+                section_header(ui, "ryolune");
                 row_note(
                     ui,
                     format!(
                         "Version {} · plugin ABI {} · {} {}",
                         crate::update::current_version(),
-                        ondera_plugin::ABI_VERSION,
+                        ryolune_plugin::ABI_VERSION,
                         std::env::consts::OS,
                         std::env::consts::ARCH
                     ),
                 );
                 row_note(
                     ui,
-                    format!("Data: {}", ondera_engine::host::scan::data_dir().display()),
+                    format!("Data: {}", ryolune_engine::host::scan::data_dir().display()),
                 );
                 row_note(ui, format!("Settings: {}", Settings::path().display()));
                 row_note(
                     ui,
-                    format!("Presets: {}", ondera_engine::preset::directory().display()),
+                    format!("Presets: {}", ryolune_engine::preset::directory().display()),
                 );
                 ui.horizontal(|ui| {
                     if text_button(ui, "Open data folder", Face::Raised).clicked() {
-                        reveal(&ondera_engine::host::scan::data_dir());
+                        reveal(&ryolune_engine::host::scan::data_dir());
                     }
-                    if text_button(ui, "Working in Ondera", Face::Raised).clicked() {
+                    if text_button(ui, "Working in ryolune", Face::Raised).clicked() {
                         self.show_help = true;
                     }
                 });
@@ -864,7 +864,7 @@ impl Ondera {
             "Quit and install updates.",
             &mut permissions.app_control,
         );
-        row_note(ui, "Applies to the built-in agent, MCP clients and `ondera-cli --agent`. Plain document edits are always allowed and always undoable.".to_string());
+        row_note(ui, "Applies to the built-in agent, MCP clients and `ryolune-cli --agent`. Plain document edits are always allowed and always undoable.".to_string());
         changed
     }
 
@@ -1139,9 +1139,9 @@ mod cli_tests {
     fn a_wanted_bridge_starts_from_the_tick_and_only_when_enabled() {
         // Never touch the person's own discovery file from a test.
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("ONDERA_CONTROL", dir.path().join("control.json"));
+        std::env::set_var("RYOLUNE_CONTROL", dir.path().join("control.json"));
         let ctx = egui::Context::default();
-        let mut app = crate::app::Ondera::from_session(ondera_engine::store::empty(), None);
+        let mut app = crate::app::Ryolune::from_session(ryolune_engine::store::empty(), None);
         app.control = None;
         app.settings.control.enable_bridge = false;
         app.bridge_wanted = true;

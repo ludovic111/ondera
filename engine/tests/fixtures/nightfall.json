@@ -1,5 +1,5 @@
 {
-  "name": "Nightfall.ondera",
+  "name": "Nightfall.ryolune",
   "audio": {
     "sampleRate": 48000,
     "bitDepth": 24,
@@ -1549,7 +1549,7 @@
       {
         "id": "l2",
         "title": "Quantized Keys B to 1/16, 62% strength",
-        "detail": "ondera clip quantize keys:2 --grid 1/16 --strength .62",
+        "detail": "ryolune clip quantize keys:2 --grid 1/16 --strength .62",
         "color": "oklch(0.75 0.13 250)",
         "live": false,
         "reverted": false
@@ -1557,7 +1557,7 @@
       {
         "id": "l3",
         "title": "Created send Keys → A · Reverb, −12 dB",
-        "detail": "ondera send add keys --bus A --level -12",
+        "detail": "ryolune send add keys --bus A --level -12",
         "color": "oklch(0.75 0.13 250)",
         "live": false,
         "reverted": false
@@ -1565,7 +1565,7 @@
       {
         "id": "l4",
         "title": "Trimmed Guitar clip 1 end to bar 8",
-        "detail": "ondera clip trim guitar:1 --end 8.1.1",
+        "detail": "ryolune clip trim guitar:1 --end 8.1.1",
         "color": "oklch(0.72 0.13 20)",
         "live": false,
         "reverted": false
@@ -1573,7 +1573,7 @@
       {
         "id": "l5",
         "title": "Renamed “Audio 5” to “Lead Vox”",
-        "detail": "ondera track rename 5 \"Lead Vox\"",
+        "detail": "ryolune track rename 5 \"Lead Vox\"",
         "color": "oklch(0.78 0.14 85)",
         "live": false,
         "reverted": false
@@ -1581,7 +1581,7 @@
       {
         "id": "l6",
         "title": "Set project key to C minor",
-        "detail": "ondera project set key Cm",
+        "detail": "ryolune project set key Cm",
         "color": "#7f7e7a",
         "live": false,
         "reverted": false
@@ -1592,10 +1592,10 @@
   "browser": {
     "instruments": [
       {
-        "name": "Ondera",
+        "name": "ryolune",
         "items": [
           {
-            "name": "Ondera Synth",
+            "name": "ryolune Synth",
             "meta": "",
             "color": "oklch(0.72 0.13 300)"
           },
@@ -1731,10 +1731,10 @@
     ],
     "plugins": [
       {
-        "name": "Ondera",
+        "name": "ryolune",
         "items": [
           {
-            "name": "Ondera Comp",
+            "name": "ryolune Comp",
             "meta": "dynamics",
             "color": null
           },
@@ -1796,7 +1796,7 @@
         "name": "Project",
         "items": [
           {
-            "name": "Nightfall.ondera",
+            "name": "Nightfall.ryolune",
             "meta": "today",
             "color": null
           },
@@ -1952,12 +1952,12 @@
       ]
     },
     "bass": {
-      "instrument": "Ondera Synth",
+      "instrument": "ryolune Synth",
       "input": "All MIDI",
       "output": "Stereo Out",
       "inserts": [
         {
-          "name": "Ondera Comp",
+          "name": "ryolune Comp",
           "meta": "3.2 dB GR",
           "state": "active"
         },

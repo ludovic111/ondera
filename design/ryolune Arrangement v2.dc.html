@@ -33,7 +33,7 @@ input::placeholder{color:#77766f}
     <div style="display:flex;gap:7px"><span style="width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,.25)"></span><span style="width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,.25)"></span><span style="width:10px;height:10px;border-radius:50%;border:1px solid rgba(255,255,255,.25)"></span></div>
     <div style="display:flex;gap:16px"><span>File</span><span>Edit</span><span>Track</span><span>Mix</span><span>Agent</span><span>View</span><span>Help</span></div>
   </div>
-  <div style="color:#ededea;font-weight:500;display:flex;gap:8px;align-items:center"><span style="width:6px;height:6px;background:#ededea"></span>Nightfall.ondera</div>
+  <div style="color:#ededea;font-weight:500;display:flex;gap:8px;align-items:center"><span style="width:6px;height:6px;background:#ededea"></span>Nightfall.ryolune</div>
   <div style="text-align:right;font-family:'Geist Mono',monospace;font-size:10.5px;color:#77766f">48 kHz · 24-bit · 128 smp</div>
 </div>
 
@@ -243,7 +243,7 @@ input::placeholder{color:#77766f}
       <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:10px;color:#77766f">MIDI · CH 2</span>
     </div>
     <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid rgba(255,255,255,.08)">
-      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Instrument</span><span style="color:#ededea;font-weight:500">Ondera Synth</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Instrument</span><span style="color:#ededea;font-weight:500">ryolune Synth</span></div>
       <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Input</span><span style="color:#ededea;font-weight:500">All MIDI</span></div>
       <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#77766f">Output</span><span style="color:#ededea;font-weight:500">Stereo Out</span></div>
     </div>
@@ -346,7 +346,7 @@ input::placeholder{color:#77766f}
         <input value="{{ draft }}" onChange="{{ onDraft }}" placeholder="Ask the agent… e.g. “double the chorus and mute BGV”" style="flex:1;min-width:0;background:transparent;border:0;outline:0;color:#ededea;font-family:Geist,sans-serif;font-size:12.5px;padding:6px 0 8px"></input>
         <div style="display:flex;align-items:center;justify-content:center;width:30px;height:28px;border-radius:3px;background:oklch(0.82 0.13 185);color:#0e2624"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5.5 10 V1 M1.5 5 L5.5 1 L9.5 5"></path></svg></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:9.5px;color:#77766f"><span>⌘↵ send · ⌘Z reverts last agent change</span><span>ondera-cli 0.9 · mcp</span></div>
+      <div style="display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:9.5px;color:#77766f"><span>⌘↵ send · ⌘Z reverts last agent change</span><span>ryolune-cli 0.9 · mcp</span></div>
     </div>
   </div>
   </sc-if>
@@ -496,7 +496,7 @@ class Component extends DCLogic {
     });
     const bars = Array.from({ length: 12 }, (_, i) => ({ n: i + 1, left: i * BAR }));
     const browser = [
-      { name: 'Ondera', items: [{ name: 'Ondera Synth', meta: '', dot: 'oklch(0.74 0.13 300)', bg: 'transparent' }, { name: 'E-Piano Mk I', meta: '', dot: 'oklch(0.74 0.13 250)', bg: 'rgba(255,255,255,.07)' }, { name: 'Drum Machine', meta: '', dot: 'oklch(0.74 0.13 40)', bg: 'transparent' }, { name: 'Sampler', meta: '', dot: 'oklch(0.78 0.13 85)', bg: 'transparent' }] },
+      { name: 'ryolune', items: [{ name: 'ryolune Synth', meta: '', dot: 'oklch(0.74 0.13 300)', bg: 'transparent' }, { name: 'E-Piano Mk I', meta: '', dot: 'oklch(0.74 0.13 250)', bg: 'rgba(255,255,255,.07)' }, { name: 'Drum Machine', meta: '', dot: 'oklch(0.74 0.13 40)', bg: 'transparent' }, { name: 'Sampler', meta: '', dot: 'oklch(0.78 0.13 85)', bg: 'transparent' }] },
       { name: 'Installed', items: [{ name: 'Vital', meta: 'VST3', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Surge XT', meta: 'CLAP', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Dexed', meta: 'VST3', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Odin 2', meta: 'VST3', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }, { name: 'Helm', meta: 'LV2', dot: 'rgba(255,255,255,.3)', bg: 'transparent' }] },
       { name: 'Recent', items: [{ name: 'Sub Bass 808', meta: 'preset', dot: 'oklch(0.74 0.13 300)', bg: 'transparent' }, { name: 'Glass Keys', meta: 'preset', dot: 'oklch(0.74 0.13 250)', bg: 'transparent' }, { name: 'Choir Pad', meta: 'preset', dot: 'oklch(0.74 0.13 330)', bg: 'transparent' }] },
     ].map(g => ({ ...g, count: String(g.items.length).padStart(2, '0') }));
@@ -517,7 +517,7 @@ class Component extends DCLogic {
       });
     });
     const inserts = [
-      { name: 'Ondera Comp', meta: '3.2 dB GR', border: 'rgba(255,255,255,.14)', fg: INK, led: INK },
+      { name: 'ryolune Comp', meta: '3.2 dB GR', border: 'rgba(255,255,255,.14)', fg: INK, led: INK },
       { name: 'Tape Sat', meta: 'Drive 24%', border: 'rgba(255,255,255,.14)', fg: INK, led: INK },
       { name: 'Chorus', meta: 'bypassed', border: 'rgba(255,255,255,.14)', fg: '#8f8e88', led: 'rgba(255,255,255,.18)' },
       { name: 'Empty slot', meta: '', border: 'rgba(255,255,255,.06)', fg: '#77766f', led: 'transparent' },
@@ -526,11 +526,11 @@ class Component extends DCLogic {
     const rev = this.state.reverted;
     const LOG = [
       { id: 1, title: 'Adding 7ths to Keys B, bars 5–8', detail: 'keys/clip:2 · 18 of 29 notes · in progress', color: A, live: true },
-      { id: 2, title: 'Quantized Keys B to 1/16, 62% strength', detail: 'ondera clip quantize keys:2 --grid 1/16 --strength .62', color: 'oklch(0.74 0.13 250)' },
-      { id: 3, title: 'Created send Keys → A · Reverb, −12 dB', detail: 'ondera send add keys --bus A --level -12', color: 'oklch(0.74 0.13 250)' },
-      { id: 4, title: 'Trimmed Guitar clip 1 end to bar 8', detail: 'ondera clip trim guitar:1 --end 8.1.1', color: 'oklch(0.74 0.13 20)' },
-      { id: 5, title: 'Renamed “Audio 5” to “Lead Vox”', detail: 'ondera track rename 5 "Lead Vox"', color: 'oklch(0.78 0.13 85)' },
-      { id: 6, title: 'Set project key to C minor', detail: 'ondera project set key Cm', color: 'rgba(255,255,255,.3)' },
+      { id: 2, title: 'Quantized Keys B to 1/16, 62% strength', detail: 'ryolune clip quantize keys:2 --grid 1/16 --strength .62', color: 'oklch(0.74 0.13 250)' },
+      { id: 3, title: 'Created send Keys → A · Reverb, −12 dB', detail: 'ryolune send add keys --bus A --level -12', color: 'oklch(0.74 0.13 250)' },
+      { id: 4, title: 'Trimmed Guitar clip 1 end to bar 8', detail: 'ryolune clip trim guitar:1 --end 8.1.1', color: 'oklch(0.74 0.13 20)' },
+      { id: 5, title: 'Renamed “Audio 5” to “Lead Vox”', detail: 'ryolune track rename 5 "Lead Vox"', color: 'oklch(0.78 0.13 85)' },
+      { id: 6, title: 'Set project key to C minor', detail: 'ryolune project set key Cm', color: 'rgba(255,255,255,.3)' },
     ];
     const revBtn = 'display:flex;align-items:center;justify-content:center;height:22px;padding:0 9px;border-radius:3px;font-size:10.5px;font-weight:500;cursor:pointer;flex:none;';
     const log = LOG.map(e => {

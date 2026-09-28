@@ -31,17 +31,17 @@ jobs:
       matrix:
         include:
           - os: macos-14
-            asset: Ondera-macos-arm64.zip
-            archive: Ondera-macos-arm64.zip
+            asset: ryolune-macos-arm64.zip
+            archive: ryolune-macos-arm64.zip
           - os: macos-15-intel
-            asset: Ondera-macos-x86_64.zip
-            archive: Ondera-macos-x86_64.zip
+            asset: ryolune-macos-x86_64.zip
+            archive: ryolune-macos-x86_64.zip
           - os: ubuntu-22.04
-            asset: ondera-linux-x86_64
-            archive: Ondera-linux-x86_64.zip
+            asset: ryolune-linux-x86_64
+            archive: ryolune-linux-x86_64.zip
           - os: windows-latest
-            asset: ondera-windows-x86_64.exe
-            archive: Ondera-windows-x86_64.zip
+            asset: ryolune-windows-x86_64.exe
+            archive: ryolune-windows-x86_64.zip
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -101,17 +101,17 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist
-          cp target/release/ondera dist/${{ matrix.asset }}
-          tar -czf dist/Ondera-linux-x86_64.tar.gz -C target/release ondera ondera-cli ondera-mcp
-          python3 scripts/package-portable.py linux target/release dist/Ondera-linux-x86_64.zip
-          python3 scripts/package-portable.py demo artifacts/song-verification dist/Ondera-Afterglow-demo.zip
+          cp target/release/ryolune dist/${{ matrix.asset }}
+          tar -czf dist/ryolune-linux-x86_64.tar.gz -C target/release ryolune ryolune-cli ryolune-mcp
+          python3 scripts/package-portable.py linux target/release dist/ryolune-linux-x86_64.zip
+          python3 scripts/package-portable.py demo artifacts/song-verification dist/ryolune-Afterglow-demo.zip
       - name: Package Windows binary
         if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p dist
-          cp target/release/ondera.exe dist/${{ matrix.asset }}
-          python scripts/package-portable.py windows target/release dist/Ondera-windows-x86_64.zip
+          cp target/release/ryolune.exe dist/${{ matrix.asset }}
+          python scripts/package-portable.py windows target/release dist/ryolune-windows-x86_64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
@@ -125,8 +125,8 @@ jobs:
         with:
           name: linux-tar-and-stock-demo
           path: |
-            dist/Ondera-linux-x86_64.tar.gz
-            dist/Ondera-Afterglow-demo.zip
+            dist/ryolune-linux-x86_64.tar.gz
+            dist/ryolune-Afterglow-demo.zip
           if-no-files-found: error
 
   release:
@@ -139,22 +139,22 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums
-        run: cd dist && sha256sum Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip > SHA256SUMS
+        run: cd dist && sha256sum ryolune-macos-arm64.zip ryolune-macos-x86_64.zip ryolune-linux-x86_64.zip ryolune-linux-x86_64.tar.gz ryolune-windows-x86_64.zip ryolune-linux-x86_64 ryolune-windows-x86_64.exe ryolune-Afterglow-demo.zip > SHA256SUMS
       - name: Install signing binary runtime
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-0 libasound2 libudev1 libxkbcommon0 libegl1 libgl1 libxdo3 libayatana-appindicator3-1
       - name: Sign checksums
         env:
-          ONDERA_SIGNING_KEY: ${{ secrets.ONDERA_SIGNING_KEY }}
+          RYOLUNE_SIGNING_KEY: ${{ secrets.ONDERA_SIGNING_KEY }}
         run: |
-          if [ -z "$ONDERA_SIGNING_KEY" ]; then
-            echo 'The ONDERA_SIGNING_KEY secret is not set. Installed apps refuse unsigned releases; add the secret from the key generated with `ondera --release-keygen`.' >&2
+          if [ -z "$RYOLUNE_SIGNING_KEY" ]; then
+            echo 'The RYOLUNE_SIGNING_KEY secret is not set. Installed apps refuse unsigned releases; add the secret from the key generated with `ryolune --release-keygen`.' >&2
             exit 1
           fi
           umask 077
-          printf '%s\n' "$ONDERA_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
-          chmod +x dist/ondera-linux-x86_64
-          dist/ondera-linux-x86_64 --sign-release "$RUNNER_TEMP/release.key" dist/SHA256SUMS
-          dist/ondera-linux-x86_64 --verify-release dist/SHA256SUMS
+          printf '%s\n' "$RYOLUNE_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+          chmod +x dist/ryolune-linux-x86_64
+          dist/ryolune-linux-x86_64 --sign-release "$RUNNER_TEMP/release.key" dist/SHA256SUMS
+          dist/ryolune-linux-x86_64 --verify-release dist/SHA256SUMS
           rm -f "$RUNNER_TEMP/release.key"
       - name: Publish complete draft or verify existing release
         env:

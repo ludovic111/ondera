@@ -1,37 +1,37 @@
-//! Command-line client for Ondera. Every command comes from the shared registry, so the CLI can
+//! Command-line client for ryolune. Every command comes from the shared registry, so the CLI can
 //! do exactly what the interface and an agent can do, on the running app or on a file.
 
-use ondera_engine::control;
-use ondera_tools::{coerce, merge, Backend};
+use ryolune_engine::control;
+use ryolune_tools::{coerce, merge, Backend};
 use serde_json::Value;
 use std::{path::PathBuf, process::ExitCode};
 
-const USAGE: &str = "ondera-cli — command-line client for Ondera
+const USAGE: &str = "ryolune-cli — command-line client for ryolune
 
 USAGE
-  ondera-cli [OPTIONS] <command> [--param value | param=value ...]
-  ondera-cli commands [--json]       list every command (JSON: full parameter schema)
-  ondera-cli help <command>          show one command's parameters
-  ondera-cli batch                   run JSON lines from stdin: {\"command\":\"track.add\",\"params\":{...}}
+  ryolune-cli [OPTIONS] <command> [--param value | param=value ...]
+  ryolune-cli commands [--json]       list every command (JSON: full parameter schema)
+  ryolune-cli help <command>          show one command's parameters
+  ryolune-cli batch                   run JSON lines from stdin: {\"command\":\"track.add\",\"params\":{...}}
                                      one JSON result per line; stops at the first error unless --continue
-  ondera-cli doctor                  check the bridge, versions, companions, settings and plugin cache
+  ryolune-cli doctor                  check the bridge, versions, companions, settings and plugin cache
 
 OPTIONS
-  --file <session.ondera>   edit the file in this process and save after each change;
+  --file <session.ryolune>   edit the file in this process and save after each change;
                             session.new creates it
-  --live                    require the running Ondera app (the default when --file is absent)
+  --live                    require the running ryolune app (the default when --file is absent)
   --params <json>           parameters as one JSON object, merged with --param values
   --agent                   mark created clips and notes as agent-made in the interface
   --compact                 single-line JSON output
   --continue                in batch mode, keep going after a failed line
 
 EXAMPLES
-  ondera-cli session.info
-  ondera-cli track.add --kind midi --name Bass --instrument \"Sub Bass 808\"
-  ondera-cli clip.create --trackId track-1 --startBar 0 --lengthBars 2 \\
+  ryolune-cli session.info
+  ryolune-cli track.add --kind midi --name Bass --instrument \"Sub Bass 808\"
+  ryolune-cli clip.create --trackId track-1 --startBar 0 --lengthBars 2 \\
       --notes '[{\"start\":0,\"length\":1,\"pitch\":36},{\"start\":2,\"length\":1,\"pitch\":43}]'
-  ondera-cli --file song.ondera session.new
-  ondera-cli --file song.ondera session.bounce --path mix.wav
+  ryolune-cli --file song.ryolune session.new
+  ryolune-cli --file song.ryolune session.bounce --path mix.wav
 
 Bars and beats are zero-based; note times are beats relative to their clip.";
 
@@ -40,7 +40,7 @@ fn main() -> ExitCode {
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(Failure::Usage(message)) => {
-            eprintln!("{message}\n\nRun `ondera-cli --help` for usage.");
+            eprintln!("{message}\n\nRun `ryolune-cli --help` for usage.");
             ExitCode::from(2)
         }
         Err(Failure::Command(message)) => {
@@ -61,7 +61,7 @@ impl From<String> for Failure {
 }
 
 fn run(args: &[String]) -> Result<(), Failure> {
-    if let Some(result) = ondera_tools::scan_child(args) {
+    if let Some(result) = ryolune_tools::scan_child(args) {
         return result.map_err(Failure::Command);
     }
     let mut file: Option<PathBuf> = None;
@@ -93,7 +93,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
             "--compact" | "-c" => compact = true,
             "--continue" => keep_going = true,
             "--version" | "-V" => {
-                println!("ondera-cli {}", env!("CARGO_PKG_VERSION"));
+                println!("ryolune-cli {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             _ if command.is_none() => {
@@ -127,7 +127,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
         return Err(Failure::Usage("Missing command".into()));
     };
     if command == "doctor" {
-        let report = ondera_tools::doctor();
+        let report = ryolune_tools::doctor();
         if pairs.iter().any(|(k, _)| k == "--json") || compact {
             println!(
                 "{}",
@@ -210,7 +210,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
         (Some(path), false) => Backend::headless(Some(path), command == "session.new")?,
         (None, _) => Backend::live().map_err(|e| {
             Failure::Command(format!(
-                "{e}\nStart the Ondera app for live control, or pass --file <session.ondera> to edit a file."
+                "{e}\nStart the ryolune app for live control, or pass --file <session.ryolune> to edit a file."
             ))
         })?,
     };
@@ -242,7 +242,7 @@ fn batch(
         (Some(path), false) => Backend::headless(Some(path), true)?,
         (None, _) => Backend::live().map_err(|e| {
             Failure::Command(format!(
-                "{e}\nStart the Ondera app for live control, or pass --file <session.ondera> to edit a file."
+                "{e}\nStart the ryolune app for live control, or pass --file <session.ryolune> to edit a file."
             ))
         })?,
     };
@@ -254,7 +254,7 @@ fn batch(
         if line.trim().is_empty() || line.trim_start().starts_with('#') {
             continue;
         }
-        let result = ondera_tools::parse_batch_line(&line).and_then(|(name, params)| {
+        let result = ryolune_tools::parse_batch_line(&line).and_then(|(name, params)| {
             control::validate_request(&name, &params)?;
             let value = backend.call(&name, &params, agent)?;
             let saved = backend.autosave()?;
@@ -287,7 +287,7 @@ fn batch(
 fn describe(name: &str) -> Result<(), Failure> {
     let Some(spec) = control::spec(name) else {
         return Err(Failure::Command(format!(
-            "Unknown command `{name}`. Run `ondera-cli commands`."
+            "Unknown command `{name}`. Run `ryolune-cli commands`."
         )));
     };
     println!(

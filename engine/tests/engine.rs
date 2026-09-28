@@ -1,4 +1,4 @@
-use ondera_engine::{
+use ryolune_engine::{
     audio::{self, AudioBuffer, Library},
     document,
     dsp::{EFFECTS, INSTRUMENTS},
@@ -518,7 +518,7 @@ fn stock_parameters_change_the_sound_and_persist() {
         *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
         (*seed as f32 / u32::MAX as f32) * 0.5 - 0.25
     };
-    let run = |processor: &mut Box<dyn ondera_engine::plugin::Processor>, cutoff: f64| {
+    let run = |processor: &mut Box<dyn ryolune_engine::plugin::Processor>, cutoff: f64| {
         let mut seed = 7;
         let mut total = 0.0f64;
         let mut block = [[0.0f32; 2]; 64];
@@ -527,7 +527,7 @@ fn stock_parameters_change_the_sound_and_persist() {
                 let v = noise(&mut seed);
                 *f = [v, v];
             }
-            let change = [ondera_engine::plugin::ParamChange::now(1, cutoff)];
+            let change = [ryolune_engine::plugin::ParamChange::now(1, cutoff)];
             processor.process(&mut block, &[], if i == 0 { &change } else { &[] }, &ctx);
             if i > 20 {
                 total += block.iter().map(|f| (f[0] * f[0]) as f64).sum::<f64>();
@@ -550,7 +550,7 @@ fn stock_parameters_change_the_sound_and_persist() {
 }
 #[test]
 fn instrument_processor_handles_note_on_and_off() {
-    let mut instance = stock::create("Ondera Synth", 48000).unwrap();
+    let mut instance = stock::create("ryolune Synth", 48000).unwrap();
     let mut processor = instance.processor.take().unwrap();
     let ctx = ProcessContext::default();
     let mut block = [[0.0f32; 2]; 64];
@@ -599,12 +599,12 @@ fn audio_round_trip_preserves_float_samples() {
 fn complete_session_round_trip_preserves_audio_and_metadata() {
     let (mut s, lib) = audio_session();
     let mut strip = Strip::default();
-    let mut insert = Insert::new("comp-1".into(), "stock:Ondera Comp", "Ondera Comp");
+    let mut insert = Insert::new("comp-1".into(), "stock:ryolune Comp", "ryolune Comp");
     insert.params.insert(0, -30.0);
     strip.inserts.push(insert);
     s.strips.insert(s.tracks[0].id.clone(), strip);
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("test.ondera");
+    let path = dir.path().join("test.ryolune");
     document::save(&s, &lib, &path).unwrap();
     let (loaded, samples) = document::load(&path).unwrap();
     assert_eq!(loaded.clips.len(), s.clips.len());
@@ -618,7 +618,7 @@ fn complete_session_round_trip_preserves_audio_and_metadata() {
 fn save_with_missing_audio_does_not_replace_existing_file() {
     let (s, _) = audio_session();
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("keep.ondera");
+    let path = dir.path().join("keep.ryolune");
     std::fs::write(&path, "original").unwrap();
     assert!(document::save(&s, &Library::new(), &path).is_err());
     assert_eq!(std::fs::read_to_string(path).unwrap(), "original");
@@ -626,7 +626,7 @@ fn save_with_missing_audio_does_not_replace_existing_file() {
 #[test]
 fn interrupted_atomic_write_preserves_original() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("keep.ondera");
+    let path = dir.path().join("keep.ryolune");
     std::fs::write(&path, "original").unwrap();
     assert!(document::atomic_write(&path, |f| {
         use std::io::Write;
@@ -638,17 +638,54 @@ fn interrupted_atomic_write_preserves_original() {
 }
 #[test]
 fn newer_session_version_is_rejected() {
-    let json=serde_json::json!({"format":"ondera-session","version":99,"session":midi_session(),"audio":{}}).to_string();
+    let json=serde_json::json!({"format":"ryolune-session","version":99,"session":midi_session(),"audio":{}}).to_string();
     assert!(document::decode_session(&json)
         .unwrap_err()
         .contains("version"));
+}
+#[test]
+fn sessions_saved_before_the_rename_still_open() {
+    let json = serde_json::json!({"format":"ondera-session","version":1,"session":midi_session(),"audio":{}}).to_string();
+    let (session, _) = document::decode_session(&json).unwrap();
+    assert_eq!(session.tracks.len(), midi_session().tracks.len());
+    assert!(document::is_session_path(std::path::Path::new(
+        "Night Drive.ondera"
+    )));
+    assert!(document::is_session_path(std::path::Path::new(
+        "Night Drive.ryolune"
+    )));
+    assert!(!document::is_session_path(std::path::Path::new(
+        "Night Drive.wav"
+    )));
+    // Stock plugins named after the former project name come back under the current one.
+    let mut old = midi_session();
+    let strip = old.strips.entry(old.tracks[0].id.clone()).or_default();
+    strip.instrument = "Ondera Synth".into();
+    let mut insert =
+        ryolune_engine::model::Insert::new("fx-1".into(), "stock:Ondera Comp", "Ondera Comp");
+    insert.meta = "Ondera".into();
+    strip.inserts.push(insert);
+    let json = serde_json::json!({"format":"ondera-session","version":1,"session":old,"audio":{}})
+        .to_string();
+    let (session, _) = document::decode_session(&json).unwrap();
+    let strip = &session.strips[&session.tracks[0].id];
+    assert_eq!(strip.instrument, "ryolune Synth");
+    let insert = strip.inserts.last().unwrap();
+    assert_eq!(
+        (
+            insert.plugin.as_str(),
+            insert.name.as_str(),
+            insert.meta.as_str()
+        ),
+        ("stock:ryolune Comp", "ryolune Comp", "ryolune")
+    );
 }
 #[test]
 fn realtime_render_seek_and_preview_allocate_nothing() {
     let mut s = midi_session();
     // Controllers are sequenced, chased on locate and reset at stop without allocating.
     if let ClipData::Midi { controllers, .. } = &mut s.clips[0].data {
-        use ondera_engine::model::{Controller, ControllerKind};
+        use ryolune_engine::model::{Controller, ControllerKind};
         for (i, (kind, number, time, value)) in [
             (ControllerKind::Cc, Some(1), 0.0, 10),
             (ControllerKind::Cc, Some(64), 0.1, 127),
@@ -682,7 +719,7 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
         ));
     }
     s.strips.insert(s.tracks[0].id.clone(), strip);
-    use ondera_engine::automation::{
+    use ryolune_engine::automation::{
         AutomationLane, AutomationPoint, AutomationTarget, Interpolation,
     };
     for (id, target, min, max, start, end) in [
@@ -754,7 +791,7 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
     let (mut r, mut rack) = offline(s, &Library::new(), 48000);
     r.playing = true;
     let mut block = [[0.0f32; 2]; 256];
-    let mut midi = ondera_engine::midi::MidiNotes::default();
+    let mut midi = ryolune_engine::midi::MidiNotes::default();
     let mut midi_events = 0;
     ALLOCATIONS.with(|n| n.set(0));
     DEALLOCATIONS.with(|n| n.set(0));
@@ -784,8 +821,8 @@ fn realtime_render_seek_and_preview_allocate_nothing() {
     for i in 0..64 {
         if i == 20 {
             r.locate(0.5);
-            r.control(0, ondera_engine::plugin::Event::pitch_bend(0, -0.5));
-            std::hint::black_box(ondera_engine::midi::controller(&[0xb0, 1, 64]));
+            r.control(0, ryolune_engine::plugin::Event::pitch_bend(0, -0.5));
+            std::hint::black_box(ryolune_engine::midi::controller(&[0xb0, 1, 64]));
             r.preview(0, 64, 100);
             r.note(0, true, 67, 90);
             rack.set_param(0, 0, 0.5);
@@ -844,16 +881,16 @@ fn invalid_audio_bytes_report_error() {
 #[test]
 fn plugin_cache_round_trips_and_lists_stock_first() {
     let dir = tempfile::tempdir().unwrap();
-    std::env::set_var("ONDERA_DATA_DIR", dir.path());
+    std::env::set_var("RYOLUNE_DATA_DIR", dir.path());
     let cache = scan::Cache {
         version: 1,
         entries: vec![scan::CacheEntry {
             path: "/tmp/Fake.clap".into(),
             modified: 1,
-            format: Some(ondera_engine::plugin::Format::Clap),
-            descriptors: vec![ondera_engine::plugin::Descriptor {
+            format: Some(ryolune_engine::plugin::Format::Clap),
+            descriptors: vec![ryolune_engine::plugin::Descriptor {
                 id: "clap:org.example.fake".into(),
-                format: ondera_engine::plugin::Format::Clap,
+                format: ryolune_engine::plugin::Format::Clap,
                 name: "Fake".into(),
                 vendor: "Example".into(),
                 path: "/tmp/Fake.clap".into(),
@@ -871,10 +908,10 @@ fn plugin_cache_round_trips_and_lists_stock_first() {
     assert_eq!(loaded.descriptors().len(), 1);
     assert_eq!(scan::lookup("clap:org.example.fake").unwrap().name, "Fake");
     let installed = scan::installed();
-    assert_eq!(installed[0].format, ondera_engine::plugin::Format::Stock);
+    assert_eq!(installed[0].format, ryolune_engine::plugin::Format::Stock);
     assert!(installed.iter().any(|d| d.id == "clap:org.example.fake"));
-    assert!(ondera_engine::host::instantiate("clap:org.example.fake", "Fake", 48000).is_err());
-    std::env::remove_var("ONDERA_DATA_DIR");
+    assert!(ryolune_engine::host::instantiate("clap:org.example.fake", "Fake", 48000).is_err());
+    std::env::remove_var("RYOLUNE_DATA_DIR");
 }
 #[test]
 fn count_in_clicks_with_the_song_parked_then_starts_on_the_sample() {
@@ -929,7 +966,7 @@ fn monitored_session(monitor: Monitor, armed: bool) -> (Session, Library) {
 
 #[test]
 fn a_block_pushed_into_the_monitor_ring_comes_out_of_render_through_the_inserts() {
-    use ondera_engine::device::{monitor_ring, Telemetry};
+    use ryolune_engine::device::{monitor_ring, Telemetry};
     let (mut s, _) = monitored_session(Monitor::On, false);
     s.clips.clear();
     let (mut r, mut rack) = offline(s, &Library::new(), 48000);
@@ -976,7 +1013,7 @@ fn a_block_pushed_into_the_monitor_ring_comes_out_of_render_through_the_inserts(
 
 #[test]
 fn monitoring_never_allocates_on_the_audio_thread() {
-    use ondera_engine::device::{monitor_ring, Telemetry};
+    use ryolune_engine::device::{monitor_ring, Telemetry};
     let (s, library) = monitored_session(Monitor::On, true);
     let (mut r, mut rack) = offline(s, &library, 48000);
     let telemetry = Telemetry::default();
@@ -1057,7 +1094,7 @@ fn auto_monitoring_follows_arm_and_yields_to_the_tracks_own_clip() {
 
 #[test]
 fn the_monitor_tap_resamples_bounds_latency_and_counts_what_it_drops() {
-    use ondera_engine::device::{monitor_ring, Telemetry};
+    use ryolune_engine::device::{monitor_ring, Telemetry};
     use std::sync::atomic::Ordering;
     assert!(monitor_ring(1000, 48000).is_err());
     // 44.1 kHz microphone into a 48 kHz output: a 441 Hz sine stays a 441 Hz sine.
@@ -1321,12 +1358,12 @@ fn split_gives_the_left_part_the_fade_in_and_the_right_the_fade_out() {
 fn tempo_session() -> (Session, Library) {
     let (mut s, _) = dc_session(0.0, 0.0, FadeCurve::Linear, 0.0);
     s.tempo_changes = vec![
-        ondera_engine::tempo::TempoPoint {
+        ryolune_engine::tempo::TempoPoint {
             bar: 1.0,
             bpm: 60.0,
             ramp: false,
         },
-        ondera_engine::tempo::TempoPoint {
+        ryolune_engine::tempo::TempoPoint {
             bar: 3.0,
             bpm: 120.0,
             ramp: true,
@@ -1409,23 +1446,23 @@ fn a_locate_lands_on_the_right_second_of_audio() {
 fn exports_last_as_long_as_the_tempo_map_says() {
     let (s, library) = tempo_session();
     let seconds = s.tempo_map().seconds(16.0);
-    let dir = std::env::temp_dir().join(format!("ondera-tempo-export-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ryolune-tempo-export-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("mix.wav");
-    let options = ondera_engine::export::ExportOptions {
+    let options = ryolune_engine::export::ExportOptions {
         tail_seconds: 0.0,
         ..Default::default()
     };
-    let report = ondera_engine::export::mix(&s, &library, &path, &options).unwrap();
+    let report = ryolune_engine::export::mix(&s, &library, &path, &options).unwrap();
     assert_eq!(report.frames, (seconds * 48000.0).ceil() as u64);
     // A range inside the ramp lasts as long as the ramp takes there, 60 / 7.5 · ln 1.5.
-    let options = ondera_engine::export::ExportOptions {
+    let options = ryolune_engine::export::ExportOptions {
         start_bar: Some(1.0),
         end_bar: Some(2.0),
         tail_seconds: 0.0,
         ..Default::default()
     };
-    let report = ondera_engine::export::mix(&s, &library, &path, &options).unwrap();
+    let report = ryolune_engine::export::mix(&s, &library, &path, &options).unwrap();
     assert_eq!(report.frames, (8.0 * 1.5f64.ln() * 48000.0).ceil() as u64);
     std::fs::remove_dir_all(&dir).ok();
 }

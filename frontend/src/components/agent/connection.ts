@@ -107,7 +107,7 @@ export function agentErrorMessage(error: string, unsent: boolean): string {
       text,
     )
   )
-    return "Ondera could not reach your AI service. Check your connection and, for a local model, make sure its server is running.";
+    return "ryolune could not reach your AI service. Check your connection and, for a local model, make sure its server is running.";
   return unsent
     ? "Your message was not sent. It is still in the box below; check the details and try again."
     : "The agent could not finish this request. Completed edits are kept in your project and in Changes.";

@@ -2,7 +2,7 @@
 //! make assertions about what comes out. Nothing here touches an audio device.
 //!
 //! ```
-//! use ondera_plugin::{prelude::*, testing::Bench};
+//! use ryolune_plugin::{prelude::*, testing::Bench};
 //! # struct Gain(f32);
 //! # impl Plugin for Gain {
 //! #     const INFO: Info = Info::effect("com.example.gain", "Gain", "Example", "Utility");

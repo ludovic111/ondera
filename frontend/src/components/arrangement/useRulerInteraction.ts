@@ -5,7 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { barsToBeats, commands, snapBars, type Marker } from "@ondera/core";
+import { barsToBeats, commands, snapBars, type Marker } from "@ryolune/core";
 import { useSession, useStore } from "../../state/session";
 import { barToX, laneGeometry, xToBar } from "../../canvas/timeline";
 import { markerAt } from "../../canvas/markers";

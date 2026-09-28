@@ -3,11 +3,11 @@
 //! from replacing a newer document or masking edits made during recovery.
 
 use crate::{
-    app::{Intent, Ondera},
+    app::{Intent, Ryolune},
     theme::*,
 };
 use eframe::egui;
-use ondera_engine::{
+use ryolune_engine::{
     audio::Library,
     document,
     model::Session,
@@ -159,7 +159,7 @@ impl Recovery {
     }
 }
 
-impl Ondera {
+impl Ryolune {
     pub(crate) fn open_recovery(&mut self) {
         self.recovery.open = true;
         self.recovery.refresh = true;
@@ -317,7 +317,7 @@ impl Ondera {
         let mut selected = None;
         egui::Window::new("Recover a session").open(&mut open).default_width(BROWSER * 2.0)
             .frame(window_frame()).resizable(true).show(ctx, |ui| plate(ui, "recovery-plate", |ui| {
-                ui.label(text(format!("Ondera saves a separate recovery copy every {} seconds while an edited session is idle. Your project file is preserved.", self.settings.general.recovery_interval_seconds), FS_BODY, Weight::Medium, INK));
+                ui.label(text(format!("ryolune saves a separate recovery copy every {} seconds while an edited session is idle. Your project file is preserved.", self.settings.general.recovery_interval_seconds), FS_BODY, Weight::Medium, INK));
                 ui.label(text("Choose a snapshot to open a copy. Current unsaved edits will be offered for saving first; Save then chooses the recovered project's destination.", FS_SECONDARY, Weight::Medium, DIM));
                 ui.label(mono(self.recovery.status(), FS_SMALL, FAINT));
                 ui.label(mono(directory().display().to_string(), FS_SMALL, FAINT));
@@ -374,12 +374,12 @@ fn age(time: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ondera_engine::store;
+    use ryolune_engine::store;
 
     fn temp() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "ondera-recovery-test-{}",
-            ondera_engine::control::new_id("case")
+            "ryolune-recovery-test-{}",
+            ryolune_engine::control::new_id("case")
         ));
         fs::create_dir_all(&root).unwrap();
         root
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn generated_recovery_writes_preserve_originals_and_latest_copy_loads() {
         let root = temp();
-        let original = root.join("song.ondera");
+        let original = root.join("song.ryolune");
         let mut session = store::empty();
         document::save(&session, &Library::new(), &original).unwrap();
         let original_bytes = fs::read(&original).unwrap();
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn completed_restore_cannot_replace_a_new_document_or_intervening_edit() {
         for new_document in [false, true] {
-            let mut app = Ondera::from_session(store::empty(), None);
+            let mut app = Ryolune::from_session(store::empty(), None);
             let revision = app.store.revision;
             let mut recovered = store::empty();
             recovered.name = "Obsolete recovery".into();
@@ -457,7 +457,7 @@ mod tests {
                 receiver,
             });
             tx.send(Ok(Outcome::Loaded {
-                path: "/tmp/recovery-snapshot.ondera".into(),
+                path: "/tmp/recovery-snapshot.ryolune".into(),
                 session: Box::new(recovered),
                 library: Library::new(),
                 revision,
@@ -466,7 +466,9 @@ mod tests {
             if new_document {
                 app.recovery.new_document();
             }
-            app.dispatch(ondera_engine::store::Command::Rename("Current work".into()));
+            app.dispatch(ryolune_engine::store::Command::Rename(
+                "Current work".into(),
+            ));
             let ctx = egui::Context::default();
             install(&ctx);
             let _ = ctx.run(egui::RawInput::default(), |ctx| app.poll_recovery(ctx));
@@ -480,7 +482,7 @@ mod tests {
 
     #[test]
     fn restored_copy_is_unsaved_without_a_fake_edit_and_requires_save_on_quit() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         let mut recovered = store::empty();
         recovered.name = "Recovered song".into();
         let (tx, receiver) = mpsc::sync_channel(1);
@@ -489,7 +491,7 @@ mod tests {
             receiver,
         });
         tx.send(Ok(Outcome::Loaded {
-            path: "/tmp/recovery-snapshot.ondera".into(),
+            path: "/tmp/recovery-snapshot.ryolune".into(),
             session: Box::new(recovered),
             library: Library::new(),
             revision: app.store.revision,
@@ -515,8 +517,8 @@ mod tests {
             .is_none_or(|p| !p.contains("recovery-snapshot")));
         assert!(app.store.dirty());
         assert!(!app.store.can_undo());
-        app.dispatch(ondera_engine::store::Command::Rename("Edit".into()));
-        app.dispatch(ondera_engine::store::Command::Undo);
+        app.dispatch(ryolune_engine::store::Command::Rename("Edit".into()));
+        app.dispatch(ryolune_engine::store::Command::Undo);
         assert!(
             app.store.dirty(),
             "Undo cannot claim a recovered copy was saved"
@@ -530,12 +532,12 @@ mod tests {
 
     #[test]
     fn the_recovery_timer_leaves_redo_and_gestures_alone() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         assert!(app.background_capture_allowed());
-        app.dispatch(ondera_engine::store::Command::Rename("Edit".into()));
-        app.dispatch(ondera_engine::store::Command::Undo);
+        app.dispatch(ryolune_engine::store::Command::Rename("Edit".into()));
+        app.dispatch(ryolune_engine::store::Command::Undo);
         assert!(!app.background_capture_allowed(), "Redo would be lost");
-        app.dispatch(ondera_engine::store::Command::Redo);
+        app.dispatch(ryolune_engine::store::Command::Redo);
         app.store.set_gesture(true);
         assert!(!app.background_capture_allowed(), "a drag would be split");
         app.store.set_gesture(false);
@@ -547,10 +549,10 @@ mod tests {
         let root = temp();
         let generated = generated_path(&root, 1234, 1, "Song");
         fs::write(&generated, b"not loaded by directory listing").unwrap();
-        fs::write(root.join("my-original.ondera"), b"original").unwrap();
+        fs::write(root.join("my-original.ryolune"), b"original").unwrap();
         assert_eq!(list(&root).unwrap().len(), 1);
         assert!(ensure_generated(&root, &generated).is_ok());
-        assert!(ensure_generated(&root, &root.join("my-original.ondera")).is_err());
+        assert!(ensure_generated(&root, &root.join("my-original.ryolune")).is_err());
         let other = root.join("other");
         fs::create_dir(&other).unwrap();
         assert!(ensure_generated(&other, &generated).is_err());

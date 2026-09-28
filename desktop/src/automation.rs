@@ -1,10 +1,10 @@
 //! Native read-automation editor. Every edit is a Store command and can be undone.
 use crate::{
-    app::{id, Ondera},
+    app::{id, Ryolune},
     theme::*,
 };
 use eframe::egui::{self, pos2, vec2, Align2, Rect, Sense, Stroke};
-use ondera_engine::{
+use ryolune_engine::{
     automation::{AutomationLane, AutomationPoint, AutomationTarget, Interpolation},
     model::{Strip, BUS_A, BUS_B, MASTER},
     store::Command,
@@ -47,7 +47,7 @@ impl Default for AutomationUi {
         }
     }
 }
-impl Ondera {
+impl Ryolune {
     pub(crate) fn automation_window(&mut self, ctx: &egui::Context) {
         if !self.automation.open {
             return;
@@ -127,7 +127,7 @@ impl Ondera {
                             .iter()
                             .find(|track| track.id == state.track)
                             .map_or_else(
-                                || ondera_engine::model::bus_name(&state.track).to_string(),
+                                || ryolune_engine::model::bus_name(&state.track).to_string(),
                                 |track| track.name.clone(),
                             ),
                     )
@@ -153,7 +153,7 @@ impl Ondera {
                         if state.track != BUS_A && state.track != BUS_B {
                             ui.selectable_value(&mut state.kind, 0, "Volume");
                         }
-                        if !ondera_engine::model::is_bus(&state.track) {
+                        if !ryolune_engine::model::is_bus(&state.track) {
                             ui.selectable_value(&mut state.kind, 1, "Pan");
                         }
                         ui.selectable_value(&mut state.kind, 2, "Plugin parameter");
@@ -280,7 +280,7 @@ impl Ondera {
                     .iter()
                     .find(|track| track.id == state.track)
                     .map_or_else(
-                        || ondera_engine::model::bus_name(&state.track).to_string(),
+                        || ryolune_engine::model::bus_name(&state.track).to_string(),
                         |track| track.name.clone(),
                     );
                 let name = format!(
@@ -634,7 +634,7 @@ fn put_point(lane: &mut AutomationLane, state: &mut AutomationUi, beat: f64, val
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn frame(app: &mut Ondera, ctx: &egui::Context, time: f64, events: Vec<egui::Event>) {
+    fn frame(app: &mut Ryolune, ctx: &egui::Context, time: f64, events: Vec<egui::Event>) {
         let _ = ctx.run(
             egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 900.0))),
@@ -659,7 +659,7 @@ mod tests {
     }
     #[test]
     fn graph_double_click_adds_and_drag_moves_a_point_with_undo() {
-        let mut app = Ondera::from_session(ondera_engine::store::empty(), None);
+        let mut app = Ryolune::from_session(ryolune_engine::store::empty(), None);
         app.run_control_command(
             "automation.create",
             &json!({"target":"masterVolume"}),

@@ -2,7 +2,7 @@
 """Compose, edit, mix, save, reopen and bounce through MCP; verify with the CLI.
 
 Default mode owns an isolated headless session. --live explicitly replaces the
-session in the app discovered through ONDERA_CONTROL; use a dedicated QA window.
+session in the app discovered through RYOLUNE_CONTROL; use a dedicated QA window.
 No third-party plugin is required. Optional IDs must already be scanned.
 """
 import argparse
@@ -34,7 +34,7 @@ def main():
     bins = args.bin_dir.resolve()
     suffix = '.exe' if os.name == 'nt' else ''
     err = (out / 'mcp.log').open('w')
-    proc = subprocess.Popen([str(bins / ('ondera-mcp' + suffix)), '--live' if args.live else '--headless'],
+    proc = subprocess.Popen([str(bins / ('ryolune-mcp' + suffix)), '--live' if args.live else '--headless'],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8")
     seq = 0
     calls = []
@@ -74,7 +74,7 @@ def main():
 
     try:
         init = rpc('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {},
-                                 'clientInfo': {'name': 'Ondera song verification', 'version': '1'}})
+                                 'clientInfo': {'name': 'ryolune song verification', 'version': '1'}})
         assert init['protocolVersion'] == '2025-06-18'
         proc.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) + '\n')
         proc.stdin.flush()
@@ -176,7 +176,7 @@ def main():
             assert playing['transport']['positionBeats'] > 0.5, playing
             call('transport.stop')
             call('transport.locate', beats=0)
-        project, mix = out / 'Afterglow.ondera', out / 'Afterglow.wav'
+        project, mix = out / 'Afterglow.ryolune', out / 'Afterglow.wav'
         call('session.save', path=str(project))
         before = call('session.get')
         call('session.open', path=str(project))
@@ -225,11 +225,11 @@ def main():
             proc.stdin.close()
             proc.wait(timeout=10)
         cli_mode = ['--live'] if args.live else ['--file', str(project)]
-        cli = subprocess.run([str(bins / ('ondera-cli' + suffix)), *cli_mode, '--compact', 'session.get'],
+        cli = subprocess.run([str(bins / ('ryolune-cli' + suffix)), *cli_mode, '--compact', 'session.get'],
                              capture_output=True, text=True, encoding="utf-8", check=True)
         restored = json.loads(cli.stdout)
         assert restored['clips'] == after['clips']
-        validated = subprocess.run([str(bins / ('ondera' + suffix)), '--validate', str(project)],
+        validated = subprocess.run([str(bins / ('ryolune' + suffix)), '--validate', str(project)],
                                    capture_output=True, text=True, encoding="utf-8", check=True)
         with wave.open(str(mix), 'rb') as wav:
             assert (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) == (2, 3, 48000)

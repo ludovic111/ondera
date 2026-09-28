@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 bash scripts/verify-release.sh
 tag=${GITHUB_REF_NAME:?Missing release tag}
 notes="docs/releases/${tag#v}.md"
-assets=(Ondera-macos-arm64.zip Ondera-macos-x86_64.zip Ondera-linux-x86_64.zip Ondera-linux-x86_64.tar.gz Ondera-windows-x86_64.zip ondera-linux-x86_64 ondera-windows-x86_64.exe Ondera-Afterglow-demo.zip)
+assets=(ryolune-macos-arm64.zip ryolune-macos-x86_64.zip ryolune-linux-x86_64.zip ryolune-linux-x86_64.tar.gz ryolune-windows-x86_64.zip ryolune-linux-x86_64 ryolune-windows-x86_64.exe ryolune-Afterglow-demo.zip)
 for asset in "${assets[@]}" SHA256SUMS SHA256SUMS.sig; do
   test -s "dist/$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
 done
@@ -35,7 +35,7 @@ PY
   fi
 else
   # A network/auth failure cannot overwrite anything: create will fail if the release exists.
-  gh release create "$tag" --verify-tag --draft --title "Ondera ${tag#v}" --notes-file "$notes"
+  gh release create "$tag" --verify-tag --draft --title "ryolune ${tag#v}" --notes-file "$notes"
 fi
 uploads=(dist/SHA256SUMS dist/SHA256SUMS.sig)
 for asset in "${assets[@]}"; do uploads+=("dist/$asset"); done
@@ -47,4 +47,4 @@ test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true || {
 gh release upload "$tag" "${uploads[@]}" --clobber
 # The tag is checked again after uploading, before making this draft available to updaters.
 bash scripts/verify-release.sh
-gh release edit "$tag" --draft=false --latest --title "Ondera ${tag#v}" --notes-file "$notes"
+gh release edit "$tag" --draft=false --latest --title "ryolune ${tag#v}" --notes-file "$notes"

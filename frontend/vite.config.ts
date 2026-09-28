@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@ondera/core": fileURLToPath(
+      "@ryolune/core": fileURLToPath(
         new URL("./src/core/index.ts", import.meta.url),
       ),
     },

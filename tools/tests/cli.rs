@@ -2,10 +2,10 @@ use serde_json::Value;
 use std::{path::Path, process::Command};
 
 fn cli(dir: &Path, args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_ondera-cli"))
+    let out = Command::new(env!("CARGO_BIN_EXE_ryolune-cli"))
         .args(args)
         // Never reach a real running app from tests.
-        .env("ONDERA_CONTROL", dir.join("absent-control.json"))
+        .env("RYOLUNE_CONTROL", dir.join("absent-control.json"))
         .output()
         .unwrap();
     (
@@ -46,7 +46,7 @@ fn without_the_app_the_cli_explains_both_modes() {
 #[test]
 fn file_mode_saves_after_every_change() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let file = song.to_str().unwrap();
     let (code, _, err) = cli(dir.path(), &["--file", file, "track.list"]);
     assert_eq!(
@@ -158,7 +158,7 @@ fn file_mode_saves_after_every_change() {
 #[test]
 fn cli_composes_mixes_exports_and_resets_an_existing_song() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let mix = dir.path().join("mix.wav");
     let file = song.to_str().unwrap();
     let run = |name: &str, params: Value| -> Value {
@@ -206,14 +206,14 @@ fn cli_composes_mixes_exports_and_resets_an_existing_song() {
     run("master.setVolume", serde_json::json!({"volume":0.6}));
     run("track.select", serde_json::json!({"trackId":lead}));
     run("transport.locate", serde_json::json!({"bar":2}));
-    let loaded = ondera_engine::document::load(&song).unwrap().0;
+    let loaded = ryolune_engine::document::load(&song).unwrap().0;
     assert_eq!(
         loaded.transport.position_beats, 8.0,
         "file mode persists locate commands even though they are transient"
     );
     assert_eq!(loaded.view.selected_track_id.as_deref(), lead.as_str());
     run("session.bounce", serde_json::json!({"path":mix}));
-    let audio = ondera_engine::audio::decode(std::fs::read(&mix).unwrap(), Some("wav")).unwrap();
+    let audio = ryolune_engine::audio::decode(std::fs::read(&mix).unwrap(), Some("wav")).unwrap();
     assert_eq!(audio.sample_rate, 48000);
     assert!(audio.duration() >= 11.0, "four bars plus effect tail");
     assert!(audio.frames.iter().flatten().all(|s| s.is_finite()));
@@ -226,7 +226,7 @@ fn cli_composes_mixes_exports_and_resets_an_existing_song() {
     assert!(energy > 1.0, "export contains audible music");
     run("session.new", serde_json::json!({}));
     assert_eq!(
-        ondera_engine::document::load(&song).unwrap().0.clips.len(),
+        ryolune_engine::document::load(&song).unwrap().0.clips.len(),
         0,
         "session.new overwrites an existing file even though the new store starts clean"
     );
@@ -235,7 +235,7 @@ fn cli_composes_mixes_exports_and_resets_an_existing_song() {
 #[test]
 fn cli_rejects_nonfinite_numbers_without_modifying_files() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let file = song.to_str().unwrap();
     assert_eq!(cli(dir.path(), &["--file", file, "session.new"]).0, 0);
     let before = std::fs::read(&song).unwrap();
@@ -251,7 +251,7 @@ fn cli_rejects_nonfinite_numbers_without_modifying_files() {
 #[test]
 fn cli_midi_interchange_and_configured_wav_export() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("interchange.ondera");
+    let song = dir.path().join("interchange.ryolune");
     let midi = dir.path().join("notes.mid");
     let wav = dir.path().join("range.wav");
     let run = |name: &str, params: Value| -> Value {
@@ -291,7 +291,7 @@ fn cli_midi_interchange_and_configured_wav_export() {
         serde_json::json!({"path":wav,"sampleRate":44100,"format":"float32","startBeat":0,"endBeat":1,"tailSeconds":0}),
     );
     assert_eq!(report["frames"], 22050);
-    let audio = ondera_engine::audio::decode(std::fs::read(wav).unwrap(), Some("wav")).unwrap();
+    let audio = ryolune_engine::audio::decode(std::fs::read(wav).unwrap(), Some("wav")).unwrap();
     assert_eq!(audio.sample_rate, 44100);
     assert!((audio.duration() - 0.5).abs() < 0.0001);
 }
@@ -301,10 +301,10 @@ fn batch_mode_runs_json_lines_against_a_file_and_stops_at_the_first_error() {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("batch.ondera");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ondera-cli"))
+    let song = dir.path().join("batch.ryolune");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ryolune-cli"))
         .args(["--file", song.to_str().unwrap(), "batch"])
-        .env("ONDERA_CONTROL", dir.path().join("absent-control.json"))
+        .env("RYOLUNE_CONTROL", dir.path().join("absent-control.json"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -343,10 +343,10 @@ fn batch_mode_runs_json_lines_against_a_file_and_stops_at_the_first_error() {
     assert!(lines[1]["saved"]
         .as_str()
         .unwrap()
-        .ends_with("batch.ondera"));
+        .ends_with("batch.ryolune"));
     assert_eq!(lines[2]["ok"], false);
     assert!(lines[2]["error"].as_str().unwrap().contains("midi"));
-    let loaded = ondera_engine::document::load(&song).unwrap().0;
+    let loaded = ryolune_engine::document::load(&song).unwrap().0;
     assert_eq!(
         loaded.tracks.len(),
         4,
@@ -399,7 +399,7 @@ fn doctor_and_json_command_listing_work_without_the_app() {
 #[test]
 fn file_mode_overview_and_plugin_parameters_by_name() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let file = song.to_str().unwrap();
     let (code, _, err) = cli(
         dir.path(),

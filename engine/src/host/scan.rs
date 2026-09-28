@@ -1,4 +1,4 @@
-//! Plugin discovery. Ondera native, CLAP and VST3 bundles are probed in a child process so
+//! Plugin discovery. ryolune native, CLAP and VST3 bundles are probed in a child process so
 //! a crashing plugin cannot take the session down; Audio Units come from the system
 //! registry. Results are cached next to the user's application data.
 
@@ -57,42 +57,65 @@ fn home() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
 }
+/// Folder name the project used before it was renamed ryolune, per platform.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const LEGACY_NAME: &str = "Ondera";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const LEGACY_NAME: &str = "ondera";
+
 pub fn data_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("ONDERA_DATA_DIR") {
+    if let Some(dir) = std::env::var_os("RYOLUNE_DATA_DIR") {
         return PathBuf::from(dir);
     }
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| adopt_legacy(platform_dir(LEGACY_NAME), platform_dir("ryolune")))
+        .clone()
+}
+fn platform_dir(name: &str) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         home()
-            .map(|h| h.join("Library/Application Support/Ondera"))
+            .map(|h| h.join("Library/Application Support").join(name))
             .unwrap_or_else(|| PathBuf::from("."))
     }
     #[cfg(target_os = "windows")]
     {
         std::env::var_os("APPDATA")
-            .map(|a| PathBuf::from(a).join("Ondera"))
-            .or_else(|| home().map(|h| h.join("Ondera")))
+            .map(|a| PathBuf::from(a).join(name))
+            .or_else(|| home().map(|h| h.join(name)))
             .unwrap_or_else(|| PathBuf::from("."))
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         std::env::var_os("XDG_CONFIG_HOME")
-            .map(|a| PathBuf::from(a).join("ondera"))
-            .or_else(|| home().map(|h| h.join(".config/ondera")))
+            .map(|a| PathBuf::from(a).join(name))
+            .or_else(|| home().map(|h| h.join(".config").join(name)))
             .unwrap_or_else(|| PathBuf::from("."))
+    }
+}
+/// The data folder of an install from before the rename (settings, presets, recovery
+/// snapshots, plugin cache) becomes the new one the first time it is needed. If the move
+/// fails the old folder is used as it is, so nothing is lost or left behind half-copied.
+fn adopt_legacy(legacy: PathBuf, current: PathBuf) -> PathBuf {
+    if current.exists() || !legacy.is_dir() {
+        return current;
+    }
+    match std::fs::rename(&legacy, &current) {
+        Ok(()) => current,
+        Err(_) => legacy,
     }
 }
 pub fn cache_path() -> PathBuf {
     data_dir().join("plugins.json")
 }
 /// Standard bundle directories per format, plus `CLAP_PATH` / `VST3_PATH` /
-/// `ONDERA_PLUGIN_PATH` overrides and the extra paths from Settings > Plugins.
+/// `RYOLUNE_PLUGIN_PATH` overrides and the extra paths from Settings > Plugins.
 pub fn directories(format: Format) -> Vec<PathBuf> {
     let mut dirs = vec![];
     let env = match format {
         Format::Clap => Some("CLAP_PATH"),
         Format::Vst3 => Some("VST3_PATH"),
-        Format::Native => Some("ONDERA_PLUGIN_PATH"),
+        Format::Native => Some("RYOLUNE_PLUGIN_PATH"),
         _ => None,
     };
     if let Some(var) = env.and_then(std::env::var_os) {
@@ -103,26 +126,29 @@ pub fn directories(format: Format) -> Vec<PathBuf> {
     match format {
         Format::Native => {
             dirs.push(data_dir().join("plugins"));
-            #[cfg(target_os = "macos")]
-            {
-                if let Some(h) = &home {
-                    dirs.push(h.join("Library/Audio/Plug-Ins/Ondera"));
+            // Folders under the former name stay scanned, after the new ones.
+            for name in ["ryolune", LEGACY_NAME] {
+                #[cfg(target_os = "macos")]
+                {
+                    if let Some(h) = &home {
+                        dirs.push(h.join("Library/Audio/Plug-Ins").join(name));
+                    }
+                    dirs.push(PathBuf::from("/Library/Audio/Plug-Ins").join(name));
                 }
-                dirs.push(PathBuf::from("/Library/Audio/Plug-Ins/Ondera"));
-            }
-            #[cfg(target_os = "windows")]
-            {
-                if let Some(p) = std::env::var_os("COMMONPROGRAMFILES") {
-                    dirs.push(PathBuf::from(p).join("Ondera/Plugins"));
+                #[cfg(target_os = "windows")]
+                {
+                    if let Some(p) = std::env::var_os("COMMONPROGRAMFILES") {
+                        dirs.push(PathBuf::from(p).join(name).join("Plugins"));
+                    }
                 }
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            {
-                if let Some(h) = &home {
-                    dirs.push(h.join(".local/lib/ondera/plugins"));
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                {
+                    if let Some(h) = &home {
+                        dirs.push(h.join(".local/lib").join(name).join("plugins"));
+                    }
+                    dirs.push(PathBuf::from("/usr/lib").join(name).join("plugins"));
+                    dirs.push(PathBuf::from("/usr/local/lib").join(name).join("plugins"));
                 }
-                dirs.push(PathBuf::from("/usr/lib/ondera/plugins"));
-                dirs.push(PathBuf::from("/usr/local/lib/ondera/plugins"));
             }
         }
         Format::Clap => {
@@ -385,4 +411,23 @@ pub fn scan_all(mut progress: impl FnMut(&str)) -> Cache {
     };
     let _ = store_cache(&cache);
     cache
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adopt_legacy;
+
+    #[test]
+    fn an_install_from_before_the_rename_keeps_its_data() {
+        let root = tempfile::tempdir().unwrap();
+        let (legacy, current) = (root.path().join("Ondera"), root.path().join("ryolune"));
+        std::fs::create_dir(&legacy).unwrap();
+        std::fs::write(legacy.join("settings.json"), "{}").unwrap();
+        assert_eq!(adopt_legacy(legacy.clone(), current.clone()), current);
+        assert!(current.join("settings.json").is_file() && !legacy.exists());
+        // Once the new folder exists, an old one that reappears is left alone.
+        std::fs::create_dir(&legacy).unwrap();
+        assert_eq!(adopt_legacy(legacy.clone(), current.clone()), current);
+        assert!(legacy.exists());
+    }
 }

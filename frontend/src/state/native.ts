@@ -9,7 +9,7 @@ import type {
   ChannelStrip,
   BrowserGroup,
   BrowserTab,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { library } from "../audio/library";
 import { beatsPerBar } from "../core/time";
 import { outputName, sendTargetName } from "../core/strip";
@@ -232,7 +232,7 @@ const defaultView: View = {
   followPlayhead: true,
 };
 const empty: Session = {
-  name: "Ondera",
+  name: "ryolune",
   tracks: [],
   clips: [],
   markers: [],
@@ -605,7 +605,7 @@ export class NativeStore {
     const order = (library.folders ?? []).map((f) => f.name);
     const group = (
       items: { name: string; meta: string; color: string | null }[],
-    ): BrowserGroup[] => [{ name: "Ondera", items }];
+    ): BrowserGroup[] => [{ name: "ryolune", items }];
     const FORMAT: Record<string, string> = {
       native: "Rust",
       clap: "CLAP",
@@ -700,7 +700,7 @@ export class NativeStore {
   async exportMidiFile(): Promise<void> {
     const path = await invoke<string | null>("daw_pick", {
       kind: "saveMidi",
-      name: `${this.state.name.replace(/\.ondera$/i, "")}.mid`,
+      name: `${this.state.name.replace(/\.ryolune$/i, "")}.mid`,
     });
     if (!path) return;
     await this.run("session.exportMidi", {

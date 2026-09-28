@@ -1,4 +1,4 @@
-use ondera_engine::{
+use ryolune_engine::{
     audio::AudioBuffer,
     control::{self, Headless},
     export::{self, ExportOptions, SampleFormat},
@@ -39,11 +39,11 @@ fn read_float(path: &Path) -> Vec<f32> {
 #[test]
 fn exports_cannot_replace_the_open_session_document() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("song.ondera");
+    let path = dir.path().join("song.ryolune");
     let mut host = song();
     command(&mut host, "session.save", json!({"path":path}));
     let before = std::fs::read(&path).unwrap();
-    let outputs = vec![path.clone(), dir.path().join(".").join("song.ondera")];
+    let outputs = vec![path.clone(), dir.path().join(".").join("song.ryolune")];
     #[cfg(unix)]
     let outputs = {
         let mut outputs = outputs;
@@ -424,7 +424,7 @@ fn stems_are_aligned_and_publish_all_or_nothing() {
         .unwrap()
         .file_name()
         .to_string_lossy()
-        .starts_with(".ondera-stems-")));
+        .starts_with(".ryolune-stems-")));
 }
 
 #[test]
@@ -493,7 +493,7 @@ fn media_registry_is_available_to_cli_and_mcp_validation() {
 
 #[test]
 fn aiff_export_holds_the_same_audio_as_wav() {
-    use ondera_engine::{audio, export, store};
+    use ryolune_engine::{audio, export, store};
     let session = store::demo();
     let dir = tempfile::tempdir().unwrap();
     let options = export::ExportOptions {
@@ -531,7 +531,7 @@ fn aiff_export_holds_the_same_audio_as_wav() {
 
 #[test]
 fn flac_export_holds_the_same_audio_as_wav() {
-    use ondera_engine::{audio, export, store};
+    use ryolune_engine::{audio, export, store};
     let session = store::demo();
     let dir = tempfile::tempdir().unwrap();
     let library = audio::Library::new();
@@ -582,7 +582,7 @@ fn flac_export_holds_the_same_audio_as_wav() {
 
 #[test]
 fn stems_take_the_container_that_was_asked_for() {
-    use ondera_engine::{audio, export, store};
+    use ryolune_engine::{audio, export, store};
     let session = store::demo();
     let mut prepared = audio::Library::new();
     audio::prepare_sources(&session, &mut prepared).unwrap();
@@ -623,7 +623,7 @@ fn stems_take_the_container_that_was_asked_for() {
 
 #[test]
 fn ogg_export_decodes_back_to_the_mix_at_a_fraction_of_the_size() {
-    use ondera_engine::{audio, export, store};
+    use ryolune_engine::{audio, export, store};
     let mut session = store::demo();
     session.name = "Night Drive".into();
     let dir = tempfile::tempdir().unwrap();
@@ -649,7 +649,7 @@ fn ogg_export_decodes_back_to_the_mix_at_a_fraction_of_the_size() {
         bytes.windows(17).any(|w| w == b"TITLE=Night Drive"),
         "the title is tagged"
     );
-    // Ondera imports what it exports.
+    // ryolune imports what it exports.
     assert!(audio::is_importable(&ogg));
     let original = audio::decode(std::fs::read(&wav).unwrap(), Some("wav")).unwrap();
     let decoded = audio::decode(bytes.clone(), Some("ogg")).unwrap();
@@ -692,7 +692,7 @@ fn ogg_export_decodes_back_to_the_mix_at_a_fraction_of_the_size() {
 
 #[test]
 fn ogg_stems_carry_the_track_name() {
-    use ondera_engine::{audio, export, store};
+    use ryolune_engine::{audio, export, store};
     let session = store::demo();
     let mut prepared = audio::Library::new();
     audio::prepare_sources(&session, &mut prepared).unwrap();

@@ -4,7 +4,7 @@ import {
   outputName,
   TRACK_PALETTE,
   type Track,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { Button } from "../primitives/Button";
 import { HSlider } from "../primitives/HSlider";

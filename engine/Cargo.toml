@@ -1,12 +1,12 @@
 [package]
-name = "ondera-engine"
+name = "ryolune-engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-ondera-plugin = { path = "../sdk" }
+ryolune-plugin = { path = "../sdk" }
 serde.workspace = true
 serde_json.workspace = true
 cpal = "0.16"
@@ -25,7 +25,7 @@ midly = { version = "0.5.3", default-features = false, features = ["std", "stric
 vorbis_rs = { version = "0.5", default-features = false }
 
 [dev-dependencies]
-ondera-plugin-gain = { path = "../plugins/gain" }
+ryolune-plugin-gain = { path = "../plugins/gain" }
 ondera-abi1-fixture = { path = "../plugins/abi1-fixture" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

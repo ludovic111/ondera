@@ -1,11 +1,11 @@
-# Contributing to Ondera
+# Contributing to ryolune
 
-Thank you for helping. Ondera is a digital audio workstation with a Rust engine and a React
+Thank you for helping. ryolune is a digital audio workstation with a Rust engine and a React
 window; [DEVELOPMENT.md](docs/DEVELOPMENT.md) explains the layout, the build and the checks.
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/ludovic111/ondera/issues) with your Ondera version (Help menu),
+Open an [issue](https://github.com/ludovic111/ryolune/issues) with your ryolune version (Help menu),
 your system, what you did, what you expected and what happened. A song file or a screenshot
 helps. Crashes while loading a plugin: say which plugin, its format (CLAP, VST3, AU) and version.
 

@@ -1,16 +1,16 @@
 //! Libraries built before plugin ABI 2 keep loading and sounding the same. The fixture is a
 //! plugin frozen at the ABI 1 layout with no dependency on the SDK; see its `lib.rs`. This
-//! file links the fixture instead of the example bundle: both export `ondera_plugin_entry`.
-use ondera_engine::{
+//! file links the fixture instead of the example bundle: both export `ryolune_plugin_entry`.
+use ryolune_engine::{
     host::native,
     plugin::{NoteEvent, ParamChange, ProcessContext},
 };
-use ondera_plugin::ffi;
+use ryolune_plugin::ffi;
 
-fn descriptor(manifest: &ffi::Manifest, path: &str) -> ondera_engine::plugin::Descriptor {
-    ondera_engine::plugin::Descriptor {
+fn descriptor(manifest: &ffi::Manifest, path: &str) -> ryolune_engine::plugin::Descriptor {
+    ryolune_engine::plugin::Descriptor {
         id: format!("native:{}", manifest.id),
-        format: ondera_engine::plugin::Format::Native,
+        format: ryolune_engine::plugin::Format::Native,
         name: manifest.name.clone(),
         vendor: manifest.vendor.clone(),
         path: path.into(),
@@ -20,7 +20,7 @@ fn descriptor(manifest: &ffi::Manifest, path: &str) -> ondera_engine::plugin::De
     }
 }
 /// Default gain, a parameter change, a note and the transport all arrive as ABI 1 laid them out.
-fn exercise(mut instance: ondera_engine::plugin::Instance) {
+fn exercise(mut instance: ryolune_engine::plugin::Instance) {
     assert_eq!(instance.editor.params().len(), 1);
     assert_eq!(instance.editor.value(0), Some(0.5));
     assert_eq!(instance.editor.latency(), 7);
@@ -97,9 +97,10 @@ fn an_abi_1_dynamic_library_without_the_v2_symbol_loads_from_disk() {
         .unwrap_or_else(|| panic!("{name} was not built next to {}", exe.display()));
     let bytes = std::fs::read(&library).unwrap();
     let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+    // Built before the rename, the fixture only has the former ABI 1 name.
     assert!(has(b"ondera_plugin_entry"));
     assert!(
-        !has(b"ondera_plugin_entry_v2"),
+        !has(b"ondera_plugin_entry_v2") && !has(b"ryolune_plugin_entry"),
         "the fixture must stay an ABI 1 library"
     );
     assert_eq!(native::abi_of(&library).unwrap(), 1);

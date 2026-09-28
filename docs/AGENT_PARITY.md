@@ -1,8 +1,8 @@
 # Agent parity: everything a person can do, a command can do
 
-Ondera's command registry (`engine/src/control.rs` and the `control_*.rs` families, live-only
+ryolune's command registry (`engine/src/control.rs` and the `control_*.rs` families, live-only
 actions in `desktop/src/control.rs`) is the contract. The window's buttons, menus, drags and
-dialogs call registry commands by name, so the CLI (`ondera-cli`), MCP (`ondera-mcp`) and the
+dialogs call registry commands by name, so the CLI (`ryolune-cli`), MCP (`ryolune-mcp`) and the
 built-in agent can do the same thing with the same undo step. This file is the audit of that
 contract: every interaction in the window, the command(s) behind it, and the few things that
 are deliberately window-only, with the reason.
@@ -143,7 +143,7 @@ below.
 | View › Automation | `ui.showPanel` panel=automation | covered |
 | Help › Check for updates… | `app.checkUpdates`, `app.installUpdate`, `app.relaunch` | covered |
 | Help › Native plugin SDK… | `app.openGuide` guide=plugins | covered |
-| Help › Support Ondera…, Settings › About › Support Ondera…, the one-time ask after the third export | `app.openGuide` guide=support; the ask is `settings.get`/`settings.set path=general.exportsCompleted` and `general.supportAsked` | covered |
+| Help › Support ryolune…, Settings › About › Support ryolune…, the one-time ask after the third export | `app.openGuide` guide=support; the ask is `settings.get`/`settings.set path=general.exportsCompleted` and `general.supportAsked` | covered |
 
 ## Arrangement
 
@@ -255,21 +255,21 @@ below.
 
 ### External plugins by format
 
-| | CLAP | VST3 | AU | Ondera native | Stock |
+| | CLAP | VST3 | AU | ryolune native | Stock |
 |---|---|---|---|---|---|
 | List, search, favourites, folders | yes | yes | yes | yes | yes |
 | Load as instrument or insert | yes | yes | yes | yes | yes |
 | Parameters with ranges and units | yes | yes (normalized 0-1, units from the plugin) | yes | yes | yes |
-| Display text of a value | the plugin's (`value_to_text`) | the plugin's (`getParamStringByValue`) | Ondera's, from unit and range | Ondera's | Ondera's |
+| Display text of a value | the plugin's (`value_to_text`) | the plugin's (`getParamStringByValue`) | ryolune's, from unit and range | ryolune's | ryolune's |
 | Value from display text | the plugin's (`text_to_value`), then labels and numbers | the plugin's (`getParamValueByString`), then labels | labels, numbers with the unit, percentages | same | same |
 | Automatable flag | `CLAP_PARAM_IS_AUTOMATABLE` | `kCanAutomate` | always | always | always |
-| Factory programs | not listed | program list behind the `kIsProgramChange` parameter, chosen by setting it (undoable) | factory presets (`kAudioUnitProperty_FactoryPresets`), loaded into a fresh instance and restored as state (undoable) | none | Ondera factory presets |
-| Ondera presets (params + state) | yes | yes | yes | yes | yes |
+| Factory programs | not listed | program list behind the `kIsProgramChange` parameter, chosen by setting it (undoable) | factory presets (`kAudioUnitProperty_FactoryPresets`), loaded into a fresh instance and restored as state (undoable) | none | ryolune factory presets |
+| ryolune presets (params + state) | yes | yes | yes | yes | yes |
 | State get/set | yes | yes | yes | yes | yes |
 | Own window | yes | yes | yes | when the plugin has one | no (parameter panel) |
 
 Not implemented, and why: CLAP preset discovery (a separate factory and indexer; plugins
-that use it still save and restore through Ondera presets and state), VST3 `IUnitInfo`
+that use it still save and restore through ryolune presets and state), VST3 `IUnitInfo`
 program lists that are not attached to a program-change parameter, and presets a plugin only
 shows inside its own window. Parameters flagged hidden (CLAP, VST3) or expert/read-only (AU)
 are not listed, as in the window.

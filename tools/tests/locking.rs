@@ -1,4 +1,4 @@
-use ondera_tools::Backend;
+use ryolune_tools::Backend;
 use serde_json::json;
 use std::{
     io::{BufRead, BufReader, Write},
@@ -11,9 +11,9 @@ fn file(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
 #[test]
 fn file_ownership_covers_atomic_save_new_and_path_transitions() {
     let dir = tempfile::tempdir().unwrap();
-    let a = file(dir.path(), "a.ondera");
-    let b = file(dir.path(), "b.ondera");
-    let c = file(dir.path(), "c.ondera");
+    let a = file(dir.path(), "a.ryolune");
+    let b = file(dir.path(), "b.ryolune");
+    let c = file(dir.path(), "c.ryolune");
     let mut first = Backend::headless(Some(&a), true).unwrap();
     first.autosave().unwrap();
     let mut second = Backend::headless(Some(&b), true).unwrap();
@@ -39,8 +39,8 @@ fn file_ownership_covers_atomic_save_new_and_path_transitions() {
         .call("session.save", &json!({"path":b}), false)
         .is_err());
     assert_eq!(
-        ondera_engine::document::load(&b).unwrap().0.name,
-        "Untitled.ondera"
+        ryolune_engine::document::load(&b).unwrap().0.name,
+        "Untitled.ryolune"
     );
     first
         .call("session.save", &json!({"path":c}), false)
@@ -70,8 +70,8 @@ fn file_ownership_covers_atomic_save_new_and_path_transitions() {
 #[test]
 fn symlink_aliases_share_the_same_file_lock() {
     let dir = tempfile::tempdir().unwrap();
-    let song = file(dir.path(), "song.ondera");
-    let alias = file(dir.path(), "alias.ondera");
+    let song = file(dir.path(), "song.ryolune");
+    let alias = file(dir.path(), "alias.ryolune");
     let mut first = Backend::headless(Some(&song), true).unwrap();
     first.autosave().unwrap();
     std::os::unix::fs::symlink(&song, &alias).unwrap();
@@ -87,7 +87,7 @@ fn symlink_aliases_share_the_same_file_lock() {
         .file_type()
         .is_symlink());
     assert_eq!(
-        ondera_engine::document::load(&song).unwrap().0.name,
+        ryolune_engine::document::load(&song).unwrap().0.name,
         "Through alias"
     );
 }
@@ -95,8 +95,8 @@ fn symlink_aliases_share_the_same_file_lock() {
 #[test]
 fn failed_open_preserves_current_lock_and_releases_failed_target() {
     let dir = tempfile::tempdir().unwrap();
-    let song = file(dir.path(), "song.ondera");
-    let bad = file(dir.path(), "bad.ondera");
+    let song = file(dir.path(), "song.ryolune");
+    let bad = file(dir.path(), "bad.ryolune");
     let mut first = Backend::headless(Some(&song), true).unwrap();
     first.autosave().unwrap();
     std::fs::write(&bad, b"corrupt document").unwrap();
@@ -114,8 +114,8 @@ fn failed_open_preserves_current_lock_and_releases_failed_target() {
 #[test]
 fn a_running_mcp_file_owner_blocks_cli_and_crash_releases_the_lock() {
     let dir = tempfile::tempdir().unwrap();
-    let song = file(dir.path(), "song.ondera");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ondera-mcp"))
+    let song = file(dir.path(), "song.ryolune");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ryolune-mcp"))
         .args(["--file", song.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -131,7 +131,7 @@ fn a_running_mcp_file_owner_blocks_cli_and_crash_releases_the_lock() {
     BufReader::new(child.stdout.take().unwrap())
         .read_line(&mut reply)
         .unwrap();
-    let attempt = Command::new(env!("CARGO_BIN_EXE_ondera-cli"))
+    let attempt = Command::new(env!("CARGO_BIN_EXE_ryolune-cli"))
         .args([
             "--file",
             song.to_str().unwrap(),
@@ -145,7 +145,7 @@ fn a_running_mcp_file_owner_blocks_cli_and_crash_releases_the_lock() {
     child.wait().unwrap();
     assert!(!attempt.status.success());
     assert!(String::from_utf8_lossy(&attempt.stderr).contains("already in use"));
-    let after = Command::new(env!("CARGO_BIN_EXE_ondera-cli"))
+    let after = Command::new(env!("CARGO_BIN_EXE_ryolune-cli"))
         .args([
             "--file",
             song.to_str().unwrap(),
@@ -161,7 +161,7 @@ fn a_running_mcp_file_owner_blocks_cli_and_crash_releases_the_lock() {
         String::from_utf8_lossy(&after.stderr)
     );
     assert_eq!(
-        ondera_engine::document::load(&song).unwrap().0.name,
+        ryolune_engine::document::load(&song).unwrap().0.name,
         "After exit"
     );
 }

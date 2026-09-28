@@ -1,11 +1,11 @@
-//! Two small effects and one instrument that show how an Ondera native plugin is written.
+//! Two small effects and one instrument that show how a ryolune native plugin is written.
 //! `Trim` and `Tilt EQ` use only what ABI 1 had; `Bend Sine` uses what ABI 2 added: pitch
 //! bend, the mod wheel, pressure, parameter changes inside a block, state of its own, a tail
 //! and a latency that changes. Build this crate
-//! (`cargo build -p ondera-plugin-gain --release`), copy the resulting library into an
-//! Ondera plugin directory (Settings > Plugins lists them) and rescan.
+//! (`cargo build -p ryolune-plugin-gain --release`), copy the resulting library into an
+//! ryolune plugin directory (Settings > Plugins lists them) and rescan.
 
-use ondera_plugin::{export_plugins, prelude::*};
+use ryolune_plugin::{export_plugins, prelude::*};
 
 /// Gain, pan and polarity: the smallest useful effect.
 pub struct Trim {
@@ -15,9 +15,9 @@ pub struct Trim {
 }
 impl Plugin for Trim {
     const INFO: Info = Info::effect(
-        "org.ondera.examples.trim",
+        "org.ryolune.examples.trim",
         "Trim",
-        "Ondera Examples",
+        "ryolune Examples",
         "Utility",
     )
     .describe("Gain, pan and polarity with click-free smoothing.");
@@ -66,9 +66,9 @@ pub struct TiltEq {
 }
 impl Plugin for TiltEq {
     const INFO: Info = Info::effect(
-        "org.ondera.examples.tilt",
+        "org.ryolune.examples.tilt",
         "Tilt EQ",
-        "Ondera Examples",
+        "ryolune Examples",
         "EQ & Filter",
     )
     .describe("Tips the spectrum darker or brighter around a pivot.");
@@ -151,9 +151,9 @@ impl BendSine {
 }
 impl Plugin for BendSine {
     const INFO: Info = Info::instrument(
-        "org.ondera.examples.bendsine",
+        "org.ryolune.examples.bendsine",
         "Bend Sine",
-        "Ondera Examples",
+        "ryolune Examples",
     )
     .describe("A sine voice that follows pitch bend, the mod wheel and pressure.");
     fn params() -> Vec<ParamSpec> {

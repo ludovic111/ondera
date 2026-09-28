@@ -39,21 +39,21 @@ pub struct Discovery {
     pub pid: u32,
 }
 
-/// `$ONDERA_CONTROL`, else `~/.ondera/control.json`.
+/// `$RYOLUNE_CONTROL`, else `~/.ryolune/control.json`.
 pub fn discovery_path() -> PathBuf {
-    if let Some(p) = std::env::var_os("ONDERA_CONTROL").filter(|p| !p.is_empty()) {
+    if let Some(p) = std::env::var_os("RYOLUNE_CONTROL").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
-    home.join(".ondera").join("control.json")
+    home.join(".ryolune").join("control.json")
 }
 pub fn read_discovery(path: &Path) -> Result<Discovery> {
     let text = std::fs::read_to_string(path).map_err(|e| {
         format!(
-            "Ondera is not running (no control file at {}): {e}",
+            "ryolune is not running (no control file at {}): {e}",
             path.display()
         )
     })?;
@@ -61,7 +61,7 @@ pub fn read_discovery(path: &Path) -> Result<Discovery> {
         serde_json::from_str(&text).map_err(|e| format!("Invalid control file: {e}"))?;
     if d.version != VERSION {
         return Err(format!(
-            "Ondera control protocol {} is not supported by this client ({VERSION})",
+            "ryolune control protocol {} is not supported by this client ({VERSION})",
             d.version
         ));
     }
@@ -146,7 +146,7 @@ impl Server {
         let clients = Arc::new(Mutex::new(HashMap::<u64, TcpStream>::new()));
         let active_clients = clients.clone();
         std::thread::Builder::new()
-            .name("ondera-control".into())
+            .name("ryolune-control".into())
             .spawn(move || {
                 let mut next_client = 0u64;
                 for stream in listener.incoming() {
@@ -175,7 +175,7 @@ impl Server {
                         id,
                     };
                     let _ = std::thread::Builder::new()
-                        .name("ondera-control-client".into())
+                        .name("ryolune-control-client".into())
                         .spawn(move || {
                             let _guard = guard;
                             connection(stream, &expected, &sender, &wake, &stopping)
@@ -327,7 +327,7 @@ fn connection(
             if same_token(given, expected) {
                 authenticated = true;
                 let _ = reader.get_ref().set_read_timeout(Some(IDLE_TIMEOUT));
-                json!({ "jsonrpc": "2.0", "id": id, "result": { "ok": true, "app": "ondera", "version": env!("CARGO_PKG_VERSION"), "protocol": VERSION } })
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "ok": true, "app": "ryolune", "version": env!("CARGO_PKG_VERSION"), "protocol": VERSION } })
             } else {
                 let _ = writeln!(out, "{}", error_frame(id, -32001, "Invalid control token"));
                 return;
@@ -351,7 +351,7 @@ fn connection(
                     if writeln!(
                         out,
                         "{}",
-                        error_frame(id, -32003, "Ondera control queue is full; retry later")
+                        error_frame(id, -32003, "ryolune control queue is full; retry later")
                     )
                     .is_err()
                     {
@@ -373,7 +373,7 @@ fn connection(
             match result {
                 Ok(Ok(result)) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
                 Ok(Err(message)) => error_frame(id, -32000, &message),
-                Err(_) => error_frame(id, -32002, "Ondera dropped the request"),
+                Err(_) => error_frame(id, -32002, "ryolune dropped the request"),
             }
         };
         if writeln!(out, "{response}").is_err() {
@@ -402,7 +402,7 @@ impl Client {
         )
         .map_err(|e| {
             format!(
-                "Ondera is not running (port {} refused: {e}). Delete {} if the app has quit.",
+                "ryolune is not running (port {} refused: {e}). Delete {} if the app has quit.",
                 d.port,
                 path.display()
             )
@@ -453,24 +453,24 @@ impl Client {
         if text.len() >= MAX_LINE {
             return Err("Request exceeds 64 MiB".into());
         }
-        writeln!(self.writer, "{text}").map_err(|e| format!("Lost connection to Ondera: {e}"))?;
+        writeln!(self.writer, "{text}").map_err(|e| format!("Lost connection to ryolune: {e}"))?;
         let mut line = String::new();
         let mut limited = self.reader.by_ref().take(MAX_LINE as u64);
         match limited.read_line(&mut line) {
-            Ok(0) => return Err("Lost connection to Ondera: the app closed the socket".into()),
-            Err(e) => return Err(format!("Lost connection to Ondera: {e}")),
+            Ok(0) => return Err("Lost connection to ryolune: the app closed the socket".into()),
+            Err(e) => return Err(format!("Lost connection to ryolune: {e}")),
             Ok(_) => {}
         }
         if line.len() >= MAX_LINE {
-            return Err("Lost connection to Ondera: reply exceeds 64 MiB".into());
+            return Err("Lost connection to ryolune: reply exceeds 64 MiB".into());
         }
         let response: Value = serde_json::from_str(&line)
-            .map_err(|e| format!("Lost connection to Ondera: invalid reply: {e}"))?;
+            .map_err(|e| format!("Lost connection to ryolune: invalid reply: {e}"))?;
         if response.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
             || response.get("id") != frame.get("id")
             || response.get("result").is_some() == response.get("error").is_some()
         {
-            return Err("Lost connection to Ondera: mismatched JSON-RPC reply".into());
+            return Err("Lost connection to ryolune: mismatched JSON-RPC reply".into());
         }
         if let Some(err) = response.get("error") {
             return Err(err

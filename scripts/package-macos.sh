@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Wrap target/release/ondera into dist/Ondera.app and zip it as dist/Ondera-macos-<arch>.zip,
+# Wrap target/release/ryolune into dist/ryolune.app and zip it as dist/ryolune-macos-<arch>.zip,
 # the asset name the in-app updater downloads. The bundle's version follows Cargo.toml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-test -x target/release/ondera || { echo 'Run cargo build --release --workspace first.' >&2; exit 1; }
+test -x target/release/ryolune || { echo 'Run cargo build --release --workspace first.' >&2; exit 1; }
 version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
 case "$(uname -m)" in
   arm64|aarch64) arch=arm64 ;;
@@ -11,35 +11,35 @@ case "$(uname -m)" in
   *) echo "Unsupported architecture $(uname -m)" >&2; exit 1 ;;
 esac
 # Validate every companion before replacing an existing local package.
-for binary in ondera ondera-cli ondera-mcp; do
+for binary in ryolune ryolune-cli ryolune-mcp; do
   test -x "target/release/$binary" || { echo "Missing $binary; build the workspace first." >&2; exit 1; }
   actual=$("target/release/$binary" --version)
   test "$actual" = "$binary $version" || { echo "$binary has stale version: $actual (expected $version)" >&2; exit 1; }
   lipo "target/release/$binary" -verify_arch "$arch"
 done
-bundle='dist/Ondera.app'
+bundle='dist/ryolune.app'
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-for binary in ondera ondera-cli ondera-mcp; do
+for binary in ryolune ryolune-cli ryolune-mcp; do
   cp "target/release/$binary" "$bundle/Contents/MacOS/$binary"
 done
 sed -e "s|<string>0\.0\.0</string>|<string>$version</string>|" desktop/Info.plist > "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$bundle/Contents/Info.plist"
 plutil -lint "$bundle/Contents/Info.plist"
-cp desktop/assets/Ondera.icns "$bundle/Contents/Resources/Ondera.icns"
+cp desktop/assets/ryolune.icns "$bundle/Contents/Resources/ryolune.icns"
 if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
   # Developer ID: hardened runtime, secure timestamp, companions first and the bundle last.
-  for binary in ondera-cli ondera-mcp ondera; do
+  for binary in ryolune-cli ryolune-mcp ryolune; do
     target="$bundle/Contents/MacOS/$binary"
-    test "$binary" = ondera && target="$bundle"
-    codesign --force --options runtime --timestamp --entitlements desktop/Ondera.entitlements \
+    test "$binary" = ryolune && target="$bundle"
+    codesign --force --options runtime --timestamp --entitlements desktop/ryolune.entitlements \
       --sign "$APPLE_SIGNING_IDENTITY" "$target"
   done
   codesign --verify --deep --strict "$bundle"
   if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
     # Notarize with an App Store Connect API key, then staple the ticket so the first launch
     # passes Gatekeeper offline.
-    submission="dist/Ondera-notarize-$arch.zip"
+    submission="dist/ryolune-notarize-$arch.zip"
     rm -f "$submission"
     ditto -c -k --keepParent "$bundle" "$submission"
     result=$(xcrun notarytool submit "$submission" --key "$APPLE_API_KEY_PATH" \
@@ -63,6 +63,6 @@ else
   codesign --force --deep --sign - "$bundle"
   codesign --verify --deep --strict "$bundle"
 fi
-rm -f "dist/Ondera-macos-$arch.zip"
-ditto -c -k --sequesterRsrc --keepParent "$bundle" "dist/Ondera-macos-$arch.zip"
-echo "Built $bundle ($version, $arch) and dist/Ondera-macos-$arch.zip"
+rm -f "dist/ryolune-macos-$arch.zip"
+ditto -c -k --sequesterRsrc --keepParent "$bundle" "dist/ryolune-macos-$arch.zip"
+echo "Built $bundle ($version, $arch) and dist/ryolune-macos-$arch.zip"

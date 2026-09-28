@@ -1,11 +1,11 @@
-//! Model Context Protocol server for Ondera over stdio.
+//! Model Context Protocol server for ryolune over stdio.
 //!
 //! Tools are generated from the shared command registry (`track.add` becomes `track_add`).
-//! In live mode each call runs inside the open Ondera window, so an agent and a person edit the
+//! In live mode each call runs inside the open ryolune window, so an agent and a person edit the
 //! same session with one undo history. Without the app, the server hosts a session itself.
 
-use ondera_engine::control;
-use ondera_tools::Backend;
+use ryolune_engine::control;
+use ryolune_tools::Backend;
 use serde_json::{json, Value};
 use std::{
     io::{BufRead, Read, Write},
@@ -13,21 +13,21 @@ use std::{
 };
 
 const PROTOCOLS: [&str; 3] = ["2024-11-05", "2025-03-26", "2025-06-18"];
-const USAGE: &str = "ondera-mcp — Model Context Protocol server for Ondera (stdio)
+const USAGE: &str = "ryolune-mcp — Model Context Protocol server for ryolune (stdio)
 
 USAGE
-  ondera-mcp                 control the running Ondera app; if it is not running, host a
+  ryolune-mcp                 control the running ryolune app; if it is not running, host a
                              session in this process
-  ondera-mcp --live          require the running app
-  ondera-mcp --headless      host a new empty session in this process
-  ondera-mcp --file <path>   host that .ondera file in this process and save after each change
+  ryolune-mcp --live          require the running app
+  ryolune-mcp --headless      host a new empty session in this process
+  ryolune-mcp --file <path>   host that .ryolune file in this process and save after each change
 
 Register with an MCP client, for example in Claude Code:
-  claude mcp add ondera -- /path/to/ondera-mcp";
+  claude mcp add ryolune -- /path/to/ryolune-mcp";
 
 fn main() {
     let input_args: Vec<String> = std::env::args().skip(1).collect();
-    if let Some(result) = ondera_tools::scan_child(&input_args) {
+    if let Some(result) = ryolune_tools::scan_child(&input_args) {
         if let Err(error) = result {
             eprintln!("{error}");
             std::process::exit(2);
@@ -44,7 +44,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("ondera-mcp {}", env!("CARGO_PKG_VERSION"));
+                println!("ryolune-mcp {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
             "--file" | "-f" => {
@@ -71,19 +71,19 @@ fn main() {
         (None, true, _) => Backend::live(),
         (None, false, true) => Backend::headless(None, false),
         (None, false, false) => Backend::live().or_else(|e| {
-            eprintln!("ondera-mcp: {e}\nondera-mcp: hosting a session in this process instead");
+            eprintln!("ryolune-mcp: {e}\nryolune-mcp: hosting a session in this process instead");
             Backend::headless(None, false)
         }),
     };
     let backend = match backend {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("ondera-mcp: {e}");
+            eprintln!("ryolune-mcp: {e}");
             std::process::exit(1);
         }
     };
     eprintln!(
-        "ondera-mcp: {} mode{}",
+        "ryolune-mcp: {} mode{}",
         backend.mode(),
         backend
             .path()
@@ -103,7 +103,7 @@ fn main() {
         {
             Ok(0) | Err(_) => break,
             Ok(_) if line.len() >= control::wire::MAX_LINE => {
-                eprintln!("ondera-mcp: input exceeds 64 MiB");
+                eprintln!("ryolune-mcp: input exceeds 64 MiB");
                 break;
             }
             Ok(_) => {}
@@ -181,7 +181,7 @@ impl Server {
                         "resources": { "subscribe": false, "listChanged": false },
                         "prompts": { "listChanged": false },
                     },
-                    "serverInfo": { "name": "ondera", "version": env!("CARGO_PKG_VERSION") },
+                    "serverInfo": { "name": "ryolune", "version": env!("CARGO_PKG_VERSION") },
                     "instructions": self.instructions(),
                 }))
             }
@@ -290,15 +290,15 @@ impl Server {
     }
     fn instructions(&self) -> String {
         let mode = match &self.backend {
-            Backend::Live(_) => "Live mode: every tool runs inside the open Ondera window. A person may be editing at the same time; you share one undo history, and transport_play is audible.".to_string(),
+            Backend::Live(_) => "Live mode: every tool runs inside the open ryolune window. A person may be editing at the same time; you share one undo history, and transport_play is audible.".to_string(),
             Backend::Headless(h, _, _) => match &h.path {
                 Some(p) => format!("Headless mode on {}: the file is saved after every change. transport_play is unavailable; use session_bounce to render audio.", p.display()),
                 None => "Headless mode: this process hosts a session in memory. Call session_open or session_save with a path to work on files. transport_play is unavailable; use session_bounce to render audio.".into(),
             },
         };
         format!(
-            "Ondera is a digital audio workstation. {mode}\n\
-             Start with session_overview: one call returns the song, sections, every track with its instrument, inserts, sends, fader, problems, clips and automation, the selection, undo history and (live) what the window shows. Drill down with note_list, strip_parameters, automation_list, controller_list or ui_state. session_catalog lists stock instruments, effects and bundled loops; plugin_list query=... searches installed Ondera-native, CLAP, VST3 and AU plugins; strip_setPlugin loads one by name or ID; strip_parameters, strip_setParameter (by name, plain value, normalized 0-1 or display text) and strip_programs / strip_setProgram control it.\n\
+            "ryolune is a digital audio workstation. {mode}\n\
+             Start with session_overview: one call returns the song, sections, every track with its instrument, inserts, sends, fader, problems, clips and automation, the selection, undo history and (live) what the window shows. Drill down with note_list, strip_parameters, automation_list, controller_list or ui_state. session_catalog lists stock instruments, effects and bundled loops; plugin_list query=... searches installed ryolune-native, CLAP, VST3 and AU plugins; strip_setPlugin loads one by name or ID; strip_parameters, strip_setParameter (by name, plain value, normalized 0-1 or display text) and strip_programs / strip_setProgram control it.\n\
              Tracks, clips and markers can be named by id or by exact name. Bars and beats are zero-based. Note start/length are beats relative to the clip; pitch 60 is C4; velocity 1-127.\n\
              clip_create with notes, or clip_setNotes, writes a whole pattern in one undo step; clip_quantize and clip_transpose edit a region; history_undo with steps reverts several edits.\n\
              In live mode ui_screenshot returns a PNG of the window so you can see the interface, view_set scrolls and zooms it, and audio_status reports the engine. settings_get and settings_set read and change preferences.\n\
@@ -310,55 +310,55 @@ impl Server {
 /// Registry-backed resources: uri, name, description, command.
 const RESOURCES: [(&str, &str, &str, &str); 9] = [
     (
-        "ondera://session/overview",
+        "ryolune://session/overview",
         "Song overview",
         "Everything about the song in one compact answer: tracks, plugins, clips, sections, mix problems and history.",
         "session.overview",
     ),
     (
-        "ondera://session",
+        "ryolune://session",
         "Open session",
         "The complete session document as JSON.",
         "session.get",
     ),
     (
-        "ondera://session/info",
+        "ryolune://session/info",
         "Session summary",
         "Name, file, transport, counts and history state.",
         "session.info",
     ),
     (
-        "ondera://session/inspect",
+        "ryolune://session/inspect",
         "Arrangement and mixer",
         "Tracks, clip summaries, strips and automation without plugin state.",
         "session.inspect",
     ),
     (
-        "ondera://catalog",
+        "ryolune://catalog",
         "Catalog",
         "Built-in instruments, effects and loops.",
         "session.catalog",
     ),
     (
-        "ondera://plugins",
+        "ryolune://plugins",
         "Installed plugins",
         "The first page of scanned plugins.",
         "plugin.list",
     ),
     (
-        "ondera://presets",
+        "ryolune://presets",
         "Presets",
         "Factory and user plugin presets.",
         "preset.list",
     ),
     (
-        "ondera://settings",
+        "ryolune://settings",
         "Preferences",
-        "Ondera settings with secrets masked.",
+        "ryolune settings with secrets masked.",
         "settings.get",
     ),
     (
-        "ondera://app",
+        "ryolune://app",
         "Application",
         "Version, paths and mode.",
         "app.info",

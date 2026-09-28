@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-<!-- Generated from frontend/src/state/actions.ts by frontend/src/components/palette/shortcutsDoc.test.ts. Do not edit by hand: run `ONDERA_BLESS=1 npm --prefix frontend test -- shortcutsDoc`. -->
+<!-- Generated from frontend/src/state/actions.ts by frontend/src/components/palette/shortcutsDoc.test.ts. Do not edit by hand: run `RYOLUNE_BLESS=1 npm --prefix frontend test -- shortcutsDoc`. -->
 
 The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux, ⌥ is Alt.
 

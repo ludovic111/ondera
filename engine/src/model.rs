@@ -141,7 +141,7 @@ pub struct Clip {
 /// A clip's contents. The file form is [`ClipDataFile`] on the way in and [`ClipDataOut`] on
 /// the way out: polyphonic pressure points live in `controllers` like every other controller
 /// here, but the file keeps them in a `polyPressure` list of their own, absent when empty, so
-/// an older Ondera (and the window's controller lanes) never meet a kind they do not know.
+/// an older ryolune (and the window's controller lanes) never meet a kind they do not know.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(from = "ClipDataFile")]
 pub enum ClipData {
@@ -514,8 +514,16 @@ pub struct Strip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synth: Option<Insert>,
 }
+/// Stock plugins that carried the project's former name answer to their current one, so songs
+/// saved before the rename keep their instruments and inserts.
+pub fn current_stock_name(name: &str) -> String {
+    match name.strip_prefix("Ondera ") {
+        Some(rest @ ("Synth" | "Comp")) => format!("ryolune {rest}"),
+        _ => name.to_string(),
+    }
+}
 fn default_instrument() -> String {
-    "Ondera Synth".into()
+    "ryolune Synth".into()
 }
 impl Default for Strip {
     fn default() -> Self {
@@ -679,6 +687,18 @@ fn default_browser_tab() -> String {
 impl Session {
     /// Fill in missing insert ids and default buses so every strip has stable rack keys.
     pub fn normalize(&mut self) {
+        for strip in self.strips.values_mut() {
+            strip.instrument = current_stock_name(&strip.instrument);
+            for insert in strip.inserts.iter_mut().chain(strip.synth.iter_mut()) {
+                insert.name = current_stock_name(&insert.name);
+                if let Some(name) = insert.plugin.strip_prefix("stock:") {
+                    insert.plugin = format!("stock:{}", current_stock_name(name));
+                }
+                if insert.meta == "Ondera" {
+                    insert.meta = "ryolune".into();
+                }
+            }
+        }
         let mut used: HashSet<String> = HashSet::new();
         for strip in self.strips.values() {
             used.extend(strip.inserts.iter().map(|i| i.id.clone()));

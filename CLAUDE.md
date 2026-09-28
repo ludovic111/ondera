@@ -1,4 +1,13 @@
-# Ondera native Rust branch
+# ryolune native Rust branch
+
+Renamed from Ondera on 2026-09-28 (0.11, owner's decision; the brand is written in lowercase).
+Compatibility kept on purpose, do not "clean it up": `document::LEGACY_EXTENSION` (`.ondera`)
+and the `ondera-session` format still load; `host::scan::data_dir` adopts the old `Ondera`
+data folder once and native plugin folders under the old name are still scanned; the SDK
+exports `ondera_plugin_entry*` beside `ryolune_plugin_entry*` (`LEGACY_ENTRY_SYMBOL*`) and the
+host accepts both; `plugins/abi1-fixture` keeps its old crate name, symbol and id; the GitHub
+secret is still named `ONDERA_SIGNING_KEY`; release notes before 0.11 and `legacy/` keep the old
+name as history.
 
 Since 0.4 the window is Tauri 2 with the React renderer in `frontend/` (`docs/TAURI_MIGRATION.md`);
 `desktop/src/web.rs` hosts it and the egui painting code below is kept as reference only. UI work
@@ -27,7 +36,7 @@ The owner requested a complete Rust rewrite on 2026-09-12, including the interfa
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
 
 - `desktop/`: native egui interface with wgpu, no webview. `desktop/src/theme.rs` holds every visual
-  token and the skeuomorphic material recipes from `design/Ondera Arrangement.dc.html` (spec sheet 02:
+  token and the skeuomorphic material recipes from `design/ryolune Arrangement.dc.html` (spec sheet 02:
   raised, pressed, lit, groove, well, knob, fader cap, clip slab, glass, plus faceplate, screw,
   brushed, switch, LED button, plate). Paint with those helpers; never introduce colours, gradients
   or shadows elsewhere. Floating windows use `window_frame()` and wrap their content in `plate()`;
@@ -45,13 +54,13 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
 - `engine/`: pure Rust command store, session model, DSP, audio devices and documents.
   `engine/src/control.rs` is the public command registry (`control_app.rs` holds the view, preset,
   settings, audio, ui, app and agent families); `control/wire.rs` the loopback protocol. `tools/`
-  builds `ondera-cli` and `ondera-mcp` as thin clients of that registry, and `desktop/src/control.rs`
+  builds `ryolune-cli` and `ryolune-mcp` as thin clients of that registry, and `desktop/src/control.rs`
   serves it from the window between frames, implementing `Host::live` for window-only actions
   (screenshots, panels, devices, updates, the agent). A new user-facing action goes into the
   registry so the window, the CLI, MCP and the built-in agent get it together; the CLI help, MCP
   tool list and agent tools are generated from it. Agent permissions (`settings.agent.permissions`)
   are enforced in `run_control_command` for every agent-flagged request.
-- `sdk/` is `ondera-plugin`: the `Plugin` trait, DSP primitives and the frozen C ABI (`ffi.rs`,
+- `sdk/` is `ryolune-plugin`: the `Plugin` trait, DSP primitives and the frozen C ABI (`ffi.rs`,
   ABI version 1, never change a `repr(C)` layout without bumping it). `engine/src/host/native.rs`
   loads libraries and adapts vtables to `Editor`/`Processor`; `engine/src/stock.rs` is written on
   the trait and served through the same vtables. `plugins/gain` is the example bundle used by tests.
@@ -69,7 +78,7 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   lives in the renderer (`Renderer::count_in`), the capture callback drops frames while
   `Telemetry::counting_in` is set, and `InputMeter` holds the input open only while an audio track
   is armed. Native plugin calls are panic-guarded in `sdk/src/ffi.rs` (`Guarded`); test plugins with
-  `ondera_plugin::testing::Bench`. Continuous controls are coalesced in `NativeStore`
+  `ryolune_plugin::testing::Bench`. Continuous controls are coalesced in `NativeStore`
   (`CONTINUOUS`); add a command there when a new dial dispatches on pointer move.
 - 0.8 (released 2026-09-23; the owner delegated lossy export and MIDI CC scope): input monitoring
   is a bounded ring (`device::monitor_ring`) from the one input stream to the output callback's `MonitorTap`, which resamples, waits for one input buffer before it
@@ -81,19 +90,19 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   hand (fixed predictors, Rice, mid/side, MD5) so no dependency was added; a mix takes its
   container from the path, stems from `ExportOptions::container`. MP3 was not added: no clean
   encoder fits the licence and the build; Ogg Vorbis is the lossy format. Plugin ABI 2 never touches an ABI 1
-  layout: `ondera_plugin_entry_v2` returns `PluginVTable2 { size, base, .. }`, the macro exports
+  layout: `ryolune_plugin_entry_v2` returns `PluginVTable2 { size, base, .. }`, the macro exports
   both symbols, the host tries v2 then v1, `sdk/src/ffi.rs` asserts every frozen offset at compile
   time, and `plugins/abi1-fixture` (no SDK dependency, never "update" it) is loaded by
   `engine/tests/abi1_plugin.rs`. Native state is saved from a main-thread model instance and
   restored by swapping a freshly loaded instance in on the audio thread. The window's private
   handlers are the allow-lists in `desktop/src/web.rs` tests (`PRIVATE_HANDLERS`, `PRIVATE_TAURI`);
   anything else is a registry command, and work that waits on the network or renders offline is
-  a live job through `Ondera::start_worker`. The clipboard and the lane width belong to the host
+  a live job through `Ryolune::start_worker`. The clipboard and the lane width belong to the host
   (`Host::clipboard`, `Host::lane_width`). Browser rows fold channel layouts
   (`control_plugins::layout_of`); when extending `EFFECT_RULES`, diff every plugin's folder before
   and after on a real library, because a new word in an early group steals from later ones.
 - 0.8 additions. Input: `device::LiveInput` is the only input stream (meter + monitor ring +
-  takes), opened by `Ondera::poll_input`; monitoring (`LiveInput::monitor`) and takes
+  takes), opened by `Ryolune::poll_input`; monitoring (`LiveInput::monitor`) and takes
   (`LiveInput::record` returns a `Recorder`) attach through a control ring, and the callback
   (`InputCallback::process`) hands them back through a garbage ring its worker frees. Test the
   callback with `live_input(..)`, no device needed; it reopens only for a new device or buffer size,
@@ -128,7 +137,7 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   `RemoveMarker` from `control_arrange.rs`; marker navigation is gated by the agent's transport
   permission. Ogg is `Container::Ogg` through `vorbis_rs` (C built by `cc`, no system packages),
   block by block at `ExportOptions::quality` (0 to 1, default 0.6); `Container::for_path` refuses
-  extensions Ondera does not write. Plugin folders: `control_plugins::AutoFolders` decides per
+  extensions ryolune does not write. Plugin folders: `control_plugins::AutoFolders` decides per
   product (vendor, kind, name without layout): name first, then `PRODUCTS`/`PRIORITY_RULES`, then
   `EFFECT_RULES`, the category last. `Store` restores redo on `cancel_gesture`; background captures
   skip over redo or an open gesture. `NativeStore.request()` is `run()` without the error dialog, for
@@ -160,7 +169,7 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   Side panels shrink to `size.*Min` floors so the arrangement keeps `arrangementMin` at the
   1120 px minimum. `ui.screenshot` finishes running animations first (`settleMotion` in
   `main.tsx`). Docs: `docs/COMMANDS.md` and `docs/SHORTCUTS.md` are generated and checked by
-  tests (`ONDERA_BLESS=1` regenerates); `USER_GUIDE.md`, `AI_CONTROL.md` and `DEVELOPMENT.md`
+  tests (`RYOLUNE_BLESS=1` regenerates); `USER_GUIDE.md`, `AI_CONTROL.md` and `DEVELOPMENT.md`
   are written by hand, keep them true when behaviour changes.
 - 0.10 (2026-09-27, owner asked for the next update and delegated): tempo changes live in
   `Session.tempo_changes` (`TempoPoint { bar, bpm, ramp }`, bar order, after bar 0, absent when
@@ -181,7 +190,7 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   Commands in `control_routing.rs`. Audio Unit CF objects from `AudioUnitGetProperty` are the
   caller's to release (factory preset arrays, PresentPreset names); `Editor::current_program`.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
-  `ondera-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
+  `ryolune-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are
   self-hosted in `site/fonts` and the CSP allows only the site's origin; each release updates the
   site's "New in" section, hero pill, changelog, limits and version (checklist in `site/README.md`).
@@ -198,16 +207,16 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   external plugin state is captured into `Insert.blob` on save and bounce. Scan bundles only in
   the `--scan-plugin` child process. New stock DSP goes in `stock.rs` behind the same traits.
 - Platform streams belong to their owning workers; never force Send with an unsafe impl.
-- File operations must preserve the old file on failure. Keep v1 `.ondera` loading covered by tests.
+- File operations must preserve the old file on failure. Keep v1 `.ryolune` loading covered by tests.
 - Run fmt, clippy with warnings denied, and workspace tests. Check a real native window after
   UI changes. Distinguish tests, builds, actual device checks and public signing/notarization.
 - Work on a branch. Do not merge or publish a release without the owner's request.
 - Releases: bump the workspace `version` in `Cargo.toml`, add `docs/releases/X.Y.Z.md`, then push
   a matching `vX.Y.Z` tag. `.github/workflows/release.yml` builds all platforms, writes and signs
-  `SHA256SUMS` (Ed25519, secret `ONDERA_SIGNING_KEY`, public key in
+  `SHA256SUMS` (Ed25519, secret `RYOLUNE_SIGNING_KEY`, public key in
   `desktop/assets/update-signing.pub`) and publishes the GitHub release that `desktop/src/update.rs`
   installs from after verifying the signature, the download host and the new binaries' versions.
   Keep the asset names in `update::asset_name` and the workflow in sync. The secret key stays in
-  `~/.ondera/keys/update-signing.key` on the owner's machine; never commit it. Builds are ad-hoc
+  `~/.ryolune/keys/update-signing.key` on the owner's machine; never commit it. Builds are ad-hoc
   signed, not notarized.
 - `legacy/` is reference material, not the active implementation.

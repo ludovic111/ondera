@@ -7,16 +7,16 @@
 //! checks that every URL belongs to this repository's releases, verifies the signature against
 //! the public key compiled into `assets/update-signing.pub`, downloads its asset, verifies the
 //! checksum, checks the new binaries report the expected version, swaps the installed copy in
-//! place and relaunches. Set `ONDERA_PRETEND_VERSION=0.0.1` to exercise the flow against a real
+//! place and relaunches. Set `RYOLUNE_PRETEND_VERSION=0.0.1` to exercise the flow against a real
 //! release.
 
-use crate::app::{Intent, Ondera};
+use crate::app::{Intent, Ryolune};
 use crate::control::LiveWait;
 use crate::theme::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use eframe::egui;
-use ondera_engine::Result;
+use ryolune_engine::Result;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -27,11 +27,11 @@ use std::{
     time::Duration,
 };
 
-pub const REPO: &str = "ludovic111/ondera";
+pub const REPO: &str = "ludovic111/ryolune";
 const API: &str = "https://api.github.com/repos";
 const CHECKSUMS: &str = "SHA256SUMS";
 const SIGNATURE: &str = "SHA256SUMS.sig";
-const SIGNATURE_PREFIX: &str = "ondera-ed25519";
+const SIGNATURE_PREFIX: &str = "ryolune-ed25519";
 const MAX_ASSET: u64 = 512 * 1024 * 1024;
 /// Hex public key; empty when no release key pair has been generated yet.
 const PUBLIC_KEY_HEX: &str = include_str!("../assets/update-signing.pub");
@@ -118,7 +118,7 @@ pub fn write_keypair(path: &Path) -> Result<String> {
     let mut file = options.open(path).map_err(|e| e.to_string())?;
     writeln!(
         file,
-        "# Ondera release signing secret key. Keep private.\n{}",
+        "# ryolune release signing secret key. Keep private.\n{}",
         hex(&signing.to_bytes())
     )
     .map_err(|e| e.to_string())?;
@@ -157,9 +157,9 @@ fn trusted_url(url: &str) -> Result<()> {
     }
 }
 
-/// The running version, or the one `ONDERA_PRETEND_VERSION` asks us to pretend we are.
+/// The running version, or the one `RYOLUNE_PRETEND_VERSION` asks us to pretend we are.
 pub fn current_version() -> String {
-    std::env::var("ONDERA_PRETEND_VERSION")
+    std::env::var("RYOLUNE_PRETEND_VERSION")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
@@ -168,13 +168,13 @@ pub fn current_version() -> String {
 /// The release asset built for this platform, or `None` where no release is built.
 pub fn asset_name() -> Option<&'static str> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("Ondera-macos-arm64.zip")
+        Some("ryolune-macos-arm64.zip")
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        Some("Ondera-macos-x86_64.zip")
+        Some("ryolune-macos-x86_64.zip")
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some("Ondera-linux-x86_64.zip")
+        Some("ryolune-linux-x86_64.zip")
     } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        Some("Ondera-windows-x86_64.zip")
+        Some("ryolune-windows-x86_64.zip")
     } else {
         None
     }
@@ -290,7 +290,7 @@ fn agent() -> ureq::Agent {
         .timeout_connect(Some(Duration::from_secs(15)))
         .timeout_recv_response(Some(Duration::from_secs(30)))
         .timeout_recv_body(Some(Duration::from_secs(3600)))
-        .user_agent(format!("Ondera/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("ryolune/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }
@@ -299,7 +299,7 @@ fn check_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(60)))
         .timeout_connect(Some(Duration::from_secs(15)))
-        .user_agent(format!("Ondera/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("ryolune/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }
@@ -412,7 +412,7 @@ fn bundle_of(exe: &Path) -> Result<PathBuf> {
         .filter(|b| b.extension().is_some_and(|e| e == "app"))
         .ok_or_else(|| {
             format!(
-                "Updates apply to an installed Ondera.app; this copy runs from {}",
+                "Updates apply to an installed ryolune.app; this copy runs from {}",
                 exe.display()
             )
         })?;
@@ -421,7 +421,7 @@ fn bundle_of(exe: &Path) -> Result<PathBuf> {
 
 #[cfg(target_os = "macos")]
 fn previous_bundle(bundle: &Path) -> PathBuf {
-    bundle.with_file_name(".Ondera-previous.app")
+    bundle.with_file_name(".ryolune-previous.app")
 }
 
 #[cfg(target_os = "macos")]
@@ -447,15 +447,15 @@ mod companions {
     use std::process::{Command, Stdio};
     use std::time::Instant;
 
-    const BACKUP_PREFIX: &str = ".ondera-update-backup-";
+    const BACKUP_PREFIX: &str = ".ryolune-update-backup-";
     const MARKER: &str = "installed-version";
     const MAX_EXPANDED: u64 = 1024 * 1024 * 1024;
 
     fn names(windows: bool) -> [&'static str; 3] {
         if windows {
-            ["ondera.exe", "ondera-cli.exe", "ondera-mcp.exe"]
+            ["ryolune.exe", "ryolune-cli.exe", "ryolune-mcp.exe"]
         } else {
-            ["ondera", "ondera-cli", "ondera-mcp"]
+            ["ryolune", "ryolune-cli", "ryolune-mcp"]
         }
     }
 
@@ -532,7 +532,7 @@ mod companions {
         let mut child = Command::new(binary)
             .arg("--version")
             .current_dir(binary.parent().ok_or("The staged binary has no folder")?)
-            .env_remove("ONDERA_PRETEND_VERSION")
+            .env_remove("RYOLUNE_PRETEND_VERSION")
             .stdin(Stdio::null())
             .stdout(output.try_clone().map_err(|e| e.to_string())?)
             .stderr(Stdio::null())
@@ -652,7 +652,7 @@ mod companions {
     pub(super) fn install(agent: &ureq::Agent, release: &Release, executable: &Path) -> Result<()> {
         let parent = executable.parent().ok_or("The executable has no folder")?;
         let staging = tempfile::Builder::new()
-            .prefix(".ondera-update-stage-")
+            .prefix(".ryolune-update-stage-")
             .tempdir_in(parent)
             .map_err(|e| e.to_string())?;
         let archive = staging.path().join("update.zip");
@@ -752,23 +752,23 @@ mod companions {
             let dir = tempfile::tempdir().unwrap();
             let zip = dir.path().join("update.zip");
             let valid = [
-                ("ondera", false),
-                ("ondera-cli", false),
-                ("ondera-mcp", false),
+                ("ryolune", false),
+                ("ryolune-cli", false),
+                ("ryolune-mcp", false),
             ];
             archive(&zip, &valid);
             unpack(&zip, &dir.path().join("good"), &names(false)).unwrap();
             assert_eq!(
-                fs::read(dir.path().join("good/ondera-mcp")).unwrap(),
+                fs::read(dir.path().join("good/ryolune-mcp")).unwrap(),
                 b"binary"
             );
             for bad in [
-                vec![("ondera", false)],
-                vec![("../ondera", false), valid[1], valid[2]],
-                vec![("/ondera", false), valid[1], valid[2]],
-                vec![("nested\\ondera", false), valid[1], valid[2]],
-                vec![("ondera", true), valid[1], valid[2]],
-                vec![("ondera", false), valid[1], ("extra", false)],
+                vec![("ryolune", false)],
+                vec![("../ryolune", false), valid[1], valid[2]],
+                vec![("/ryolune", false), valid[1], valid[2]],
+                vec![("nested\\ryolune", false), valid[1], valid[2]],
+                vec![("ryolune", true), valid[1], valid[2]],
+                vec![("ryolune", false), valid[1], ("extra", false)],
             ] {
                 archive(&zip, &bad);
                 let destination = dir.path().join("rejected");
@@ -789,15 +789,15 @@ mod companions {
                     let staged = dir.path().join("stage");
                     fs::create_dir(&staged).unwrap();
                     for name in names(false) {
-                        if !missing_companion || name != "ondera-cli" {
+                        if !missing_companion || name != "ryolune-cli" {
                             fs::write(dir.path().join(name), format!("old {name}")).unwrap();
                         }
                         fs::write(staged.join(name), format!("new {name}")).unwrap();
                     }
-                    fs::write(dir.path().join("song.ondera"), "original song").unwrap();
+                    fs::write(dir.path().join("song.ryolune"), "original song").unwrap();
                     let mut call = 0;
                     let result = replace_with(
-                        &dir.path().join("ondera"),
+                        &dir.path().join("ryolune"),
                         &staged,
                         &names(false),
                         "0.2.0",
@@ -813,7 +813,7 @@ mod companions {
                     );
                     assert!(result.unwrap_err().contains("previous files were restored"));
                     for name in names(false) {
-                        if missing_companion && name == "ondera-cli" {
+                        if missing_companion && name == "ryolune-cli" {
                             assert!(!dir.path().join(name).exists());
                         } else {
                             assert_eq!(
@@ -823,7 +823,7 @@ mod companions {
                         }
                     }
                     assert_eq!(
-                        fs::read_to_string(dir.path().join("song.ondera")).unwrap(),
+                        fs::read_to_string(dir.path().join("song.ryolune")).unwrap(),
                         "original song"
                     );
                 }
@@ -840,7 +840,7 @@ mod companions {
                 fs::write(dir.path().join(name), "old").unwrap();
             }
             let backup = replace_with(
-                &dir.path().join("ondera"),
+                &dir.path().join("ryolune"),
                 &staged,
                 &names(false),
                 "0.2.0",
@@ -866,7 +866,7 @@ mod companions {
                 fs::write(staged.join(name), "new").unwrap();
                 fs::write(dir.path().join(name), "old").unwrap();
             }
-            let desktop = dir.path().join("ondera");
+            let desktop = dir.path().join("ryolune");
             let mut call = 0;
             let result = replace_with(&desktop, &staged, &names(false), "0.2.0", |from, to| {
                 call += 1;
@@ -893,13 +893,13 @@ mod companions {
                 })
                 .unwrap()
                 .path();
-            assert_eq!(fs::read_to_string(backup.join("ondera")).unwrap(), "old");
+            assert_eq!(fs::read_to_string(backup.join("ryolune")).unwrap(), "old");
             assert_eq!(
-                fs::read_to_string(dir.path().join("ondera-cli")).unwrap(),
+                fs::read_to_string(dir.path().join("ryolune-cli")).unwrap(),
                 "old"
             );
             assert_eq!(
-                fs::read_to_string(dir.path().join("ondera-mcp")).unwrap(),
+                fs::read_to_string(dir.path().join("ryolune-mcp")).unwrap(),
                 "old"
             );
             assert_eq!(
@@ -915,9 +915,9 @@ mod companions {
             let dir = tempfile::tempdir().unwrap();
             let original = dir.path().join("original");
             fs::write(&original, "keep").unwrap();
-            symlink(&original, dir.path().join("ondera-cli")).unwrap();
+            symlink(&original, dir.path().join("ryolune-cli")).unwrap();
             assert!(replace_with(
-                &dir.path().join("ondera"),
+                &dir.path().join("ryolune"),
                 dir.path(),
                 &names(false),
                 "0.2.0",
@@ -926,11 +926,11 @@ mod companions {
             .is_err());
             let backup = dir.path().join(format!("{BACKUP_PREFIX}interrupted"));
             fs::create_dir(&backup).unwrap();
-            fs::write(backup.join("ondera"), "keep backup").unwrap();
+            fs::write(backup.join("ryolune"), "keep backup").unwrap();
             cleanup_backups(dir.path(), "0.2.0");
             assert!(backup.exists());
             fs::write(backup.join(MARKER), "0.2.0").unwrap();
-            symlink(&original, backup.join("ondera-cli")).unwrap();
+            symlink(&original, backup.join("ryolune-cli")).unwrap();
             cleanup_backups(dir.path(), "0.2.0");
             assert!(backup.exists());
             assert_eq!(fs::read_to_string(original).unwrap(), "keep");
@@ -941,20 +941,20 @@ mod companions {
         fn version_verification_requires_exact_binary_identity_and_is_bounded() {
             use std::os::unix::fs::PermissionsExt;
             let dir = tempfile::tempdir().unwrap();
-            let binary = dir.path().join("ondera-cli");
-            fs::write(&binary, "#!/bin/sh\nprintf 'ondera-cli 0.2.0\\n'\n").unwrap();
+            let binary = dir.path().join("ryolune-cli");
+            fs::write(&binary, "#!/bin/sh\nprintf 'ryolune-cli 0.2.0\\n'\n").unwrap();
             fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
-            verify_version(&binary, "ondera-cli", "0.2.0", Duration::from_secs(1)).unwrap();
+            verify_version(&binary, "ryolune-cli", "0.2.0", Duration::from_secs(1)).unwrap();
             assert!(
-                verify_version(&binary, "ondera-mcp", "0.2.0", Duration::from_secs(1)).is_err()
+                verify_version(&binary, "ryolune-mcp", "0.2.0", Duration::from_secs(1)).is_err()
             );
             assert!(
-                verify_version(&binary, "ondera-cli", "0.3.1", Duration::from_secs(1)).is_err()
+                verify_version(&binary, "ryolune-cli", "0.3.1", Duration::from_secs(1)).is_err()
             );
             fs::write(&binary, "#!/bin/sh\nwhile :; do :; done\n").unwrap();
             let started = Instant::now();
             assert!(
-                verify_version(&binary, "ondera-cli", "0.2.0", Duration::from_millis(30))
+                verify_version(&binary, "ryolune-cli", "0.2.0", Duration::from_millis(30))
                     .unwrap_err()
                     .contains("in time")
             );
@@ -972,7 +972,7 @@ pub fn install(release: &Release) -> Result<PathBuf> {
     {
         let bundle = bundle_of(&exe)?;
         let parent = bundle.parent().ok_or("The app has no parent folder")?;
-        let staging = parent.join(format!(".ondera-update-{}", std::process::id()));
+        let staging = parent.join(format!(".ryolune-update-{}", std::process::id()));
         let _ = fs::remove_dir_all(&staging);
         fs::create_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
         let result = (|| -> Result<()> {
@@ -991,7 +991,7 @@ pub fn install(release: &Release) -> Result<PathBuf> {
                 .filter_map(|e| e.ok().map(|e| e.path()))
                 .find(|p| p.extension().is_some_and(|e| e == "app"))
                 .ok_or("The update archive holds no application")?;
-            if ["ondera", "ondera-cli", "ondera-mcp"]
+            if ["ryolune", "ryolune-cli", "ryolune-mcp"]
                 .iter()
                 .any(|binary| !fresh.join("Contents/MacOS").join(binary).is_file())
             {
@@ -1003,7 +1003,7 @@ pub fn install(release: &Release) -> Result<PathBuf> {
                     .arg(&fresh),
                 "The downloaded app failed signature verification",
             )?;
-            for binary in ["ondera", "ondera-cli", "ondera-mcp"] {
+            for binary in ["ryolune", "ryolune-cli", "ryolune-mcp"] {
                 companions::verify_version(
                     &fresh.join("Contents/MacOS").join(binary),
                     binary,
@@ -1052,7 +1052,7 @@ pub fn cleanup() {
     }
 }
 
-/// A download interrupted by quitting leaves its `.ondera-update-<pid>` folder beside the app.
+/// A download interrupted by quitting leaves its `.ryolune-update-<pid>` folder beside the app.
 /// One more than a day old belongs to no install still running. Only macOS stages beside the
 /// app; the other platforms keep companion backups, which `companions::cleanup_backups` owns.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -1062,7 +1062,7 @@ pub fn remove_abandoned_staging(parent: &Path, now: std::time::SystemTime) {
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if !name.to_string_lossy().starts_with(".ondera-update-") {
+        if !name.to_string_lossy().starts_with(".ryolune-update-") {
             continue;
         }
         let old = entry
@@ -1135,7 +1135,7 @@ impl Updates {
     }
 }
 
-impl Ondera {
+impl Ryolune {
     pub(crate) fn check_for_updates(&mut self, manual: bool) {
         if self.updates.busy() {
             return;
@@ -1163,7 +1163,7 @@ impl Ondera {
         }
         let (tx, rx) = mpsc::sync_channel(1);
         self.updates.installing = Some(rx);
-        self.status = format!("Downloading Ondera {}…", release.version);
+        self.status = format!("Downloading ryolune {}…", release.version);
         std::thread::spawn(move || {
             let _ = tx.send(install(&release));
         });
@@ -1189,7 +1189,7 @@ impl Ondera {
             };
             match result {
                 Ok(Some(release)) => {
-                    self.status = format!("Ondera {} is available", release.version);
+                    self.status = format!("ryolune {} is available", release.version);
                     self.updates.available = Some(release);
                     if self.settings.general.install_updates_automatically {
                         self.install_update();
@@ -1198,7 +1198,7 @@ impl Ondera {
                     }
                 }
                 Ok(None) if self.updates.manual => {
-                    self.status = format!("Ondera {} is up to date", current_version());
+                    self.status = format!("ryolune {} is up to date", current_version());
                 }
                 Ok(None) => {}
                 Err(e) if self.updates.manual => self.error = Some(e),
@@ -1260,9 +1260,9 @@ impl Ondera {
         egui::Modal::new(egui::Id::new("update")).frame(dialog_frame()).show(ctx, |ui| {
             ui.set_max_width(440.0);
             let title = if self.updates.installed.is_some() {
-                format!("Ondera {} is installed", release.version)
+                format!("ryolune {} is installed", release.version)
             } else {
-                format!("Ondera {} is available", release.version)
+                format!("ryolune {} is available", release.version)
             };
             ui.label(text(title, FS_PANEL_TITLE, Weight::Bold, INK));
             ui.add_space(6.0);
@@ -1318,7 +1318,7 @@ impl Ondera {
 mod tests {
     #[test]
     fn relaunch_without_an_update_starts_this_copy() {
-        let installed = PathBuf::from("/Applications/Ondera.app");
+        let installed = PathBuf::from("/Applications/ryolune.app");
         assert_eq!(relaunch_target(Some(installed.clone())).unwrap(), installed);
         let this = relaunch_target(None).unwrap();
         assert!(this.exists(), "{}", this.display());
@@ -1327,8 +1327,8 @@ mod tests {
     #[test]
     fn abandoned_update_folders_are_removed_and_fresh_ones_kept() {
         let dir = tempfile::tempdir().unwrap();
-        let staging = dir.path().join(".ondera-update-4242");
-        let other = dir.path().join("Ondera.app");
+        let staging = dir.path().join(".ryolune-update-4242");
+        let other = dir.path().join("ryolune.app");
         fs::create_dir_all(&staging).unwrap();
         fs::create_dir_all(&other).unwrap();
         let now = std::time::SystemTime::now();
@@ -1363,39 +1363,39 @@ mod tests {
             "tag_name": "v0.2.0",
             "body": "Notes",
             "assets": [
-                {"name": "SHA256SUMS", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v0.2.0/SHA256SUMS", "size": 300},
-                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v0.2.0/Ondera-macos-arm64.zip", "size": 10},
+                {"name": "SHA256SUMS", "browser_download_url": "https://github.com/ludovic111/ryolune/releases/download/v0.2.0/SHA256SUMS", "size": 300},
+                {"name": "ryolune-macos-arm64.zip", "browser_download_url": "https://github.com/ludovic111/ryolune/releases/download/v0.2.0/ryolune-macos-arm64.zip", "size": 10},
             ]
         });
-        let r = find(&json, "Ondera-macos-arm64.zip").unwrap().unwrap();
+        let r = find(&json, "ryolune-macos-arm64.zip").unwrap().unwrap();
         assert_eq!(r.version, "0.2.0");
         assert_eq!(
             r.url,
-            "https://github.com/ludovic111/ondera/releases/download/v0.2.0/Ondera-macos-arm64.zip"
+            "https://github.com/ludovic111/ryolune/releases/download/v0.2.0/ryolune-macos-arm64.zip"
         );
         assert_eq!(
             r.checksums_url.as_deref(),
-            Some("https://github.com/ludovic111/ondera/releases/download/v0.2.0/SHA256SUMS")
+            Some("https://github.com/ludovic111/ryolune/releases/download/v0.2.0/SHA256SUMS")
         );
         assert!(r.signature_url.is_none());
         assert_eq!(r.notes, "Notes");
-        assert!(find(&json, "ondera-linux-x86_64").unwrap().is_none());
+        assert!(find(&json, "ryolune-linux-x86_64").unwrap().is_none());
         assert!(find(&serde_json::json!({}), "x").is_err());
     }
 
     #[test]
     fn checksum_listing_is_parsed() {
         let sums = format!(
-            "{}  Ondera-macos-arm64.zip\n{} *ondera-windows-x86_64.exe\n",
+            "{}  ryolune-macos-arm64.zip\n{} *ryolune-windows-x86_64.exe\n",
             "a".repeat(64),
             "B".repeat(64)
         );
         assert_eq!(
-            parse_checksum(&sums, "Ondera-macos-arm64.zip").as_deref(),
+            parse_checksum(&sums, "ryolune-macos-arm64.zip").as_deref(),
             Some("a".repeat(64).as_str())
         );
         assert_eq!(
-            parse_checksum(&sums, "ondera-windows-x86_64.exe").as_deref(),
+            parse_checksum(&sums, "ryolune-windows-x86_64.exe").as_deref(),
             Some("b".repeat(64).as_str())
         );
         assert_eq!(parse_checksum(&sums, "other"), None);
@@ -1419,20 +1419,20 @@ mod tests {
         let json: Value = serde_json::json!({
             "tag_name": "v9.9.9",
             "assets": [
-                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://evil.example/a.zip", "size": 10},
+                {"name": "ryolune-macos-arm64.zip", "browser_download_url": "https://evil.example/a.zip", "size": 10},
             ]
         });
-        assert!(find(&json, "Ondera-macos-arm64.zip")
+        assert!(find(&json, "ryolune-macos-arm64.zip")
             .unwrap_err()
             .contains("unexpected location"));
         let json: Value = serde_json::json!({
             "tag_name": "v9.9.9",
             "assets": [
-                {"name": "Ondera-macos-arm64.zip", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v9.9.9/Ondera-macos-arm64.zip", "size": 10},
-                {"name": "SHA256SUMS.sig", "browser_download_url": "https://github.com/ludovic111/ondera/releases/download/v9.9.9/SHA256SUMS.sig", "size": 10},
+                {"name": "ryolune-macos-arm64.zip", "browser_download_url": "https://github.com/ludovic111/ryolune/releases/download/v9.9.9/ryolune-macos-arm64.zip", "size": 10},
+                {"name": "SHA256SUMS.sig", "browser_download_url": "https://github.com/ludovic111/ryolune/releases/download/v9.9.9/SHA256SUMS.sig", "size": 10},
             ]
         });
-        let release = find(&json, "Ondera-macos-arm64.zip").unwrap().unwrap();
+        let release = find(&json, "ryolune-macos-arm64.zip").unwrap().unwrap();
         assert!(release.signature_url.is_some());
     }
 
@@ -1444,7 +1444,7 @@ mod tests {
         assert_eq!(public.len(), 64);
         assert!(write_keypair(&key).is_err(), "keys are never overwritten");
         let sums = dir.path().join("SHA256SUMS");
-        fs::write(&sums, "abc  Ondera-macos-arm64.zip\n").unwrap();
+        fs::write(&sums, "abc  ryolune-macos-arm64.zip\n").unwrap();
         let sig = sign_file(&key, &sums).unwrap();
         let text = fs::read_to_string(&sig).unwrap();
         assert!(text.starts_with(SIGNATURE_PREFIX));
@@ -1456,10 +1456,10 @@ mod tests {
             .unwrap();
         let signature = Signature::from_slice(&bytes).unwrap();
         assert!(verifying
-            .verify(b"abc  Ondera-macos-arm64.zip\n", &signature)
+            .verify(b"abc  ryolune-macos-arm64.zip\n", &signature)
             .is_ok());
         assert!(verifying
-            .verify(b"abc  Ondera-macos-arm64.zip\n tampered", &signature)
+            .verify(b"abc  ryolune-macos-arm64.zip\n tampered", &signature)
             .is_err());
         if public_key().is_none() {
             assert!(verify_signature(b"x", &text)

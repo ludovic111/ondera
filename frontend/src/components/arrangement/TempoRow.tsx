@@ -14,7 +14,7 @@ import {
   tempoAt as tempoAtBeat,
   tempoSourceBar,
   type Session,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { useCanvasSurface } from "../../canvas/surface";
 import { laneGeometry, xToBar, barToX } from "../../canvas/timeline";
