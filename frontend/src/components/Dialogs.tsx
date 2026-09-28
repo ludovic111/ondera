@@ -14,6 +14,7 @@ import { AutomationPanel } from "./AutomationPanel";
 import {
   exportProblem,
   exportSummary,
+  shouldAskSupport,
   type AudioExportReport,
 } from "../state/export";
 import { AgentSettings } from "./agent/AgentSettings";
@@ -299,7 +300,22 @@ function Settings({ onClose }: { onClose: () => void }) {
             <>
               <h2>Ondera {store.version}</h2>
               <p>Digital audio workstation for macOS, Linux and Windows.</p>
-              <button onClick={() => store.fire("app.openGuide", { guide: "plugins" })}>
+              <p>
+                Free and open source. If Ondera earns a place in your music, pay
+                what you want for it, once.
+              </p>
+              <button
+                onClick={() =>
+                  store.fire("app.openGuide", { guide: "support" })
+                }
+              >
+                Support Ondera…
+              </button>
+              <button
+                onClick={() =>
+                  store.fire("app.openGuide", { guide: "plugins" })
+                }
+              >
                 Native plugin SDK…
               </button>
             </>
@@ -326,6 +342,8 @@ function Settings({ onClose }: { onClose: () => void }) {
                   [
                     "lastSession",
                     "recentSessions",
+                    "exportsCompleted",
+                    "supportAsked",
                     "mode",
                     "favorites",
                     "folders",
@@ -506,6 +524,7 @@ function Export({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState(session.tracks.map((t) => t.id));
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState("");
+  const [askSupport, setAskSupport] = useState(false);
   const liveSelected = selected.filter((id) =>
     session.tracks.some((track) => track.id === id),
   );
@@ -552,12 +571,29 @@ function Export({ onClose }: { onClose: () => void }) {
         params,
       );
       setReport(exportSummary(result));
+      void countExport().catch(() => {});
     } catch (error) {
       store.reportError(error);
     } finally {
       exporting.current = false;
       setBusy(false);
     }
+  };
+  // Counted on this computer only. The ask appears once; showing it is the answer that ends it.
+  const countExport = async () => {
+    const general =
+      (await native<Record<string, Params>>("settings.get")).general ?? {};
+    const exportsCompleted = Number(general.exportsCompleted ?? 0) + 1;
+    await store.request("settings.set", {
+      path: "general.exportsCompleted",
+      value: exportsCompleted,
+    });
+    if (!shouldAskSupport({ ...general, exportsCompleted })) return;
+    await store.request("settings.set", {
+      path: "general.supportAsked",
+      value: true,
+    });
+    setAskSupport(true);
   };
   return (
     <Modal
@@ -738,6 +774,24 @@ function Export({ onClose }: { onClose: () => void }) {
         <pre role="status" className="export-report">
           {report}
         </pre>
+      )}
+      {askSupport && (
+        <aside className="support-ask" aria-label="Support Ondera">
+          <p>
+            Ondera is free and stays free. If it is earning a place in your
+            music, you can pay what you want for it, once. No subscription,
+            nothing gets unlocked, and Ondera will not ask again.
+          </p>
+          <button onClick={() => setAskSupport(false)}>No thanks</button>
+          <button
+            onClick={() => {
+              store.fire("app.openGuide", { guide: "support" });
+              setAskSupport(false);
+            }}
+          >
+            Pay what you want…
+          </button>
+        </aside>
       )}
     </Modal>
   );

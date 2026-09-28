@@ -143,6 +143,7 @@ below.
 | View › Automation | `ui.showPanel` panel=automation | covered |
 | Help › Check for updates… | `app.checkUpdates`, `app.installUpdate`, `app.relaunch` | covered |
 | Help › Native plugin SDK… | `app.openGuide` guide=plugins | covered |
+| Help › Support Ondera…, Settings › About › Support Ondera…, the one-time ask after the third export | `app.openGuide` guide=support; the ask is `settings.get`/`settings.set path=general.exportsCompleted` and `general.supportAsked` | covered |
 
 ## Arrangement
 

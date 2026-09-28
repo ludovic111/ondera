@@ -21,6 +21,10 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
 - `styles.css` holds the site-level scale (type sizes, section rhythm, hairlines) at the top, then
   composes everything else from the tokens. Text inside a well (time display, terminals, the build
   command) takes `accent-hi`, the accent that holds 4.5:1 on a well.
+- `/support` redirects to the pay-what-you-want checkout in the host variable
+  `ONDERA_CHECKOUT_URL` (https only; Railway service variable), or to the page's `#support`
+  section while it is unset. The app's Help › Support Ondera… opens `/support`, so the checkout
+  can move without a release.
 - `server.js` also redirects `/download` (by User-Agent) and `/download/<platform>` to the latest
   GitHub release asset; keep `ASSETS` in step with `update::asset_name`. It replaces `%ORIGIN%` in
   HTML with the request's origin for link previews and structured data, serves `/robots.txt` and

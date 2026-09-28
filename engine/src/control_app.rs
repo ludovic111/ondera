@@ -158,8 +158,8 @@ pub const SPECS: &[Spec] = &[
     edit("app.confirm", "Answer the unsaved-changes prompt the window shows before New, Open, Quit or Relaunch. ui.status reports it as `prompt`.", &[
         req("choice", Kind::String, "save, discard or cancel."),
     ]),
-    edit("app.openGuide", "Open one of Ondera's guides in the web browser.", &[
-        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK."),
+    edit("app.openGuide", "Open one of Ondera's pages in the web browser.", &[
+        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: pay what you want for Ondera, once (no subscription)."),
     ]),
     edit("app.relaunch", "Relaunch the app, for example after an update was installed. Unsaved changes prompt first.", &[]),
     edit("session.saveRecoveredTake", "Write a recording that could not be placed on a track to a WAV file, which frees the window to open other sessions. ui.status reports it as `recoveredTake`.", &[

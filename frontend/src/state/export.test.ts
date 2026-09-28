@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { exportProblem, exportSummary } from "./export";
+import { exportProblem, exportSummary, shouldAskSupport } from "./export";
 const options = {
   range: true,
   start: 1,
@@ -60,5 +60,15 @@ describe("audio export", () => {
       "Stems ignore solo",
     ])
       expect(result).toContain(text);
+  });
+});
+describe("support ask", () => {
+  it("waits for the third export and never repeats", () => {
+    expect(shouldAskSupport({})).toBe(false);
+    expect(shouldAskSupport({ exportsCompleted: 2 })).toBe(false);
+    expect(shouldAskSupport({ exportsCompleted: 3 })).toBe(true);
+    expect(shouldAskSupport({ exportsCompleted: 9, supportAsked: true })).toBe(
+      false,
+    );
   });
 });

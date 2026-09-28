@@ -36,6 +36,11 @@ pub struct General {
     pub reopen_last_session: bool,
     pub last_session: Option<String>,
     pub recent_sessions: Vec<String>,
+    /// Mixes and stem sets exported from the window. Counted on this computer only, so the
+    /// window can ask once, after the third, whether to pay what you want for Ondera.
+    pub exports_completed: u32,
+    /// The one-time support request was shown; either answer ends it for good.
+    pub support_asked: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -200,6 +205,8 @@ impl Default for General {
             reopen_last_session: false,
             last_session: None,
             recent_sessions: vec![],
+            exports_completed: 0,
+            support_asked: false,
         }
     }
 }

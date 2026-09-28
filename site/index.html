@@ -64,12 +64,12 @@
       <span class="line"><span>Hand the busywork</span></span>
       <span class="line"><span>to an <em>agent</em>.</span></span>
     </h1>
-    <p class="lede reveal" style="--d: 3">Ondera is a complete DAW: record while you hear yourself through your effects, arrange, edit MIDI, mix on a real mixer and export stems, with 34 stock plugins and your own VST3, CLAP and Audio Units. When you would rather not quantise forty notes by hand, ask the built-in agent. It works on the same session, and every edit it makes is one undo away.</p>
+    <p class="lede reveal" style="--d: 3">Ondera is a complete DAW: record while you hear yourself through your effects, arrange, edit MIDI, mix on a real mixer and export stems, with 34 stock plugins and your own VST3, CLAP and Audio Units. When you would rather not quantise forty notes by hand, ask the built-in agent, or plug Claude Code, Codex or any MCP client straight into the song. It works on the same session, and every edit it makes is one undo away.</p>
     <div class="hero__cta reveal" style="--d: 4">
       <a class="btn btn--lit btn--lg" href="/download" data-download data-download-label>Download Ondera</a>
       <a class="btn btn--ghost btn--lg" href="#downloads">All platforms <span class="arrow" aria-hidden="true">→</span></a>
     </div>
-    <p class="hero__fine reveal" style="--d: 5">Version 0.10 · free and MIT licensed · macOS, Windows, Linux · no account, no subscription, no telemetry</p>
+    <p class="hero__fine reveal" style="--d: 5">Version 0.10 · free and MIT licensed · macOS, Windows, Linux · no account, no subscription, no telemetry · <a href="#support">pay what you want, once</a></p>
     <div class="signal" id="signal" aria-hidden="true"></div>
   </section>
 
@@ -659,7 +659,8 @@
       <h2 class="reveal" id="faq-title">Fair questions.</h2>
     </header>
     <div class="faq reveal">
-      <details><summary>Is it really free? What is the catch?</summary><p>Yes. Ondera is MIT licensed, with no paid tier, account or track limit. The agent uses whichever model provider you connect, and that provider may charge you; the DAW works fully without one.</p></details>
+      <details><summary>Is it really free? What is the catch?</summary><p>Yes. Ondera is MIT licensed, with no paid tier, account or track limit. If it earns a place in your music you can pay what you want for it, once; nothing unlocks when you do. The agent uses whichever model provider you connect, and that provider may charge you; the DAW works fully without one.</p></details>
+      <details><summary>Why pay for something free? Will there be a subscription?</summary><p>There will not be a subscription. Paying once is how Ondera keeps being built full time: it pays for the Apple signing account, the test machines and the hours. Ondera asks once in the app, after your third export, and never again. Building from source is and stays free.</p></details>
       <details><summary>Do I have to use the AI?</summary><p>No. The agent stays idle and nothing is sent anywhere until you connect a provider and send a prompt. Every feature on this page except the agent works offline.</p></details>
       <details><summary>Can I hear myself while I record?</summary><p>Yes. Set the monitor button beside Arm to Auto or On and you hear the input through the track’s inserts and fader. Use headphones: with the built-in microphone and the built-in speakers together, Ondera keeps monitoring muted so it cannot feed back, until you choose Monitor Anyway. A smaller buffer in Settings &gt; Audio means less delay, and Ondera shows the latency it measured.</p></details>
       <details><summary>Which file formats can I export?</summary><p>WAV (16 or 24-bit, or 32-bit float), AIFF, FLAC (16 or 24-bit) and Ogg Vorbis, for the whole song, a range or one file per track, plus MIDI files. MP3 is not built: there is no MP3 encoder yet that fits the project’s licence and build, so Ogg Vorbis covers small files for now.</p></details>
@@ -672,10 +673,24 @@
     </div>
   </section>
 
+  <section id="support" class="section" aria-labelledby="support-title">
+    <header class="section__head">
+      <p class="eyebrow reveal">Support</p>
+      <h2 class="reveal" id="support-title">Free to use. Pay what you want, once.</h2>
+      <p class="lede reveal">Ondera is built by one person and costs nothing. If it earns a place in your music, choose a price and pay it one time. Everyone gets the same app either way.</p>
+    </header>
+    <ul class="rules">
+      <li class="reveal"><b>Once, not monthly.</b> No subscription, no renewal, no account. One payment covers every future version.</li>
+      <li class="reveal" style="--d: 1"><b>Nothing is locked.</b> Every feature, plugin and export format is in the free download. Paying unlocks nothing and removes nothing.</li>
+      <li class="reveal" style="--d: 2"><b>The code stays open.</b> Ondera stays MIT licensed. What you pay goes into the next release.</li>
+    </ul>
+    <p class="support__cta reveal"><a class="btn btn--lit btn--lg" href="/support">Pay what you want</a></p>
+  </section>
+
   <section id="downloads" class="section cta" aria-labelledby="downloads-title">
     <div class="cta__panel">
       <h2 class="reveal" id="downloads-title">Download Ondera 0.10</h2>
-      <p class="lede reveal">Free and MIT licensed. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
+      <p class="lede reveal">Free and MIT licensed, <a href="#support">pay what you want</a> if it helps. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
       <div class="downloads reveal">
         <a class="dl" href="/download/macos-arm64" data-os="macos-arm64"><b>macOS</b><span>Apple silicon · macOS 11+</span></a>
         <a class="dl" href="/download/macos-x86_64" data-os="macos-x86_64"><b>macOS</b><span>Intel · macOS 11+</span></a>
@@ -699,6 +714,7 @@
     <nav class="footer__links" aria-label="Project">
       <a href="https://github.com/ludovic111/ondera" rel="noopener">Source</a>
       <a href="#changelog">Changelog</a>
+      <a href="/support">Support Ondera</a>
       <a href="https://github.com/ludovic111/ondera/issues" rel="noopener">Issues</a>
       <a href="fonts/LICENSE.txt">Font licences</a>
     </nav>

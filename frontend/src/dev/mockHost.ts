@@ -276,7 +276,12 @@ const ui = {
 };
 
 const settings = {
-  general: { confirmBeforeQuit: true, checkUpdatesOnStart: true },
+  general: {
+    confirmBeforeQuit: true,
+    checkUpdatesOnStart: true,
+    exportsCompleted: 0,
+    supportAsked: false,
+  },
   audio: { outputDevice: null, inputDevice: null },
   interface: {
     appearance: ui.appearance,

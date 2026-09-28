@@ -1,7 +1,9 @@
 # Ondera
 
-A digital audio workstation for macOS, Windows and Linux, with a music assistant built in and
-every action open to scripts and AI tools.
+**The open-source DAW your AI can drive.** A complete digital audio workstation for macOS,
+Windows and Linux in which every action, from adding a track to mixing a plugin's parameters, is
+a command that you, the built-in agent, a script or any MCP client (Claude Code, Codex, Cursor…)
+can run on the same song, with the same undo.
 
 Record while you hear yourself through your effects, write and edit MIDI with the full expression
 of your keyboard, arrange with fades and song markers, mix on a real mixer with stock, CLAP, VST3
@@ -106,10 +108,22 @@ in [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Limits
 
-No time stretching, comping, tempo changes inside a song or user-defined buses yet. Recording
-latency is not compensated automatically. External plugin windows open on macOS; elsewhere
+No time stretching, comping or time signature changes inside a song yet, and buses do not feed
+other buses. Recording latency is not compensated automatically. External plugin windows open on macOS; elsewhere
 external plugins show their parameter list. VST2 and AAX are not supported. There is no MP3
 export. Builds are not notarized.
+
+## Support Ondera
+
+Ondera is free, and every feature is in the free download. If it earns a place in your music,
+[pay what you want for it, once](https://site-production-7751.up.railway.app/support): no
+subscription, no account, nothing unlocked or removed. It keeps Ondera built full time.
+
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: pull requests
+need the checks in [DEVELOPMENT.md](docs/DEVELOPMENT.md) and agreement to the
+[Contributor License Agreement](CLA.md).
 
 ## License
 

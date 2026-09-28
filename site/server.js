@@ -34,6 +34,19 @@ const ASSETS = {
   'linux-x86_64': 'Ondera-linux-x86_64.zip',
 };
 
+/**
+ * Where `/support` sends people: the pay-what-you-want checkout, set on the host as
+ * `ONDERA_CHECKOUT_URL` so it can change without a release (the app links to `/support`).
+ * Until it is set, or if it is not https, the page's own support section answers.
+ */
+export function supportTarget(checkout = process.env.ONDERA_CHECKOUT_URL) {
+  try {
+    const url = new URL(String(checkout ?? ''));
+    if (url.protocol === 'https:') return url.href;
+  } catch {}
+  return '/#support';
+}
+
 /** Best guess from the User-Agent. Macs report Intel even on Apple silicon, so default to arm64. */
 export function platformFor(userAgent = '') {
   if (/Windows/i.test(userAgent)) return 'windows-x86_64';
@@ -133,6 +146,10 @@ createServer(async (req, res) => {
       'Cache-Control': 'no-store',
       ...SECURITY,
     });
+    return res.end();
+  }
+  if (url.pathname === '/support') {
+    res.writeHead(302, { Location: supportTarget(), 'Cache-Control': 'no-store', ...SECURITY });
     return res.end();
   }
   if (url.pathname === '/robots.txt') {
