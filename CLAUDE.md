@@ -5,7 +5,7 @@ Since 0.4 the window is Tauri 2 with the React renderer in `frontend/` (`docs/TA
 happens in `frontend/src`: `state/actions.ts` is the one table behind menus, shortcuts, the command
 palette and the shortcut sheet; window panels (mixer, help, settings…) are toggled through
 `ui.showPanel` so the CLI, MCP and agent can drive them. Check with `npm --prefix frontend test`,
-`npm --prefix frontend run build`, then the Rust checks. The marketing site is `site/`.
+`npm --prefix frontend run build`, then the Rust checks. The marketing site is `site/`; its launch film (`site/video/`) is made in `marketing/` (see its README).
 
 Themes (0.6): `frontend/src/theme` is the only place visual values live. `schema.ts` types a theme,
 `materials.ts` holds the physical recipes against a light model, and `modern.ts`, `skeuo.ts`,

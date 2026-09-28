@@ -554,6 +554,17 @@ a.btn:hover, button.btn--lit:hover { transform: translateY(-1px); }
 
 /* ---------- screenshots (3D tilt with glare) ---------- */
 
+/* The launch film, above the captures: same frame, no tilt (its controls take the pointer). */
+.film { margin: 56px 0 0; }
+.film__frame {
+  position: relative; border-radius: 12px; overflow: hidden; background: var(--color-panel);
+  box-shadow: 0 0 0 1px var(--site-hairline-strong), 0 30px 80px var(--color-scrim), 0 8px 24px var(--color-scrim);
+}
+.film video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: var(--color-desk); }
+.film figcaption { margin-top: 18px; color: var(--color-ink300); font-size: var(--fs-card); line-height: 1.6; max-width: 70ch; }
+.film figcaption b { color: var(--color-ink-bright); }
+.film + .shots__grid { margin-top: 40px; }
+
 .shots__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 56px; }
 @media (max-width: 900px) { .shots__grid { grid-template-columns: 1fr; } }
 .shot { margin: 0; }

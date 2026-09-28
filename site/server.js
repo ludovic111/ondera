@@ -1,5 +1,6 @@
 // Dependency-free static server for the Ondera site. Railway runs `npm start`.
 import { createServer } from 'node:http';
+import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,7 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8',
   '.xml': 'application/xml; charset=utf-8',
   '.woff2': 'font/woff2',
+  '.mp4': 'video/mp4',
 };
 
 // Keep in step with `update::asset_name` in desktop/src/update.rs and the release workflow.
@@ -111,6 +113,48 @@ async function stampVersions(text, fromDir) {
   return text;
 }
 
+/**
+ * Videos are streamed rather than read into memory, and answer byte ranges: Safari will not play a
+ * video without them, and every browser seeks with them. The ETag comes from size and mtime.
+ */
+function sendVideo(req, res, file, info) {
+  const etag = `"${info.size.toString(36)}-${Math.floor(info.mtimeMs).toString(36)}"`;
+  const head = { 'Content-Type': TYPES['.mp4'], 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=3600', ETag: etag, ...SECURITY };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, head);
+    return res.end();
+  }
+  let start = 0;
+  let end = info.size - 1;
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  if (req.headers.range && (!range || (range[1] === '' && range[2] === ''))) {
+    res.writeHead(416, { 'Content-Range': `bytes */${info.size}`, ...SECURITY });
+    return res.end();
+  }
+  if (range) {
+    if (range[1] === '') {
+      start = Math.max(0, info.size - Number(range[2]));
+    } else {
+      start = Number(range[1]);
+      if (range[2] !== '') end = Math.min(end, Number(range[2]));
+    }
+    if (start > end || start >= info.size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${info.size}`, ...SECURITY });
+      return res.end();
+    }
+  }
+  res.writeHead(range ? 206 : 200, {
+    ...head,
+    'Content-Length': end - start + 1,
+    ...(range ? { 'Content-Range': `bytes ${start}-${end}/${info.size}` } : {}),
+  });
+  if (req.method === 'HEAD') return res.end();
+  const stream = createReadStream(file, { start, end });
+  stream.on('error', () => res.destroy());
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
+}
+
 /** The origin the visitor used, for absolute URLs in link previews and the sitemap. */
 function originOf(req) {
   const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
@@ -168,6 +212,7 @@ createServer(async (req, res) => {
       info = await stat(file);
     }
     const ext = extname(file).toLowerCase();
+    if (ext === '.mp4') return sendVideo(req, res, file, info);
     const type = TYPES[ext] ?? 'application/octet-stream';
     // index.html names its scripts and styles with ?v=, so those can be kept for good;
     // everything else (images, fonts, unversioned URLs) is rechecked hourly.
