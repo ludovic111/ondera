@@ -21,6 +21,10 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
 - `styles.css` holds the site-level scale (type sizes, section rhythm, hairlines) at the top, then
   composes everything else from the tokens. Text inside a well (time display, terminals, the build
   command) takes `accent-hi`, the accent that holds 4.5:1 on a well.
+- The site's address is ryolune.com (Porkbun DNS: an ALIAS at the root and a `www` CNAME to the
+  Railway targets). With `RYOLUNE_CANONICAL_HOST=ryolune.com` set on Railway, every other host
+  name (www, `site-production-7751.up.railway.app`) answers with a 301 to the same path on
+  ryolune.com; `/health` is exempt so Railway's health check keeps working.
 - `/support` redirects to the pay-what-you-want checkout in the host variable
   `RYOLUNE_CHECKOUT_URL` (https only; Railway service variable), or to the page's `#support`
   section while it is unset. The app's Help › Support ryolune… opens `/support`, so the checkout

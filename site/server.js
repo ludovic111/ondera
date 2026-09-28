@@ -49,6 +49,20 @@ export function supportTarget(checkout = process.env.RYOLUNE_CHECKOUT_URL) {
   return '/#support';
 }
 
+/**
+ * The one public address, set on the host as `RYOLUNE_CANONICAL_HOST` (ryolune.com). Visits on
+ * any other name (www, the Railway service domain the 0.11 app links to) are sent there with
+ * the same path, so links, previews and search engines see one site. Unset: no redirect.
+ */
+export function canonicalRedirect(host, path, canonical = process.env.RYOLUNE_CANONICAL_HOST) {
+  const wanted = String(canonical ?? '').trim().toLowerCase();
+  const actual = String(host ?? '').split(':')[0].toLowerCase();
+  if (!wanted || !actual || actual === wanted || actual === 'localhost' || /^[\d.]+$/.test(actual)) {
+    return null;
+  }
+  return `https://${wanted}${path}`;
+}
+
 /** Best guess from the User-Agent. Macs report Intel even on Apple silicon, so default to arm64. */
 export function platformFor(userAgent = '') {
   if (/Windows/i.test(userAgent)) return 'windows-x86_64';
@@ -181,6 +195,11 @@ createServer(async (req, res) => {
   }
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (url.pathname === '/health') return send(res, 200, 'ok', 'text/plain; charset=utf-8', 'no-store');
+  const canonical = canonicalRedirect(req.headers.host, req.url ?? '/');
+  if (canonical) {
+    res.writeHead(301, { Location: canonical, 'Cache-Control': 'public, max-age=3600', ...SECURITY });
+    return res.end();
+  }
 
   if (url.pathname === '/download' || url.pathname.startsWith('/download/')) {
     const wanted = url.pathname.slice('/download/'.length) || platformFor(req.headers['user-agent']);
