@@ -33,11 +33,17 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
 - Each release: update the "New in" section, the hero pill, the changelog entry (newest first; move
   the oldest expanded one into "Earlier releases"), "Not here yet" and "Next, and current limits",
   the version in the hero, the stats strip under the demo, downloads, footer and the Open Graph /
-  JSON-LD tags. The copy is written from `docs/releases/`; keep it in plain words for musicians.
+  JSON-LD tags. Re-record the launch film when the release changes what it shows. The copy is written from `docs/releases/`; keep it in plain words for musicians.
 - `img/` holds captures of the real window, downscaled to WebP. Retake them when the interface
   changes and replace the files in place under the same names: `arrangement.webp` and `mixer.webp`
   at 2000x1250 (`ui.screenshot`; the `width`/`height` attributes reserve that 16:10 box), `og.png`
   at 1200x750 (declared in the Open Graph tags; update them if the size changes).
+- `video/ondera-<version>-4k.mp4` and `-1080p.mp4` are the launch film shown at the top of "The
+  actual window" (`#film`), with `img/film-poster.webp` (2400x1350) as its poster. The `<source>`
+  `media` query gives the 4K file to wide or high-density screens and 1080p to the rest; nothing
+  downloads before Play (`preload="none"`). They are copies of `marketing/brag-output/brag-4k.mp4`
+  and `brag.mp4` (see `marketing/README.md` to re-record them). `server.js` streams `.mp4` with byte
+  ranges (Safari needs them to play, every browser to seek) instead of reading it into memory.
 - `img/theme-<id>-<mode>.webp` (2000x1250) feed the theme gallery. They are the frontend renderer
   with its fixture song: `npm --prefix frontend run dev`, open `/?theme=<id>&mode=<mode>` at
   1600x1000 with a device scale of 1.25, screenshot, then `cwebp -q 74 -m 6`.

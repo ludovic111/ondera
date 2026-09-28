@@ -226,6 +226,16 @@
       <p class="eyebrow reveal">The actual window</p>
       <h2 class="reveal" id="shots-title">Not a mock-up. This is what you download.</h2>
     </header>
+    <figure class="film reveal" id="film">
+      <div class="film__frame">
+        <!-- 4K on large or high-density screens, 1080p elsewhere; nothing loads until Play. -->
+        <video controls playsinline preload="none" poster="img/film-poster.webp" width="3840" height="2160" aria-describedby="film-caption">
+          <source src="video/ondera-0.10-4k.mp4" type="video/mp4" media="(min-width: 1100px) and (min-resolution: 1.5dppx), (min-width: 2200px)">
+          <source src="video/ondera-0.10-1080p.mp4" type="video/mp4">
+        </video>
+      </div>
+      <figcaption id="film-caption"><b>22 seconds, with sound.</b> Recorded from the window itself: the agent answers a request and writes its notes in teal, <kbd>⌘Z</kbd> takes them back, then the mixer, a stock plugin and the six themes.</figcaption>
+    </figure>
     <div class="shots__grid">
       <figure class="shot reveal">
         <div class="shot__frame"><img src="img/arrangement.webp" width="2000" height="1250" loading="lazy" decoding="async" alt="Ondera arrangement window: Intro, Verse and Chorus markers on the ruler, audio regions with fade curves, the piano roll with a mod-wheel controller lane below, browser on the left and channel inspector on the right"></div>
