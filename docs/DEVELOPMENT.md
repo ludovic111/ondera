@@ -161,9 +161,9 @@ Setting only some of the secrets stops the release.
 To check a signature locally with a Developer ID in your keychain:
 `APPLE_SIGNING_IDENTITY="Developer ID Application: …" bash scripts/package-macos.sh` (add the three
 `APPLE_API_*` variables, with a path to the `.p8`, to notarize too). The updater's own checks
-(`codesign --verify --deep --strict`, Ed25519 checksums) accept both kinds of build. Once a
-notarized release ships, drop the "not notarized" notes from the README, the site's FAQ and
-limits, and `docs/USER_GUIDE.md`.
+(`codesign --verify --deep --strict`, Ed25519 checksums) accept both kinds of build. The
+repository has had all six secrets since 0.10.1 (team `YYJU63HSD4`, API key "Ondera
+notarization"); the owner keeps the `.p8` in `~/.ondera/keys`.
 
 ## Website
 

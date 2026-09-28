@@ -12,18 +12,18 @@
   <meta property="og:site_name" content="Ondera">
   <meta property="og:locale" content="en_US">
   <meta property="og:url" content="%ORIGIN%/">
-  <meta property="og:title" content="Ondera 0.10 — a free DAW you can finish songs in">
+  <meta property="og:title" content="Ondera 0.10.1 — a free DAW you can finish songs in">
   <meta property="og:description" content="Record with monitoring through your effects, play with your keyboard's mod wheel and pitch bend, fade and mark your clips, and export WAV, FLAC or Ogg. Free on macOS, Windows and Linux.">
   <meta property="og:image" content="%ORIGIN%/img/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="750">
   <meta property="og:image:alt" content="The Ondera arrangement window with audio and MIDI tracks">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Ondera 0.10 — a free DAW you can finish songs in">
+  <meta name="twitter:title" content="Ondera 0.10.1 — a free DAW you can finish songs in">
   <meta name="twitter:description" content="Record, arrange, mix and export on macOS, Windows and Linux, with your plugins, 34 stock ones and an agent you can undo.">
   <meta name="twitter:image" content="%ORIGIN%/img/og.png">
   <meta name="twitter:image:alt" content="The Ondera arrangement window with audio and MIDI tracks">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ondera","url":"%ORIGIN%/","description":"A free, open-source digital audio workstation for macOS, Windows and Linux with a built-in agent.","applicationCategory":"MultimediaApplication","applicationSubCategory":"Digital audio workstation","operatingSystem":"macOS 11+, Windows, Linux","softwareVersion":"0.10.0","downloadUrl":"https://github.com/ludovic111/ondera/releases/latest","image":"%ORIGIN%/img/og.png","author":{"@type":"Person","name":"Ludovic Marie"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Ondera","url":"%ORIGIN%/","description":"A free, open-source digital audio workstation for macOS, Windows and Linux with a built-in agent.","applicationCategory":"MultimediaApplication","applicationSubCategory":"Digital audio workstation","operatingSystem":"macOS 11+, Windows, Linux","softwareVersion":"0.10.1","downloadUrl":"https://github.com/ludovic111/ondera/releases/latest","image":"%ORIGIN%/img/og.png","author":{"@type":"Person","name":"Ludovic Marie"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT"}</script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c2c2b'/%3E%3Crect x='0.5' y='0.5' width='31' height='31' rx='6.5' fill='none' stroke='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2382d6d1'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2382d6d1' stroke-opacity='.35' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="preload" href="fonts/manrope-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/manrope-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -58,7 +58,7 @@
 
   <section class="hero" id="top" aria-labelledby="hero-title">
     <div class="hero__grid" aria-hidden="true"></div>
-    <a class="pill reveal" href="#new"><span class="pill__tag">New in 0.10</span><span class="pill__text">Tempo changes and ramps, buses and groups</span><span class="pill__arrow" aria-hidden="true">→</span></a>
+    <a class="pill reveal" href="#new"><span class="pill__tag">New in 0.10.1</span><span class="pill__text">Notarized for macOS, tempo changes, buses</span><span class="pill__arrow" aria-hidden="true">→</span></a>
     <h1 class="display" id="hero-title">
       <span class="line"><span>Finish the song.</span></span>
       <span class="line"><span>Hand the busywork</span></span>
@@ -69,7 +69,7 @@
       <a class="btn btn--lit btn--lg" href="/download" data-download data-download-label>Download Ondera</a>
       <a class="btn btn--ghost btn--lg" href="#downloads">All platforms <span class="arrow" aria-hidden="true">→</span></a>
     </div>
-    <p class="hero__fine reveal" style="--d: 5">Version 0.10 · free and MIT licensed · macOS, Windows, Linux · no account, no subscription, no telemetry · <a href="#support">pay what you want, once</a></p>
+    <p class="hero__fine reveal" style="--d: 5">Version 0.10.1 · free and MIT licensed · macOS, Windows, Linux · no account, no subscription, no telemetry · <a href="#support">pay what you want, once</a></p>
     <div class="signal" id="signal" aria-hidden="true"></div>
   </section>
 
@@ -531,6 +531,17 @@
 
     <ol class="releases reveal">
       <li class="release release--now">
+        <div class="release__meta"><span class="release__v">0.10.1</span><time class="release__date" datetime="2026-09-28">28 Sep 2026</time></div>
+        <div class="release__body">
+          <h3>Opens on a Mac without a warning</h3>
+          <ul>
+            <li>macOS builds are signed with a Developer ID and notarized by Apple: no more Open Anyway on the first launch.</li>
+            <li>Help › Support Ondera…: pay what you want for Ondera, once. Nothing is locked, and the app asks one time only, after your third export.</li>
+          </ul>
+          <a class="release__link" href="https://github.com/ludovic111/ondera/releases/tag/v0.10.1" rel="noopener">Full notes for 0.10.1 <span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </li>
+      <li class="release">
         <div class="release__meta"><span class="release__v">0.10</span><time class="release__date" datetime="2026-09-27">27 Sep 2026</time></div>
         <div class="release__body">
           <h3>Tempo changes, buses and groups</h3>
@@ -659,7 +670,7 @@
 
     <div class="next reveal" id="roadmap">
       <h3><span class="led" aria-hidden="true"></span>Next, and current limits</h3>
-      <p>Time stretching, take comping, time signature changes inside a song and MP3 export are not built yet; buses do not feed other buses. No VST2 or AAX. External plugin editors open on macOS only. Windows and Linux windows are built and tested in CI but not yet checked by hand. Packages are ad-hoc signed, not notarized; Windows binaries are unsigned.</p>
+      <p>Time stretching, take comping, time signature changes inside a song and MP3 export are not built yet; buses do not feed other buses. No VST2 or AAX. External plugin editors open on macOS only. Windows and Linux windows are built and tested in CI but not yet checked by hand. macOS packages are notarized; Windows binaries are not code-signed yet.</p>
     </div>
   </section>
 
@@ -677,7 +688,7 @@
       <details><summary>Will my plugins work?</summary><p>VST3 and CLAP plugins load on macOS, Windows and Linux, and Audio Units on macOS, as long as they match your processor architecture. VST2 and AAX are not supported. Native plugin editor windows currently open on macOS only; elsewhere you get Ondera’s generic parameter panel. Native Ondera plugins built for an older version keep loading.</p></details>
       <details><summary>Do my keyboard’s mod wheel and sustain pedal work?</summary><p>Yes. Mod wheel, sustain, pitch bend and pressure reach the instrument while you play, are recorded into the clip, and show up in the controller lane under the piano roll, where you can draw or fix them.</p></details>
       <details><summary>Can I open my Ableton, Logic or FL Studio projects?</summary><p>No, and no other DAW can either. Export stems and MIDI from the old project and import them. It takes a few minutes per song.</p></details>
-      <details><summary>macOS says the app cannot be opened.</summary><p>Builds are ad-hoc signed, not notarized by Apple yet. Right-click the app, choose Open, then Open again. You only need to do it once.</p></details>
+      <details><summary>macOS says the app cannot be opened.</summary><p>From 0.10.1 Ondera is signed with a Developer ID and notarized by Apple, so it opens like any other app. With 0.10 or older, right-click the app, choose Open, then Open again, once; or update from the Help menu.</p></details>
       <details><summary>Is it stable enough for real work?</summary><p>It is a young 0.x project. Each release must pass the engine tests and a scripted full-song session (record, edit, save, reopen, export) on all four platforms before it ships, and recovery snapshots run in the background. Keep backups, as with any DAW.</p></details>
       <details><summary>What can the agent touch?</summary><p>Only what the permission switches in Settings allow. By default it can edit the session, import and export files and run the transport; replacing the session, changing settings and controlling the app are off until you turn them on. Each is its own switch. Whatever it changes is in your undo history.</p></details>
     </div>
@@ -699,7 +710,7 @@
 
   <section id="downloads" class="section cta" aria-labelledby="downloads-title">
     <div class="cta__panel">
-      <h2 class="reveal" id="downloads-title">Download Ondera 0.10</h2>
+      <h2 class="reveal" id="downloads-title">Download Ondera 0.10.1</h2>
       <p class="lede reveal">Free and MIT licensed, <a href="#support">pay what you want</a> if it helps. Archives include the <code>ondera-cli</code> and <code>ondera-mcp</code> companions, and the app updates itself from signed releases.</p>
       <div class="downloads reveal">
         <a class="dl" href="/download/macos-arm64" data-os="macos-arm64"><b>macOS</b><span>Apple silicon · macOS 11+</span></a>
@@ -719,7 +730,7 @@
 
 <footer class="footer">
   <div class="footer__inner">
-    <span class="wordmark wordmark--sm"><span class="led led--accent" aria-hidden="true"></span>Ondera 0.10</span>
+    <span class="wordmark wordmark--sm"><span class="led led--accent" aria-hidden="true"></span>Ondera 0.10.1</span>
     <span>MIT license · © 2026 Ludovic Marie</span>
     <nav class="footer__links" aria-label="Project">
       <a href="https://github.com/ludovic111/ondera" rel="noopener">Source</a>

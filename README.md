@@ -36,9 +36,8 @@ Download the file for your computer from the
 | Windows | `Ondera-windows-x86_64.zip` |
 | Linux | `Ondera-linux-x86_64.zip` (or `.tar.gz`) |
 
-**macOS**: unzip and drag `Ondera.app` to Applications. The app is signed ad hoc, not notarized,
-so the first launch is blocked: open System Settings > Privacy & Security and choose Open Anyway,
-or run `xattr -dr com.apple.quarantine /Applications/Ondera.app`.
+**macOS**: unzip and drag `Ondera.app` to Applications. The app is signed with a Developer ID
+and notarized by Apple, so it opens like any other app (from 0.10.1).
 **Windows and Linux**: extract all three executables (`ondera`, `ondera-cli`, `ondera-mcp`) into
 one folder. Windows needs the Microsoft Edge WebView2 runtime.
 
@@ -111,7 +110,7 @@ in [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 No time stretching, comping or time signature changes inside a song yet, and buses do not feed
 other buses. Recording latency is not compensated automatically. External plugin windows open on macOS; elsewhere
 external plugins show their parameter list. VST2 and AAX are not supported. There is no MP3
-export. Builds are not notarized.
+export. Windows builds are not code-signed.
 
 ## Support Ondera
 

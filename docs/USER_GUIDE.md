@@ -299,4 +299,5 @@ third export, and never again. It counts exports in `settings.json` only; nothin
 - Recording latency is not measured or compensated automatically.
 - External plugin windows open on macOS; on Windows and Linux external plugins show their
   parameter list.
-- Builds are signed ad hoc, not notarized: see the README for the first launch on macOS.
+- Windows builds are not code-signed, so SmartScreen may ask before the first launch. macOS
+  builds are notarized from 0.10.1.
