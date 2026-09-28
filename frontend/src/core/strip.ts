@@ -27,7 +27,7 @@ export function outputName(
 /** The channel strip a fresh track gets. Also what the inspector shows for tracks without one. */
 export function defaultStrip(kind: TrackKind): ChannelStrip {
   return {
-    instrument: kind === "midi" ? "Ondera Synth" : "—",
+    instrument: kind === "midi" ? "ryolune Synth" : "—",
     input: kind === "midi" ? "All MIDI" : kind === "bus" ? "—" : "Input 1",
     output: "Stereo Out",
     inserts: [

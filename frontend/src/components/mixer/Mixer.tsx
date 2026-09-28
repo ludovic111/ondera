@@ -9,7 +9,7 @@ import {
   formatDb,
   outputName,
   type Track,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { Knob } from "../primitives/Knob";
 import { LedStrip } from "../primitives/LedStrip";

@@ -1,6 +1,6 @@
 //! What an agent needs from the registry: one overview of the song, tracks and clips by
 //! name, and a plugin's parameters and programs by name, display text or 0-1 position.
-use ondera_engine::{
+use ryolune_engine::{
     audio::Library,
     control::{self, Headless, Host},
     host::native,
@@ -9,7 +9,7 @@ use ondera_engine::{
     store::{Command, Store},
     Result,
 };
-use ondera_plugin::ffi;
+use ryolune_plugin::ffi;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -75,7 +75,7 @@ fn the_overview_describes_the_whole_song_in_one_bounded_answer() {
         1
     );
     assert!(narrow["truncated"].as_str().unwrap().contains("Keys"));
-    assert!(fail(&mut h, "ui.state", json!({})).contains("running Ondera app"));
+    assert!(fail(&mut h, "ui.state", json!({})).contains("running ryolune app"));
 }
 
 #[test]
@@ -392,7 +392,7 @@ struct Window {
     key: String,
     instance: Instance,
 }
-const TRIM: &str = "native:org.ondera.examples.trim";
+const TRIM: &str = "native:org.ryolune.examples.trim";
 impl Host for Window {
     fn store(&self) -> &Store {
         &self.inner.store
@@ -457,11 +457,11 @@ impl Host for Window {
 
 fn trim() -> Instance {
     let tables =
-        unsafe { native::tables_from_entry(ondera_plugin_gain::ondera_plugin_entry()) }.unwrap();
+        unsafe { native::tables_from_entry(ryolune_plugin_gain::ryolune_plugin_entry()) }.unwrap();
     let manifest = unsafe { ffi::read_manifest(tables[0]).unwrap() };
-    let descriptor = ondera_engine::plugin::Descriptor {
+    let descriptor = ryolune_engine::plugin::Descriptor {
         id: format!("native:{}", manifest.id),
-        format: ondera_engine::plugin::Format::Native,
+        format: ryolune_engine::plugin::Format::Native,
         name: manifest.name.clone(),
         vendor: manifest.vendor.clone(),
         path: "in-process".into(),
@@ -581,7 +581,7 @@ fn plugins_are_found_by_what_they_do() {
             .collect()
     };
     assert!(names(&mut h, "reverb").contains(&"Space".to_string()));
-    assert!(names(&mut h, "compressor").contains(&"Ondera Comp".to_string()));
+    assert!(names(&mut h, "compressor").contains(&"ryolune Comp".to_string()));
     assert!(names(&mut h, "delay").contains(&"Echo".to_string()));
     // A plugin's own name still ranks first.
     assert_eq!(names(&mut h, "echo")[0], "Echo");

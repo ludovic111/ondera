@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Ondera",
-  "version": "0.10.1",
-  "identifier": "org.ondera.desktop",
+  "productName": "ryolune",
+  "version": "0.11.0",
+  "identifier": "org.ryolune.desktop",
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Ondera",
+        "title": "ryolune",
         "width": 1600,
         "height": 1000,
         "minWidth": 1120,
@@ -30,6 +30,6 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["assets/Ondera.icns", "icons/icon.png", "icons/icon.ico"]
+    "icon": ["assets/ryolune.icns", "icons/icon.png", "icons/icon.ico"]
   }
 }

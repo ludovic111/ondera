@@ -4,11 +4,11 @@
 //! when the pointer is released, so undo restores the whole gesture.
 
 use crate::{
-    app::{id, Ondera},
+    app::{id, Ryolune},
     theme::*,
 };
 use eframe::egui::{self, pos2, vec2, Align2, Pos2, Rect, Sense, Stroke, Vec2};
-use ondera_engine::{
+use ryolune_engine::{
     model::*,
     store::{self, Command},
 };
@@ -36,7 +36,7 @@ fn t_to_zoom(t: f32) -> f32 {
     ZOOM_MIN * (ZOOM_MAX / ZOOM_MIN).powf(t.clamp(0.0, 1.0))
 }
 
-impl Ondera {
+impl Ryolune {
     pub fn arrangement(&mut self, ui: &mut egui::Ui) {
         let state = self.store.snapshot();
         let bpb = state.beats_per_bar();

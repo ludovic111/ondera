@@ -15,7 +15,7 @@ beforeEach(() => {
   const state = store.getState();
   const doc: DocumentData = {
     ...state,
-    name: "Night Drive.ondera",
+    name: "Night Drive.ryolune",
     strips: {},
     masterVolume: 0.75,
     automation: [],

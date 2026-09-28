@@ -3,7 +3,7 @@ use crate::{
     theme::*,
 };
 use eframe::egui;
-use ondera_engine::{
+use ryolune_engine::{
     audio::{self, Library},
     device::{DeviceEngine, LiveInput, Message, RecordedAudio, Recorder},
     document, host, midi,
@@ -71,7 +71,7 @@ pub(crate) enum JobResult {
     Cancelled,
 }
 type Job = mpsc::Receiver<Result<JobResult>>;
-pub struct Ondera {
+pub struct Ryolune {
     pub store: Store,
     pub library: Library,
     pub device: Option<DeviceEngine>,
@@ -143,12 +143,12 @@ pub struct Ondera {
     typing_owners: midi::NoteOwners,
     pub(crate) midi_take: Vec<RecordedNote>,
     /// Control changes, bend and pressure of the MIDI take, at absolute beats.
-    pub(crate) midi_controls: Vec<(f64, ondera_engine::plugin::Event)>,
+    pub(crate) midi_controls: Vec<(f64, ryolune_engine::plugin::Event)>,
     pub(crate) midi_recording: bool,
     pub(crate) recording_midi_tracks: Vec<String>,
     pub output_device: Option<String>,
     pub input_device: Option<String>,
-    pub(crate) control: Option<ondera_engine::control::wire::Server>,
+    pub(crate) control: Option<ryolune_engine::control::wire::Server>,
     pub(crate) agents: crate::agents::AgentPanel,
     pub(crate) automation: crate::automation::AutomationUi,
     pub(crate) export: crate::export::ExportDialog,
@@ -175,15 +175,15 @@ pub struct Ondera {
     /// allowed). `None` after the input or the output changed, so the tap is made again.
     monitor_key: Option<(bool, bool)>,
     /// How the open input stream answered the request to monitor.
-    pub(crate) monitoring: ondera_engine::device::Monitoring,
+    pub(crate) monitoring: ryolune_engine::device::Monitoring,
     /// The user accepted built-in microphone to built-in speakers, until the app closes.
     pub(crate) monitor_speakers_ok: bool,
     pub(crate) bridge_wanted: bool,
 }
 pub fn id(prefix: &str) -> String {
-    ondera_engine::control::new_id(prefix)
+    ryolune_engine::control::new_id(prefix)
 }
-impl Ondera {
+impl Ryolune {
     pub(crate) fn release_typing(&mut self) {
         let pitches = std::mem::take(&mut self.typing_down);
         for pitch in pitches {
@@ -349,7 +349,7 @@ impl Ondera {
             input_key: (None, None),
             input_failed: false,
             monitor_key: None,
-            monitoring: ondera_engine::device::Monitoring::Off,
+            monitoring: ryolune_engine::device::Monitoring::Off,
             monitor_speakers_ok: false,
             bridge_wanted: false,
         }
@@ -567,7 +567,7 @@ impl Ondera {
             note.end = Some(beats.max(note.start));
         }
     }
-    pub(crate) fn record_control(&mut self, event: ondera_engine::plugin::Event, beats: f64) {
+    pub(crate) fn record_control(&mut self, event: ryolune_engine::plugin::Event, beats: f64) {
         if self.midi_recording {
             self.midi_controls
                 .push((beats.max(self.record_start), event));
@@ -659,7 +659,7 @@ impl Ondera {
                 })
                 .collect();
             let controllers =
-                ondera_engine::controllers::recorded(&controls, start_bar * bpb, false, || {
+                ryolune_engine::controllers::recorded(&controls, start_bar * bpb, false, || {
                     id("ctl")
                 });
             commands.push(Command::PutClip(Clip {
@@ -964,7 +964,7 @@ impl Ondera {
     }
     /// Some audio track routes the live input to its strip right now.
     pub(crate) fn monitor_wanted(&self) -> bool {
-        use ondera_engine::model::Monitor;
+        use ryolune_engine::model::Monitor;
         self.store.session().tracks.iter().any(|t| {
             t.kind == "audio"
                 && match t.monitor {
@@ -975,10 +975,10 @@ impl Ondera {
         })
     }
     /// Where an input worker sends the monitor tap, when some track wants to hear the input.
-    fn monitor_link(&self) -> Option<ondera_engine::device::MonitorLink> {
+    fn monitor_link(&self) -> Option<ryolune_engine::device::MonitorLink> {
         let device = self.device.as_ref()?;
         self.monitor_wanted()
-            .then(|| ondera_engine::device::MonitorLink {
+            .then(|| ryolune_engine::device::MonitorLink {
                 sender: device.sender(),
                 output_rate: device.sample_rate,
                 output_name: device.device_name.clone(),
@@ -989,7 +989,7 @@ impl Ondera {
     /// the setting allows the meter, a track monitors the input, or a take runs. Monitoring and
     /// takes attach to the open stream, so neither reopens the device.
     pub(crate) fn poll_input(&mut self) {
-        use ondera_engine::device::Monitoring;
+        use ryolune_engine::device::Monitoring;
         if let Some(result) = self
             .input_pending
             .as_ref()
@@ -1280,7 +1280,7 @@ impl Ondera {
                 else {
                     return Ok(None);
                 };
-                ondera_engine::device::preserve_recording(&buffer, &path)?;
+                ryolune_engine::device::preserve_recording(&buffer, &path)?;
                 Ok(Some(path))
             })();
             let _ = tx.send(result);
@@ -1477,7 +1477,7 @@ impl Ondera {
             let mut files = vec![];
             let mut decoded_bytes = 0usize;
             for path in paths {
-                let buffer = ondera_engine::control::decode_file(&path)?;
+                let buffer = ryolune_engine::control::decode_file(&path)?;
                 decoded_bytes = decoded_bytes.saturating_add(buffer.frames.len() * 8);
                 if decoded_bytes > audio::MAX_LIBRARY_BYTES {
                     return Err("Imported batch exceeds 1 GiB of decoded audio".into());
@@ -1500,7 +1500,7 @@ impl Ondera {
             self.after_take = Some(AfterTake::Save(save_as));
             return;
         }
-        if let Err(error) = self.guarded(Ondera::capture_plugin_states) {
+        if let Err(error) = self.guarded(Ryolune::capture_plugin_states) {
             self.error = Some(error);
             self.after_save = None;
             return;
@@ -1516,7 +1516,7 @@ impl Ondera {
         self.spawn("Saving…", move || {
             let path = path.or_else(|| {
                 rfd::FileDialog::new()
-                    .add_filter("Ondera session", &["ondera"])
+                    .add_filter("ryolune session", &ryolune_engine::document::EXTENSIONS)
                     .set_file_name(&session.name)
                     .save_file()
             });
@@ -1524,7 +1524,7 @@ impl Ondera {
                 return Ok(JobResult::Cancelled);
             };
             if path.extension().is_none() {
-                path.set_extension("ondera");
+                path.set_extension(ryolune_engine::document::EXTENSION);
             }
             let ownership = SessionFileLock::acquire_or_reuse(&path, current.as_ref())?;
             let path = ownership.path().to_path_buf();
@@ -1714,7 +1714,7 @@ impl Ondera {
                 let current = self.session_file.clone();
                 self.spawn("Opening session…", move || {
                     let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Ondera session", &["ondera"])
+                        .add_filter("ryolune session", &ryolune_engine::document::EXTENSIONS)
                         .pick_file()
                     else {
                         return Ok(JobResult::Cancelled);
@@ -2043,7 +2043,7 @@ impl Ondera {
                         if dirty {
                             "Save your changes?"
                         } else {
-                            "Quit Ondera?"
+                            "Quit ryolune?"
                         },
                         FS_PANEL_TITLE,
                         Weight::Bold,
@@ -2092,7 +2092,7 @@ impl Ondera {
                         let (dot, _) =
                             ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                         accent_dot(ui.painter(), dot.center(), 3.5, true);
-                        ui.label(text("Ondera", FS_PANEL_TITLE, Weight::Bold, INK));
+                        ui.label(text("ryolune", FS_PANEL_TITLE, Weight::Bold, INK));
                     });
                     ui.add_space(6.0);
                     ui.add(
@@ -2108,7 +2108,7 @@ impl Ondera {
                 });
         }
         if self.show_help {
-            egui::Window::new("Working in Ondera")
+            egui::Window::new("Working in ryolune")
                 .open(&mut self.show_help)
                 .frame(window_frame())
                 .show(ctx, |ui| plate(ui, "help-plate", |ui| {
@@ -2125,7 +2125,7 @@ impl Ondera {
                         "Drag the tempo readout, click the signature or key to change them.",
                         "Cmd/Ctrl + K: musical typing (A–L play notes, Z / X change octave).",
                         "Audio > MIDI input picks a keyboard; arm an instrument track and record to capture notes.",
-                        "Effects tab: Ondera plugins plus scanned CLAP, VST3 and Audio Unit plugins.",
+                        "Effects tab: ryolune plugins plus scanned CLAP, VST3 and Audio Unit plugins.",
                         "Click an insert to open its parameters; Open plugin window shows the native editor.",
                         "Master and A / B buses have their own insert chains in the inspector.",
                         "Cmd/Ctrl + , opens Settings: audio devices, the agent provider, plugin folders and updates.",
@@ -2137,7 +2137,7 @@ impl Ondera {
         }
     }
 }
-impl eframe::App for Ondera {
+impl eframe::App for Ryolune {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let gesture = ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input();
         self.store.set_gesture(gesture);
@@ -2159,7 +2159,7 @@ impl eframe::App for Ondera {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{}{} — Ondera",
+            "{}{} — ryolune",
             self.store.session().name,
             if self.store.dirty() { " *" } else { "" }
         )));
@@ -2241,10 +2241,10 @@ mod tests {
 
     #[test]
     fn audio_prepared_for_a_replaced_session_is_not_kept() {
-        let mut app = Ondera::from_session(store::demo(), None);
+        let mut app = Ryolune::from_session(store::demo(), None);
         let current: Vec<String> = app.store.session().sources.keys().cloned().collect();
         let buffer = || {
-            Arc::new(ondera_engine::audio::AudioBuffer {
+            Arc::new(ryolune_engine::audio::AudioBuffer {
                 frames: vec![[0.0; 2]; 4],
                 sample_rate: 48000,
                 peaks: vec![],
@@ -2263,7 +2263,7 @@ mod tests {
 
     #[test]
     fn a_save_that_does_not_happen_forgets_what_was_to_follow() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.dispatch(Command::Rename("Edited".into()));
         app.after_save = Some(Intent::Quit);
         let (_busy, receiver) = mpsc::sync_channel(1);
@@ -2274,7 +2274,7 @@ mod tests {
 
         // Edits made while the save ran: ask again instead of quitting over them.
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("song.ondera");
+        let path = dir.path().join("song.ryolune");
         let lock = SessionFileLock::acquire_or_reuse(&path, None).unwrap();
         let saved_revision = app.store.revision;
         app.dispatch(Command::Rename("Edited again".into()));
@@ -2285,7 +2285,7 @@ mod tests {
         assert!(app.after_save.is_none());
     }
 
-    fn frame(app: &mut Ondera, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
+    fn frame(app: &mut Ryolune, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
             events,
@@ -2314,13 +2314,13 @@ mod tests {
             },
         ]
     }
-    fn setup() -> (Ondera, egui::Context) {
-        let app = Ondera::from_session(store::demo(), None);
+    fn setup() -> (Ryolune, egui::Context) {
+        let app = Ryolune::from_session(store::demo(), None);
         let ctx = egui::Context::default();
         install(&ctx);
         (app, ctx)
     }
-    fn notes(app: &Ondera) -> &Vec<Note> {
+    fn notes(app: &Ryolune) -> &Vec<Note> {
         let clip = app
             .store
             .session()
@@ -2336,7 +2336,7 @@ mod tests {
 
     #[test]
     fn the_status_line_follows_the_take_and_lets_go_of_it_afterwards() {
-        let status = Ondera::recording_status;
+        let status = Ryolune::recording_status;
         assert_eq!(status(true, false, true, false), Some("Count-in…"));
         assert_eq!(status(true, true, false, false), Some("Count-in…"));
         assert_eq!(status(false, true, true, false), Some("Recording…"));
@@ -2370,11 +2370,11 @@ mod tests {
 
     #[test]
     fn switching_sessions_waits_for_agent_cleanup_and_rejects_queued_edits() {
-        use ondera_engine::control::wire;
+        use ryolune_engine::control::wire;
         let (mut app, ctx) = setup();
         app.store.mark_unsaved();
         let before = serde_json::to_value(app.store.session()).unwrap();
-        let directory = std::env::temp_dir().join(id("ondera-agent-stop"));
+        let directory = std::env::temp_dir().join(id("ryolune-agent-stop"));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("control.json");
         let (wake_tx, wake_rx) = mpsc::channel();
@@ -2550,7 +2550,7 @@ mod tests {
     }
     #[test]
     fn quit_waits_for_final_take_then_offers_to_save_it() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.sync_needed = false;
         app.record_start = 8.0;
         let (tx, rx) = mpsc::sync_channel(1);
@@ -2582,7 +2582,7 @@ mod tests {
     }
     #[test]
     fn midi_take_becomes_a_region_on_each_armed_instrument_track() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.sync_needed = false;
         let track = app
             .store
@@ -2598,9 +2598,9 @@ mod tests {
         app.record_start = 4.0;
         app.position = 4.0;
         app.record_note(true, 60, 100, 4.5);
-        app.record_control(ondera_engine::plugin::Event::control(0, 1, 64), 4.75);
+        app.record_control(ryolune_engine::plugin::Event::control(0, 1, 64), 4.75);
         app.record_note(true, 64, 90, 5.0);
-        app.record_control(ondera_engine::plugin::Event::pitch_bend(0, -1.0), 5.5);
+        app.record_control(ryolune_engine::plugin::Event::pitch_bend(0, -1.0), 5.5);
         app.record_note(false, 60, 0, 6.0);
         app.position = 7.0;
         app.finish_recording();
@@ -2639,7 +2639,7 @@ mod tests {
     }
     #[test]
     fn musical_typing_taps_in_one_frame_are_recorded_and_undoable() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         let track = app
             .store
             .session()
@@ -2672,7 +2672,7 @@ mod tests {
 
     #[test]
     fn live_sustain_records_pedal_length_and_stop_finishes_held_notes() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.recording_midi_tracks = vec![app
             .store
             .session()
@@ -2712,7 +2712,7 @@ mod tests {
             vec![(60, 0.0, 3.0), (60, 2.0, 0.5), (67, 4.0, 2.0)]
         );
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("sustain.ondera");
+        let path = directory.path().join("sustain.ryolune");
         document::save(app.store.session(), &app.library, &path).unwrap();
         let (loaded, _) = document::load(&path).unwrap();
         let ClipData::Midi { notes, .. } = &loaded.clips[0].data else {
@@ -2724,7 +2724,7 @@ mod tests {
     }
     #[test]
     fn effects_can_target_the_master_strip_and_reconcile_loads_stock_plugins() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.dispatch(Command::Select {
             track: Some(MASTER.into()),
             clip: None,
@@ -2766,7 +2766,7 @@ mod tests {
         let Some(desc) = host::scan::lookup(id) else {
             return;
         };
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.catalog = host::scan::installed();
         let track = app.store.session().tracks[0].id.clone();
         app.add_effect_to(&track, id, &desc.name);
@@ -2800,7 +2800,7 @@ mod tests {
     }
     #[test]
     fn failed_take_cancels_deferred_quit_and_preserves_session() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.sync_needed = false;
         let before = serde_json::to_value(app.store.session()).unwrap();
         let (tx, rx) = mpsc::sync_channel(1);
@@ -2816,7 +2816,7 @@ mod tests {
 
     #[test]
     fn interrupted_take_imports_recovered_audio_warns_and_cancels_deferred_quit() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.sync_needed = false;
         let (tx, rx) = mpsc::sync_channel(1);
         app.record_finishing = Some(rx);
@@ -2858,7 +2858,7 @@ mod tests {
             .collect();
         session.strips.clear();
         session.view.selected_track_id = None;
-        let mut app = Ondera::from_session(session, None);
+        let mut app = Ryolune::from_session(session, None);
         app.sync_needed = false;
         let (tx, rx) = mpsc::sync_channel(1);
         app.record_finishing = Some(rx);
@@ -2888,7 +2888,7 @@ mod tests {
 
     #[test]
     fn typing_release_uses_original_owner_after_track_selection_changes() {
-        let mut app = Ondera::from_session(store::empty(), None);
+        let mut app = Ryolune::from_session(store::empty(), None);
         app.midi_route
             .store(midi::route_id("first"), Ordering::Relaxed);
         app.live_note(true, 60, 100);
@@ -2903,15 +2903,15 @@ mod tests {
     #[test]
     fn idle_control_keeps_a_drag_as_one_undo_step() {
         let (mut app, _ctx) = setup();
-        let dir = std::env::temp_dir().join(format!("ondera-gesture-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ryolune-gesture-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         app.control = Some(
-            ondera_engine::control::wire::Server::start_at(dir.join("control.json"), || {})
+            ryolune_engine::control::wire::Server::start_at(dir.join("control.json"), || {})
                 .unwrap(),
         );
-        let tempo = |app: &Ondera| app.store.session().transport.tempo;
+        let tempo = |app: &Ryolune| app.store.session().transport.tempo;
         let start = tempo(&app);
-        let set = |app: &mut Ondera, bpm: f64| {
+        let set = |app: &mut Ryolune, bpm: f64| {
             let mut t = app.store.session().transport.clone();
             t.tempo = bpm;
             app.dispatch(Command::SetTransport(t));

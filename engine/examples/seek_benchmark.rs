@@ -1,5 +1,5 @@
 //! Dense-session locate throughput; construction occurs outside the measurement.
-use ondera_engine::{
+use ryolune_engine::{
     audio::Library,
     model::{Clip, ClipData, Note},
     render::Renderer,

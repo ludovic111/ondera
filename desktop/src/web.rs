@@ -3,13 +3,13 @@
 //! through the audio callback. Only document revisions and small telemetry packets reach JS.
 
 use crate::{
-    app::{Intent, Ondera},
+    app::{Intent, Ryolune},
     control::{LiveWait, Reply},
 };
 use eframe::egui;
 #[cfg(test)]
-use ondera_engine::store::Command;
-use ondera_engine::{control, Result};
+use ryolune_engine::store::Command;
+use ryolune_engine::{control, Result};
 use serde_json::{json, Value};
 use std::{
     cell::RefCell,
@@ -30,7 +30,7 @@ async fn daw_pick(kind: String, name: Option<String>) -> Result<Option<String>> 
         let dialog = rfd::FileDialog::new().set_file_name(name.unwrap_or_default());
         let path = match kind.as_str() {
             "audio" => dialog
-                .add_filter("Audio", ondera_engine::audio::IMPORT_EXTENSIONS)
+                .add_filter("Audio", ryolune_engine::audio::IMPORT_EXTENSIONS)
                 .pick_file(),
             "midi" => dialog.add_filter("MIDI", &["mid", "midi"]).pick_file(),
             "wav" => dialog
@@ -130,7 +130,7 @@ fn daw_agent_help(provider: String) -> Result<()> {
 #[tauri::command]
 async fn daw_signin(provider: String, status: bool) -> Result<String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let settings = ondera_engine::settings::Settings::load();
+        let settings = ryolune_engine::settings::Settings::load();
         let (executable, args) = match provider.as_str() {
             "codex" => (
                 crate::agent::discover_codex(&settings.agent.codex_executable),
@@ -157,7 +157,7 @@ async fn daw_signin(provider: String, status: bool) -> Result<String> {
 }
 
 struct WebHost {
-    app: Ondera,
+    app: Ryolune,
     context: egui::Context,
     last_document: Option<(u64, Value)>,
     snapshot_sequence: std::cell::Cell<u64>,
@@ -178,7 +178,7 @@ async fn daw_command(handle: tauri::AppHandle, method: String, params: Value) ->
         .run_on_main_thread(move || {
             HOST.with_borrow_mut(|slot| {
                 let Some(host) = slot else {
-                    let _ = tx.send(Err("Ondera is starting".into()));
+                    let _ = tx.send(Err("ryolune is starting".into()));
                     return;
                 };
                 let result = host.command(&method, &params);
@@ -193,8 +193,9 @@ async fn daw_command(handle: tauri::AppHandle, method: String, params: Value) ->
         })
         .map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        rx.recv_timeout(Duration::from_secs(610))
-            .map_err(|_| "The operation did not finish; check Ondera before retrying".to_string())?
+        rx.recv_timeout(Duration::from_secs(610)).map_err(|_| {
+            "The operation did not finish; check ryolune before retrying".to_string()
+        })?
     })
     .await
     .map_err(|e| e.to_string())?
@@ -214,10 +215,10 @@ impl WebHost {
         self.snapshot_sequence
             .set(self.snapshot_sequence.get().saturating_add(1));
         let session = self.app.store.session();
-        let insert = |i: &ondera_engine::model::Insert| {
+        let insert = |i: &ryolune_engine::model::Insert| {
             json!({
                 "id":i.id,"name":i.name,"state":i.state,"plugin":i.plugin,"params":i.params,
-                "meta":if i.state == "empty" { "" } else { "Ondera" }
+                "meta":if i.state == "empty" { "" } else { "ryolune" }
             })
         };
         let strips: serde_json::Map<String,Value> = session.strips.iter().map(|(id,s)| {
@@ -378,7 +379,7 @@ impl WebHost {
         let (midi, rest): (Vec<_>, Vec<_>) = paths.into_iter().partition(is_midi);
         let audio: Vec<_> = rest
             .into_iter()
-            .filter(|p| ondera_engine::audio::is_importable(p))
+            .filter(|p| ryolune_engine::audio::is_importable(p))
             .collect();
         if midi.is_empty() && audio.is_empty() {
             return Err(
@@ -497,7 +498,7 @@ impl WebHost {
                     let _ = handle.emit("daw:ui", &ui);
                     if let Some(window) = handle.get_webview_window("main") {
                         let _ = window.set_title(&format!(
-                            "{}{} — Ondera",
+                            "{}{} — ryolune",
                             self.app.store.session().name,
                             if self.app.store.dirty() { " *" } else { "" }
                         ));
@@ -567,7 +568,7 @@ pub fn run(
         ])
         .setup(move |application| {
             let context = egui::Context::default();
-            let mut app = Ondera::new(&context, path, screenshot, control, updates);
+            let mut app = Ryolune::new(&context, path, screenshot, control, updates);
             app.agents.open |= agents;
             HOST.with_borrow_mut(|slot| {
                 *slot = Some(WebHost {
@@ -690,14 +691,14 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ondera_engine::{
+    use ryolune_engine::{
         model::{Clip, ClipData, Note},
         store,
     };
 
     fn host() -> WebHost {
         WebHost {
-            app: Ondera::from_session(store::empty(), None),
+            app: Ryolune::from_session(store::empty(), None),
             context: egui::Context::default(),
             last_document: None,
             snapshot_sequence: Default::default(),
@@ -827,7 +828,8 @@ mod tests {
             .get(&track)
             .cloned()
             .unwrap_or_default();
-        let mut insert = ondera_engine::model::Insert::new("effect".into(), "stock:Space", "Space");
+        let mut insert =
+            ryolune_engine::model::Insert::new("effect".into(), "stock:Space", "Space");
         insert.blob = "opaque-plugin-state".repeat(1024);
         strip.inserts.push(insert.clone());
         strip.synth = Some(insert);

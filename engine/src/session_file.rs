@@ -50,7 +50,7 @@ impl SessionFileLock {
         let name = path.file_name().ok_or("Session path needs a filename")?;
         let mut lock_name = std::ffi::OsString::from(".");
         lock_name.push(name);
-        lock_name.push(".ondera-lock");
+        lock_name.push(".ryolune-lock");
         let lock_path = path.with_file_name(lock_name);
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -62,7 +62,7 @@ impl SessionFileLock {
         let file = options
             .open(&lock_path)
             .map_err(|e| format!("Cannot lock session {}: {e}", path.display()))?;
-        file.try_lock_exclusive().map_err(|e| format!("Session {} is already in use by another Ondera window or file-mode client, or could not be locked ({e}). Close that owner or use --live for shared editing.", path.display()))?;
+        file.try_lock_exclusive().map_err(|e| format!("Session {} is already in use by another ryolune window or file-mode client, or could not be locked ({e}). Close that owner or use --live for shared editing.", path.display()))?;
         Ok(Self {
             lease: Arc::new(Lease { file, path }),
         })

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { commands, type Monitor, type Track } from "@ondera/core";
+import { commands, type Monitor, type Track } from "@ryolune/core";
 import { useDispatch, useStore } from "../../state/session";
 import { Button } from "./Button";
 import { MonitorSmallIcon } from "./Icons";

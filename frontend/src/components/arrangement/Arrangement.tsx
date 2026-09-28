@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   type MouseEvent,
 } from "react";
-import { beatsToBars, commands, snapBars } from "@ondera/core";
+import { beatsToBars, commands, snapBars } from "@ryolune/core";
 import { importAudioFiles } from "../../state/document";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { useCanvasSurface } from "../../canvas/surface";

@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from "react";
-import { commands, formatDb } from "@ondera/core";
+import { commands, formatDb } from "@ryolune/core";
 import { useDispatch, useSession } from "../../state/session";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
 import { SNAP_DIVISIONS } from "../../state/actions";

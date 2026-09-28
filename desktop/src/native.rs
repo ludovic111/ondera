@@ -2,7 +2,7 @@
 //! create an `NSWindow`; other platforms report that native editors are not
 //! wired yet and fall back to the generic parameter panel.
 
-use ondera_engine::plugin::ParentWindow;
+use ryolune_engine::plugin::ParentWindow;
 
 #[cfg(target_os = "macos")]
 mod imp {

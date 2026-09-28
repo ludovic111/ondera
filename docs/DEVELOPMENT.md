@@ -1,4 +1,4 @@
-# Developing Ondera
+# Developing ryolune
 
 How the code is laid out, how to build and check it, and how a release is published. The rules
 contributors (human or AI) follow are in [`CLAUDE.md`](../CLAUDE.md) at the repository root.
@@ -11,13 +11,13 @@ frontend/  React + TypeScript interface: controls, CSS materials, canvas arrange
     │      Tauri commands, document snapshots, transport and meter events
 desktop/   Tauri 2 window: owns the document and audio, settings, the agent runtime
     │      (desktop/src/agent), native plugin windows, live-only commands, updates
-tools/     ondera-cli and ondera-mcp: thin clients of the command registry, live or on a file
+tools/     ryolune-cli and ryolune-mcp: thin clients of the command registry, live or on a file
 engine/    command registry (control*.rs), session model and validation, undo/redo, documents,
     │      DSP and stock plugins, plugin hosts (native ABI, CLAP, VST3, Audio Units), scanning,
     │      settings, presets, MIDI, devices, rendering and export
     └──    CPAL output callback → renderer + plugin rack → system audio
            CPAL input callback → meter, monitor ring and takes → workers
-sdk/       ondera-plugin: the Plugin trait, DSP primitives and the frozen C ABI
+sdk/       ryolune-plugin: the Plugin trait, DSP primitives and the frozen C ABI
 plugins/   example native plugin bundle (plugins/gain) and the ABI 1 fixture
 site/      the marketing site (plain HTML/CSS/JS behind a small Node server)
 legacy/    the previous Electron/TypeScript source, reference only, never built
@@ -25,7 +25,7 @@ legacy/    the previous Electron/TypeScript source, reference only, never built
 
 **The command registry is the contract.** Every user-facing action is a command in
 `engine/src/control.rs` and its `control_*.rs` families (window-only ones are served by
-`desktop/src/control.rs`). The window, `ondera-cli`, `ondera-mcp` and the built-in agent all
+`desktop/src/control.rs`). The window, `ryolune-cli`, `ryolune-mcp` and the built-in agent all
 call it; the CLI help, the MCP tool list, the agent's tools and [COMMANDS.md](COMMANDS.md) are
 generated from it. A new action lands as a command first, then the interface calls it.
 
@@ -74,8 +74,8 @@ Use release builds for real-time audio. Platform prerequisites:
 
   File dialogs use the desktop portal (`xdg-desktop-portal` and a backend).
 
-The executables are `target/release/ondera`, `ondera-cli` and `ondera-mcp`; keep them together.
-`bash scripts/package-macos.sh` builds `dist/Ondera.app` and a zip: ad-hoc signed, or signed with
+The executables are `target/release/ryolune`, `ryolune-cli` and `ryolune-mcp`; keep them together.
+`bash scripts/package-macos.sh` builds `dist/ryolune.app` and a zip: ad-hoc signed, or signed with
 a Developer ID and notarized when `APPLE_SIGNING_IDENTITY` (and `APPLE_API_KEY_PATH`,
 `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) are set, as in the release workflow below.
 
@@ -92,13 +92,13 @@ cargo test --workspace --locked
 ```
 
 Point the Rust tests at scratch settings so they never touch your own:
-`ONDERA_SETTINGS=/tmp/ondera-test/settings.json ONDERA_DATA_DIR=/tmp/ondera-test/data`.
+`RYOLUNE_SETTINGS=/tmp/ryolune-test/settings.json RYOLUNE_DATA_DIR=/tmp/ryolune-test/data`.
 
 Generated documentation is checked by tests. After changing a command or a shortcut:
 
 ```sh
-ONDERA_BLESS=1 cargo test -p ondera-tools --test command_docs     # docs/COMMANDS.md
-ONDERA_BLESS=1 npm --prefix frontend test -- shortcutsDoc          # docs/SHORTCUTS.md
+RYOLUNE_BLESS=1 cargo test -p ryolune-tools --test command_docs     # docs/COMMANDS.md
+RYOLUNE_BLESS=1 npm --prefix frontend test -- shortcutsDoc          # docs/SHORTCUTS.md
 ```
 
 After changing a theme, `node scripts/gen-site-tokens.mjs` refreshes the site's tokens (the site
@@ -111,21 +111,21 @@ fixture song through `src/dev/mockHost.ts` (`?theme=<id>&mode=dark|light&panel=m
 For the real window, run the app with a scratch data folder and drive it with the CLI:
 
 ```sh
-export ONDERA_DATA_DIR=/tmp/ondera-check ONDERA_CONTROL=/tmp/ondera-check/control.json
-ONDERA_NO_UPDATE=1 target/debug/ondera &
-target/debug/ondera-cli app.info                       # repeat until it answers
-target/debug/ondera-cli session.overview
-target/debug/ondera-cli ui.screenshot --path /tmp/ondera-check/window.png
-target/debug/ondera-cli app.quit --discard true
+export RYOLUNE_DATA_DIR=/tmp/ryolune-check RYOLUNE_CONTROL=/tmp/ryolune-check/control.json
+RYOLUNE_NO_UPDATE=1 target/debug/ryolune &
+target/debug/ryolune-cli app.info                       # repeat until it answers
+target/debug/ryolune-cli session.overview
+target/debug/ryolune-cli ui.screenshot --path /tmp/ryolune-check/window.png
+target/debug/ryolune-cli app.quit --discard true
 ```
 
 The app binary also validates and renders without a window:
 
 ```sh
-cargo run --release -- --validate song.ondera
-cargo run --release -- --bounce song.ondera mix.wav
+cargo run --release -- --validate song.ryolune
+cargo run --release -- --bounce song.ryolune mix.wav
 cargo run --release -- --scan-plugins
-cargo run --release -p ondera-engine --example probe -- "clap:com.example.plugin"
+cargo run --release -p ryolune-engine --example probe -- "clap:com.example.plugin"
 ```
 
 ## Releases
@@ -135,17 +135,17 @@ cargo run --release -p ondera-engine --example probe -- "clap:com.example.plugin
 3. Merge to `main`, then push a matching tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The `Release` workflow builds macOS (arm64 and x86_64), Linux and Windows, writes and signs
-`SHA256SUMS` (Ed25519, repository secret `ONDERA_SIGNING_KEY`, public key in
+`SHA256SUMS` (Ed25519, repository secret `RYOLUNE_SIGNING_KEY`, public key in
 `desktop/assets/update-signing.pub`) and publishes the GitHub release. Installed apps verify the
 signature, the download host and the new binaries' versions before replacing themselves. A new
-key pair comes from `ondera --release-keygen <file>`. Windows binaries are unsigned.
+key pair comes from `ryolune --release-keygen <file>`. Windows binaries are unsigned.
 
 ### Signing and notarizing for macOS
 
 Without Apple secrets the macOS app is ad-hoc signed and Gatekeeper blocks its first launch. With
 all six repository secrets set, `scripts/prepare-apple-signing.sh` imports the certificate into a
 throwaway keychain and `scripts/package-macos.sh` signs every executable with the hardened runtime
-and `desktop/Ondera.entitlements` (microphone; library validation, JIT and writable code for
+and `desktop/ryolune.entitlements` (microphone; library validation, JIT and writable code for
 third-party plugins), notarizes with `notarytool`, staples the ticket and checks it with `spctl`.
 Setting only some of the secrets stops the release.
 
@@ -162,8 +162,8 @@ To check a signature locally with a Developer ID in your keychain:
 `APPLE_SIGNING_IDENTITY="Developer ID Application: …" bash scripts/package-macos.sh` (add the three
 `APPLE_API_*` variables, with a path to the `.p8`, to notarize too). The updater's own checks
 (`codesign --verify --deep --strict`, Ed25519 checksums) accept both kinds of build. The
-repository has had all six secrets since 0.10.1 (team `YYJU63HSD4`, API key "Ondera
-notarization"); the owner keeps the `.p8` in `~/.ondera/keys`.
+repository has had all six secrets since 0.11.0 (team `YYJU63HSD4`, App Store Connect API key
+`X89FN53K29`); the owner keeps the `.p8` in `~/.ryolune/keys`.
 
 ## Website
 

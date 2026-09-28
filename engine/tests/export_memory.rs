@@ -1,7 +1,7 @@
 //! A long FLAC export streams: the heap never holds the song. Alone in this binary because
 //! it measures the whole process. The twenty-minute run takes minutes in a debug build, so it
-//! is ignored by default: `cargo test -p ondera-engine --test export_memory -- --ignored`.
-use ondera_engine::{audio, export, model::*, store};
+//! is ignored by default: `cargo test -p ryolune-engine --test export_memory -- --ignored`.
+use ryolune_engine::{audio, export, model::*, store};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     sync::{

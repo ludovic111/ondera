@@ -1,4 +1,4 @@
-//! Signal primitives shared by Ondera's stock plugins and available to every native plugin:
+//! Signal primitives shared by ryolune's stock plugins and available to every native plugin:
 //! oscillators, a delay line, RBJ biquads, a state variable filter and smoothing helpers.
 
 use std::f64::consts::TAU;

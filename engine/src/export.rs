@@ -56,7 +56,7 @@ impl Container {
             _ => Self::Wav,
         }
     }
-    /// The container for a mix written to `path`, refusing an extension Ondera does not write
+    /// The container for a mix written to `path`, refusing an extension ryolune does not write
     /// (a `.mp3` must not quietly hold WAV). No extension means WAV.
     pub fn for_path(path: &Path) -> Result<Self> {
         match path.extension().and_then(|e| e.to_str()) {
@@ -66,7 +66,7 @@ impl Container {
             }
             Some(ext) => match Self::of(path) {
                 Self::Wav => Err(format!(
-                    "Ondera exports .wav, .aiff, .flac or .ogg files, not .{ext}"
+                    "ryolune exports .wav, .aiff, .flac or .ogg files, not .{ext}"
                 )),
                 container => Ok(container),
             },
@@ -575,7 +575,7 @@ pub fn stems(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let staging = tempfile::Builder::new()
-        .prefix(".ondera-stems-")
+        .prefix(".ryolune-stems-")
         .tempdir_in(parent)
         .map_err(|e| e.to_string())?;
     let tracks = select_tracks(session, track_ids)?;
@@ -789,7 +789,7 @@ fn publish_directory(source: &Path, destination: &Path) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn a_mix_path_names_a_container_ondera_writes() {
+    fn a_mix_path_names_a_container_ryolune_writes() {
         let of = |p: &str| Container::for_path(Path::new(p));
         assert_eq!(of("song").unwrap(), Container::Wav);
         assert_eq!(of("song.WAV").unwrap(), Container::Wav);

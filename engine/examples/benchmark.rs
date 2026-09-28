@@ -1,5 +1,5 @@
 //! Offline render throughput: 30 seconds of the demo at 48 kHz in 128-frame blocks.
-use ondera_engine::{audio, render, store};
+use ryolune_engine::{audio, render, store};
 use std::time::Instant;
 
 fn main() {

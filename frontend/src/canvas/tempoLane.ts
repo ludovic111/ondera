@@ -4,7 +4,7 @@ import {
   TEMPO_MIN,
   type Session,
   type TempoPoint,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { canvasShadow, color, line, size } from "../theme/tokens";
 import { withAlpha } from "../theme/color";
 import { cc, hline, monoFont, withShadows } from "./paint";

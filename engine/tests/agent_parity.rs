@@ -1,7 +1,7 @@
 //! GUI parity for agents: whatever the window does goes through a registry command, so the
 //! CLI, MCP and the built-in agent can do it too. These tests read the frontend's sources and
 //! the parity table in docs/ and fail when they drift from the registry.
-use ondera_engine::control::COMMANDS;
+use ryolune_engine::control::COMMANDS;
 use serde_json::Value;
 use std::{
     collections::BTreeSet,

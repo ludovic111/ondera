@@ -6,7 +6,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { commands, snapBeats, type EditorMode } from "@ondera/core";
+import { commands, snapBeats, type EditorMode } from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { newId } from "../../state/ids";
 import { useCanvasSurface } from "../../canvas/surface";

@@ -13,7 +13,7 @@ import {
   snapStepBars,
   type Clip,
   type Session,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useSession, useStore } from "../../state/session";
 import { newId } from "../../state/ids";
 import {

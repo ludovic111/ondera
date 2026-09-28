@@ -44,18 +44,18 @@ pub const SPECS: &[Spec] = &[
         req("pluginId", Kind::String, "Plugin id from plugin.list."),
         opt("folder", Kind::String, "Folder name, 1-40 characters."),
     ]),
-    edit("plugin.scaffold", "Start a new Ondera native plugin in Rust: writes a crate with a working effect or instrument, a test that runs it through the real plugin ABI, and build notes. Build it with cargo, then plugin.install.", &[
+    edit("plugin.scaffold", "Start a new ryolune native plugin in Rust: writes a crate with a working effect or instrument, a test that runs it through the real plugin ABI, and build notes. Build it with cargo, then plugin.install.", &[
         req("path", Kind::String, "Directory to create. It must not exist yet."),
         req("name", Kind::String, "Plugin display name, for example Warm Drive."),
         opt("kind", Kind::String, "effect (default) or instrument."),
         opt("vendor", Kind::String, "Your name or label, default My Studio."),
     ]),
-    edit("plugin.install", "Copy a built native plugin library (.dylib, .so, .dll or .onplug) into Ondera's plugin folder. Run plugin.scan afterwards to load it.", &[
+    edit("plugin.install", "Copy a built native plugin library (.dylib, .so, .dll or .onplug) into ryolune's plugin folder. Run plugin.scan afterwards to load it.", &[
         req("path", Kind::String, "The built library, for example target/release/libwarm_drive.dylib."),
     ]),
 ];
 
-const SDK_GIT: &str = "https://github.com/ludovic111/ondera";
+const SDK_GIT: &str = "https://github.com/ludovic111/ryolune";
 
 fn slug(name: &str) -> String {
     let mut out = String::new();
@@ -106,7 +106,7 @@ fn scaffold(path: &std::path::Path, name: &str, instrument: bool, vendor: &str) 
         crate_name.replace('-', "")
     );
     let cargo = format!(
-        "[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nondera-plugin = {{ git = \"{SDK_GIT}\", package = \"ondera-plugin\" }}\n"
+        "[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nryolune-plugin = {{ git = \"{SDK_GIT}\", package = \"ryolune-plugin\" }}\n"
     );
     let body = if instrument {
         INSTRUMENT_TEMPLATE
@@ -119,7 +119,7 @@ fn scaffold(path: &std::path::Path, name: &str, instrument: bool, vendor: &str) 
     .replace("__VENDOR__", vendor);
     let lib_name = crate_name.replace('-', "_");
     let readme = format!(
-        "# {name}\n\nAn Ondera native plugin.\n\n    cargo test              # runs the plugin through the real plugin ABI\n    cargo build --release\n    ondera-cli plugin.install path=target/release/lib{lib_name}.dylib   # .so on Linux, {lib_name}.dll on Windows\n    ondera-cli plugin.scan\n\n`process` runs on the audio thread: no allocation, locks, files or logging there.\nParameters are stored in the session by Ondera, so they undo, save and automate for free.\nGuide: {SDK_GIT}/blob/main/docs/NATIVE_PLUGINS.md\n"
+        "# {name}\n\nAn ryolune native plugin.\n\n    cargo test              # runs the plugin through the real plugin ABI\n    cargo build --release\n    ryolune-cli plugin.install path=target/release/lib{lib_name}.dylib   # .so on Linux, {lib_name}.dll on Windows\n    ryolune-cli plugin.scan\n\n`process` runs on the audio thread: no allocation, locks, files or logging there.\nParameters are stored in the session by ryolune, so they undo, save and automate for free.\nGuide: {SDK_GIT}/blob/main/docs/NATIVE_PLUGINS.md\n"
     );
     std::fs::create_dir_all(path.join("src")).map_err(|e| e.to_string())?;
     for (file, text) in [
@@ -136,7 +136,7 @@ fn scaffold(path: &std::path::Path, name: &str, instrument: bool, vendor: &str) 
     )
 }
 
-const EFFECT_TEMPLATE: &str = r#"use ondera_plugin::{export_plugins, prelude::*};
+const EFFECT_TEMPLATE: &str = r#"use ryolune_plugin::{export_plugins, prelude::*};
 
 /// A drive stage with a wet/dry blend. Replace the maths in `process` with your own.
 pub struct __TYPE__ {
@@ -184,7 +184,7 @@ export_plugins!(__TYPE__);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ondera_plugin::testing::Bench;
+    use ryolune_plugin::testing::Bench;
 
     #[test]
     fn drives_without_blowing_up_and_bypasses_at_zero_mix() {
@@ -210,7 +210,7 @@ mod tests {
 }
 "#;
 
-const INSTRUMENT_TEMPLATE: &str = r#"use ondera_plugin::{export_plugins, prelude::*};
+const INSTRUMENT_TEMPLATE: &str = r#"use ryolune_plugin::{export_plugins, prelude::*};
 use std::f64::consts::TAU;
 
 const VOICES: usize = 16;
@@ -343,7 +343,7 @@ export_plugins!(__TYPE__);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ondera_plugin::testing::Bench;
+    use ryolune_plugin::testing::Bench;
 
     #[test]
     fn a_note_sounds_and_then_fades_to_silence() {
@@ -380,20 +380,20 @@ fn has(text: &str, words: &[&str]) -> bool {
 /// happens to contain must not beat the product the name says it is, or the VST3 and the
 /// Audio Unit of one plugin land in different folders.
 pub fn automatic_folder(d: &Descriptor) -> &'static str {
-    // Ondera's own plugins, and native ones written for it, name their folder outright. A
+    // ryolune's own plugins, and native ones written for it, name their folder outright. A
     // VST3 or CLAP category that happens to read "Dynamics" is only a hint, like any other.
     let own: &[&str] = if d.instrument && !d.effect {
         INSTRUMENT_FOLDERS
     } else {
         EFFECT_FOLDERS
     };
-    let ondera = matches!(
+    let ryolune = matches!(
         d.format,
         crate::plugin::Format::Stock | crate::plugin::Format::Native
     );
     if let Some(named) = own
         .iter()
-        .find(|f| ondera && f.eq_ignore_ascii_case(d.category.trim()) && !f.starts_with("Other"))
+        .find(|f| ryolune && f.eq_ignore_ascii_case(d.category.trim()) && !f.starts_with("Other"))
     {
         return named;
     }
@@ -988,7 +988,7 @@ fn layout_rank(layout: Option<&str>) -> u8 {
         Some(_) => 3,
     }
 }
-/// One row per plugin: its formats and channel layouts fold into the one Ondera loads (CLAP,
+/// One row per plugin: its formats and channel layouts fold into the one ryolune loads (CLAP,
 /// then VST3, then AU, in the layout a stereo track wants), and the others stay reachable under
 /// `formats` and `layouts`. Order follows the first of each group.
 /// What every format and layout of one plugin have in common, and nothing else shares.
@@ -1005,7 +1005,7 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFold
     let mut rows: Vec<Vec<Descriptor>> = vec![];
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for plugin in plugins {
-        // Stock and native plugins are Ondera's own: never folded with anything else.
+        // Stock and native plugins are ryolune's own: never folded with anything else.
         let key = match plugin.format.prefix() {
             "stock" | "native" => plugin.id.clone(),
             _ => row_key(&plugin),
@@ -1592,7 +1592,7 @@ mod tests {
             ("Vocal Rider (m)", "Fx|Channel Strip", "Dynamics"),
             ("Waves Tune", "Fx|Pitch Shift", "Pitch"),
             ("Obscure Thing", "Fx|Reverb", "Space & Time"),
-            // Only Ondera's own plugins name their folder by category.
+            // Only ryolune's own plugins name their folder by category.
             ("Ozone 11 Dynamics", "Dynamics", "Mastering"),
             ("NLS Channel (s)", "Distortion", "Channel Strips"),
         ] {

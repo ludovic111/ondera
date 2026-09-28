@@ -39,11 +39,11 @@ it("paints current canvases for agent capture even when animation frames are sus
     </SessionProvider>,
   );
   expect(draw).not.toHaveBeenCalled();
-  window.dispatchEvent(new Event("ondera:before-capture"));
+  window.dispatchEvent(new Event("ryolune:before-capture"));
   expect(draw).toHaveBeenCalledWith(context, 300, 200);
   expect(cancel).toHaveBeenCalledWith(1);
   view.unmount();
   draw.mockClear();
-  window.dispatchEvent(new Event("ondera:before-capture"));
+  window.dispatchEvent(new Event("ryolune:before-capture"));
   expect(draw).not.toHaveBeenCalled();
 });

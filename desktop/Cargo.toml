@@ -1,10 +1,10 @@
 [package]
-name = "ondera"
+name = "ryolune"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-default-run = "ondera"
+default-run = "ryolune"
 
 [features]
 default = ["custom-protocol"]
@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde.workspace = true
 tokio = { version = "1", features = ["sync"] }
-ondera-engine = { path = "../engine" }
+ryolune-engine = { path = "../engine" }
 serde_json.workspace = true
 eframe = { version = "0.32.3", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11", "accesskit"] }
 wgpu = { version = "25", default-features = false, features = ["metal", "dx12", "vulkan", "gles", "wgsl"] }
@@ -30,16 +30,16 @@ sha2 = "0.10"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 base64 = "0.22"
-ondera-plugin = { path = "../sdk" }
+ryolune-plugin = { path = "../sdk" }
 tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [[bin]]
-name = "ondera"
+name = "ryolune"
 path = "src/main.rs"
 
 [dev-dependencies]
-ondera-tools = { path = "../tools" }
+ryolune-tools = { path = "../tools" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

@@ -317,7 +317,7 @@ pub fn import_bytes(
         warnings.push("Later time-signature changes are not imported.".into());
     }
     if ignored > 0 {
-        warnings.push(format!("{ignored} program change, channel mode, polyphonic pressure or SysEx events were not imported. Choose instruments in Ondera."));
+        warnings.push(format!("{ignored} program change, channel mode, polyphonic pressure or SysEx events were not imported. Choose instruments in ryolune."));
     }
     if unmatched > 0 {
         warnings.push(format!("{unmatched} unmatched note events were repaired or ignored; open notes end at their source track's end."));
@@ -325,7 +325,7 @@ pub fn import_bytes(
     let mut transport = session.transport.clone();
     if options.import_tempo {
         if !(20.0..=400.0).contains(&tempo) {
-            return Err("The file's initial tempo is outside Ondera's 20–400 BPM range; import with importTempo=false to retain session tempo".into());
+            return Err("The file's initial tempo is outside ryolune's 20–400 BPM range; import with importTempo=false to retain session tempo".into());
         }
         transport.tempo = tempo;
         transport.time_signature = TimeSignature {

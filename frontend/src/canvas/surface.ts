@@ -55,7 +55,7 @@ export function useCanvasSurface(
       if (raf) cancelAnimationFrame(raf);
       render();
     };
-    window.addEventListener("ondera:before-capture", capture);
+    window.addEventListener("ryolune:before-capture", capture);
     scheduleRef.current = schedule;
 
     const ro = new ResizeObserver(schedule);
@@ -69,7 +69,7 @@ export function useCanvasSurface(
       ro.disconnect();
       off();
       offLibrary();
-      window.removeEventListener("ondera:before-capture", capture);
+      window.removeEventListener("ryolune:before-capture", capture);
       if (raf) cancelAnimationFrame(raf);
       scheduleRef.current = () => {};
     };

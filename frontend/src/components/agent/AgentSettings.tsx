@@ -28,7 +28,7 @@ const permissionLabels: Record<string, [string, string]> = {
     "Change settings",
     "Allow changes to preferences and audio devices.",
   ],
-  appControl: ["Quit and update Ondera", "Allow application control."],
+  appControl: ["Quit and update ryolune", "Allow application control."],
 };
 
 export function AgentSettings({

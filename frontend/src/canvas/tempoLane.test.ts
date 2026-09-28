@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Session } from "@ondera/core";
+import type { Session } from "@ryolune/core";
 import {
   bpmAtY,
   bpmLabel,

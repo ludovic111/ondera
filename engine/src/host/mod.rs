@@ -1,4 +1,4 @@
-//! Plugin hosting: scanning, instantiation and the per-format hosts. Ondera native plugins
+//! Plugin hosting: scanning, instantiation and the per-format hosts. ryolune native plugins
 //! (and the stock library, which is linked in) go through `native`; CLAP, VST3 and Audio
 //! Units through their own hosts.
 
@@ -29,7 +29,7 @@ pub fn encode_blob(bytes: &[u8]) -> String {
 pub fn instantiate(plugin_id: &str, name: &str, rate: u32) -> Result<Instance> {
     match Format::parse(plugin_id) {
         Some((Format::Stock, stock_name)) => stock::create(stock_name, rate)
-            .ok_or_else(|| format!("Unknown Ondera plugin: {stock_name}")),
+            .ok_or_else(|| format!("Unknown ryolune plugin: {stock_name}")),
         Some((Format::Native, _)) => native::instantiate(plugin_id, rate),
         Some((Format::Clap, _)) => clap::instantiate(plugin_id, name, rate),
         Some((Format::Vst3, _)) => vst3::instantiate(plugin_id, name, rate),

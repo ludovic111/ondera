@@ -1,7 +1,7 @@
-# Ondera user guide
+# ryolune user guide
 
-This guide covers everything you can do in the Ondera window, from a first beat to an exported
-mix. Every action here also exists as a command, so the built-in agent, `ondera-cli` and MCP
+This guide covers everything you can do in the ryolune window, from a first beat to an exported
+mix. Every action here also exists as a command, so the built-in agent, `ryolune-cli` and MCP
 clients can do the same things: see [AI_CONTROL.md](AI_CONTROL.md) and the generated
 [command reference](COMMANDS.md). Keyboard shortcuts are listed in [SHORTCUTS.md](SHORTCUTS.md)
 and in the app under Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux.
@@ -83,18 +83,18 @@ The command palette (`⌘P` or View > Command Palette) finds any action by name.
 
 ## Instruments, loops and the browser
 
-- **Instruments** tab: the stock instruments (Ondera Synth, E-Piano Mk I, Drum Machine, Sampler,
+- **Instruments** tab: the stock instruments (ryolune Synth, E-Piano Mk I, Drum Machine, Sampler,
   Sub Bass 808, Glass Keys, Choir Pad, Riser, Tonewheel Organ, String Ensemble, Analog Bass) and
   every installed instrument plugin, filed in colour-coded sound folders. Double-click to put it
   on the selected instrument track (or a new one), or drag it onto a track.
 - **Loops** tab: ready-made MIDI phrases, each with the instrument it was written for.
-- **Plugins** tab: every effect and instrument (stock, Ondera native, CLAP, VST3 and Audio Units),
+- **Plugins** tab: every effect and instrument (stock, ryolune native, CLAP, VST3 and Audio Units),
   by sound folder, with Favourites and Recent at the top. Click the star to favourite a plugin;
   right-click to move it to another folder, including folders you create.
 - **Files** tab: audio and MIDI files to import.
 - **Preview** (bottom of the browser) plays a sound before you choose it.
 - Search matches names, vendors and what a plugin is for ("reverb", "compressor"). One row
-  stands for all of a plugin's formats and channel layouts: Ondera loads CLAP, then VST3, then
+  stands for all of a plugin's formats and channel layouts: ryolune loads CLAP, then VST3, then
   AU, in the layout a stereo track needs.
 
 ## Regions in the arrangement
@@ -160,7 +160,7 @@ A song starts at the tempo in the transport display and can change it anywhere a
 3. Press Record (`R`), then Play, or just Record: a count-in (Settings > Audio > Count In Bars,
    one bar by default) clicks before the take while the song stays parked. The status line shows
    "Count-in…".
-4. Stop to keep the take. Audio takes are also kept as separate WAV files in Ondera's data folder.
+4. Stop to keep the take. Audio takes are also kept as separate WAV files in ryolune's data folder.
 
 **Monitoring** lets you hear the input through the track's inserts, sends and fader. The button
 beside Arm cycles Off, Auto (while armed and while recording, until the track plays its own
@@ -206,7 +206,7 @@ click its automation button to open that parameter's lane.
 
 ## Plugins
 
-- **Formats**: stock plugins (built in), Ondera native plugins written in Rust with the SDK
+- **Formats**: stock plugins (built in), ryolune native plugins written in Rust with the SDK
   ([NATIVE_PLUGINS.md](NATIVE_PLUGINS.md)), CLAP, VST3 and, on macOS, Audio Units. VST2 and AAX
   are not supported.
 - **Scanning** runs in a separate process, so a crashing plugin cannot take the app down. Mix >
@@ -218,7 +218,7 @@ click its automation button to open that parameter's lane.
 
 ## Files: save, import, export, recover
 
-- **Save** (`⌘S`) and **Save as** (`⇧⌘S`) write a `.ondera` file with the audio embedded. Saving
+- **Save** (`⌘S`) and **Save as** (`⇧⌘S`) write a `.ryolune` file with the audio embedded. Saving
   never leaves a half-written file: the old one is kept if anything fails.
 - **Open** (`⌘O`) and **Open demo** (File menu) load a song. One song has one editing owner at a
   time, across windows and scripts.
@@ -253,7 +253,7 @@ track silent?".
   replace the session, change settings or control the application. They also apply to MCP
   clients.
 
-Scripts and external AI tools control Ondera through the same commands: see
+Scripts and external AI tools control ryolune through the same commands: see
 [AI_CONTROL.md](AI_CONTROL.md).
 
 ## Themes and appearance
@@ -282,13 +282,13 @@ Settings (`⌘,`) is organised in sections:
   on armed tracks, MIDI input and connecting it at start.
 - **Plugins**: extra CLAP, VST3 and native folders, scan at start.
 - **Agent**: provider, model, reasoning effort, keys, custom instructions, limits and permissions.
-- **Control**: the local bridge that `ondera-cli` and `ondera-mcp` use to reach the window.
+- **Control**: the local bridge that `ryolune-cli` and `ryolune-mcp` use to reach the window.
 - **Updates**: check at start, install automatically.
 
-Settings live in `settings.json` in Ondera's data folder, readable only by you; keys are never
+Settings live in `settings.json` in ryolune's data folder, readable only by you; keys are never
 shown in full once saved.
 
-Ondera is free. Help > Support Ondera… (also in Settings > About) opens the page where you can pay
+ryolune is free. Help > Support ryolune… (also in Settings > About) opens the page where you can pay
 what you want for it, once; nothing is locked either way. The window asks one time, after your
 third export, and never again. It counts exports in `settings.json` only; nothing is sent.
 
@@ -300,4 +300,4 @@ third export, and never again. It counts exports in `settings.json` only; nothin
 - External plugin windows open on macOS; on Windows and Linux external plugins show their
   parameter list.
 - Windows builds are not code-signed, so SmartScreen may ask before the first launch. macOS
-  builds are notarized from 0.10.1.
+  builds are notarized from 0.11.0.

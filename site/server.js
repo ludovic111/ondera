@@ -1,4 +1,4 @@
-// Dependency-free static server for the Ondera site. Railway runs `npm start`.
+// Dependency-free static server for the ryolune site. Railway runs `npm start`.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -28,20 +28,20 @@ const TYPES = {
 };
 
 // Keep in step with `update::asset_name` in desktop/src/update.rs and the release workflow.
-const RELEASES = 'https://github.com/ludovic111/ondera/releases/latest';
+const RELEASES = 'https://github.com/ludovic111/ryolune/releases/latest';
 const ASSETS = {
-  'macos-arm64': 'Ondera-macos-arm64.zip',
-  'macos-x86_64': 'Ondera-macos-x86_64.zip',
-  'windows-x86_64': 'Ondera-windows-x86_64.zip',
-  'linux-x86_64': 'Ondera-linux-x86_64.zip',
+  'macos-arm64': 'ryolune-macos-arm64.zip',
+  'macos-x86_64': 'ryolune-macos-x86_64.zip',
+  'windows-x86_64': 'ryolune-windows-x86_64.zip',
+  'linux-x86_64': 'ryolune-linux-x86_64.zip',
 };
 
 /**
  * Where `/support` sends people: the pay-what-you-want checkout, set on the host as
- * `ONDERA_CHECKOUT_URL` so it can change without a release (the app links to `/support`).
+ * `RYOLUNE_CHECKOUT_URL` so it can change without a release (the app links to `/support`).
  * Until it is set, or if it is not https, the page's own support section answers.
  */
-export function supportTarget(checkout = process.env.ONDERA_CHECKOUT_URL) {
+export function supportTarget(checkout = process.env.RYOLUNE_CHECKOUT_URL) {
   try {
     const url = new URL(String(checkout ?? ''));
     if (url.protocol === 'https:') return url.href;
@@ -71,9 +71,9 @@ const SECURITY = {
 // Files that live beside the site but are not part of it.
 const PRIVATE = new Set(['server.js', 'package.json', 'package-lock.json', 'README.md']);
 
-const NOT_FOUND = `<!doctype html><meta charset="utf-8"><title>Ondera — not found</title>
+const NOT_FOUND = `<!doctype html><meta charset="utf-8"><title>ryolune — not found</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#141413;color:#a9a8a4;font:14px/1.5 Manrope,system-ui,sans-serif}a{color:#e8e7e4}</style>
-<p>Nothing at this address. <a href="/">Back to Ondera</a></p>`;
+<p>Nothing at this address. <a href="/">Back to ryolune</a></p>`;
 
 function send(res, status, body, type, cache, req) {
   // A strong validator from the content, so a revisit costs a 304 instead of the file.
@@ -247,5 +247,5 @@ createServer(async (req, res) => {
     send(res, 404, NOT_FOUND, TYPES['.html'], 'no-store');
   }
 }).listen(PORT, HOST, () => {
-  console.log(`ondera site listening on http://${HOST}:${PORT}`);
+  console.log(`ryolune site listening on http://${HOST}:${PORT}`);
 });

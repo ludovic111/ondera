@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { Session } from "@ondera/core";
+import type { Session } from "@ryolune/core";
 import { size } from "../theme/tokens";
 import { drawRuler } from "./ruler";
 

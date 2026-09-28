@@ -417,9 +417,9 @@ pub fn instantiate_from(desc: &Descriptor, rate: u32) -> Result<Instance> {
         host: clap_host {
             clap_version: CLAP_VERSION,
             host_data: std::ptr::null_mut(),
-            name: c"Ondera".as_ptr(),
-            vendor: c"Ondera".as_ptr(),
-            url: c"https://ondera.app".as_ptr(),
+            name: c"ryolune".as_ptr(),
+            vendor: c"ryolune".as_ptr(),
+            url: c"https://ryolune.app".as_ptr(),
             version: c"0.1.0".as_ptr(),
             get_extension: Some(host_get_extension),
             request_restart: Some(host_request_restart),

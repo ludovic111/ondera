@@ -1,10 +1,10 @@
-//! Codex app-server transport. Dynamic tools use Ondera's ordinary command dispatcher;
+//! Codex app-server transport. Dynamic tools use ryolune's ordinary command dispatcher;
 //! agentMessage deltas reach the interface before the turn is complete.
 use super::{
     await_tool, bounded, cli, read_line_limited, system_prompt, tool_output, tool_specs, Event,
     Message, Part, ToolCall, Turn, TEXT_LIMIT,
 };
-use ondera_engine::Result;
+use ryolune_engine::Result;
 use serde_json::{json, Value};
 use std::{
     io::{BufReader, Write},
@@ -134,7 +134,7 @@ fn session(
     write(
         stdin,
         json!({"id":1,"method":"initialize","params":{
-        "clientInfo":{"name":"ondera","version":env!("CARGO_PKG_VERSION")},
+        "clientInfo":{"name":"ryolune","version":env!("CARGO_PKG_VERSION")},
         "capabilities":{"experimentalApi":true}}}),
     )?;
     let mut initialized = false;
@@ -219,7 +219,7 @@ fn session(
         } else if event.get("id").is_some() && event.get("method").is_some() {
             write(
                 stdin,
-                json!({"id":event["id"],"error":{"code":-32601,"message":"Only Ondera music tools are available"}}),
+                json!({"id":event["id"],"error":{"code":-32601,"message":"Only ryolune music tools are available"}}),
             )?;
         } else if transcript.event(&event, &turn.events) {
             let status = event["params"]["turn"]["status"].as_str().unwrap_or("");

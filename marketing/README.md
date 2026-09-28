@@ -25,7 +25,7 @@ npx hyperframes render --resolution landscape-4k --video-frame-format png --crf 
 ../work/finish.sh                                 # brag.mp4 (1080p) + brag-4k.mp4, poster, loudness
 ```
 
-The site plays these files: copy `brag-4k.mp4` and `brag.mp4` to `site/video/ondera-<version>-4k.mp4`
+The site plays these files: copy `brag-4k.mp4` and `brag.mp4` to `site/video/ryolune-<version>-4k.mp4`
 and `-1080p.mp4`, and frame 0 to `site/img/film-poster.webp` (see `site/README.md`).
 
 Keep `--video-frame-format png`: the default extracts footage as JPEG and blurs the UI text.

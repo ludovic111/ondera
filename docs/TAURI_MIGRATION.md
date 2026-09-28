@@ -1,12 +1,12 @@
 # Tauri frontend migration
 
 This branch replaces the egui window with Tauri 2 and a React/TypeScript renderer. Its visual
-reference is the existing Ondera interface: the same transport, browser, arrangement, MIDI
+reference is the existing ryolune interface: the same transport, browser, arrangement, MIDI
 editor, inspector and agent rail. It is not a redesign or a new document format.
 
 ## Ownership and audio
 
-`desktop/src/web.rs` keeps the existing `Ondera` host on the OS main thread. This is also where
+`desktop/src/web.rs` keeps the existing `ryolune` host on the OS main thread. This is also where
 external plugin editors must live. WebView commands enter the existing validated command
 registry. The engine still owns the session, undo/redo, plugin states, decoding, recording,
 exports and the real-time audio callback. CLI and MCP use that same host.
@@ -57,9 +57,9 @@ cargo test --workspace --locked
 python3 scripts/verify-song.py  # Python 3.12+
 ```
 
-For the live DAW workflow, set `ONDERA_CONTROL` to an isolated test window's discovery file and
+For the live DAW workflow, set `RYOLUNE_CONTROL` to an isolated test window's discovery file and
 run `scripts/verify-song.py --live`. This replaces that test window's document. Use a separate
-`ONDERA_DATA_DIR` when launching it to keep real preferences, plugin cache and recovery files
+`RYOLUNE_DATA_DIR` when launching it to keep real preferences, plugin cache and recovery files
 out of QA runs.
 
 Local evidence is written to the ignored `artifacts/tauri-migration/` directory. Build success

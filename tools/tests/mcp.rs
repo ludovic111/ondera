@@ -11,9 +11,9 @@ struct Mcp {
 }
 impl Mcp {
     fn start(dir: &Path, args: &[&str]) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ondera-mcp"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ryolune-mcp"))
             .args(args)
-            .env("ONDERA_CONTROL", dir.join("absent-control.json"))
+            .env("RYOLUNE_CONTROL", dir.join("absent-control.json"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -59,7 +59,7 @@ impl Drop for Mcp {
 #[test]
 fn stdio_server_speaks_mcp_over_a_file() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let mut mcp = Mcp::start(dir.path(), &["--file", song.to_str().unwrap()]);
     let init = mcp.request(
         1,
@@ -135,7 +135,7 @@ fn stdio_server_speaks_mcp_over_a_file() {
     let info = mcp.request(
         8,
         "resources/read",
-        json!({ "uri": "ondera://session/info" }),
+        json!({ "uri": "ryolune://session/info" }),
     );
     let text = info["result"]["contents"][0]["text"].as_str().unwrap();
     let parsed: Value = serde_json::from_str(text).unwrap();
@@ -173,7 +173,7 @@ fn without_the_app_the_server_falls_back_to_headless() {
 #[test]
 fn mcp_composes_routes_renders_and_reopens_a_complete_song() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let wav = dir.path().join("song.wav");
     let mut mcp = Mcp::start(dir.path(), &["--file", song.to_str().unwrap()]);
     let mut id = 0;
@@ -219,7 +219,7 @@ fn mcp_composes_routes_renders_and_reopens_a_complete_song() {
         "stock:Space"
     );
     drop(mcp);
-    let audio = ondera_engine::audio::decode(std::fs::read(wav).unwrap(), Some("wav")).unwrap();
+    let audio = ryolune_engine::audio::decode(std::fs::read(wav).unwrap(), Some("wav")).unwrap();
     assert!(audio.frames.iter().flatten().all(|s| s.is_finite()));
     assert!(audio.frames.iter().flatten().any(|s| s.abs() > 0.01));
 }
@@ -227,7 +227,7 @@ fn mcp_composes_routes_renders_and_reopens_a_complete_song() {
 #[test]
 fn mcp_reports_autosave_failure_and_preserves_memory_for_retry() {
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let mut mcp = Mcp::start(dir.path(), &["--file", song.to_str().unwrap()]);
     // Make the destination unwritable after the headless server has opened it.
     assert_eq!(mcp.tool(1, "session_info", json!({}))["isError"], false);
@@ -242,7 +242,7 @@ fn mcp_reports_autosave_failure_and_preserves_memory_for_retry() {
     std::fs::remove_dir(&song).unwrap();
     assert_eq!(mcp.tool(3, "session_save", json!({}))["isError"], false);
     assert_eq!(
-        ondera_engine::document::load(&song).unwrap().0.name,
+        ryolune_engine::document::load(&song).unwrap().0.name,
         "Do not lose this"
     );
 }
@@ -253,9 +253,9 @@ fn mcp_rejects_invalid_modes_and_jsonrpc_envelopes() {
     for args in [
         vec!["--file"],
         vec!["--live", "--headless"],
-        vec!["--file", "x.ondera", "--live"],
+        vec!["--file", "x.ryolune", "--live"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_ondera-mcp"))
+        let output = Command::new(env!("CARGO_BIN_EXE_ryolune-mcp"))
             .args(args)
             .stdin(Stdio::null())
             .output()
@@ -357,8 +357,8 @@ fn mcp_serves_prompts_resources_and_parity_tools() {
         .iter()
         .map(|r| r["uri"].as_str().unwrap())
         .collect();
-    assert!(uris.contains(&"ondera://settings") && uris.contains(&"ondera://app"));
-    let app = mcp.request(6, "resources/read", json!({ "uri": "ondera://app" }));
+    assert!(uris.contains(&"ryolune://settings") && uris.contains(&"ryolune://app"));
+    let app = mcp.request(6, "resources/read", json!({ "uri": "ryolune://app" }));
     let parsed: Value =
         serde_json::from_str(app["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(parsed["mode"], "headless");
@@ -462,7 +462,7 @@ fn mcp_starts_from_the_overview_and_takes_names_for_ids() {
     let resource = mcp.request(
         8,
         "resources/read",
-        json!({ "uri": "ondera://session/overview" }),
+        json!({ "uri": "ryolune://session/overview" }),
     );
     let parsed: Value =
         serde_json::from_str(resource["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();

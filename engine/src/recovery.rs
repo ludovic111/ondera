@@ -26,7 +26,7 @@ pub struct Snapshot {
 
 pub fn generated_path(directory: &Path, run: u128, generation: u64, name: &str) -> PathBuf {
     let title: String = name
-        .trim_end_matches(".ondera")
+        .trim_end_matches(".ryolune")
         .chars()
         .take(80)
         .map(|c| {
@@ -38,14 +38,15 @@ pub fn generated_path(directory: &Path, run: u128, generation: u64, name: &str) 
         })
         .collect();
     directory.join(format!(
-        "recovery-{run}-{}-{generation}-{}.ondera",
+        "recovery-{run}-{}-{generation}-{}.{}",
         std::process::id(),
-        if title.is_empty() { "Untitled" } else { &title }
+        if title.is_empty() { "Untitled" } else { &title },
+        crate::document::EXTENSION
     ))
 }
 
 pub fn generated_title(path: &Path) -> Option<String> {
-    if path.extension()?.to_str()? != "ondera" {
+    if !crate::document::is_session_path(path) {
         return None;
     }
     let name = path.file_stem()?.to_str()?.strip_prefix("recovery-")?;
@@ -64,10 +65,10 @@ pub fn generated_title(path: &Path) -> Option<String> {
     Some(title.replace('_', " "))
 }
 
-/// Only regular, Ondera-generated files inside the recovery directory may be restored.
+/// Only regular, ryolune-generated files inside the recovery directory may be restored.
 pub fn ensure_generated(directory: &Path, path: &Path) -> Result<()> {
     if generated_title(path).is_none() {
-        return Err("Choose an Ondera-generated recovery snapshot.".into());
+        return Err("Choose a ryolune-generated recovery snapshot.".into());
     }
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if !metadata.file_type().is_file() {
@@ -82,7 +83,7 @@ pub fn ensure_generated(directory: &Path, path: &Path) -> Result<()> {
         .canonicalize()
         .map_err(|error| error.to_string())?;
     if actual != expected {
-        return Err("Recovery files must be in Ondera's recovery directory.".into());
+        return Err("Recovery files must be in ryolune's recovery directory.".into());
     }
     Ok(())
 }

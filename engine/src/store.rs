@@ -379,7 +379,7 @@ pub fn demo() -> Session {
 }
 pub fn empty() -> Session {
     let mut s = demo();
-    s.name = "Untitled.ondera".into();
+    s.name = "Untitled.ryolune".into();
     s.clips.clear();
     s.sources.clear();
     s.strips.clear();

@@ -1,7 +1,7 @@
 # Rust migration — 2026-09-12
 
 The owner explicitly chose a fully native Rust interface. The active build is a Cargo workspace
-with `ondera` (desktop), `ondera-engine` and `ondera-tools` (CLI/MCP). The former source is
+with `ryolune` (desktop), `ryolune-engine` and `ryolune-tools` (CLI/MCP). The former source is
 preserved unchanged in `legacy/`. Version 0.2 integrates the native app, plugin hosting, agent
 control and updater. See [0.2.0 release notes](releases/0.2.0.md).
 
@@ -37,7 +37,7 @@ retained as historical evidence, not as the validation report for version 0.2.0.
 - Local optimized benchmark: 30 seconds of Nightfall at 48 kHz / 128-frame blocks rendered
   in 0.550 seconds (54.6× real time, 1.83% average render time / audio time, p99 block
   0.071 ms against a 2.667 ms deadline; no voice overflow). This excludes UI/device/OS scheduling and does not
-  establish a speedup over Electron. Re-run `cargo run --release -p ondera-engine --example benchmark`.
+  establish a speedup over Electron. Re-run `cargo run --release -p ryolune-engine --example benchmark`.
 - Native GUI playback advanced the sample-driven position on a 48 kHz output and showed live
   DSP activity. Track rename and undo were exercised in the packaged app. Arrangement move,
   ruler selection and piano drawing also have event-driven GUI regression tests.
@@ -47,10 +47,10 @@ retained as historical evidence, not as the validation report for version 0.2.0.
   and initialization to dedicated workers. Finalizing a recording is also asynchronous; save,
   export and document replacement wait for the take. The UI remains separate from OS permission waits.
 
-Local review artifacts (ignored by Git): `dist/Ondera.app`, `dist/Ondera-macos.zip`,
-`artifacts/native-macos.png`, `artifacts/nightfall.ondera` and `artifacts/nightfall-native.wav`.
+Local review artifacts (ignored by Git): `dist/ryolune.app`, `dist/ryolune-macos.zip`,
+`artifacts/native-macos.png`, `artifacts/nightfall.ryolune` and `artifacts/nightfall-native.wav`.
 Cross-platform builds, test logs and binaries are attached to the
-[Native Rust workflow](https://github.com/ludovic111/ondera/actions/workflows/native.yml).
+[Native Rust workflow](https://github.com/ludovic111/ryolune/actions/workflows/native.yml).
 
 The final delivery note and CI runs contain the latest platform verification results.
 
@@ -59,7 +59,7 @@ The final delivery note and CI runs contain the latest platform verification res
 - 43 workspace tests pass (32 engine, 11 interface), including real-time allocation counts with
   four stock inserts mounted, held-note reconciliation across graph swaps, live notes surviving
   swaps, MIDI takes becoming regions, master/bus strips and the scan cache.
-- `ondera --scan-plugins` on the owner's Apple Silicon Mac found 22 CLAP, 1085 VST3 and 1102 Audio
+- `ryolune --scan-plugins` on the owner's Apple Silicon Mac found 22 CLAP, 1085 VST3 and 1102 Audio
   Unit entries in 2 m 17 s with isolated probing; one VST3 (UAD Console Recall) printed to stdout
   during its probe, which the parser now tolerates.
 - `probe` instantiated FabFilter Pro-Q 4 as CLAP (600 parameters) and VST3 (736), Pro-C 2 as
@@ -106,7 +106,7 @@ The final delivery note and CI runs contain the latest platform verification res
 - The Agents tab runs explicit tasks through an installed, authenticated Codex CLI, or connects
   another MCP client. It does not bundle a language model. Prompts and tool results go to the
   selected provider. Each Codex run ignores user tool configuration and exposes only this
-  window's Ondera MCP tools, with shell/web/apps/plugins disabled and a read-only filesystem sandbox.
+  window's ryolune MCP tools, with shell/web/apps/plugins disabled and a read-only filesystem sandbox.
   CLI support and authentication are checked at runtime; existing edits survive cancellation.
 - Recovery is periodic rather than continuous. File/recording operations and active editing
   gestures postpone snapshots, and only changed revisions are saved. Originals are preserved;

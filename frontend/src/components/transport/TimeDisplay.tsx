@@ -11,7 +11,7 @@ import {
   secondsToSmpte,
   tempoMap,
   tempoSourceBar,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { useDispatch, useSession } from "../../state/session";
 import { InlineEdit } from "../primitives/InlineEdit";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";

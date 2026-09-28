@@ -1,5 +1,5 @@
 //! Connection checks do not send prompts or edit the session.
-use ondera_engine::settings::{Provider, Settings};
+use ryolune_engine::settings::{Provider, Settings};
 use serde::Serialize;
 use std::time::Duration;
 
@@ -56,7 +56,7 @@ pub(crate) fn check(settings: &Settings) -> Connection {
     if !executable.is_file() {
         return result(
             "missingCli",
-            "Install the companion app, then check again. Ondera will look for it automatically.",
+            "Install the companion app, then check again. ryolune will look for it automatically.",
         );
     }
     if provider == Provider::Codex {
@@ -70,7 +70,7 @@ pub(crate) fn check(settings: &Settings) -> Connection {
             Ok(_) => {
                 return result(
                     "updateRequired",
-                    "Update Codex to connect it to Ondera, then check again.",
+                    "Update Codex to connect it to ryolune, then check again.",
                 )
             }
             Err(_) => {
@@ -83,7 +83,7 @@ pub(crate) fn check(settings: &Settings) -> Connection {
     }
     match crate::settings::run_cli(&executable, &args, Duration::from_secs(15)) {
         Ok(_) => result("signedIn", "Signed in. Your next message will use this account."),
-        Err(_) => result("signInRequired", "Sign in to your account, then return to Ondera. If you are already signed in, check the installation and try again."),
+        Err(_) => result("signInRequired", "Sign in to your account, then return to ryolune. If you are already signed in, check the installation and try again."),
     }
 }
 

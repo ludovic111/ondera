@@ -37,7 +37,7 @@ pub struct General {
     pub last_session: Option<String>,
     pub recent_sessions: Vec<String>,
     /// Mixes and stem sets exported from the window. Counted on this computer only, so the
-    /// window can ask once, after the third, whether to pay what you want for Ondera.
+    /// window can ask once, after the third, whether to pay what you want for ryolune.
     pub exports_completed: u32,
     /// The one-time support request was shown; either answer ends it for good.
     pub support_asked: bool,
@@ -311,9 +311,9 @@ pub const SECRET_PATHS: [&str; 3] = [
 ];
 
 impl Settings {
-    /// `$ONDERA_SETTINGS`, else `settings.json` in the data directory.
+    /// `$RYOLUNE_SETTINGS`, else `settings.json` in the data directory.
     pub fn path() -> PathBuf {
-        if let Some(p) = std::env::var_os("ONDERA_SETTINGS").filter(|p| !p.is_empty()) {
+        if let Some(p) = std::env::var_os("RYOLUNE_SETTINGS").filter(|p| !p.is_empty()) {
             return PathBuf::from(p);
         }
         data_dir().join("settings.json")

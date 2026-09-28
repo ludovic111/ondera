@@ -1,4 +1,4 @@
-//! Plugin abstraction shared by the stock Ondera processors and the external
+//! Plugin abstraction shared by the stock ryolune processors and the external
 //! CLAP, VST3 and Audio Unit hosts.
 //!
 //! Every insert and instrument is an `Instance`: an `Editor` half that stays on
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum Format {
     Stock,
-    /// A library built with the `ondera-plugin` SDK and loaded through its C ABI.
+    /// A library built with the `ryolune-plugin` SDK and loaded through its C ABI.
     Native,
     Clap,
     Vst3,
@@ -23,7 +23,7 @@ pub enum Format {
 impl Format {
     pub fn label(self) -> &'static str {
         match self {
-            Format::Stock => "Ondera",
+            Format::Stock => "ryolune",
             Format::Native => "Native",
             Format::Clap => "CLAP",
             Format::Vst3 => "VST3",
@@ -178,7 +178,7 @@ impl ParamInfo {
 /// Events, transport context and the block bound are defined by the plugin SDK so native
 /// plugins and the hosts agree on one layout. `Event` carries notes, controllers, pitch bend
 /// and pressure; `event` names its kinds.
-pub use ondera_plugin::{event, Event, NoteEvent, ProcessContext, MAX_BLOCK};
+pub use ryolune_plugin::{event, Event, NoteEvent, ProcessContext, MAX_BLOCK};
 
 /// A parameter value that takes effect at `frame` within the block being processed. `id` is
 /// the plugin's own parameter id (CLAP id, VST3 ParamID, AU parameter, native index).
@@ -531,7 +531,7 @@ impl Drop for Rack {
 }
 
 /// Decibels to linear gain, shared with the plugin SDK.
-pub use ondera_plugin::dsp::db_to_gain;
+pub use ryolune_plugin::dsp::db_to_gain;
 
 #[cfg(test)]
 mod tests {

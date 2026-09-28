@@ -1,4 +1,4 @@
-import type { Session, SessionStore } from "@ondera/core";
+import type { Session, SessionStore } from "@ryolune/core";
 import { actions, runAction, type ActionId } from "./actions";
 import { formatShortcut } from "./shortcuts";
 
@@ -210,9 +210,9 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         call("Check for updates…", "app.checkUpdates"),
         call("Native plugin SDK…", "app.openGuide", { guide: "plugins" }),
         separator,
-        call("Support Ondera…", "app.openGuide", { guide: "support" }),
+        call("Support ryolune…", "app.openGuide", { guide: "support" }),
         separator,
-        { label: `Ondera ${store.version}`, disabled: true },
+        { label: `ryolune ${store.version}`, disabled: true },
       ];
   }
 }

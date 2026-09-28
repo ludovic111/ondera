@@ -5,7 +5,7 @@ use super::{
     await_tool, bounded, http, read_line_limited, system_prompt, tool_output, tool_specs,
     user_text, Event, Message, Part, ToolCall, Turn,
 };
-use ondera_engine::{settings::Provider, Result};
+use ryolune_engine::{settings::Provider, Result};
 use serde_json::{json, Value};
 use std::{io::BufReader, sync::atomic::Ordering, sync::mpsc};
 
@@ -369,7 +369,7 @@ mod tests {
             serde_json::from_slice::<Value>(&body).unwrap()
         });
         let (tx, rx) = mpsc::sync_channel(64);
-        let mut settings = ondera_engine::settings::Settings::default();
+        let mut settings = ryolune_engine::settings::Settings::default();
         settings.agent.provider = Provider::Compatible;
         settings.agent.compatible_base_url = endpoint;
         settings.agent.model = "fixture".into();

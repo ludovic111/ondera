@@ -11,7 +11,7 @@ import {
   fadeGain,
   FADE_CURVES,
   type Command,
-} from "@ondera/core";
+} from "@ryolune/core";
 import { fadeHandleAt, markersWith, nameStart } from "../canvas/timeline";
 import { markerAt } from "../canvas/markers";
 import { describeTool } from "../components/agent/toolSteps";

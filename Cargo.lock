@@ -4051,91 +4051,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "ondera"
-version = "0.10.1"
-dependencies = [
- "base64 0.22.1",
- "block2 0.6.2",
- "ed25519-dalek",
- "eframe",
- "image",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "objc2-web-kit",
- "ondera-engine",
- "ondera-plugin",
- "ondera-tools",
- "rand_core 0.6.4",
- "rfd",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tempfile",
- "tokio",
- "ureq",
- "wgpu",
- "zip",
-]
-
-[[package]]
 name = "ondera-abi1-fixture"
-version = "0.10.1"
-
-[[package]]
-name = "ondera-engine"
-version = "0.10.1"
-dependencies = [
- "base64 0.22.1",
- "clap-sys",
- "cpal",
- "fs2",
- "hound",
- "libloading 0.8.9",
- "midir",
- "midly",
- "objc2 0.6.4",
- "objc2-audio-toolbox",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
- "ondera-abi1-fixture",
- "ondera-plugin",
- "ondera-plugin-gain",
- "rtrb",
- "serde",
- "serde_json",
- "symphonia",
- "tempfile",
- "vorbis_rs",
- "vst3",
-]
-
-[[package]]
-name = "ondera-plugin"
-version = "0.10.1"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ondera-plugin-gain"
-version = "0.10.1"
-dependencies = [
- "ondera-plugin",
-]
-
-[[package]]
-name = "ondera-tools"
-version = "0.10.1"
-dependencies = [
- "ondera-engine",
- "serde_json",
- "tempfile",
-]
+version = "0.11.0"
 
 [[package]]
 name = "option-ext"
@@ -4906,6 +4823,89 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "ryolune"
+version = "0.11.0"
+dependencies = [
+ "base64 0.22.1",
+ "block2 0.6.2",
+ "ed25519-dalek",
+ "eframe",
+ "image",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-web-kit",
+ "rand_core 0.6.4",
+ "rfd",
+ "ryolune-engine",
+ "ryolune-plugin",
+ "ryolune-tools",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tempfile",
+ "tokio",
+ "ureq",
+ "wgpu",
+ "zip",
+]
+
+[[package]]
+name = "ryolune-engine"
+version = "0.11.0"
+dependencies = [
+ "base64 0.22.1",
+ "clap-sys",
+ "cpal",
+ "fs2",
+ "hound",
+ "libloading 0.8.9",
+ "midir",
+ "midly",
+ "objc2 0.6.4",
+ "objc2-audio-toolbox",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "ondera-abi1-fixture",
+ "rtrb",
+ "ryolune-plugin",
+ "ryolune-plugin-gain",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "tempfile",
+ "vorbis_rs",
+ "vst3",
+]
+
+[[package]]
+name = "ryolune-plugin"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ryolune-plugin-gain"
+version = "0.11.0"
+dependencies = [
+ "ryolune-plugin",
+]
+
+[[package]]
+name = "ryolune-tools"
+version = "0.11.0"
+dependencies = [
+ "ryolune-engine",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "same-file"

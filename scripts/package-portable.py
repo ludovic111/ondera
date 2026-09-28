@@ -9,7 +9,7 @@ import zipfile
 
 def package(source, output, kind):
     if kind == "demo":
-        names = ["Afterglow.ondera", "Afterglow.wav", "Afterglow.mid", "verification.json"]
+        names = ["Afterglow.ryolune", "Afterglow.wav", "Afterglow.mid", "verification.json"]
         report = json.loads((source / "verification.json").read_text())
         if report.get("instrument") != "stock" or report.get("effect") != "stock":
             raise ValueError("The release demo must use only stock plugins")
@@ -19,7 +19,7 @@ def package(source, output, kind):
             raise ValueError("The demo mix no longer matches its verification report")
     else:
         extension = ".exe" if kind == "windows" else ""
-        names = [name + extension for name in ["ondera", "ondera-cli", "ondera-mcp"]]
+        names = [name + extension for name in ["ryolune", "ryolune-cli", "ryolune-mcp"]]
     for name in names:
         path = source / name
         if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:

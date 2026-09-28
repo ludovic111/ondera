@@ -1,11 +1,11 @@
 //! Region editor: piano roll, step view and pitch overview.
 
 use crate::{
-    app::{id, Ondera},
+    app::{id, Ryolune},
     theme::*,
 };
 use eframe::egui::{self, pos2, vec2, Align2, Pos2, Rect, Sense, Stroke, Vec2};
-use ondera_engine::{model::*, store::Command};
+use ryolune_engine::{model::*, store::Command};
 
 pub struct NoteDrag {
     clip: Clip,
@@ -29,7 +29,7 @@ fn editor_header(p: &egui::Painter, r: Rect) {
     hline(p, r.left(), r.right(), r.bottom() - 1.0, black(0.6));
 }
 
-impl Ondera {
+impl Ryolune {
     pub fn editor(&mut self, ui: &mut egui::Ui) {
         let s = self.store.snapshot();
         ui.spacing_mut().item_spacing = Vec2::ZERO;

@@ -1,7 +1,7 @@
 //! Opt-in integration check against installed, licensed plugins. Does not scan
 //! or change the user's cache. Each invocation should run in a child process.
 //! Usage: plugin_roundtrip <instrument-id> <effect-id> <output-directory>
-use ondera_engine::{
+use ryolune_engine::{
     audio::{AudioBuffer, Library},
     document, host,
     model::{Clip, ClipData, Insert, Note, Source, Strip},
@@ -197,7 +197,7 @@ fn main() {
     });
     session.normalize();
     let library = Library::from([("imported".into(), buffer)]);
-    let project = output.join("song.ondera");
+    let project = output.join("song.ryolune");
     document::save(&session, &library, &project).expect("save project");
     let (loaded, library) = document::load(&project).expect("reopen project");
     assert_eq!(loaded.clips.len(), 2);

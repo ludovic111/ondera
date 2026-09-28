@@ -31,7 +31,7 @@ input::placeholder{color:#7f7e7a}
 <div style="height:28px;flex:none;display:flex;align-items:center;padding:0 14px;gap:22px;background:#2c2c2b;box-shadow:inset 0 -1px 0 rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);color:#a9a8a4;font-size:11.5px;font-weight:500">
   <div style="display:flex;gap:7px"><span style="width:11px;height:11px;border-radius:50%;background:#4a4a47;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 1px rgba(0,0,0,.5)"></span><span style="width:11px;height:11px;border-radius:50%;background:#4a4a47;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 1px rgba(0,0,0,.5)"></span><span style="width:11px;height:11px;border-radius:50%;background:#4a4a47;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 1px rgba(0,0,0,.5)"></span></div>
   <div style="display:flex;gap:16px"><span>File</span><span>Edit</span><span>Track</span><span>Mix</span><span>Agent</span><span>View</span><span>Help</span></div>
-  <div style="margin-left:auto;margin-right:auto;position:absolute;left:0;right:0;text-align:center;pointer-events:none;color:#e8e7e4">Nightfall.ondera</div>
+  <div style="margin-left:auto;margin-right:auto;position:absolute;left:0;right:0;text-align:center;pointer-events:none;color:#e8e7e4">Nightfall.ryolune</div>
 </div>
 
 <!-- transport -->
@@ -240,7 +240,7 @@ input::placeholder{color:#7f7e7a}
       <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7f7e7a">MIDI · Ch 2</span>
     </div>
     <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px;box-shadow:inset 0 -1px 0 rgba(0,0,0,.5)">
-      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#7f7e7a">Instrument</span><span style="color:#e8e7e4;font-weight:600">Ondera Synth</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#7f7e7a">Instrument</span><span style="color:#e8e7e4;font-weight:600">ryolune Synth</span></div>
       <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#7f7e7a">Input</span><span style="color:#e8e7e4;font-weight:600">All MIDI</span></div>
       <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:#7f7e7a">Output</span><span style="color:#e8e7e4;font-weight:600">Stereo Out</span></div>
     </div>
@@ -342,7 +342,7 @@ input::placeholder{color:#7f7e7a}
         <input value="{{ draft }}" onChange="{{ onDraft }}" placeholder="Ask the agent… e.g. “double the chorus and mute BGV”" style="flex:1;min-width:0;background:transparent;border:0;outline:0;color:#e8e7e4;font-family:Manrope,sans-serif;font-size:12.5px;padding:4px 0 6px"></input>
         <div style="display:flex;align-items:center;justify-content:center;width:30px;height:26px;border-radius:6px;background:radial-gradient(circle at 50% 30%,oklch(0.86 0.11 190),oklch(0.68 0.12 190));box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 -1px 0 rgba(0,0,0,.25),0 1px 2px rgba(0,0,0,.6),0 0 12px oklch(0.80 0.12 190 / .4);color:#0f2a29"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5.5 10 V1 M1.5 5 L5.5 1 L9.5 5"></path></svg></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#7f7e7a"><span>⌘↵ send · ⌘Z reverts last agent change</span><span>ondera-cli 0.9 · mcp</span></div>
+      <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#7f7e7a"><span>⌘↵ send · ⌘Z reverts last agent change</span><span>ryolune-cli 0.9 · mcp</span></div>
     </div>
   </div>
   </sc-if>
@@ -494,7 +494,7 @@ class Component extends DCLogic {
     });
     const masterL = seg(22, 16, 0), masterR = seg(22, 15, 0), cpuSegs = seg(12, 4, 0), chL = seg(20, 13, 0), chR = seg(20, 12, 0);
     const browser = [
-      { name: 'Ondera', items: [{ name: 'Ondera Synth', meta: '', dot: 'oklch(0.72 0.13 300)', bg: 'transparent' }, { name: 'E-Piano Mk I', meta: '', dot: 'oklch(0.75 0.13 250)', bg: 'rgba(255,255,255,.07)' }, { name: 'Drum Machine', meta: '', dot: 'oklch(0.72 0.14 40)', bg: 'transparent' }, { name: 'Sampler', meta: '', dot: 'oklch(0.78 0.14 85)', bg: 'transparent' }] },
+      { name: 'ryolune', items: [{ name: 'ryolune Synth', meta: '', dot: 'oklch(0.72 0.13 300)', bg: 'transparent' }, { name: 'E-Piano Mk I', meta: '', dot: 'oklch(0.75 0.13 250)', bg: 'rgba(255,255,255,.07)' }, { name: 'Drum Machine', meta: '', dot: 'oklch(0.72 0.14 40)', bg: 'transparent' }, { name: 'Sampler', meta: '', dot: 'oklch(0.78 0.14 85)', bg: 'transparent' }] },
       { name: 'Installed', items: [{ name: 'Vital', meta: 'VST3', dot: '#5a5a57', bg: 'transparent' }, { name: 'Surge XT', meta: 'CLAP', dot: '#5a5a57', bg: 'transparent' }, { name: 'Dexed', meta: 'VST3', dot: '#5a5a57', bg: 'transparent' }, { name: 'Odin 2', meta: 'VST3', dot: '#5a5a57', bg: 'transparent' }, { name: 'Helm', meta: 'LV2', dot: '#5a5a57', bg: 'transparent' }] },
       { name: 'Recent', items: [{ name: 'Sub Bass 808', meta: 'preset', dot: 'oklch(0.72 0.13 300)', bg: 'transparent' }, { name: 'Glass Keys', meta: 'preset', dot: 'oklch(0.75 0.13 250)', bg: 'transparent' }, { name: 'Choir Pad', meta: 'preset', dot: 'oklch(0.75 0.12 330)', bg: 'transparent' }] },
     ];
@@ -515,7 +515,7 @@ class Component extends DCLogic {
       });
     });
     const inserts = [
-      { name: 'Ondera Comp', meta: '3.2 dB GR', bg: 'linear-gradient(180deg,#3a3a39,#313130)', shadow: 'inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.5)', fg: '#e8e7e4', led: '#f0e8d8', ledGlow: '0 0 5px rgba(255,236,205,.8)' },
+      { name: 'ryolune Comp', meta: '3.2 dB GR', bg: 'linear-gradient(180deg,#3a3a39,#313130)', shadow: 'inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.5)', fg: '#e8e7e4', led: '#f0e8d8', ledGlow: '0 0 5px rgba(255,236,205,.8)' },
       { name: 'Tape Sat', meta: 'Drive 24%', bg: 'linear-gradient(180deg,#3a3a39,#313130)', shadow: 'inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.5)', fg: '#e8e7e4', led: '#f0e8d8', ledGlow: '0 0 5px rgba(255,236,205,.8)' },
       { name: 'Chorus', meta: 'bypassed', bg: 'linear-gradient(180deg,#3a3a39,#313130)', shadow: 'inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.5)', fg: '#a9a8a4', led: '#2a2a29', ledGlow: 'inset 0 1px 1px rgba(0,0,0,.8)' },
       { name: 'Empty slot', meta: '', bg: '#262625', shadow: 'inset 0 1px 2px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.04)', fg: '#7f7e7a', led: 'transparent', ledGlow: 'inset 0 0 0 1px rgba(255,255,255,.12)' },
@@ -524,11 +524,11 @@ class Component extends DCLogic {
     const rev = this.state.reverted;
     const LOG = [
       { id: 1, title: 'Adding 7ths to Keys B, bars 5–8', detail: 'keys/clip:2 · 18 of 29 notes · in progress', color: 'oklch(0.75 0.13 250)', live: true },
-      { id: 2, title: 'Quantized Keys B to 1/16, 62% strength', detail: 'ondera clip quantize keys:2 --grid 1/16 --strength .62', color: 'oklch(0.75 0.13 250)' },
-      { id: 3, title: 'Created send Keys → A · Reverb, −12 dB', detail: 'ondera send add keys --bus A --level -12', color: 'oklch(0.75 0.13 250)' },
-      { id: 4, title: 'Trimmed Guitar clip 1 end to bar 8', detail: 'ondera clip trim guitar:1 --end 8.1.1', color: 'oklch(0.72 0.13 20)' },
-      { id: 5, title: 'Renamed “Audio 5” to “Lead Vox”', detail: 'ondera track rename 5 "Lead Vox"', color: 'oklch(0.78 0.14 85)' },
-      { id: 6, title: 'Set project key to C minor', detail: 'ondera project set key Cm', color: '#7f7e7a' },
+      { id: 2, title: 'Quantized Keys B to 1/16, 62% strength', detail: 'ryolune clip quantize keys:2 --grid 1/16 --strength .62', color: 'oklch(0.75 0.13 250)' },
+      { id: 3, title: 'Created send Keys → A · Reverb, −12 dB', detail: 'ryolune send add keys --bus A --level -12', color: 'oklch(0.75 0.13 250)' },
+      { id: 4, title: 'Trimmed Guitar clip 1 end to bar 8', detail: 'ryolune clip trim guitar:1 --end 8.1.1', color: 'oklch(0.72 0.13 20)' },
+      { id: 5, title: 'Renamed “Audio 5” to “Lead Vox”', detail: 'ryolune track rename 5 "Lead Vox"', color: 'oklch(0.78 0.14 85)' },
+      { id: 6, title: 'Set project key to C minor', detail: 'ryolune project set key Cm', color: '#7f7e7a' },
     ];
     const revBtn = 'display:flex;align-items:center;justify-content:center;height:22px;padding:0 9px;border-radius:5px;font-size:10.5px;font-weight:600;cursor:pointer;flex:none;';
     const log = LOG.map(e => {

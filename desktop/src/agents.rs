@@ -1,16 +1,16 @@
 //! The agent panel: a conversation with the built-in agent, the tool calls it makes as it
 //! works, and the revertable log of every command an agent ran against this window,
 //! whether it came from the panel, an MCP client or the CLI. Layout follows the agent
-//! panel in `design/Ondera Arrangement.dc.html`; settings live in Settings > Agent.
+//! panel in `design/ryolune Arrangement.dc.html`; settings live in Settings > Agent.
 
 use crate::{
     agent::{self, Role, Runtime, Turn},
-    app::Ondera,
+    app::Ryolune,
     control::Reply,
     theme::*,
 };
 use eframe::egui::{self, pos2, vec2, Align2, Color32, Id, Rect, Sense, Vec2};
-use ondera_engine::{control, model::Session, store::Command, Result};
+use ryolune_engine::{control, model::Session, store::Command, Result};
 use serde_json::{json, Value};
 use std::{collections::VecDeque, path::Path, time::Instant};
 
@@ -260,7 +260,7 @@ impl AgentPanel {
                     if input + output > 0 {
                         format!("{} in · {} out", compact(input), compact(output))
                     } else {
-                        format!("ondera-cli · mcp · {} commands", control::COMMANDS.len())
+                        format!("ryolune-cli · mcp · {} commands", control::COMMANDS.len())
                     },
                     mono_font(FS_CAPS),
                     FAINT,
@@ -470,7 +470,7 @@ impl AgentPanel {
                         ui.add_space(PAD + 2.0);
                         ui.add(
                             egui::Label::new(text(
-                                "Describe a musical change in your own words: “write a four-bar bass line under the keys”, “make the chorus wider”, “what is on track 3?”. The agent inspects and edits this session through the same commands as ondera-cli, and every edit can be reverted.",
+                                "Describe a musical change in your own words: “write a four-bar bass line under the keys”, “make the chorus wider”, “what is on track 3?”. The agent inspects and edits this session through the same commands as ryolune-cli, and every edit can be reverted.",
                                 FS_SECONDARY,
                                 Weight::Medium,
                                 DIM,
@@ -713,7 +713,7 @@ impl AgentPanel {
                         ui.add_space(PAD + 2.0);
                         ui.add(
                             egui::Label::new(text(
-                                "Commands from the agent, MCP clients and ondera-cli land here with their results, and each edit can be reverted.",
+                                "Commands from the agent, MCP clients and ryolune-cli land here with their results, and each edit can be reverted.",
                                 FS_SECONDARY,
                                 Weight::Medium,
                                 DIM,
@@ -857,7 +857,7 @@ fn entry_row(
     });
 }
 
-impl Ondera {
+impl Ryolune {
     fn connection(&self) -> Connection {
         Connection {
             port: self.control.as_ref().map(control::wire::Server::port),
@@ -970,7 +970,7 @@ impl Ondera {
         let provider = self.settings.agent.provider;
         let needs_bridge = matches!(
             provider,
-            ondera_engine::settings::Provider::Codex | ondera_engine::settings::Provider::Claude
+            ryolune_engine::settings::Provider::Codex | ryolune_engine::settings::Provider::Claude
         );
         let connection = self.connection();
         if needs_bridge && !self.settings.control.enable_bridge {
@@ -993,7 +993,7 @@ impl Ondera {
         )
         .unwrap_or(Value::Null);
         let history = self.agents.runtime.history.clone();
-        let mcp = agent::cli::companion("ondera-mcp");
+        let mcp = agent::cli::companion("ryolune-mcp");
         self.agents
             .runtime
             .start(prompt.clone(), move |cancel, events| Turn {
@@ -1251,7 +1251,7 @@ impl AgentPanel {
     pub(crate) fn set_prompt(&mut self, prompt: &str) {
         self.prompt = prompt.to_string();
     }
-    pub(crate) fn status_json(&self, settings: &ondera_engine::settings::Settings) -> Value {
+    pub(crate) fn status_json(&self, settings: &ryolune_engine::settings::Settings) -> Value {
         json!({
             "provider": settings.agent.provider.key(),
             "model": settings.model(),
@@ -1455,7 +1455,7 @@ fn describe(method: &str, params: &Value, session: &Session) -> (String, Color32
 
 /// The CLI spelling of a request, for the log and the clipboard.
 fn cli_form(method: &str, params: &Value) -> String {
-    let mut line = format!("ondera-cli {method}");
+    let mut line = format!("ryolune-cli {method}");
     let mut complex = serde_json::Map::new();
     if let Some(map) = params.as_object() {
         for (k, v) in map {
@@ -1509,10 +1509,10 @@ pub(crate) fn cli_check_text(discovery: &Path) -> String {
 fn mcp_config(discovery: &Path) -> String {
     pretty(&json!({
         "mcpServers": {
-            "ondera": {
-                "command": agent::cli::companion("ondera-mcp"),
+            "ryolune": {
+                "command": agent::cli::companion("ryolune-mcp"),
                 "args": ["--live"],
-                "env": { "ONDERA_CONTROL": discovery.to_string_lossy() }
+                "env": { "RYOLUNE_CONTROL": discovery.to_string_lossy() }
             }
         }
     }))
@@ -1520,16 +1520,16 @@ fn mcp_config(discovery: &Path) -> String {
 
 fn cli_check(discovery: &Path) -> String {
     let path = discovery.to_string_lossy();
-    let executable = agent::cli::companion("ondera-cli");
+    let executable = agent::cli::companion("ryolune-cli");
     if cfg!(windows) {
         format!(
-            "$env:ONDERA_CONTROL = '{}'; & '{}' --live session.info",
+            "$env:RYOLUNE_CONTROL = '{}'; & '{}' --live session.info",
             path.replace('\'', "''"),
             executable.replace('\'', "''")
         )
     } else {
         format!(
-            "ONDERA_CONTROL='{}' '{}' --live session.info",
+            "RYOLUNE_CONTROL='{}' '{}' --live session.info",
             path.replace('\'', "'\\''"),
             executable.replace('\'', "'\\''")
         )
@@ -1539,7 +1539,7 @@ fn cli_check(discovery: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ondera_engine::store;
+    use ryolune_engine::store;
 
     fn press(
         ctx: &egui::Context,
@@ -1630,22 +1630,22 @@ mod tests {
 
     #[test]
     fn copied_configuration_targets_this_window_without_copying_secrets() {
-        let path = Path::new("/tmp/Ondera user's session/control.json");
+        let path = Path::new("/tmp/ryolune user's session/control.json");
         let config: Value = serde_json::from_str(&mcp_config(path)).unwrap();
-        assert_eq!(config["mcpServers"]["ondera"]["args"], json!(["--live"]));
+        assert_eq!(config["mcpServers"]["ryolune"]["args"], json!(["--live"]));
         assert_eq!(
-            config["mcpServers"]["ondera"]["env"]["ONDERA_CONTROL"],
+            config["mcpServers"]["ryolune"]["env"]["RYOLUNE_CONTROL"],
             path.to_string_lossy().as_ref()
         );
         assert!(!mcp_config(path).contains("token"));
         let check = cli_check(path);
         assert!(check.contains("--live session.info"));
-        assert!(check.contains("ONDERA_CONTROL"));
+        assert!(check.contains("RYOLUNE_CONTROL"));
     }
 
     #[test]
     fn activity_records_success_errors_and_shared_history() {
-        let mut app = Ondera::from_session(store::demo(), None);
+        let mut app = Ryolune::from_session(store::demo(), None);
         let before = app.store.revision;
         let depth = app.store.undo_depth();
         let params = json!({"name":"Agent session"});
@@ -1684,7 +1684,7 @@ mod tests {
 
     #[test]
     fn tool_results_reach_the_chat_and_bridge_calls_are_shown_while_working() {
-        let mut app = Ondera::from_session(store::demo(), None);
+        let mut app = Ryolune::from_session(store::demo(), None);
         let complete = app.agents.mock_running_task();
         app.agents.runtime.transcript.push(agent::Entry {
             role: Role::Tool,
@@ -1731,7 +1731,7 @@ mod tests {
 
     #[test]
     fn changes_list_skips_the_window_and_queries() {
-        let mut app = Ondera::from_session(store::demo(), None);
+        let mut app = Ryolune::from_session(store::demo(), None);
         let complete = app.agents.mock_running_task();
         let count = app.agents.history.len();
         // The interface's own reads and edits are the person, not the agent.
@@ -1769,7 +1769,7 @@ mod tests {
 
     #[test]
     fn agent_permissions_are_enforced_on_agent_requests_only() {
-        let mut app = Ondera::from_session(store::demo(), None);
+        let mut app = Ryolune::from_session(store::demo(), None);
         app.settings.agent.permissions.transport = false;
         let denied = app
             .run_control_command("transport.stop", &json!({}), true, "Agent")
@@ -1782,7 +1782,7 @@ mod tests {
 
     #[test]
     fn revert_and_redo_walk_the_undo_stack_to_the_entry() {
-        let mut app = Ondera::from_session(store::demo(), None);
+        let mut app = Ryolune::from_session(store::demo(), None);
         let original = app.store.session().name.clone();
         for name in ["First", "Second"] {
             let before = app.store.revision;
@@ -1817,7 +1817,7 @@ mod tests {
         assert_eq!(title, format!("Track rename · “{}”", track.name));
         assert_eq!(color, track_color(&track.color, 1));
         let cli = cli_form("track.rename", &params);
-        assert!(cli.starts_with("ondera-cli track.rename "));
+        assert!(cli.starts_with("ryolune-cli track.rename "));
         assert!(cli.contains(&format!("--trackId {}", track.id)));
         assert!(cli.contains("--name \"Lead Vox\""));
         let (title, _) = describe("session.info", &json!({}), &session);

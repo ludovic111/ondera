@@ -1,4 +1,4 @@
-// Records the real Ondera frontend (`npm --prefix frontend run dev`, fixture song from
+// Records the real ryolune frontend (`npm --prefix frontend run dev`, fixture song from
 // src/dev/mockHost.ts) frame by frame into the footage the composition plays. Every frame is a
 // function of its time: the script sets the app's state through the same Tauri events the Rust
 // host sends (telemetry, agent, document, settings), waits for the paint, then screenshots.
@@ -8,7 +8,7 @@ import { chromium } from "playwright-core";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 
-const BASE = process.env.ONDERA_DEV ?? "http://127.0.0.1:1420/";
+const BASE = process.env.RYOLUNE_DEV ?? "http://127.0.0.1:1420/";
 const FPS = 30;
 const here = new URL(".", import.meta.url).pathname;
 const footage = `${here}../composition/assets/footage/`;
@@ -24,7 +24,7 @@ const SHOTS = {
   session: { at: 0, dur: 11.4, query: "agent=empty", dpr: 3 },
   composer: { at: 0, dur: 3.5, query: "agent=empty", dpr: 5, clip: [1220, 668, 380, 292] },
   mixer: { at: 11.2, dur: 2.6, query: "agent=empty&panel=mixer", dpr: 3 },
-  plugin: { at: 13.6, dur: 2.6, query: "agent=empty&panel=plugin:Ondera Comp", dpr: 3 },
+  plugin: { at: 13.6, dur: 2.6, query: "agent=empty&panel=plugin:ryolune Comp", dpr: 3 },
   themes: { at: 16.0, dur: 3.4, query: "agent=empty", dpr: 3 },
 };
 

@@ -118,13 +118,13 @@ export function Dialogs() {
       {ui.automation && <AutomationPanel onClose={() => close("automation")} />}
       {ui.recovery && <Recovery onClose={() => close("recovery")} />}
       {ui.help && (
-        <Modal title="Working in Ondera" onClose={() => close("help")}>
+        <Modal title="Working in ryolune" onClose={() => close("help")}>
           <p>
             Press ⌘/Ctrl P for the command palette: every menu command, by name.
             X swaps the region editor for the mixer.
           </p>
           <ShortcutList />
-          <p>Ondera {store.version}</p>
+          <p>ryolune {store.version}</p>
         </Modal>
       )}
       {ui.pluginWindows?.map((id) => {
@@ -205,7 +205,7 @@ export function Dialogs() {
         </Modal>
       )}
       {ui.error && (
-        <Modal blocking title="Ondera" onClose={() => store.dismissError()}>
+        <Modal blocking title="ryolune" onClose={() => store.dismissError()}>
           <p role="alert">{ui.error}</p>
           <footer>
             <button onClick={() => store.dismissError()}>OK</button>
@@ -298,10 +298,10 @@ function Settings({ onClose }: { onClose: () => void }) {
         <div className="settings-fields">
           {section === "about" && (
             <>
-              <h2>Ondera {store.version}</h2>
+              <h2>ryolune {store.version}</h2>
               <p>Digital audio workstation for macOS, Linux and Windows.</p>
               <p>
-                Free and open source. If Ondera earns a place in your music, pay
+                Free and open source. If ryolune earns a place in your music, pay
                 what you want for it, once.
               </p>
               <button
@@ -309,7 +309,7 @@ function Settings({ onClose }: { onClose: () => void }) {
                   store.fire("app.openGuide", { guide: "support" })
                 }
               >
-                Support Ondera…
+                Support ryolune…
               </button>
               <button
                 onClick={() =>
@@ -776,11 +776,11 @@ function Export({ onClose }: { onClose: () => void }) {
         </pre>
       )}
       {askSupport && (
-        <aside className="support-ask" aria-label="Support Ondera">
+        <aside className="support-ask" aria-label="Support ryolune">
           <p>
-            Ondera is free and stays free. If it is earning a place in your
+            ryolune is free and stays free. If it is earning a place in your
             music, you can pay what you want for it, once. No subscription,
-            nothing gets unlocked, and Ondera will not ask again.
+            nothing gets unlocked, and ryolune will not ask again.
           </p>
           <button onClick={() => setAskSupport(false)}>No thanks</button>
           <button

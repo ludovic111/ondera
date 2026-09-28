@@ -1,15 +1,15 @@
 //! Window chrome: title bar, transport, browser and inspector.
 //!
-//! Layout follows `design/Ondera Arrangement.dc.html`. Every persistent edit
+//! Layout follows `design/ryolune Arrangement.dc.html`. Every persistent edit
 //! goes through `store::Command`; the widgets here only paint and interact.
 
 use crate::{
-    app::{Intent, Ondera},
+    app::{Intent, Ryolune},
     plugins::{format_icon, strip_label, truncate},
     theme::*,
 };
 use eframe::egui::{self, pos2, vec2, Align2, Rect, Sense, Vec2};
-use ondera_engine::{
+use ryolune_engine::{
     device, midi,
     model::*,
     plugin::{Descriptor, Format},
@@ -58,7 +58,7 @@ pub fn position_parts(beats: f64, bpb: f64) -> (u64, u64, u64, u64) {
     )
 }
 
-impl Ondera {
+impl Ryolune {
     pub fn title_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("title")
             .exact_height(TITLE_BAR)
@@ -376,7 +376,7 @@ impl Ondera {
             }
         });
         ui.menu_button("Help", |ui| {
-            if ui.button("Working in Ondera").clicked() {
+            if ui.button("Working in ryolune").clicked() {
                 self.show_help = true;
             }
             if ui.button("Check for updates…").clicked() {
@@ -384,13 +384,13 @@ impl Ondera {
             }
             if ui.button("Native plugin SDK…").clicked() {
                 crate::settings::reveal(std::path::Path::new(
-                    "https://github.com/ludovic111/ondera/blob/main/docs/NATIVE_PLUGINS.md",
+                    "https://github.com/ludovic111/ryolune/blob/main/docs/NATIVE_PLUGINS.md",
                 ));
                 ui.close();
             }
             ui.separator();
             ui.label(text(
-                format!("Ondera {}", crate::update::current_version()),
+                format!("ryolune {}", crate::update::current_version()),
                 FS_SECONDARY,
                 Weight::Medium,
                 DIM,
@@ -1986,7 +1986,7 @@ impl Ondera {
     }
 }
 
-/// Group plugins for menus and the browser: Ondera first (by category for
+/// Group plugins for menus and the browser: ryolune first (by category for
 /// effects), then each external format sorted by vendor and name.
 pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, Vec<BrowserItem>)> {
     let mut groups: Vec<(String, Vec<BrowserItem>)> = vec![];
@@ -2003,9 +2003,9 @@ pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, 
         .enumerate()
     {
         let group = if instruments {
-            "Ondera".to_string()
+            "ryolune".to_string()
         } else {
-            format!("Ondera · {}", d.category)
+            format!("ryolune · {}", d.category)
         };
         push(
             group,
@@ -2039,11 +2039,11 @@ pub fn plugin_groups(entries: &[Descriptor], instruments: bool) -> Vec<(String, 
     });
     for d in external {
         let group = match d.format {
-            Format::Native => "Ondera Native",
+            Format::Native => "ryolune Native",
             Format::Clap => "CLAP",
             Format::Vst3 => "VST3",
             Format::AudioUnit => "Audio Units",
-            Format::Stock => "Ondera",
+            Format::Stock => "ryolune",
         };
         push(
             group.to_string(),

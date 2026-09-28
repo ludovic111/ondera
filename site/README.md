@@ -1,4 +1,4 @@
-# Ondera site
+# ryolune site
 
 The marketing site at the root of this folder is plain HTML, CSS and JavaScript, served by a
 dependency-free Node server (`server.js`). It deploys to Railway from this directory
@@ -22,8 +22,8 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
   composes everything else from the tokens. Text inside a well (time display, terminals, the build
   command) takes `accent-hi`, the accent that holds 4.5:1 on a well.
 - `/support` redirects to the pay-what-you-want checkout in the host variable
-  `ONDERA_CHECKOUT_URL` (https only; Railway service variable), or to the page's `#support`
-  section while it is unset. The app's Help › Support Ondera… opens `/support`, so the checkout
+  `RYOLUNE_CHECKOUT_URL` (https only; Railway service variable), or to the page's `#support`
+  section while it is unset. The app's Help › Support ryolune… opens `/support`, so the checkout
   can move without a release.
 - `server.js` also redirects `/download` (by User-Agent) and `/download/<platform>` to the latest
   GitHub release asset; keep `ASSETS` in step with `update::asset_name`. It replaces `%ORIGIN%` in
@@ -38,7 +38,7 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
   changes and replace the files in place under the same names: `arrangement.webp` and `mixer.webp`
   at 2000x1250 (`ui.screenshot`; the `width`/`height` attributes reserve that 16:10 box), `og.png`
   at 1200x750 (declared in the Open Graph tags; update them if the size changes).
-- `video/ondera-<version>-4k.mp4` and `-1080p.mp4` are the launch film shown at the top of "The
+- `video/ryolune-<version>-4k.mp4` and `-1080p.mp4` are the launch film shown at the top of "The
   actual window" (`#film`), with `img/film-poster.webp` (2400x1350) as its poster. The `<source>`
   `media` query gives the 4K file to wide or high-density screens and 1080p to the rest; nothing
   downloads before Play (`preload="none"`). They are copies of `marketing/brag-output/brag-4k.mp4`

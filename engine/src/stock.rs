@@ -1,5 +1,5 @@
-//! The stock Ondera plugin library: twenty-three effects and eleven instruments written against
-//! the `ondera-plugin` SDK. They are linked into the engine but served through the same C
+//! The stock ryolune plugin library: twenty-three effects and eleven instruments written against
+//! the `ryolune-plugin` SDK. They are linked into the engine but served through the same C
 //! ABI vtables as third-party native plugins, so the stock library doubles as the reference
 //! implementation and a permanent test of the plugin path.
 
@@ -8,19 +8,19 @@ use crate::{
     host::native,
     plugin::{Descriptor, Format, Instance, ParamInfo},
 };
-use ondera_plugin::{
+use ryolune_plugin::{
     ffi::{vtable2, Manifest, PluginVTable, PluginVTable2},
     plugin_table,
     prelude::*,
 };
 use std::{f64::consts::TAU, sync::LazyLock};
 
-const VENDOR: &str = "Ondera";
+const VENDOR: &str = "ryolune";
 const ON_OFF: &[&str] = &["Off", "On"];
 
 fn category(name: &str) -> &'static str {
     match name {
-        "Ondera Comp" | "Gate" | "Limiter" | "Transient" | "De-Esser" | "Pump" => "Dynamics",
+        "ryolune Comp" | "Gate" | "Limiter" | "Transient" | "De-Esser" | "Pump" => "Dynamics",
         "Channel EQ" | "Filter" | "Auto Filter" => "EQ & Filter",
         "Tape Sat" | "Overdrive" | "Bitcrusher" | "Lo-Fi" => "Distortion",
         "Chorus" | "Phaser" | "Tremolo" | "Flanger" | "Auto Pan" => "Modulation",
@@ -172,12 +172,12 @@ pub type FactoryPreset = (&'static str, &'static str, &'static [(u32, f64)]);
 /// Factory presets for the stock library.
 pub const FACTORY_PRESETS: &[FactoryPreset] = &[
     (
-        "Ondera Comp",
+        "ryolune Comp",
         "Vocal glue",
         &[(0, -22.0), (1, 3.0), (2, 8.0), (3, 90.0), (4, 3.0)],
     ),
     (
-        "Ondera Comp",
+        "ryolune Comp",
         "Drum bus",
         &[
             (0, -14.0),
@@ -189,7 +189,7 @@ pub const FACTORY_PRESETS: &[FactoryPreset] = &[
         ],
     ),
     (
-        "Ondera Comp",
+        "ryolune Comp",
         "Bass tighten",
         &[(0, -20.0), (1, 6.0), (2, 4.0), (3, 150.0), (4, 4.0)],
     ),
@@ -257,7 +257,7 @@ pub const FACTORY_PRESETS: &[FactoryPreset] = &[
     ),
     ("Limiter", "Master safe", &[(0, 2.0), (1, -1.0), (2, 120.0)]),
     (
-        "Ondera Synth",
+        "ryolune Synth",
         "Soft square lead",
         &[
             (0, 1.0),
@@ -270,7 +270,7 @@ pub const FACTORY_PRESETS: &[FactoryPreset] = &[
         ],
     ),
     (
-        "Ondera Synth",
+        "ryolune Synth",
         "Plucky bass",
         &[
             (0, 0.0),
@@ -556,77 +556,77 @@ macro_rules! instrument {
 instrument!(
     Synth,
     Preset::Synth,
-    "org.ondera.stock.synth",
-    "Ondera Synth",
+    "org.ryolune.stock.synth",
+    "ryolune Synth",
     "Subtractive synth with three waves, a filter envelope and ADSR."
 );
 instrument!(
     Piano,
     Preset::Piano,
-    "org.ondera.stock.epiano",
+    "org.ryolune.stock.epiano",
     "E-Piano Mk I",
     "Tine electric piano with velocity-sensitive bark."
 );
 instrument!(
     Drums,
     Preset::Drums,
-    "org.ondera.stock.drums",
+    "org.ryolune.stock.drums",
     "Drum Machine",
     "Analogue-style kick, snare and hats on general MIDI pitches."
 );
 instrument!(
     Sampler,
     Preset::Pluck,
-    "org.ondera.stock.sampler",
+    "org.ryolune.stock.sampler",
     "Sampler",
     "Short plucked tone."
 );
 instrument!(
     Sub,
     Preset::Sub,
-    "org.ondera.stock.sub808",
+    "org.ryolune.stock.sub808",
     "Sub Bass 808",
     "Pure sine sub with a quick pitch settle."
 );
 instrument!(
     Bell,
     Preset::Bell,
-    "org.ondera.stock.glasskeys",
+    "org.ryolune.stock.glasskeys",
     "Glass Keys",
     "FM bell keys with a long shimmer."
 );
 instrument!(
     Pad,
     Preset::Pad,
-    "org.ondera.stock.choirpad",
+    "org.ryolune.stock.choirpad",
     "Choir Pad",
     "Detuned saw pad with a soft low-pass."
 );
 instrument!(
     RiserSynth,
     Preset::Riser,
-    "org.ondera.stock.riser",
+    "org.ryolune.stock.riser",
     "Riser",
     "Filtered noise that rises over four seconds."
 );
 instrument!(
     Organ,
     Preset::Organ,
-    "org.ondera.stock.organ",
+    "org.ryolune.stock.organ",
     "Tonewheel Organ",
     "Five-drawbar tonewheel organ with key click."
 );
 instrument!(
     Strings,
     Preset::Strings,
-    "org.ondera.stock.strings",
+    "org.ryolune.stock.strings",
     "String Ensemble",
     "Three detuned saws with slow vibrato behind a low-pass, for string pads and swells."
 );
 instrument!(
     AnalogBass,
     Preset::Bass,
-    "org.ondera.stock.analogbass",
+    "org.ryolune.stock.analogbass",
     "Analog Bass",
     "Saw over a sub-octave square through an enveloped filter and a soft clip."
 );
@@ -737,7 +737,7 @@ pub struct Comp {
     env: f32,
 }
 impl Plugin for Comp {
-    const INFO: Info = Info::effect("org.ondera.stock.comp", "Ondera Comp", VENDOR, "Dynamics")
+    const INFO: Info = Info::effect("org.ryolune.stock.comp", "ryolune Comp", VENDOR, "Dynamics")
         .describe("Feed-forward peak compressor with makeup and parallel mix.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -821,7 +821,7 @@ impl Eq {
     }
 }
 impl Plugin for Eq {
-    const INFO: Info = Info::effect("org.ondera.stock.eq", "Channel EQ", VENDOR, "EQ & Filter")
+    const INFO: Info = Info::effect("org.ryolune.stock.eq", "Channel EQ", VENDOR, "EQ & Filter")
         .describe("Low shelf, peaking mid and high shelf.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -951,8 +951,13 @@ impl<const HARD: bool> Saturator<HARD> {
     }
 }
 impl Plugin for Saturator<false> {
-    const INFO: Info = Info::effect("org.ondera.stock.tapesat", "Tape Sat", VENDOR, "Distortion")
-        .describe("Soft tape-style saturation with a tone control.");
+    const INFO: Info = Info::effect(
+        "org.ryolune.stock.tapesat",
+        "Tape Sat",
+        VENDOR,
+        "Distortion",
+    )
+    .describe("Soft tape-style saturation with a tone control.");
     fn params() -> Vec<ParamSpec> {
         vec![
             param("Drive", 0.0, 24.0, 6.0, "dB"),
@@ -976,7 +981,7 @@ impl Plugin for Saturator<false> {
 }
 impl Plugin for Saturator<true> {
     const INFO: Info = Info::effect(
-        "org.ondera.stock.overdrive",
+        "org.ryolune.stock.overdrive",
         "Overdrive",
         VENDOR,
         "Distortion",
@@ -1014,7 +1019,7 @@ pub struct Chorus {
     mix: Smoothed,
 }
 impl Plugin for Chorus {
-    const INFO: Info = Info::effect("org.ondera.stock.chorus", "Chorus", VENDOR, "Modulation")
+    const INFO: Info = Info::effect("org.ryolune.stock.chorus", "Chorus", VENDOR, "Modulation")
         .describe("Two modulated delay taps with stereo spread.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1128,7 +1133,7 @@ pub struct Space {
     mix: Smoothed,
 }
 impl Plugin for Space {
-    const INFO: Info = Info::effect("org.ondera.stock.space", "Space", VENDOR, "Space & Time")
+    const INFO: Info = Info::effect("org.ryolune.stock.space", "Space", VENDOR, "Space & Time")
         .describe("Plate-style reverb with pre-delay, damping and width.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1253,7 +1258,7 @@ impl Echo {
     }
 }
 impl Plugin for Echo {
-    const INFO: Info = Info::effect("org.ondera.stock.echo", "Echo", VENDOR, "Space & Time")
+    const INFO: Info = Info::effect("org.ryolune.stock.echo", "Echo", VENDOR, "Space & Time")
         .describe("Tempo-synced stereo delay with ping-pong and tone.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1346,7 +1351,7 @@ pub struct Gate {
     held: u32,
 }
 impl Plugin for Gate {
-    const INFO: Info = Info::effect("org.ondera.stock.gate", "Gate", VENDOR, "Dynamics")
+    const INFO: Info = Info::effect("org.ryolune.stock.gate", "Gate", VENDOR, "Dynamics")
         .describe("Noise gate with hold and range.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1426,7 +1431,7 @@ pub struct Limiter {
     gain: f32,
 }
 impl Plugin for Limiter {
-    const INFO: Info = Info::effect("org.ondera.stock.limiter", "Limiter", VENDOR, "Dynamics")
+    const INFO: Info = Info::effect("org.ryolune.stock.limiter", "Limiter", VENDOR, "Dynamics")
         .describe("Look-ahead brickwall limiter.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1499,7 +1504,7 @@ impl Filter {
     }
 }
 impl Plugin for Filter {
-    const INFO: Info = Info::effect("org.ondera.stock.filter", "Filter", VENDOR, "EQ & Filter")
+    const INFO: Info = Info::effect("org.ryolune.stock.filter", "Filter", VENDOR, "EQ & Filter")
         .describe("State variable filter with resonance and drive.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1572,7 +1577,7 @@ pub struct Phaser {
     last: [f32; 2],
 }
 impl Plugin for Phaser {
-    const INFO: Info = Info::effect("org.ondera.stock.phaser", "Phaser", VENDOR, "Modulation")
+    const INFO: Info = Info::effect("org.ryolune.stock.phaser", "Phaser", VENDOR, "Modulation")
         .describe("Two to twelve all-pass stages swept by an LFO.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1676,7 +1681,7 @@ impl Tremolo {
     }
 }
 impl Plugin for Tremolo {
-    const INFO: Info = Info::effect("org.ondera.stock.tremolo", "Tremolo", VENDOR, "Modulation")
+    const INFO: Info = Info::effect("org.ryolune.stock.tremolo", "Tremolo", VENDOR, "Modulation")
         .describe("Amplitude modulation with three shapes and stereo phase.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1736,7 +1741,7 @@ impl Bitcrusher {
 }
 impl Plugin for Bitcrusher {
     const INFO: Info = Info::effect(
-        "org.ondera.stock.bitcrusher",
+        "org.ryolune.stock.bitcrusher",
         "Bitcrusher",
         VENDOR,
         "Distortion",
@@ -1796,7 +1801,7 @@ pub struct Width {
     lp: f32,
 }
 impl Plugin for Width {
-    const INFO: Info = Info::effect("org.ondera.stock.width", "Stereo Width", VENDOR, "Utility")
+    const INFO: Info = Info::effect("org.ryolune.stock.width", "Stereo Width", VENDOR, "Utility")
         .describe("Mid/side width with optional mono bass.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1860,7 +1865,7 @@ impl Utility {
     }
 }
 impl Plugin for Utility {
-    const INFO: Info = Info::effect("org.ondera.stock.utility", "Utility", VENDOR, "Utility")
+    const INFO: Info = Info::effect("org.ryolune.stock.utility", "Utility", VENDOR, "Utility")
         .describe("Gain, pan, polarity and mono fold-down.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -1924,7 +1929,7 @@ pub struct Transient {
 }
 impl Plugin for Transient {
     const INFO: Info = Info::effect(
-        "org.ondera.stock.transient",
+        "org.ryolune.stock.transient",
         "Transient",
         VENDOR,
         "Dynamics",
@@ -1994,7 +1999,7 @@ pub struct Flanger {
     phase: f64,
 }
 impl Plugin for Flanger {
-    const INFO: Info = Info::effect("org.ondera.stock.flanger", "Flanger", VENDOR, "Modulation")
+    const INFO: Info = Info::effect("org.ryolune.stock.flanger", "Flanger", VENDOR, "Modulation")
         .describe("A short swept delay with feedback: jet sweeps to metallic resonance.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -2066,8 +2071,13 @@ pub struct AutoPan {
     phase: f64,
 }
 impl Plugin for AutoPan {
-    const INFO: Info = Info::effect("org.ondera.stock.autopan", "Auto Pan", VENDOR, "Modulation")
-        .describe("Moves the signal between the speakers at constant power.");
+    const INFO: Info = Info::effect(
+        "org.ryolune.stock.autopan",
+        "Auto Pan",
+        VENDOR,
+        "Modulation",
+    )
+    .describe("Moves the signal between the speakers at constant power.");
     fn params() -> Vec<ParamSpec> {
         vec![
             param("Rate", 0.05, 12.0, 1.0, "Hz"),
@@ -2134,7 +2144,7 @@ pub struct AutoFilter {
 }
 impl Plugin for AutoFilter {
     const INFO: Info = Info::effect(
-        "org.ondera.stock.autofilter",
+        "org.ryolune.stock.autofilter",
         "Auto Filter",
         VENDOR,
         "EQ & Filter",
@@ -2238,7 +2248,7 @@ impl DeEsser {
     }
 }
 impl Plugin for DeEsser {
-    const INFO: Info = Info::effect("org.ondera.stock.deesser", "De-Esser", VENDOR, "Dynamics")
+    const INFO: Info = Info::effect("org.ryolune.stock.deesser", "De-Esser", VENDOR, "Dynamics")
         .describe("Turns down only the harsh band of a voice, only while it is harsh.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -2329,7 +2339,7 @@ pub struct LoFi {
     retune: Retune,
 }
 impl Plugin for LoFi {
-    const INFO: Info = Info::effect("org.ondera.stock.lofi", "Lo-Fi", VENDOR, "Distortion")
+    const INFO: Info = Info::effect("org.ryolune.stock.lofi", "Lo-Fi", VENDOR, "Distortion")
         .describe("Worn tape and dusty vinyl: pitch wobble, hiss, a dull top and a little crunch.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -2434,7 +2444,7 @@ impl PitchShift {
 }
 impl Plugin for PitchShift {
     const INFO: Info = Info::effect(
-        "org.ondera.stock.pitchshift",
+        "org.ryolune.stock.pitchshift",
         "Pitch Shift",
         VENDOR,
         "Pitch",
@@ -2510,7 +2520,7 @@ pub struct Pump {
     gain: Smoother,
 }
 impl Plugin for Pump {
-    const INFO: Info = Info::effect("org.ondera.stock.pump", "Pump", VENDOR, "Dynamics")
+    const INFO: Info = Info::effect("org.ryolune.stock.pump", "Pump", VENDOR, "Dynamics")
         .describe("Ducks on every beat and swells back, in time with the song. The sidechain sound without the routing.");
     fn params() -> Vec<ParamSpec> {
         vec![
@@ -2569,7 +2579,7 @@ mod tests {
     #[test]
     fn the_abi_2_tables_list_the_same_plugins_in_the_same_order() {
         for (index, table) in TABLES_V2.iter().enumerate() {
-            let manifest = unsafe { ondera_plugin::ffi::read_manifest(&table.base) }.unwrap();
+            let manifest = unsafe { ryolune_plugin::ffi::read_manifest(&table.base) }.unwrap();
             assert_eq!(manifest, MANIFESTS[index]);
         }
     }

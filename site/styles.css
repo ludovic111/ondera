@@ -1,4 +1,4 @@
-/* Ondera site. One look: the app's Skeuomorphic dark theme, the design source. The site-level
+/* ryolune site. One look: the app's Skeuomorphic dark theme, the design source. The site-level
    scale lives in the :root block below; every colour, gradient, shadow, radius and control
    dimension comes from tokens.css, generated from frontend/src/theme by scripts/gen-site-tokens.mjs.
    Motion patterns are listed with their references in README.md ("Design references"). */

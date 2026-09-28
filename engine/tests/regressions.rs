@@ -1,5 +1,5 @@
 //! Regression tests for bugs found in the 0.8 quality pass, one test per bug.
-use ondera_engine::control::{self, Headless, Host};
+use ryolune_engine::control::{self, Headless, Host};
 use serde_json::{json, Value};
 
 fn call(host: &mut dyn Host, name: &str, params: Value) -> Value {
@@ -59,9 +59,9 @@ fn bypassing_an_insert_by_slot_keeps_the_effect() {
 /// with file operations off could write anywhere through it.
 #[test]
 fn rhythm_preview_respects_the_session_file_and_agent_permissions() {
-    use ondera_engine::{control_app, settings::Permissions};
+    use ryolune_engine::{control_app, settings::Permissions};
     let dir = tempfile::tempdir().unwrap();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     let mut host = Headless::new();
     call(&mut host, "session.save", json!({ "path": song }));
     let lanes = json!([{"steps":4,"pulses":4,"rotation":0,"pitch":36,"velocity":100}]);
@@ -181,7 +181,7 @@ fn removing_the_selected_note_clears_the_note_selection() {
 #[test]
 fn loading_repairs_shared_insert_ids_and_the_piano_roll_scroll() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("merged.ondera");
+    let path = dir.path().join("merged.ryolune");
     let mut host = Headless::new();
     let a = midi_track(&mut host);
     let b = midi_track(&mut host);
@@ -198,8 +198,8 @@ fn loading_repairs_shared_insert_ids_and_the_piano_roll_scroll() {
     file["session"]["strips"][&b]["inserts"][0]["id"] = shared;
     file["session"]["view"]["editorLowPitch"] = json!(250);
     std::fs::write(&path, file.to_string()).unwrap();
-    let (session, _) = ondera_engine::document::load(&path).unwrap();
-    let store = ondera_engine::store::Store::new(session).unwrap();
+    let (session, _) = ryolune_engine::document::load(&path).unwrap();
+    let store = ryolune_engine::store::Store::new(session).unwrap();
     let session = store.session();
     assert_ne!(
         session.strips[&a].inserts[0].id,
@@ -261,7 +261,7 @@ fn saved_and_exported_files_keep_ordinary_permissions() {
     let dir = tempfile::tempdir().unwrap();
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
     let mut host = Headless::new();
-    let song = dir.path().join("song.ondera");
+    let song = dir.path().join("song.ryolune");
     call(&mut host, "session.save", json!({ "path": song }));
     assert_eq!(mode(&song), 0o644);
     std::fs::set_permissions(&song, std::fs::Permissions::from_mode(0o640)).unwrap();
@@ -271,11 +271,11 @@ fn saved_and_exported_files_keep_ordinary_permissions() {
     let midi = dir.path().join("song.mid");
     call(&mut host, "session.exportMidi", json!({ "path": midi }));
     assert_eq!(mode(&midi), 0o644);
-    let target = dir.path().join("real.ondera");
-    let link = dir.path().join("link.ondera");
+    let target = dir.path().join("real.ryolune");
+    let link = dir.path().join("link.ryolune");
     std::fs::write(&target, "").unwrap();
     std::os::unix::fs::symlink(&target, &link).unwrap();
-    ondera_engine::document::atomic_write(&link, |f| {
+    ryolune_engine::document::atomic_write(&link, |f| {
         use std::io::Write;
         f.write_all(b"new").map_err(|e| e.to_string())
     })
@@ -474,7 +474,7 @@ fn importing_midi_with_its_meter_keeps_automation_on_its_bars() {
 /// delay and kept it.
 #[test]
 fn ogg_imports_end_on_the_exported_frame() {
-    use ondera_engine::{audio, export, store};
+    use ryolune_engine::{audio, export, store};
     let session = store::demo();
     let mut library = audio::Library::new();
     audio::prepare_sources(&session, &mut library).unwrap();
@@ -513,7 +513,7 @@ fn ogg_imports_end_on_the_exported_frame() {
 /// library keeps the buffer so a redo can bring it back, and the budget summed the library.
 #[test]
 fn undone_audio_imports_do_not_count_toward_the_import_budget() {
-    use ondera_engine::audio::{self, AudioBuffer};
+    use ryolune_engine::audio::{self, AudioBuffer};
     use std::sync::Arc;
     let dir = tempfile::tempdir().unwrap();
     let wav = dir.path().join("loop.wav");

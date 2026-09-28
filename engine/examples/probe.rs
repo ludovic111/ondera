@@ -1,14 +1,14 @@
 //! Instantiate one plugin from the scan cache, list its parameters, process a
 //! second of audio and round-trip its state. Usage:
-//! `cargo run --release -p ondera-engine --example probe -- "clap:com.example.id"`
-use ondera_engine::{
+//! `cargo run --release -p ryolune-engine --example probe -- "clap:com.example.id"`
+use ryolune_engine::{
     host,
     plugin::{Event, NoteEvent, ProcessContext, Rack, MAX_BLOCK},
 };
 
 fn main() {
     let id = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: probe <plugin id>   (see `ondera --plugins`)");
+        eprintln!("usage: probe <plugin id>   (see `ryolune --plugins`)");
         std::process::exit(2);
     });
     let started = std::time::Instant::now();

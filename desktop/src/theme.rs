@@ -1,6 +1,6 @@
 //! Visual tokens and the skeuomorphic material system.
 //!
-//! Source: `design/Ondera Arrangement.dc.html`, spec sheet 02 (light from 90°
+//! Source: `design/ryolune Arrangement.dc.html`, spec sheet 02 (light from 90°
 //! above). Every colour, size, gradient and shadow used by the native interface
 //! lives here, as it did in the former `tokens.ts`. Nothing else in `desktop/`
 //! may introduce a visual constant.

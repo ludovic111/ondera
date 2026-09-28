@@ -1,12 +1,12 @@
 # Command reference
 
-<!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `ONDERA_BLESS=1 cargo test -p ondera-tools --test command_docs`. -->
+<!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune-tools --test command_docs`. -->
 
-Ondera has 190 commands. The window, `ondera-cli`, `ondera-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ondera-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
+ryolune has 190 commands. The window, `ryolune-cli`, `ryolune-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ryolune-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
 
 Conventions: bars and beats are zero-based; note `start` and `length` are beats relative to their clip; pitch 60 is C4; velocity is 1–127; a fader value of 0.75 is unity gain. Strip commands accept a track id or `master`, `bus-a`, `bus-b`; insert slots are 0–7.
 
-**Edits** marks a command that can change the song, the transport, settings or files (it is one undo step when it changes the song). **Needs the app** marks a command only the running window can serve; the others also work on a file (`ondera-cli --file song.ondera …`).
+**Edits** marks a command that can change the song, the transport, settings or files (it is one undo step when it changes the song). **Needs the app** marks a command only the running window can serve; the others also work on a file (`ryolune-cli --file song.ryolune …`).
 
 ## Families
 
@@ -74,17 +74,17 @@ Replace the open session with an empty one (or the bundled Nightfall demo). Unsa
 
 *Edits*
 
-Open a .ondera session file, replacing the current session. Unsaved changes are discarded.
+Open a .ryolune session file, replacing the current session. Unsaved changes are discarded.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Path to a .ondera file. |
+| `path` | string | yes | Path to a .ryolune file. |
 
 ### `session.save`
 
 *Edits*
 
-Save the session as a .ondera file. Writes atomically; the old file survives a failed save.
+Save the session as a .ryolune file. Writes atomically; the old file survives a failed save.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -287,7 +287,7 @@ File a plugin under another sound folder, or a new one of your own. Omit folder 
 
 *Edits*
 
-Start a new Ondera native plugin in Rust: writes a crate with a working effect or instrument, a test that runs it through the real plugin ABI, and build notes. Build it with cargo, then plugin.install.
+Start a new ryolune native plugin in Rust: writes a crate with a working effect or instrument, a test that runs it through the real plugin ABI, and build notes. Build it with cargo, then plugin.install.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -300,7 +300,7 @@ Start a new Ondera native plugin in Rust: writes a crate with a working effect o
 
 *Edits*
 
-Copy a built native plugin library (.dylib, .so, .dll or .onplug) into Ondera's plugin folder. Run plugin.scan afterwards to load it.
+Copy a built native plugin library (.dylib, .so, .dll or .onplug) into ryolune's plugin folder. Run plugin.scan afterwards to load it.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -308,7 +308,7 @@ Copy a built native plugin library (.dylib, .so, .dll or .onplug) into Ondera's 
 
 ### `plugin.describe`
 
-Describe an installed plugin without placing it: format, vendor, category, latency, whether it has its own window, its factory programs and Ondera presets, and its parameters with ids, ranges, units, defaults as displayed and whether they can be automated.
+Describe an installed plugin without placing it: format, vendor, category, latency, whether it has its own window, its factory programs and ryolune presets, and its parameters with ids, ranges, units, defaults as displayed and whether they can be automated.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -322,7 +322,7 @@ Describe an installed plugin without placing it: format, vendor, category, laten
 
 *Edits*
 
-Start playback from the playhead. Needs the Ondera app (live mode).
+Start playback from the playhead. Needs the ryolune app (live mode).
 
 ### `transport.record`
 
@@ -1137,7 +1137,7 @@ Set several plugin parameters atomically in one undo step. Keys are parameter id
 
 ### `strip.programs`
 
-List the programs of the plugin on a strip: its own factory programs (Audio Unit factory presets, a VST3 program list) with the current one, and the Ondera presets saved for it (preset.list). CLAP preset discovery and plugins that only show presets in their own window are not listed.
+List the programs of the plugin on a strip: its own factory programs (Audio Unit factory presets, a VST3 program list) with the current one, and the ryolune presets saved for it (preset.list). CLAP preset discovery and plugins that only show presets in their own window are not listed.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1148,7 +1148,7 @@ List the programs of the plugin on a strip: its own factory programs (Audio Unit
 
 *Edits*
 
-Load one of the plugin's programs, by index or by name, in one undo step. A name that is not a factory program loads the Ondera preset of that name (preset.load).
+Load one of the plugin's programs, by index or by name, in one undo step. A name that is not a factory program loads the ryolune preset of that name (preset.load).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -1880,11 +1880,11 @@ Answer the unsaved-changes prompt the window shows before New, Open, Quit or Rel
 
 *Edits · Needs the app*
 
-Open one of Ondera's pages in the web browser.
+Open one of ryolune's pages in the web browser.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: pay what you want for Ondera, once (no subscription). |
+| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: pay what you want for ryolune, once (no subscription). |
 
 ### `app.relaunch`
 

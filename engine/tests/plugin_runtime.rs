@@ -1,4 +1,4 @@
-use ondera_engine::{
+use ryolune_engine::{
     audio::Library,
     model::{Clip, ClipData, Insert, Note, Send, Strip, BUS_A, BUS_B, MASTER},
     plugin::{Event, NoteEvent, ParamChange, ProcessContext, Processor, Rack},
@@ -52,7 +52,7 @@ impl Processor for DelayProcessor {
         }
     }
 }
-fn fixture() -> ondera_engine::model::Session {
+fn fixture() -> ryolune_engine::model::Session {
     let mut session = store::empty();
     session.tracks.truncate(1);
     session.tracks[0].kind = "midi".into();
@@ -313,10 +313,10 @@ struct ParameterObserver(Arc<Mutex<Vec<ParamChange>>>);
 #[test]
 fn live_pedal_keeps_stock_audio_sounding_after_key_up_and_releases_on_pedal_up() {
     let session = fixture();
-    let route = ondera_engine::midi::route_id(&session.tracks[0].id);
+    let route = ryolune_engine::midi::route_id(&session.tracks[0].id);
     let (mut renderer, mut rack) =
-        ondera_engine::render::offline(&session, &Library::new(), 48000).unwrap();
-    let mut midi = ondera_engine::midi::MidiNotes::default();
+        ryolune_engine::render::offline(&session, &Library::new(), 48000).unwrap();
+    let mut midi = ryolune_engine::midi::MidiNotes::default();
     for bytes in [[0x90, 60, 100], [0xb0, 64, 127], [0x80, 60, 0]] {
         midi.receive(&bytes, route, |event| {
             renderer.routed_note(
@@ -408,12 +408,12 @@ fn routed_note_release_finds_original_track_after_reordering_the_session() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let mut rack = Rack::new(2);
     rack.mount(0, Box::new(NoteObserver(events.clone())));
-    renderer.routed_note(ondera_engine::midi::route_id(&first), true, 72, 100, 0);
+    renderer.routed_note(ryolune_engine::midi::route_id(&first), true, 72, 100, 0);
     renderer.render(&mut rack, &mut [[0.0; 2]; 256]);
     session.tracks.swap(0, 1);
     let mut updated = Renderer::new(session, &Library::new(), 48000, &slots).unwrap();
     updated.adopt(&renderer);
-    updated.routed_note(ondera_engine::midi::route_id(&first), false, 72, 0, 0);
+    updated.routed_note(ryolune_engine::midi::route_id(&first), false, 72, 0, 0);
     updated.render(&mut rack, &mut [[0.0; 2]; 256]);
     assert_eq!(
         events
@@ -490,7 +490,7 @@ fn offline_parameter_reservation_keeps_every_saved_knob() {
 
 #[test]
 fn stock_state_load_changes_audio_and_parameter_overrides_still_win() {
-    let mut instance = ondera_engine::stock::create("Utility", 48000).unwrap();
+    let mut instance = ryolune_engine::stock::create("Utility", 48000).unwrap();
     let mut rack = Rack::new(1);
     rack.mount(0, instance.processor.take().unwrap());
     instance.editor.set_value(0, -12.0);
@@ -512,7 +512,7 @@ fn stock_state_load_changes_audio_and_parameter_overrides_still_win() {
 #[test]
 fn stock_limiter_exposes_its_lookahead_to_the_graph() {
     for rate in [44100, 48000, 96000] {
-        let instance = ondera_engine::stock::create("Limiter", rate).unwrap();
+        let instance = ryolune_engine::stock::create("Limiter", rate).unwrap();
         assert_eq!(instance.editor.latency(), rate / 1000);
         assert_eq!(
             instance.editor.latency(),

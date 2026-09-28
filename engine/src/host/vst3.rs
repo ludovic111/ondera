@@ -380,7 +380,7 @@ impl Class for HostApp {
 }
 impl IHostApplicationTrait for HostApp {
     unsafe fn getName(&self, name: *mut String128) -> tresult {
-        write_wstr("Ondera", &mut *name);
+        write_wstr("ryolune", &mut *name);
         kResultOk
     }
     unsafe fn createInstance(

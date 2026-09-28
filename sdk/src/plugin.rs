@@ -63,7 +63,7 @@ impl Info {
     }
 }
 
-/// One automatable parameter. Values are plain units (dB, Hz, %, ms); Ondera stores them
+/// One automatable parameter. Values are plain units (dB, Hz, %, ms); ryolune stores them
 /// in the document and hands them back through `set_param`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct ParamSpec {

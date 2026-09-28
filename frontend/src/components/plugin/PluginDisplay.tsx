@@ -271,7 +271,7 @@ export function displayFor(name: string, v: Values): ReactNode {
           />
         </>
       );
-    case "Ondera Comp": {
+    case "ryolune Comp": {
       const t = v("Threshold", -18);
       return (
         <>

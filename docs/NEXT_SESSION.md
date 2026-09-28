@@ -4,7 +4,7 @@ Paste everything below the line into a new session opened on this repository.
 
 ---
 
-Continue Ondera from the 0.10 work (branch `claude/next-update-413330`, not released unless the
+Continue ryolune from the 0.10 work (branch `claude/next-update-413330`, not released unless the
 owner has merged it and tagged `v0.10.0` since). Read `CLAUDE.md` first, above all the 0.10
 bullet, then `docs/releases/0.10.0.md`. Build and live-check recipe: `docs/DEVELOPMENT.md`
 ("Checking the real window"). This Mac had no Rust toolchain before 0.10: rustup lives in

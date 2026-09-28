@@ -126,10 +126,10 @@ const strips = Object.fromEntries(
         },
         {
           id: `ins-${id}-1`,
-          name: "Ondera Comp",
+          name: "ryolune Comp",
           meta: "4:1",
           state: i % 2 ? "bypassed" : "active",
-          plugin: "stock:Ondera Comp",
+          plugin: "stock:ryolune Comp",
         },
       ],
       sends: [{ levelDb: -12 }, { levelDb: -Infinity }],
@@ -320,7 +320,7 @@ const ON_OFF = ["Off", "On"];
 
 /** Mirrors engine/src/stock.rs closely enough to lay out every faceplate. */
 export const STOCK_PARAMETERS: Record<string, ReturnType<typeof P>[]> = {
-  "Ondera Comp": [
+  "ryolune Comp": [
     P(0, "Threshold", -60, 0, -18, "dB"),
     P(1, "Ratio", 1, 20, 4, ":1"),
     P(2, "Attack", 0.1, 100, 10, "ms"),
@@ -474,7 +474,7 @@ export const STOCK_PARAMETERS: Record<string, ReturnType<typeof P>[]> = {
     P(2, "Recovery", 5, 100, 45, "%"),
     P(3, "Offset", 0, 100, 0, "%"),
   ],
-  "Ondera Synth": [
+  "ryolune Synth": [
     P(0, "Wave", 0, 2, 0, "", ["Saw", "Square", "Triangle"]),
     hz(1, "Cutoff", 100, 16000, 2400),
     P(2, "Env Amount", 0, 100, 50, "%"),
@@ -521,7 +521,7 @@ export const STOCK_PARAMETERS: Record<string, ReturnType<typeof P>[]> = {
 
 /** Sound folder per mock plugin, as engine/src/control_plugins.rs files them. */
 const MOCK_FOLDERS: Record<string, string> = {
-  "Ondera Comp": "Dynamics",
+  "ryolune Comp": "Dynamics",
   Gate: "Dynamics",
   Limiter: "Dynamics",
   Transient: "Dynamics",
@@ -544,7 +544,7 @@ const MOCK_FOLDERS: Record<string, string> = {
   "Pitch Shift": "Pitch",
   "Stereo Width": "Utility",
   Utility: "Utility",
-  "Ondera Synth": "Synths",
+  "ryolune Synth": "Synths",
   "Choir Pad": "Pads",
   "String Ensemble": "Pads",
   "Grand Piano": "Keys",
@@ -554,7 +554,7 @@ const MOCK_FOLDERS: Record<string, string> = {
 };
 const INSTRUMENT_FOLDERS = ["Synths", "Keys", "Bass", "Drums", "Pads"];
 const mockLibrary = {
-  favorites: new Set<string>(["stock:Ondera Comp"]),
+  favorites: new Set<string>(["stock:ryolune Comp"]),
   folders: new Map<string, string>(),
   recent: ["stock:Space", "stock:Channel EQ"],
 };
@@ -803,7 +803,7 @@ const agentFixture = {
                     params: {
                       trackId: "drums",
                       slot: 0,
-                      effect: "Ondera Comp",
+                      effect: "ryolune Comp",
                     },
                   },
                   {
@@ -838,7 +838,7 @@ const agentFixture = {
           {
             sequence: 1,
             title: "Clip duplicate · Bass verse",
-            detail: "ondera-cli clip.duplicate --clipId bass-2",
+            detail: "ryolune-cli clip.duplicate --clipId bass-2",
             output: '{"id":"bass-3"}',
             succeeded: true,
             running: false,
@@ -848,7 +848,7 @@ const agentFixture = {
           {
             sequence: 2,
             title: "Clip set notes · Bass verse",
-            detail: "ondera-cli clip.setNotes --clipId bass-3 --params '{…}'",
+            detail: "ryolune-cli clip.setNotes --clipId bass-3 --params '{…}'",
             output: '{"noteCount":24}',
             succeeded: true,
             running: false,
@@ -859,7 +859,7 @@ const agentFixture = {
             sequence: 3,
             title:
               "Batch · 3 commands · strip.setInsert, strip.setParameters, strip.setSendLevel",
-            detail: "ondera-cli session.batch --params '{…}'",
+            detail: "ryolune-cli session.batch --params '{…}'",
             output: '{"results":3}',
             succeeded: true,
             running: busy,
@@ -870,7 +870,7 @@ const agentFixture = {
             sequence: 4,
             title: "Preset load · Drums · “Drum glue”",
             detail:
-              "ondera-cli preset.load --trackId drums --slot 0 --name 'Drum glue'",
+              "ryolune-cli preset.load --trackId drums --slot 0 --name 'Drum glue'",
             output: "No preset named “Drum glue”",
             succeeded: false,
             running: false,
@@ -964,7 +964,7 @@ function command(method: string, params: Params): unknown {
         platform: "macos",
         version: "dev",
         catalog: {
-          instruments: ["Ondera Synth", "Grand Piano", "Drum Kit", "Choir Pad"],
+          instruments: ["ryolune Synth", "Grand Piano", "Drum Kit", "Choir Pad"],
           effects: Object.keys(STOCK_PARAMETERS),
           loops: [{ name: "Night beat", instrument: "Drum Kit", bars: 4 }],
         },
@@ -979,7 +979,7 @@ function command(method: string, params: Params): unknown {
           return {
             id: `stock:${name}`,
             name,
-            vendor: "Ondera",
+            vendor: "ryolune",
             instrument,
             effect: !instrument,
             format: "stock",

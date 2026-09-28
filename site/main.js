@@ -1,4 +1,4 @@
-// Ondera site runtime: a tiny command store that mirrors the app's dispatch(command)
+// ryolune site runtime: a tiny command store that mirrors the app's dispatch(command)
 // pattern, canvas drawing for the arrangement mock, the hardware rack demo, the theme
 // gallery and the page's motion. Every visual constant comes from tokens.js (the app's
 // Skeuomorphic dark theme, the one the site wears).
@@ -876,7 +876,7 @@ if (galleryImg) {
     const id = ++request;
     const tab = themeTabs.find((b) => b.dataset.themeId === theme);
     const src = `img/theme-${theme}-${mode}.webp`;
-    const alt = `The Ondera window in the ${tab.dataset.themeName} theme, ${mode} mode: arrangement, piano roll, channel inspector and agent panel`;
+    const alt = `The ryolune window in the ${tab.dataset.themeName} theme, ${mode} mode: arrangement, piano roll, channel inspector and agent panel`;
     // Load before the swap so the transition never waits on the network.
     const next = new Image();
     next.src = src;

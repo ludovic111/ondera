@@ -1,4 +1,4 @@
-import type { SessionStore } from "@ondera/core";
+import type { SessionStore } from "@ryolune/core";
 export function newSession(store: SessionStore) {
   store.fire("web.file", { action: "new" });
 }

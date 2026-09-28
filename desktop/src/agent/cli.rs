@@ -1,9 +1,9 @@
 //! Vendor CLIs as providers: the installed Codex CLI or Claude Code CLI runs one turn in a
 //! child process, connects back to this window through the MCP bridge, and streams its
-//! progress here. Credentials stay with the CLI; Ondera passes only the discovery path.
+//! progress here. Credentials stay with the CLI; ryolune passes only the discovery path.
 
 use super::{bounded, read_line_limited, system_prompt, Event, Turn, TEXT_LIMIT};
-use ondera_engine::Result;
+use ryolune_engine::Result;
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -135,16 +135,16 @@ pub(crate) fn run_claude(turn: Turn) -> Result<()> {
         .events
         .send(Event::Status("Checking Claude Code…".into()));
     preflight(&executable, &["--version"], &turn.cancel, hint)?;
-    let workspace = ondera_engine::host::scan::data_dir().join("agent-workspace");
+    let workspace = ryolune_engine::host::scan::data_dir().join("agent-workspace");
     fs::create_dir_all(&workspace)
         .map_err(|e| format!("Could not create the agent workspace: {e}"))?;
     let config_path = workspace.join(format!("mcp-{}.json", std::process::id()));
     let config = json!({
         "mcpServers": {
-            "ondera": {
+            "ryolune": {
                 "command": turn.mcp_executable,
                 "args": ["--live"],
-                "env": { "ONDERA_CONTROL": turn.discovery.to_string_lossy() }
+                "env": { "RYOLUNE_CONTROL": turn.discovery.to_string_lossy() }
             }
         }
     });
@@ -169,7 +169,7 @@ pub(crate) fn run_claude(turn: Turn) -> Result<()> {
         .args([
             "--strict-mcp-config",
             "--allowedTools",
-            "mcp__ondera__*",
+            "mcp__ryolune__*",
             "--disallowedTools",
             "Bash,Edit,Write,MultiEdit,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,Agent",
             "--append-system-prompt",
@@ -368,7 +368,7 @@ fn parse_codex_event(event: &Value, transcript: &mut Transcript, events: &mpsc::
                 }
                 "mcp_tool_call" => {
                     let _ = events.send(Event::ToolNote {
-                        name: item["tool"].as_str().unwrap_or("Ondera command").into(),
+                        name: item["tool"].as_str().unwrap_or("ryolune command").into(),
                         done: event["type"] == "item.completed",
                     });
                 }
@@ -432,7 +432,7 @@ fn parse_claude_event(
             for block in blocks.into_iter().flatten() {
                 if block["type"] == "tool_use" {
                     let _ = events.send(Event::ToolNote {
-                        name: block["name"].as_str().unwrap_or("Ondera command").into(),
+                        name: block["name"].as_str().unwrap_or("ryolune command").into(),
                         done: false,
                     });
                 }
@@ -513,7 +513,7 @@ pub(crate) fn companion(name: &str) -> String {
 }
 #[allow(dead_code)]
 pub(crate) fn workspace() -> PathBuf {
-    ondera_engine::host::scan::data_dir().join("agent-workspace")
+    ryolune_engine::host::scan::data_dir().join("agent-workspace")
 }
 
 #[cfg(test)]
@@ -529,10 +529,10 @@ mod tests {
         Turn {
             prompt: prompt.into(),
             history: vec![],
-            settings: ondera_engine::settings::Settings::default(),
+            settings: ryolune_engine::settings::Settings::default(),
             session_summary: json!({"name": "Test"}),
             discovery: PathBuf::from("/tmp/user's control.json"),
-            mcp_executable: "C:\\Ondera tools\\ondera-mcp.exe".into(),
+            mcp_executable: "C:\\ryolune tools\\ryolune-mcp.exe".into(),
             cancel,
             events,
         }
@@ -612,7 +612,7 @@ mod tests {
         let (tx, rx) = mpsc::sync_channel(64);
         let source = [
             json!({"type":"system","subtype":"init","session_id":"abc"}),
-            json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__ondera__track_add","input":{}}]}}),
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__ryolune__track_add","input":{}}]}}),
             json!({"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}),
             json!({"type":"assistant","message":{"content":[{"type":"text","text":"Done: one track."}]}}),
             json!({"type":"result","subtype":"success","result":"Done: one track.","is_error":false,"usage":{"input_tokens":10,"output_tokens":5}}),
@@ -750,8 +750,8 @@ mod tests {
         command.args([
             "-c",
             &format!(
-                "mcp_servers.ondera.command={}",
-                json!("C:\\Ondera tools\\ondera-mcp.exe")
+                "mcp_servers.ryolune.command={}",
+                json!("C:\\ryolune tools\\ryolune-mcp.exe")
             ),
         ]);
         let args: Vec<_> = command
@@ -759,9 +759,10 @@ mod tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         assert!(args.contains(&"--ignore-user-config".into()));
-        assert!(args.iter().any(
-            |arg| arg == "mcp_servers.ondera.command=\"C:\\\\Ondera tools\\\\ondera-mcp.exe\""
-        ));
+        assert!(args
+            .iter()
+            .any(|arg| arg
+                == "mcp_servers.ryolune.command=\"C:\\\\ryolune tools\\\\ryolune-mcp.exe\""));
         assert!(!args
             .iter()
             .any(|arg| arg.contains("token") || arg.contains("auth.json")));

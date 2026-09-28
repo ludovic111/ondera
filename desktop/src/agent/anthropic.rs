@@ -4,7 +4,7 @@ use super::{
     await_tool, bounded, http, read_line_limited, system_prompt, tool_output, tool_specs,
     user_text, Event, Message, Part, ToolCall, Turn,
 };
-use ondera_engine::{settings::Provider, Result};
+use ryolune_engine::{settings::Provider, Result};
 use serde_json::{json, Value};
 use std::{io::BufReader, sync::atomic::Ordering, sync::mpsc};
 

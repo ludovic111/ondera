@@ -14,7 +14,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(join(root, 'frontend/package.json'));
 const esbuild = require('esbuild');
 
-const out = join(mkdtempSync(join(tmpdir(), 'ondera-tokens-')), 'tokens.mjs');
+const out = join(mkdtempSync(join(tmpdir(), 'ryolune-tokens-')), 'tokens.mjs');
 await esbuild.build({
   entryPoints: [join(root, 'frontend/src/theme/tokens.ts')],
   bundle: true,

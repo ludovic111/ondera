@@ -1,4 +1,4 @@
-use ondera_engine::{
+use ryolune_engine::{
     control::{self, Headless, Host},
     model::ClipData,
 };
@@ -110,7 +110,7 @@ fn takes_preserve_edits_across_switch_save_reopen_and_undo() {
     assert_eq!(call(&mut h, "clip.get", json!({"clipId":clip})), changed);
     call(&mut h, "history.redo", json!({}));
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("takes.ondera");
+    let file = dir.path().join("takes.ryolune");
     call(&mut h, "session.save", json!({"path":file}));
     let mut reopened = Headless::open(&file).unwrap();
     call(&mut reopened, "take.select", json!({"id":variation}));

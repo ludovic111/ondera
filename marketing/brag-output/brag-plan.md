@@ -1,23 +1,23 @@
-# Brag Plan: Ondera
+# Brag Plan: ryolune
 
 ## What is this app?
-Ondera is a free, open-source DAW for macOS, Windows and Linux with a built-in agent that edits the same session you do, and every edit it makes is one undo away.
+ryolune is a free, open-source DAW for macOS, Windows and Linux with a built-in agent that edits the same session you do, and every edit it makes is one undo away.
 
 ## The angle
-A DAW that takes requests. Most "AI music" pitches generate a song for you; Ondera does the opposite: you keep writing, and you hand the agent the busywork (quantising, variations, gain staging). The proof is the real window: you type a request, the agent's steps tick in, teal notes land in the piano roll, and ⌘Z takes them straight back out. Then a fast tour proves it is a complete DAW, and the six themes flip on the beat.
+A DAW that takes requests. Most "AI music" pitches generate a song for you; ryolune does the opposite: you keep writing, and you hand the agent the busywork (quantising, variations, gain staging). The proof is the real window: you type a request, the agent's steps tick in, teal notes land in the piano roll, and ⌘Z takes them straight back out. Then a fast tour proves it is a complete DAW, and the six themes flip on the beat.
 
 ## Hook (first 2-3 seconds)
-A close-up of Ondera's real agent composer. A request types itself out with key clicks, "Add a sixteenth-note answer to the chords on bars 5 to 8.", while the headline slams in: "Your DAW takes requests now."
+A close-up of ryolune's real agent composer. A request types itself out with key clicks, "Add a sixteenth-note answer to the chords on bars 5 to 8.", while the headline slams in: "Your DAW takes requests now."
 
 ## Key moments (the middle)
 - Enter is pressed and the camera pulls back to the whole live window: the playhead is running, meters move with the music, and the agent's steps arrive one by one ("Looked at your project", "Wrote 24 notes").
 - The agent's notes land in the real piano roll and the Chords region, drawn in teal, left to right.
 - ⌘Z: every teal note disappears at once. "Every edit is one ⌘Z away."
-- Fast proof it is a real DAW: the mixer with live meters, then the Ondera Comp plugin window. "34 stock plugins. Plus your VST3, CLAP and AU."
+- Fast proof it is a real DAW: the mixer with live meters, then the ryolune Comp plugin window. "34 stock plugins. Plus your VST3, CLAP and AU."
 - Six themes switch live, one per beat, on the track's lift at 16s.
 
 ## Outro / punchline
-The Ondera mark and wordmark lock up on the 20s hit: "A free DAW you can finish songs in." with "macOS · Windows · Linux · MIT" and github.com/ludovic111/ondera.
+The ryolune mark and wordmark lock up on the 20s hit: "A free DAW you can finish songs in." with "macOS · Windows · Linux · MIT" and github.com/ludovic111/ryolune.
 
 ## User flow worth showing
 1. Type a request into the agent composer (entry).
@@ -43,7 +43,7 @@ The Ondera mark and wordmark lock up on the 20s hit: "A free DAW you can finish 
 All UI is the real frontend (`frontend/`) running its fixture song through `src/dev/mockHost.ts`, recorded frame by frame. No personal data appears; the agent conversation is written for the video and uses real tool names (`session.inspect`, `clip.setNotes`).
 
 ## Share copy (draft)
-Ondera 0.10 is a free, open-source DAW with an agent that takes requests, and ⌘Z takes back anything it did. macOS, Windows, Linux.
+ryolune 0.10 is a free, open-source DAW with an agent that takes requests, and ⌘Z takes back anything it did. macOS, Windows, Linux.
 
 ## Audio direction
 - Role: warm, upbeat bed with motion-matched UI accents
@@ -58,7 +58,7 @@ Ondera 0.10 is a free, open-source DAW with an agent that takes requests, and �
 ## Storyboard
 
 ### Scene 1 — Hook — 0.0–3.2s
-Close-up of the real agent composer (model chip, context chips, text box). The request types out character by character. Headline over the lower third: "Your DAW takes requests now." Small kicker top-left: "Ondera 0.10".
+Close-up of the real agent composer (model chip, context chips, text box). The request types out character by character. Headline over the lower third: "Your DAW takes requests now." Small kicker top-left: "ryolune 0.10".
 Sequential/interaction: yes, typed prompt.
 Audio intent: curiosity; clicks sit under the bed.
 Audio-coupled idea: randomized key ticks per character, thinned.
@@ -79,7 +79,7 @@ Audio-coupled idea: key click, then a soft reverse-feeling impact as notes clear
 Transition mood: clean wipe → Scene 4
 
 ### Scene 4 — A real DAW — 11.2–16.0s
-Live mixer with moving meters (11.2–13.6): "A real mixer. Buses and groups." Then the Ondera Comp window over the session (13.6–16.0): "34 stock plugins. Plus your VST3, CLAP and AU."
+Live mixer with moving meters (11.2–13.6): "A real mixer. Buses and groups." Then the ryolune Comp window over the session (13.6–16.0): "34 stock plugins. Plus your VST3, CLAP and AU."
 Sequential/interaction: two cards, each held ≥1.8s.
 Audio intent: confident.
 Audio-coupled idea: soft drop on each card.
@@ -93,7 +93,7 @@ Audio-coupled idea: quiet switch on the first and last flip only.
 Transition mood: dramatic zoom-out → Scene 6
 
 ### Scene 6 — Outro — 19.2–22.5s
-Mark and wordmark lock up on 20.02s. "A free DAW you can finish songs in." Chips: macOS · Windows · Linux, MIT licensed, No account. URL: github.com/ludovic111/ondera.
+Mark and wordmark lock up on 20.02s. "A free DAW you can finish songs in." Chips: macOS · Windows · Linux, MIT licensed, No account. URL: github.com/ludovic111/ryolune.
 Sequential/interaction: lockup then lines.
 Audio intent: payoff, then let the bed fade.
 Audio-coupled idea: bell on the lockup.
