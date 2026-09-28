@@ -23,7 +23,7 @@ const TOOLS: [&str; 3] = ["pointer", "pencil", "scissors"];
 const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
 /// The site's `/support` page redirects to the pay-what-you-want checkout, so the checkout can
 /// change without a new release (`RYOLUNE_CHECKOUT_URL` in `site/server.js`).
-const SUPPORT_URL: &str = "https://site-production-7751.up.railway.app/support";
+const SUPPORT_URL: &str = "https://ryolune.com/support";
 
 /// Who is waiting for a deferred command: a bridge client or the built-in agent.
 pub(crate) enum Reply {

@@ -115,7 +115,7 @@ export. Windows builds are not code-signed.
 ## Support ryolune
 
 ryolune is free, and every feature is in the free download. If it earns a place in your music,
-[pay what you want for it, once](https://site-production-7751.up.railway.app/support): no
+[pay what you want for it, once](https://ryolune.com/support): no
 subscription, no account, nothing unlocked or removed. It keeps ryolune built full time.
 
 ## Contributing
