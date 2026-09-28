@@ -103,4 +103,40 @@ describe("settings and export dialogs", () => {
       mock.invoke.mock.calls.some(([method]) => method === "daw_pick"),
     ).toBe(false);
   });
+  it("asks for support once, after the third export", async () => {
+    const general: Record<string, unknown> = { exportsCompleted: 1 };
+    mock.invoke.mockImplementation(async (command, args) => {
+      if (command === "daw_pick") return "/tmp/song.wav";
+      if (args?.method === "settings.get") return { general: { ...general } };
+      if (args?.method === "settings.set") {
+        general[String(args.params.path).split(".")[1]] = args.params.value;
+        return {};
+      }
+      if (args?.method === "session.exportAudio")
+        return { path: "/tmp/song.wav", seconds: 4 };
+      return {};
+    });
+    store.ui.export = true;
+    show();
+    const ask = () =>
+      screen.queryByRole("button", { name: "Pay what you want…" });
+    fireEvent.click(screen.getByRole("button", { name: "Export…" }));
+    await waitFor(() => expect(general.exportsCompleted).toBe(2));
+    expect(ask()).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Export…" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pay what you want…" }),
+    );
+    expect(general).toEqual({ exportsCompleted: 3, supportAsked: true });
+    await waitFor(() =>
+      expect(mock.invoke).toHaveBeenCalledWith("daw_command", {
+        method: "app.openGuide",
+        params: { guide: "support" },
+      }),
+    );
+    expect(ask()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Export…" }));
+    await waitFor(() => expect(general.exportsCompleted).toBe(4));
+    expect(ask()).toBeNull();
+  });
 });

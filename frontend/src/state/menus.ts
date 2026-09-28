@@ -210,6 +210,8 @@ export function buildMenu(title: MenuTitle, store: SessionStore): MenuEntry[] {
         call("Check for updates…", "app.checkUpdates"),
         call("Native plugin SDK…", "app.openGuide", { guide: "plugins" }),
         separator,
+        call("Support Ondera…", "app.openGuide", { guide: "support" }),
+        separator,
         { label: `Ondera ${store.version}`, disabled: true },
       ];
   }

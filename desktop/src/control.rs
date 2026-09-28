@@ -21,6 +21,9 @@ use std::{
 
 const TOOLS: [&str; 3] = ["pointer", "pencil", "scissors"];
 const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
+/// The site's `/support` page redirects to the pay-what-you-want checkout, so the checkout can
+/// change without a new release (`ONDERA_CHECKOUT_URL` in `site/server.js`).
+const SUPPORT_URL: &str = "https://site-production-7751.up.railway.app/support";
 
 /// Who is waiting for a deferred command: a bridge client or the built-in agent.
 pub(crate) enum Reply {
@@ -1199,7 +1202,13 @@ impl Host for Ondera {
                     crate::settings::reveal(std::path::Path::new(url));
                     Ok(json!({ "opened": url }))
                 }
-                other => Err(format!("Unknown guide `{other}`. Guides: plugins.")),
+                "support" => {
+                    crate::settings::reveal(std::path::Path::new(SUPPORT_URL));
+                    Ok(json!({ "opened": SUPPORT_URL }))
+                }
+                other => Err(format!(
+                    "Unknown guide `{other}`. Guides: plugins, support."
+                )),
             },
             "app.relaunch" => {
                 self.request(crate::app::Intent::Relaunch);

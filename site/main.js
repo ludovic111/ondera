@@ -22,6 +22,15 @@ const revealer = new IntersectionObserver((entries) => {
 }, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
 for (const el of $$('.reveal, .display')) revealer.observe(el);
 
+// Deep links (`/support` lands on `/#support`): the canvases and captures change the page's height
+// after the browser's own jump, so land on the section again once everything has loaded.
+if (location.hash.length > 1) {
+  addEventListener('load', () => {
+    const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    target?.scrollIntoView({ behavior: 'instant', block: 'start' });
+  }, { once: true });
+}
+
 // Number pop-in: each digit of a stat gets its own step; the text stays whole for screen readers.
 for (const dd of $$('[data-pop]')) {
   const text = dd.textContent;

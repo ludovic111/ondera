@@ -79,9 +79,24 @@ jobs:
       - run: cargo build --release --locked --workspace
       - name: Complete song through MCP and CLI
         run: python3 scripts/verify-song.py
+      - name: Prepare Developer ID signing and notarization
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: bash scripts/prepare-apple-signing.sh
       - name: Package macOS app
         if: runner.os == 'macOS'
         run: bash scripts/package-macos.sh
+      - name: Remove signing keychain
+        if: always() && runner.os == 'macOS'
+        run: |
+          if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db"; fi
+          rm -f "$RUNNER_TEMP/notary.p8"
       - name: Package Linux binary
         if: runner.os == 'Linux'
         run: |

@@ -485,6 +485,20 @@ textarea:focus-visible {
 .settings-close-confirm button {
   margin-right: 8px;
 }
+.support-ask {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--color-groove-alt);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.support-ask p {
+  margin: 0 0 10px;
+}
+.support-ask button {
+  margin-right: 8px;
+}
 
 .provider-logo {
   width: 26px;

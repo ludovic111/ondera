@@ -75,7 +75,9 @@ Use release builds for real-time audio. Platform prerequisites:
   File dialogs use the desktop portal (`xdg-desktop-portal` and a backend).
 
 The executables are `target/release/ondera`, `ondera-cli` and `ondera-mcp`; keep them together.
-`bash scripts/package-macos.sh` builds `dist/Ondera.app` and a zip (ad-hoc signed, not notarized).
+`bash scripts/package-macos.sh` builds `dist/Ondera.app` and a zip: ad-hoc signed, or signed with
+a Developer ID and notarized when `APPLE_SIGNING_IDENTITY` (and `APPLE_API_KEY_PATH`,
+`APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) are set, as in the release workflow below.
 
 ## Checks
 
@@ -136,7 +138,32 @@ The `Release` workflow builds macOS (arm64 and x86_64), Linux and Windows, write
 `SHA256SUMS` (Ed25519, repository secret `ONDERA_SIGNING_KEY`, public key in
 `desktop/assets/update-signing.pub`) and publishes the GitHub release. Installed apps verify the
 signature, the download host and the new binaries' versions before replacing themselves. A new
-key pair comes from `ondera --release-keygen <file>`. Builds are ad-hoc signed, not notarized.
+key pair comes from `ondera --release-keygen <file>`. Windows binaries are unsigned.
+
+### Signing and notarizing for macOS
+
+Without Apple secrets the macOS app is ad-hoc signed and Gatekeeper blocks its first launch. With
+all six repository secrets set, `scripts/prepare-apple-signing.sh` imports the certificate into a
+throwaway keychain and `scripts/package-macos.sh` signs every executable with the hardened runtime
+and `desktop/Ondera.entitlements` (microphone; library validation, JIT and writable code for
+third-party plugins), notarizes with `notarytool`, staples the ticket and checks it with `spctl`.
+Setting only some of the secrets stops the release.
+
+| Secret | Where it comes from |
+| --- | --- |
+| `APPLE_CERTIFICATE_P12_BASE64` | A **Developer ID Application** certificate (developer.apple.com › Certificates, created by the account holder), exported from Keychain Access with its private key as `.p12`, then `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | The certificate's full name, for example `Developer ID Application: Jane Doe (TEAMID1234)` (`security find-identity -v -p codesigning`) |
+| `APPLE_API_KEY_P8_BASE64` | App Store Connect › Users and Access › Integrations › Team Keys: a key with the Developer role, downloaded once as `AuthKey_XXXX.p8`, then `base64 -i AuthKey_XXXX.p8 \| pbcopy` |
+| `APPLE_API_KEY_ID` | That key's ID |
+| `APPLE_API_ISSUER` | The Issuer ID shown above the keys list |
+
+To check a signature locally with a Developer ID in your keychain:
+`APPLE_SIGNING_IDENTITY="Developer ID Application: …" bash scripts/package-macos.sh` (add the three
+`APPLE_API_*` variables, with a path to the `.p8`, to notarize too). The updater's own checks
+(`codesign --verify --deep --strict`, Ed25519 checksums) accept both kinds of build. Once a
+notarized release ships, drop the "not notarized" notes from the README, the site's FAQ and
+limits, and `docs/USER_GUIDE.md`.
 
 ## Website
 

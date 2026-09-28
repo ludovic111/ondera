@@ -288,6 +288,10 @@ Settings (`⌘,`) is organised in sections:
 Settings live in `settings.json` in Ondera's data folder, readable only by you; keys are never
 shown in full once saved.
 
+Ondera is free. Help > Support Ondera… (also in Settings > About) opens the page where you can pay
+what you want for it, once; nothing is locked either way. The window asks one time, after your
+third export, and never again. It counts exports in `settings.json` only; nothing is sent.
+
 ## Limits
 
 - No time stretching, comping or time signature changes inside a song yet. Buses do not feed

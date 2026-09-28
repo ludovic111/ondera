@@ -61,3 +61,17 @@ export function exportSummary(report: AudioExportReport): string {
   if (report.files) lines.push(...(report.warnings ?? []));
   return lines.join("\n");
 }
+
+/** Ondera asks once, after this many exports from the window, whether to pay what you want. */
+export const SUPPORT_AFTER_EXPORTS = 3;
+
+/** Whether the export that just finished (counted in `exportsCompleted`) earns the one ask. */
+export function shouldAskSupport(general: {
+  exportsCompleted?: unknown;
+  supportAsked?: unknown;
+}): boolean {
+  return (
+    general.supportAsked !== true &&
+    Number(general.exportsCompleted ?? 0) >= SUPPORT_AFTER_EXPORTS
+  );
+}

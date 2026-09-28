@@ -1880,11 +1880,11 @@ Answer the unsaved-changes prompt the window shows before New, Open, Quit or Rel
 
 *Edits · Needs the app*
 
-Open one of Ondera's guides in the web browser.
+Open one of Ondera's pages in the web browser.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. |
+| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: pay what you want for Ondera, once (no subscription). |
 
 ### `app.relaunch`
 
