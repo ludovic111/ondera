@@ -119,13 +119,13 @@ describe("settings and export dialogs", () => {
     store.ui.export = true;
     show();
     const ask = () =>
-      screen.queryByRole("button", { name: "Pay what you want…" });
+      screen.queryByRole("button", { name: "Donate…" });
     fireEvent.click(screen.getByRole("button", { name: "Export…" }));
     await waitFor(() => expect(general.exportsCompleted).toBe(2));
     expect(ask()).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Export…" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Pay what you want…" }),
+      await screen.findByRole("button", { name: "Donate…" }),
     );
     expect(general).toEqual({ exportsCompleted: 3, supportAsked: true });
     await waitFor(() =>

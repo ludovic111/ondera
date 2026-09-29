@@ -37,7 +37,7 @@ pub struct General {
     pub last_session: Option<String>,
     pub recent_sessions: Vec<String>,
     /// Mixes and stem sets exported from the window. Counted on this computer only, so the
-    /// window can ask once, after the third, whether to pay what you want for ryolune.
+    /// window can ask once, after the third, whether to donate to ryolune.
     pub exports_completed: u32,
     /// The one-time support request was shown; either answer ends it for good.
     pub support_asked: bool,

@@ -114,9 +114,10 @@ export. Windows builds are not code-signed.
 
 ## Support ryolune
 
-ryolune is free, and every feature is in the free download. If it earns a place in your music,
-[pay what you want for it, once](https://ryolune.com/support): no
-subscription, no account, nothing unlocked or removed. It keeps ryolune built full time.
+ryolune is open source and free forever: every feature and every update, for everyone. If it
+earns a place in your music, you can [donate](https://ryolune.com/support), once or monthly.
+Donations are optional, unlock nothing, and are the only money ryolune takes; they keep it built
+full time.
 
 ## Contributing
 
