@@ -25,10 +25,11 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
   Railway targets). With `RYOLUNE_CANONICAL_HOST=ryolune.com` set on Railway, every other host
   name (www, `site-production-7751.up.railway.app`) answers with a 301 to the same path on
   ryolune.com; `/health` is exempt so Railway's health check keeps working.
-- `/support` redirects to the pay-what-you-want checkout in the host variable
-  `RYOLUNE_CHECKOUT_URL` (https only; Railway service variable), or to the page's `#support`
-  section while it is unset. The app's Help › Support ryolune… opens `/support`, so the checkout
-  can move without a release.
+- `/support` redirects to the donation page (GitHub Sponsors) in the host variable
+  `RYOLUNE_DONATION_URL` (https only; Railway service variable), or to the page's `#support`
+  section while it is unset. The app's Help › Support ryolune… opens `/support`, so the donation
+  page can move without a release. ryolune sells nothing: donations, once or monthly, are the
+  only money it takes, so the copy never says pay, price or checkout.
 - `server.js` also redirects `/download` (by User-Agent) and `/download/<platform>` to the latest
   GitHub release asset; keep `ASSETS` in step with `update::asset_name`. It replaces `%ORIGIN%` in
   HTML with the request's origin for link previews and structured data, serves `/robots.txt` and

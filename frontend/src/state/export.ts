@@ -62,7 +62,7 @@ export function exportSummary(report: AudioExportReport): string {
   return lines.join("\n");
 }
 
-/** ryolune asks once, after this many exports from the window, whether to pay what you want. */
+/** ryolune asks once, after this many exports from the window, whether to donate. */
 export const SUPPORT_AFTER_EXPORTS = 3;
 
 /** Whether the export that just finished (counted in `exportsCompleted`) earns the one ask. */

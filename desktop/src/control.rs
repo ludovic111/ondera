@@ -21,8 +21,8 @@ use std::{
 
 const TOOLS: [&str; 3] = ["pointer", "pencil", "scissors"];
 const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
-/// The site's `/support` page redirects to the pay-what-you-want checkout, so the checkout can
-/// change without a new release (`RYOLUNE_CHECKOUT_URL` in `site/server.js`).
+/// The site's `/support` page redirects to the donation page, so it can change without a new
+/// release (`RYOLUNE_DONATION_URL` in `site/server.js`).
 const SUPPORT_URL: &str = "https://ryolune.com/support";
 
 /// Who is waiting for a deferred command: a bridge client or the built-in agent.

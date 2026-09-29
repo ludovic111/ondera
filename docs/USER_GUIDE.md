@@ -288,8 +288,8 @@ Settings (`⌘,`) is organised in sections:
 Settings live in `settings.json` in ryolune's data folder, readable only by you; keys are never
 shown in full once saved.
 
-ryolune is free. Help > Support ryolune… (also in Settings > About) opens the page where you can pay
-what you want for it, once; nothing is locked either way. The window asks one time, after your
+ryolune is free, every update included. Help > Support ryolune… (also in Settings > About) opens
+the page where you can donate, once or monthly, if you want to; nothing is locked either way. The window asks one time, after your
 third export, and never again. It counts exports in `settings.json` only; nothing is sent.
 
 ## Limits

@@ -301,8 +301,8 @@ function Settings({ onClose }: { onClose: () => void }) {
               <h2>ryolune {store.version}</h2>
               <p>Digital audio workstation for macOS, Linux and Windows.</p>
               <p>
-                Free and open source. If ryolune earns a place in your music, pay
-                what you want for it, once.
+                Free and open source, every update included. If ryolune earns a
+                place in your music, you can donate to it.
               </p>
               <button
                 onClick={() =>
@@ -778,9 +778,9 @@ function Export({ onClose }: { onClose: () => void }) {
       {askSupport && (
         <aside className="support-ask" aria-label="Support ryolune">
           <p>
-            ryolune is free and stays free. If it is earning a place in your
-            music, you can pay what you want for it, once. No subscription,
-            nothing gets unlocked, and ryolune will not ask again.
+            ryolune is free and stays free, every update included. If it is
+            earning a place in your music, you can donate, once or monthly. It
+            unlocks nothing, and ryolune will not ask again.
           </p>
           <button onClick={() => setAskSupport(false)}>No thanks</button>
           <button
@@ -789,7 +789,7 @@ function Export({ onClose }: { onClose: () => void }) {
               setAskSupport(false);
             }}
           >
-            Pay what you want…
+            Donate…
           </button>
         </aside>
       )}

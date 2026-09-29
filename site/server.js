@@ -37,13 +37,13 @@ const ASSETS = {
 };
 
 /**
- * Where `/support` sends people: the pay-what-you-want checkout, set on the host as
- * `RYOLUNE_CHECKOUT_URL` so it can change without a release (the app links to `/support`).
+ * Where `/support` sends people: the donation page (GitHub Sponsors), set on the host as
+ * `RYOLUNE_DONATION_URL` so it can change without a release (the app links to `/support`).
  * Until it is set, or if it is not https, the page's own support section answers.
  */
-export function supportTarget(checkout = process.env.RYOLUNE_CHECKOUT_URL) {
+export function supportTarget(donation = process.env.RYOLUNE_DONATION_URL) {
   try {
-    const url = new URL(String(checkout ?? ''));
+    const url = new URL(String(donation ?? ''));
     if (url.protocol === 'https:') return url.href;
   } catch {}
   return '/#support';

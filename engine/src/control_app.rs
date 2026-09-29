@@ -159,7 +159,7 @@ pub const SPECS: &[Spec] = &[
         req("choice", Kind::String, "save, discard or cancel."),
     ]),
     edit("app.openGuide", "Open one of ryolune's pages in the web browser.", &[
-        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: pay what you want for ryolune, once (no subscription)."),
+        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: donate to ryolune, once or monthly (optional, unlocks nothing)."),
     ]),
     edit("app.relaunch", "Relaunch the app, for example after an update was installed. Unsaved changes prompt first.", &[]),
     edit("session.saveRecoveredTake", "Write a recording that could not be placed on a track to a WAV file, which frees the window to open other sessions. ui.status reports it as `recoveredTake`.", &[

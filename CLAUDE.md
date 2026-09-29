@@ -194,6 +194,10 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are
   self-hosted in `site/fonts` and the CSP allows only the site's origin; each release updates the
   site's "New in" section, hero pill, changelog, limits and version (checklist in `site/README.md`).
+- Money (owner's decision, 2026-09-29): ryolune is MIT and free forever, every update included; the
+  only income is optional donations, once or monthly, through GitHub Sponsors behind the site's
+  `/support` (`RYOLUNE_DONATION_URL`). Nothing is sold or locked, so copy says donate, never pay,
+  price or checkout. The app asks once, after the third export (`SUPPORT_AFTER_EXPORTS`).
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs

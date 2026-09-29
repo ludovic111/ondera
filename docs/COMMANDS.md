@@ -1884,7 +1884,7 @@ Open one of ryolune's pages in the web browser.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: pay what you want for ryolune, once (no subscription). |
+| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: donate to ryolune, once or monthly (optional, unlocks nothing). |
 
 ### `app.relaunch`
 
