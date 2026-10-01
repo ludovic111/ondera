@@ -6,7 +6,7 @@ use crate::app::{Intent, Ryolune};
 use ryolune_engine::{
     audio::{self, Library},
     control::{self, wire, Headless, Host},
-    control_app, document, midi, recovery, render,
+    control_app, control_generate, document, midi, recovery, render,
     session_file::SessionFileLock,
     settings::Settings,
     store::{Command, Store},
@@ -15,7 +15,7 @@ use ryolune_engine::{
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::{mpsc, Arc},
     time::Instant,
 };
 
@@ -61,6 +61,20 @@ pub(crate) enum LiveWait {
     },
     UpdateCheck,
     UpdateInstall,
+    /// A sound arriving from a generation service, or a kept one decoded, to place in the
+    /// song on the interface thread when it is ready.
+    Generation(mpsc::Receiver<Result<GenerationDone>>),
+}
+/// What a generation worker hands back to the interface thread.
+pub(crate) struct GenerationDone {
+    generated: control_generate::Generated,
+    buffer: Arc<ryolune_engine::audio::AudioBuffer>,
+    place: bool,
+    as_instrument: bool,
+    track_id: Option<String>,
+    start_bar: Option<f64>,
+    root_note: u8,
+    agent: bool,
 }
 pub(crate) struct LiveJob {
     pub wait: LiveWait,
@@ -168,13 +182,15 @@ impl Ryolune {
                 return Err("Stop the agent before switching or saving creative takes".into());
             }
             if agent {
-                if method == "agent.configure"
+                if matches!(method, "agent.configure" | "agent.openClient")
                     || (matches!(method, "settings.set" | "settings.reset")
                         && params["path"].as_str().is_none_or(|p| {
                             p.trim() == "agent"
                                 || p.trim().starts_with("agent.")
                                 || p.trim() == "control"
                                 || p.trim().starts_with("control.")
+                                || p.trim() == "generation"
+                                || p.trim().starts_with("generation.")
                         }))
                 {
                     return Err("Agent connections and permissions must be changed by the person in Settings".into());
@@ -285,6 +301,9 @@ impl Ryolune {
                 });
                 self.status = format!("Running {method}…");
                 return Ok(json!({"status":"running", "command":method}));
+            }
+            if matches!(method, "generate.audio" | "generate.place") {
+                return self.start_generation(method, params, agent, source);
             }
             if method == "rhythm.preview" {
                 // The render runs on a scratch document that has no file: check the window's.
@@ -493,6 +512,114 @@ impl Ryolune {
         });
         self.start_live(LiveWait::Worker(rx), method, params, source)
     }
+    /// Generate a sound, or decode a kept one, on a worker; it is placed in the song when it
+    /// arrives (`poll_workers`), in one undo step.
+    fn start_generation(
+        &mut self,
+        method: &str,
+        params: &Value,
+        agent: bool,
+        source: &str,
+    ) -> Result<Value> {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let send = move |result: Result<GenerationDone>| {
+            let _ = tx.send(result);
+            if let Some(wake) = CONTROL_WAKE.get() {
+                wake();
+            }
+        };
+        if method == "generate.audio" {
+            let request =
+                control_generate::request_for(&self.settings, self.store.session(), params)?;
+            let settings = self.settings.clone();
+            self.status = format!(
+                "Generating “{}” with {}…",
+                request.name,
+                request.service.label()
+            );
+            std::thread::spawn(move || {
+                let work = || -> Result<GenerationDone> {
+                    let sound = crate::generate::fetch(&settings, &request)?;
+                    let generated = control_generate::keep(
+                        &sound.bytes,
+                        &sound.extension,
+                        &request,
+                        &sound.model,
+                    )?;
+                    let as_instrument = request.kind == control_generate::GenKind::Instrument;
+                    let buffer = control_generate::decoded(&generated, as_instrument)
+                        .map_err(|e| format!("The service's audio could not be read: {e}"))?;
+                    Ok(GenerationDone {
+                        generated,
+                        buffer: Arc::new(buffer),
+                        place: request.place,
+                        as_instrument,
+                        track_id: request.track_id,
+                        start_bar: request.start_bar,
+                        root_note: request.root_note,
+                        agent,
+                    })
+                };
+                send(
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                        .unwrap_or_else(|_| Err("The generation stopped unexpectedly".into())),
+                );
+            });
+        } else {
+            let generated = control_generate::find(params["id"].as_str().unwrap_or(""))?;
+            let as_instrument = match params["as"].as_str() {
+                Some("audio") => false,
+                Some("instrument") => true,
+                Some(other) => return Err(format!("as is audio or instrument, not `{other}`")),
+                None => generated.kind == control_generate::GenKind::Instrument,
+            };
+            let root_note = match params["rootNote"].as_i64() {
+                Some(n) if (0..=127).contains(&n) => n as u8,
+                Some(_) => return Err("rootNote must be between 0 and 127".into()),
+                None => generated.root_note,
+            };
+            let track_id = params["trackId"].as_str().map(str::to_string);
+            let start_bar = params["startBar"].as_f64();
+            std::thread::spawn(move || {
+                let buffer = control_generate::decoded(&generated, as_instrument);
+                send(buffer.map(|buffer| GenerationDone {
+                    generated,
+                    buffer: Arc::new(buffer),
+                    place: true,
+                    as_instrument,
+                    track_id,
+                    start_bar,
+                    root_note,
+                    agent,
+                }));
+            });
+        }
+        Ok(self.start_live(LiveWait::Generation(rx), method, params, source))
+    }
+    /// Put a finished generation in the song, on the interface thread.
+    fn finish_generation(&mut self, done: GenerationDone) -> Result<Value> {
+        let mut out = json!({ "generated": done.generated });
+        if done.place {
+            if let Some(job) = &self.control_job {
+                return Err(format!(
+                    "“{}” is ready but {} is still running: place it with generate.place id={}",
+                    done.generated.name, job.method, done.generated.id
+                ));
+            }
+            out["placed"] = control_generate::place(
+                self,
+                done.buffer,
+                &done.generated.name,
+                done.as_instrument,
+                done.track_id.as_deref(),
+                done.start_bar,
+                done.root_note,
+                done.agent,
+            )?;
+        }
+        self.status = format!("“{}” is ready", done.generated.name);
+        Ok(out)
+    }
     /// Answer the worker jobs that have finished.
     pub(crate) fn poll_workers(&mut self) {
         let mut index = 0;
@@ -502,6 +629,14 @@ impl Ryolune {
                     Ok(result) => Some(result),
                     Err(mpsc::TryRecvError::Disconnected) => {
                         Some(Err("The background job stopped before it finished".into()))
+                    }
+                    Err(mpsc::TryRecvError::Empty) => None,
+                },
+                LiveWait::Generation(receiver) => match receiver.try_recv() {
+                    Ok(Ok(done)) => Some(self.finish_generation(done)),
+                    Ok(Err(error)) => Some(Err(error)),
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        Some(Err("The generation stopped before it finished".into()))
                     }
                     Err(mpsc::TryRecvError::Empty) => None,
                 },
@@ -690,7 +825,7 @@ impl Ryolune {
             "agentPanel": self.agents.open,
             "automation": self.automation.open,
             "settings": self.settings_ui.open,
-            "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)],
+            "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(crate::settings::SECTION_KEYS.len() - 1)],
             "help": self.show_help,
             "mixer": self.show_mixer,
             "controllers": self.show_controllers,
@@ -788,7 +923,7 @@ impl Ryolune {
                 "palette": self.show_palette,
                 "help": self.show_help,
                 "settings": if self.settings_ui.open {
-                    json!(crate::settings::SECTION_KEYS[self.settings_ui.section.min(7)])
+                    json!(crate::settings::SECTION_KEYS[self.settings_ui.section.min(crate::settings::SECTION_KEYS.len() - 1)])
                 } else {
                     json!(false)
                 },
@@ -1206,9 +1341,15 @@ impl Host for Ryolune {
                     crate::settings::reveal(std::path::Path::new(SUPPORT_URL));
                     Ok(json!({ "opened": SUPPORT_URL }))
                 }
-                other => Err(format!(
-                    "Unknown guide `{other}`. Guides: plugins, support."
-                )),
+                other => match ryolune_engine::settings::Service::parse(other) {
+                    Some(service) => {
+                        crate::settings::reveal(std::path::Path::new(service.help_url()));
+                        Ok(json!({ "opened": service.help_url() }))
+                    }
+                    None => Err(format!(
+                        "Unknown guide `{other}`. Guides: plugins, support, elevenlabs, stability, fal, custom."
+                    )),
+                },
             },
             "app.relaunch" => {
                 self.request(crate::app::Intent::Relaunch);
@@ -1472,6 +1613,19 @@ impl Host for Ryolune {
             }
             "agent.status" => Ok(self.agents.status_json(&self.settings)),
             "agent.providers" => Ok(crate::agent::providers_json(&self.settings)),
+            "agent.mcp" => Ok(crate::agent::clients::clients(
+                &crate::agent::clients::Server::current(&self.discovery_path()),
+                self.settings.control.enable_bridge,
+            )),
+            "agent.openClient" => {
+                let client = params["client"].as_str().unwrap_or("");
+                let server = crate::agent::clients::Server::current(&self.discovery_path());
+                let link = crate::agent::clients::link(&server, client).ok_or_else(|| {
+                    format!("{client} has no install link: copy its configuration from agent.mcp")
+                })?;
+                crate::settings::reveal(Path::new(&link));
+                Ok(json!({ "opened": client }))
+            }
             "agent.models" => {
                 let settings = self.settings.clone();
                 Ok(self.start_worker(action, params, source, move || {

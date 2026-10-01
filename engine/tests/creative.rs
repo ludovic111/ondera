@@ -189,3 +189,117 @@ fn rhythm_is_audible_and_creation_is_one_undo_step() {
     call(&mut h, "history.undo", json!({}));
     assert_eq!(h.store().session().tracks.len(), before);
 }
+
+/// A one-second 220 Hz tone as a WAV file.
+fn tone(path: &std::path::Path) {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 44_100,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut wav = hound::WavWriter::create(path, spec).unwrap();
+    for i in 0..44_100 {
+        let s = (i as f32 * 220.0 * std::f32::consts::TAU / 44_100.0).sin() * 0.6;
+        wav.write_sample((s * 32767.0) as i16).unwrap();
+    }
+    wav.finalize().unwrap();
+}
+
+#[test]
+fn a_sound_becomes_a_playable_instrument_in_one_undo_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("Hum.wav");
+    tone(&wav);
+    let mut h = Headless::new();
+    call(&mut h, "session.new", json!({}));
+    let before = h.store().session().tracks.len();
+    let strip = call(
+        &mut h,
+        "strip.loadSample",
+        json!({"path": wav, "rootNote": 57}),
+    );
+    assert_eq!(strip["synth"]["name"], "Sample Keys");
+    assert!(!strip["synth"]["blob"].as_str().unwrap().is_empty());
+    assert_eq!(strip["rootNote"], 57);
+    let track = strip["trackId"].clone();
+    assert_eq!(h.store().session().tracks.len(), before + 1);
+    assert_eq!(
+        h.store().session().tracks.last().unwrap().name,
+        "Hum",
+        "a new track is named after the sound"
+    );
+    call(
+        &mut h,
+        "clip.create",
+        json!({"trackId": track, "startBar": 0, "lengthBars": 1,
+        "notes": [{"start": 0, "length": 2, "pitch": 69, "velocity": 110}]}),
+    );
+    let render = call(
+        &mut h,
+        "session.exportAudio",
+        json!({"path": dir.path().join("keys.wav"), "startBar": 0, "endBar": 1}),
+    );
+    assert!(render["peak"].as_f64().unwrap() > 0.05, "{render}");
+    // Undo the clip, then the instrument: both the strip and its track go in one step.
+    call(&mut h, "history.undo", json!({"steps": 2}));
+    assert_eq!(h.store().session().tracks.len(), before);
+    // A sound already in the song works too, and an audio track cannot take an instrument.
+    let placed = call(&mut h, "session.importAudio", json!({"path": wav}));
+    let source = placed["source"]["id"].clone();
+    let audio_track = placed["clip"]["trackId"].clone();
+    call(&mut h, "strip.loadSample", json!({"sourceId": source}));
+    assert!(control::call(
+        &mut h,
+        "strip.loadSample",
+        &json!({"sourceId": source, "trackId": audio_track}),
+        false
+    )
+    .is_err());
+    assert!(control::call(&mut h, "strip.loadSample", &json!({}), false).is_err());
+}
+
+#[test]
+fn generation_requests_follow_the_song_and_need_a_connected_service() {
+    use ryolune_engine::{control_generate as generate, settings::Settings};
+    let mut h = Headless::new();
+    call(&mut h, "session.new", json!({}));
+    call(&mut h, "transport.setTempo", json!({"bpm": 90}));
+    let session = h.store().session().clone();
+    let mut settings = Settings::default();
+    let none = generate::request_for(&settings, &session, &json!({"prompt": "dusty drums"}));
+    assert!(none.unwrap_err().contains("not connected"));
+    settings.generation.elevenlabs_api_key = "sk-test-key-1234".into();
+    let r = generate::request_for(
+        &settings,
+        &session,
+        &json!({"prompt": "dusty drums", "bars": 2}),
+    )
+    .unwrap();
+    assert_eq!(r.kind, generate::GenKind::Loop);
+    // Two bars of 4/4 at 90 BPM.
+    assert!((r.seconds - 8.0 * 60.0 / 90.0).abs() < 1e-9);
+    assert_eq!(r.fit_seconds, Some(r.seconds));
+    assert!(r.prompt.contains("90 BPM"), "{}", r.prompt);
+    assert_eq!(r.name, "Dusty drums");
+    let keys = generate::request_for(
+        &settings,
+        &session,
+        &json!({"prompt": "glass marimba", "kind": "instrument"}),
+    )
+    .unwrap();
+    assert_eq!(keys.root_note, 60);
+    assert!(keys.prompt.contains("single sustained note"));
+    assert!(generate::request_for(
+        &settings,
+        &session,
+        &json!({"prompt": "x", "kind": "song", "seconds": 900})
+    )
+    .is_err());
+    assert!(generate::request_for(
+        &settings,
+        &session,
+        &json!({"prompt": "x", "kind": "symphony"})
+    )
+    .is_err());
+}

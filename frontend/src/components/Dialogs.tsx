@@ -19,6 +19,7 @@ import {
 } from "../state/export";
 import { AgentSettings } from "./agent/AgentSettings";
 import { ThemePicker } from "./settings/ThemePicker";
+import { GenerationSettings } from "./settings/GenerationSettings";
 
 export function Modal({
   title,
@@ -220,6 +221,7 @@ const titles: Record<string, string> = {
   audio: "Audio & MIDI",
   interface: "Interface",
   agent: "Agent",
+  generation: "Generation",
   plugins: "Plugins",
   control: "Control",
   updates: "Updates",
@@ -331,7 +333,14 @@ function Settings({ onClose }: { onClose: () => void }) {
               />
             </div>
           )}
+          {section === "generation" && settings.generation && (
+            <GenerationSettings
+              settings={settings.generation}
+              refresh={refresh}
+            />
+          )}
           {section !== "agent" &&
+            section !== "generation" &&
             Object.entries(
               settings[section === "updates" ? "general" : section] ?? {},
             )

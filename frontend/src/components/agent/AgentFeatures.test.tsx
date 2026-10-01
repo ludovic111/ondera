@@ -124,9 +124,9 @@ it("supports slash keyboard selection without sending an inference request", asy
         !["agent.models", "agent.connection"].includes(args?.method),
     ),
   ).toBe(false);
-  fireEvent.change(input, { target: { value: "/rhythm" } });
+  fireEvent.change(input, { target: { value: "/generate" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(screen.getByRole("region", { name: "Rhythm Lab" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Generate" })).toBeTruthy();
   await act(async () => {});
 });
 it("loads account models and only their advertised thinking modes, then saves atomically", async () => {

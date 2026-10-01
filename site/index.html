@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ryolune — a free DAW you can finish songs in</title>
-  <meta name="description" content="ryolune is a free, open-source DAW for macOS, Windows and Linux. Record, arrange, mix and export with your VST3, CLAP and AU plugins, 34 stock ones, and an agent whose every edit is one undo away.">
+  <meta name="description" content="ryolune is a free, open-source DAW for macOS, Windows and Linux. Record, arrange, mix and export with your VST3, CLAP and AU plugins, 35 stock ones, and an agent whose every edit is one undo away.">
   <meta name="theme-color" content="#121316">
   <meta name="color-scheme" content="dark">
   <link rel="canonical" href="%ORIGIN%/">
@@ -20,7 +20,7 @@
   <meta property="og:image:alt" content="The ryolune arrangement window with audio and MIDI tracks">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="ryolune 0.12 — a free DAW you can finish songs in">
-  <meta name="twitter:description" content="Record, arrange, mix and export on macOS, Windows and Linux, with your plugins, 34 stock ones and an agent you can undo.">
+  <meta name="twitter:description" content="Record, arrange, mix and export on macOS, Windows and Linux, with your plugins, 35 stock ones and an agent you can undo.">
   <meta name="twitter:image" content="%ORIGIN%/img/og.png">
   <meta name="twitter:image:alt" content="The ryolune arrangement window with audio and MIDI tracks">
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"ryolune","url":"%ORIGIN%/","description":"A free, open-source digital audio workstation for macOS, Windows and Linux with a built-in agent.","applicationCategory":"MultimediaApplication","applicationSubCategory":"Digital audio workstation","operatingSystem":"macOS 11+, Windows, Linux","softwareVersion":"0.12.0","downloadUrl":"https://github.com/ludovic111/ryolune/releases/latest","image":"%ORIGIN%/img/og.png","author":{"@type":"Person","name":"Ludovic Marie"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT"}</script>
@@ -59,13 +59,13 @@
 
   <section class="hero" id="top" aria-labelledby="hero-title">
     <div class="hero__grid" aria-hidden="true"></div>
-    <a class="pill reveal" href="#changelog"><span class="pill__tag">New in 0.12</span><span class="pill__text">A redesigned window, dark or light</span><span class="pill__arrow" aria-hidden="true">→</span></a>
+    <a class="pill reveal" href="#changelog"><span class="pill__tag">New in 0.12</span><span class="pill__text">Redesigned, with sounds from a description</span><span class="pill__arrow" aria-hidden="true">→</span></a>
     <h1 class="display" id="hero-title">
       <span class="line"><span>Finish the song.</span></span>
       <span class="line"><span>Hand the busywork</span></span>
       <span class="line"><span>to an <em>agent</em>.</span></span>
     </h1>
-    <p class="lede reveal" style="--d: 3">ryolune is a complete DAW: record while you hear yourself through your effects, arrange, edit MIDI, mix on a real mixer and export stems, with 34 stock plugins and your own VST3, CLAP and Audio Units. When you would rather not quantise forty notes by hand, ask the built-in agent, or plug Claude Code, Codex or any MCP client straight into the song. It works on the same session, and every edit it makes is one undo away.</p>
+    <p class="lede reveal" style="--d: 3">ryolune is a complete DAW: record while you hear yourself through your effects, arrange, edit MIDI, mix on a real mixer and export stems, with 35 stock plugins and your own VST3, CLAP and Audio Units. When you would rather not quantise forty notes by hand, ask the built-in agent, or plug Claude Code, Codex or any MCP client straight into the song. It works on the same session, and every edit it makes is one undo away.</p>
     <div class="hero__cta reveal" style="--d: 4">
       <a class="btn btn--lit btn--lg" href="/download" data-download data-download-label>Download ryolune</a>
       <a class="btn btn--ghost btn--lg" href="#downloads">All platforms <span class="arrow" aria-hidden="true">→</span></a>
@@ -174,8 +174,8 @@
     <p class="demo__hint reveal">A browser sketch of the window: <kbd>Space</kbd> plays, a marker jumps to its section (double-click loops it), <b>M</b> mutes and <b>I</b> cycles a track’s monitoring. The real thing is below.</p>
 
     <dl class="stats reveal" aria-label="ryolune in numbers">
-      <div class="stat"><dt>Stock plugins</dt><dd data-pop>34</dd></div>
-      <div class="stat"><dt>Commands for window, CLI, MCP and agent</dt><dd data-pop>190</dd></div>
+      <div class="stat"><dt>Stock plugins</dt><dd data-pop>35</dd></div>
+      <div class="stat"><dt>Commands for window, CLI, MCP and agent</dt><dd data-pop>199</dd></div>
       <div class="stat"><dt>Operating systems</dt><dd data-pop>3</dd></div>
       <div class="stat"><dt>Accounts, subscriptions, telemetry</dt><dd data-pop>0</dd></div>
     </dl>
@@ -184,8 +184,8 @@
   <section id="new" class="section" aria-labelledby="new-title">
     <header class="section__head">
       <p class="eyebrow reveal">New in 0.12</p>
-      <h2 class="reveal" id="new-title">One window, drawn with care.</h2>
-      <p class="lede reveal">0.12 redraws the whole window around one theme instead of six: graphite by night, porcelain by day, a single gold accent and controls that look like studio hardware without pretending to be it. Nothing moved and nothing was taken away; it is the same DAW, easier on the eyes for a long session.</p>
+      <h2 class="reveal" id="new-title">One window, drawn with care. Sounds on demand.</h2>
+      <p class="lede reveal">0.12 redraws the whole window around one theme instead of six: graphite by night, porcelain by day, a single gold accent and controls that look like studio hardware without pretending to be it. Nothing moved and nothing was taken away. The agent now runs on many more services, connects to your own agents, and makes loops, sounds and instruments from a description.</p>
     </header>
     <div class="news">
       <article class="news__item news__item--wide reveal">
@@ -202,17 +202,17 @@
       <article class="news__item reveal">
         <span class="news__kind">Mixing</span>
         <h3>Knobs that show their value</h3>
-        <p>Every pan, send and dial wears a ring that fills with its value; pan fills from the centre, so an off-centre track shows at a glance.</p>
+        <p>Every pan, send and dial wears a ring that fills with its value, and mute, solo and record arm light blue, yellow and red.</p>
       </article>
       <article class="news__item reveal">
-        <span class="news__kind">Mixing</span>
-        <h3>Mute, solo and arm in colour</h3>
-        <p>Mute lights blue, solo yellow and record arm red, in the track headers, the inspector and the mixer.</p>
+        <span class="news__kind">Generate</span>
+        <h3>Loops, sounds and instruments</h3>
+        <p>Describe it and ryolune asks ElevenLabs, Stable Audio, fal.ai or your endpoint, then puts it on your bars. An instrument lands in Sample Keys, ready to play.</p>
       </article>
       <article class="news__item reveal">
-        <span class="news__kind">Arrange</span>
-        <h3>Richer regions</h3>
-        <p>Regions keep their track colour deeper and clearer, with a fine top edge and thin, quiet scrollbars around them.</p>
+        <span class="news__kind">AI control</span>
+        <h3>Every agent you use</h3>
+        <p>Gemini, OpenRouter, Mistral, Groq, DeepSeek, xAI, Ollama and LM Studio join the built-in agent, and Claude Code, Codex or Cursor connect in one step.</p>
       </article>
       <article class="news__item reveal">
         <span class="news__kind">Support</span>
@@ -258,9 +258,9 @@
       <article class="feature reveal"><h3>Record and arrange</h3><p>Arm a track, hear yourself through its effects and watch the level before you sing. A count-in clicks you in while the input opens, so the first word is never clipped. Name sections with markers and loop them; split, trim, fade, duplicate, copy and paste, and snap from whole bars to 1/64. Drop audio (WAV, AIFF, FLAC, MP3, Ogg, AAC, CAF, even 5.1) or a MIDI file straight onto the window.</p></article>
       <article class="feature reveal"><h3>Three MIDI editors</h3><p>Piano roll, score and step views on the same notes, with a controller lane for mod wheel, sustain, pitch bend and pressure. Quantise, humanise, legato, velocity ramps, fit to scale and transpose, from the menu or <kbd>⌥↑</kbd> <kbd>⌥↓</kbd>.</p></article>
       <article class="feature reveal"><h3>A real mixer</h3><p>Fader, pan, mute, solo, arm, input monitoring and a live meter per channel, eight inserts a strip, reverb and delay returns, your own buses to group tracks or send them to, a master chain, clip gain and sample-accurate automation for any parameter.</p></article>
-      <article class="feature reveal"><h3>34 stock plugins, sorted by sound</h3><p>Eleven instruments, from a polysynth, an electric piano and a tonewheel organ to an 808, an analog bass and a string ensemble. Twenty-three effects: compressor, EQ, tape, reverb, echo, de-esser, flanger, pitch shifter, lo-fi and a pump that ducks on the beat without sidechain routing. Each stock panel draws what it is doing from the same maths as the audio.</p></article>
+      <article class="feature reveal"><h3>35 stock plugins, sorted by sound</h3><p>Twelve instruments, from a polysynth, an electric piano and a tonewheel organ to an 808, an analog bass, a string ensemble and Sample Keys, which plays any sound across the keyboard. Twenty-three effects: compressor, EQ, tape, reverb, echo, de-esser, flanger, pitch shifter, lo-fi and a pump that ducks on the beat without sidechain routing. Each stock panel draws what it is doing from the same maths as the audio.</p></article>
       <article class="feature reveal"><h3>Your plugins too</h3><p>Hosts VST3, CLAP and macOS Audio Units, scanned in a separate process so one bad plugin cannot take the app down. One browser row per plugin, filed by sound with favourites and recents. State is saved inside the project.</p></article>
-      <article class="feature reveal"><h3>Rhythm Lab and takes</h3><p>Generate Euclidean grooves you can audition before committing. Keep up to eight protected variations of a session and flip between them A/B.</p></article>
+      <article class="feature reveal"><h3>Sounds from a description</h3><p>Ask for a loop that fits your bars, tempo and key, a song idea, a one-shot or a playable instrument, made with ElevenLabs, Stable Audio, fal.ai or your own endpoint and placed in one undo step. You pay the service directly; every result is kept to reuse. Keep up to eight protected takes of a session and flip between them A/B.</p></article>
       <article class="feature reveal"><h3>Export that fits the job</h3><p>Mixes and aligned track stems as WAV (up to 96 kHz, or 32-bit float), AIFF, FLAC at 16 or 24-bit, or Ogg Vorbis. Export a selected range, or 960-PPQ MIDI, and import MIDI files the same way.</p></article>
       <article class="feature reveal"><h3>Fast hands</h3><p><kbd>⌘P</kbd> opens a command palette with every command by name. Single-key transport, tools and track toggles, and a shortcut sheet generated from the real bindings.</p></article>
       <article class="feature reveal"><h3>Hard to lose work</h3><p>Rolling recovery snapshots, a recovered-take rescue for interrupted recordings, saves that never replace a good file with a bad one, and Ed25519-signed updates.</p></article>
@@ -378,12 +378,12 @@
     <header class="section__head">
       <p class="eyebrow reveal">Agent</p>
       <h2 class="reveal" id="agent-title">Ask for the edit. Keep the undo.</h2>
-      <p class="lede reveal">The agent panel streams its reply while it works and shows one card per command it runs. It uses the model you already pay for: Codex or Claude Code from their CLIs, an Anthropic or OpenAI key, or any OpenAI-compatible endpoint, including a local one. Nothing leaves your machine unless you connect a provider.</p>
+      <p class="lede reveal">The agent panel streams its reply while it works and shows one card per command it runs. It uses the model you already pay for: Codex or Claude Code from their CLIs; a key for Anthropic, OpenAI, Gemini, OpenRouter, Mistral, Groq, DeepSeek or xAI; Ollama or LM Studio on your own computer; or any compatible server. Prefer your own agent? Settings hands Claude Code, Codex, Cursor, VS Code, Claude Desktop or Gemini CLI a ready connection. Nothing leaves your machine unless you connect a provider.</p>
     </header>
     <ul class="rules">
       <li class="reveal"><b>Slash commands for the common asks.</b> <code>/beat</code>, <code>/chords</code>, <code>/humanize</code>, <code>/mix</code>, <code>/arrange</code>, <code>/diagnose</code> and more, or plain language.</li>
       <li class="reveal" style="--d: 1"><b>Undo from here.</b> The Changes tab lists every change the agent made, a batch of edits as one entry. Roll back to any point, or redo forward again.</li>
-      <li class="reveal" style="--d: 2"><b>On a leash you hold.</b> Permissions gate file access, transport, replacing the session, settings and quitting. Off means off, for the panel and for MCP clients alike.</li>
+      <li class="reveal" style="--d: 2"><b>On a leash you hold.</b> Permissions gate file access, transport, replacing the session, settings, quitting and paid sound generation. Off means off, for the panel and for MCP clients alike.</li>
     </ul>
   </section>
 
@@ -458,7 +458,7 @@
       <div class="arch__engine">
         <b>Audio engine</b>
         <span>native Rust DSP, sample-accurate automation and device audio</span>
-        <em>34 stock plugins on the Rust plugin SDK · native (ABI 1 and 2), CLAP, VST3 and macOS Audio Units</em>
+        <em>35 stock plugins on the Rust plugin SDK · native (ABI 1 and 2), CLAP, VST3 and macOS Audio Units</em>
       </div>
     </div>
 
@@ -519,10 +519,12 @@
       <li class="release release--now">
         <div class="release__meta"><span class="release__v">0.12</span><time class="release__date" datetime="2026-10-01">1 Oct 2026</time></div>
         <div class="release__body">
-          <h3>One theme, redrawn from scratch</h3>
+          <h3>One theme redrawn, sounds on demand, every agent</h3>
           <ul>
             <li>The six themes become one, in dark and light: graphite by night, porcelain by day, one gold accent. Your mode is kept.</li>
             <li>A centred transport display, knobs with value rings, and mute, solo and record arm lit in their own colours.</li>
+            <li>Sounds from a description: loops on your bars, songs, one-shots and playable instruments, with ElevenLabs, Stable Audio, fal.ai or your own endpoint. Sample Keys plays any sound across the keyboard.</li>
+            <li>The agent runs on Gemini, OpenRouter, Mistral, Groq, DeepSeek, xAI, Ollama and LM Studio too, and Settings connects Claude Code, Codex, Cursor and other MCP apps. Rhythm Lab left the panel.</li>
             <li>A Sponsor heart in the title bar opens ryolune's GitHub Sponsors page. Nothing is locked.</li>
           </ul>
           <a class="release__link" href="https://github.com/ludovic111/ryolune/releases/tag/v0.12.0" rel="noopener">Full notes for 0.12.0 <span class="arrow" aria-hidden="true">→</span></a>

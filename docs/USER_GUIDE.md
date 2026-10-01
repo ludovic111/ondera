@@ -84,8 +84,11 @@ The command palette (`⌘P` or View > Command Palette) finds any action by name.
 ## Instruments, loops and the browser
 
 - **Instruments** tab: the stock instruments (ryolune Synth, E-Piano Mk I, Drum Machine, Sampler,
-  Sub Bass 808, Glass Keys, Choir Pad, Riser, Tonewheel Organ, String Ensemble, Analog Bass) and
-  every installed instrument plugin, filed in colour-coded sound folders. Double-click to put it
+  Sub Bass 808, Glass Keys, Choir Pad, Riser, Tonewheel Organ, String Ensemble, Analog Bass,
+  Sample Keys) and every installed instrument plugin, filed in colour-coded sound folders.
+  **Sample Keys** plays one sound across the keyboard from its root note (Root, Tune, Attack,
+  Release, Gate or One-shot, Level): load a file with `strip.loadSample`, or make an instrument
+  in the agent panel's Generate tab. The sound is saved inside the song. Double-click to put it
   on the selected instrument track (or a new one), or drag it onto a track.
 - **Loops** tab: ready-made MIDI phrases, each with the instrument it was written for.
 - **Plugins** tab: every effect and instrument (stock, ryolune native, CLAP, VST3 and Audio Units),
@@ -238,8 +241,9 @@ click its automation button to open that parameter's lane.
 ## The agent
 
 The panel at the right edge is a music assistant that works inside your song. Choose a service in
-Settings > Agent: Codex or Claude Code (they use their own sign-in), the Anthropic or OpenAI API
-with a key, or any OpenAI-compatible endpoint. Then describe what you want in your own words and
+Settings > Agent: Codex or Claude Code (they use their own sign-in); an API key for Anthropic,
+OpenAI, Google Gemini, OpenRouter, Mistral, Groq, DeepSeek or xAI; Ollama or LM Studio running on
+this computer; or any OpenAI-compatible server. Then describe what you want in your own words and
 language: "a busier bass line in the second verse", "glue the drums a little", "why is the keys
 track silent?".
 
@@ -247,10 +251,17 @@ track silent?".
   every edit it made with Undo and Redo. Everything it does is an ordinary undo step.
 - **Ask Agent About Selection** (`⇧⌘J`, or right-click a region, lane or track) sends what you
   selected along with your message.
-- **Takes A/B** keeps a protected original while the agent explores a variation; **Rhythm Lab**
-  builds drum patterns.
+- **Takes A/B** keeps a protected original while the agent explores a variation.
+- **Generate** makes a loop that fits your bars, tempo and key, a song idea, a one-shot or a
+  playable instrument from a description, with the sound service in Settings > Generation
+  (ElevenLabs, Stable Audio, fal.ai or your own endpoint; you pay the service directly). Each
+  result lands in the song in one undo step and stays under **Your sounds** to listen to, add
+  again, turn into Sample Keys or delete. You can also just ask the agent for it.
+- **Use another agent** (Settings > Agent) connects Claude Code, Codex, Cursor, VS Code, Claude
+  Desktop, Gemini CLI and other MCP apps to the open window, with each one's configuration ready
+  to copy, or one click for Cursor and VS Code.
 - **Permissions** (Settings > Agent) decide whether the agent may touch files, the transport,
-  replace the session, change settings or control the application. They also apply to MCP
+  replace the session, change settings, control the application or generate sounds. They also apply to MCP
   clients.
 
 Scripts and external AI tools control ryolune through the same commands: see
@@ -283,7 +294,9 @@ Settings (`⌘,`) is organised in sections:
 - **Audio**: output and input devices, buffer size (64 to 2048 frames), count-in bars, input meter
   on armed tracks, MIDI input and connecting it at start.
 - **Plugins**: extra CLAP, VST3 and native folders, scan at start.
-- **Agent**: provider, model, reasoning effort, keys, custom instructions, limits and permissions.
+- **Agent**: provider, model, reasoning effort, keys, custom instructions, limits, permissions and
+  the configurations for outside agents.
+- **Generation**: the sound service, its key, the fal.ai model or your endpoint's address.
 - **Control**: the local bridge that `ryolune-cli` and `ryolune-mcp` use to reach the window.
 - **Updates**: check at start, install automatically.
 

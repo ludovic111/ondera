@@ -190,6 +190,24 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   delayed by the slowest bus so every path meets (PDC stages: tracks, buses, A/B, master).
   Commands in `control_routing.rs`. Audio Unit CF objects from `AudioUnitGetProperty` are the
   caller's to release (factory preset arrays, PresentPreset names); `Editor::current_program`.
+- 0.12 agent and generation (owner asked 2026-10-01 for better agent integration, more agents, no
+  Rhythm Lab, and generating music and instruments through provider APIs; delegated). Providers:
+  `settings::Provider` has 13 variants; every one after Anthropic runs through `agent/openai.rs`
+  (Chat Completions) with `Settings::base_url` / `api_key`; `Provider::hosted()` holds the fixed
+  address, env names, key page and `strict` (Mistral and DeepSeek get `max_tokens`, no stream
+  usage). The frontend mirror is `providers` in `components/agent/connection.ts`; keep both,
+  `SECRET_PATHS` and `validate`'s key loop in sync. Outside agents: `agent/clients.rs` builds the
+  per-client MCP recipes (`agent.mcp`) and install links (`agent.openClient`, refused to agents).
+  Generation: `control_generate.rs` shapes requests from the song (loops get tempo/key and are
+  fitted to their bars), keeps results in `<data dir>/generated` with a JSON note, and places them
+  (`place_audio` in control.rs, or Sample Keys via `load_sample`); the network call is
+  `desktop/src/generate.rs` (ElevenLabs, Stability, fal, custom contract in docs/AI_CONTROL.md),
+  run by `start_generation` in desktop control.rs and placed on the interface thread from
+  `LiveWait::Generation`. `settings.generation` is agent-protected like `agent.*` and `control.*`;
+  `permissions.generation` gates `generate.audio`. Sample Keys (`sample_keys.rs`, stock index 34)
+  keeps its sound in its state: the insert blob is the native host's `{values, state}` document
+  (`sample_keys::insert_blob`). The agent panel tabs are Chat, Generate, Changes, Takes; Rhythm Lab's
+  UI is gone, its commands stay.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ryolune-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are

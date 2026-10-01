@@ -44,6 +44,9 @@ pub(crate) fn discover(settings: &Settings) -> Vec<Group> {
                     super::discover_claude(&settings.agent.claude_executable).is_file()
                 }
                 Provider::Compatible => !settings.agent.compatible_base_url.is_empty(),
+                // A local server is asked only when it is the one in use: probing every
+                // address on each open would list servers that are not even installed.
+                Provider::Ollama | Provider::LmStudio => *p == settings.agent.provider,
                 _ => settings.api_key(*p).is_some(),
             })
             .map(|provider| {
@@ -85,6 +88,12 @@ fn normalized(raw: &Value, provider: Provider) -> Option<Model> {
         .as_str()
         .or_else(|| raw["value"].as_str())
         .or_else(|| raw["id"].as_str())?;
+    // Gemini lists "models/gemini-…"; its chat endpoint takes the bare name.
+    let id = if provider == Provider::Gemini {
+        id.strip_prefix("models/").unwrap_or(id)
+    } else {
+        id
+    };
     if id.is_empty() || id.len() > 200 || id.chars().any(char::is_control) {
         return None;
     }
@@ -139,9 +148,8 @@ fn normalized(raw: &Value, provider: Provider) -> Option<Model> {
 
 fn api_models(settings: &Settings, provider: Provider) -> Result<Vec<Model>> {
     let base = match provider {
-        Provider::OpenAi => "https://api.openai.com/v1",
-        Provider::Anthropic => "https://api.anthropic.com/v1",
-        _ => settings.agent.compatible_base_url.trim_end_matches('/'),
+        Provider::Anthropic => "https://api.anthropic.com/v1".to_string(),
+        _ => settings.base_url(provider).unwrap_or_default(),
     };
     let client: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)

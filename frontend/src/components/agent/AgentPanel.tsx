@@ -6,14 +6,13 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useSession, useStore } from "../../state/session";
-import { Button } from "../primitives/Button";
 import {
   agentErrorMessage,
   canChat,
   providers,
   useAgentConnection,
 } from "./connection";
-import { RhythmLab } from "./RhythmLab";
+import { GeneratePanel } from "./GeneratePanel";
 import { TakePanel } from "./TakePanel";
 import { slashCommands } from "./slashCommands";
 import { AgentMessage, humanStatus } from "./AgentMessage";
@@ -59,7 +58,7 @@ export function AgentPanel() {
     check,
   } = useAgentConnection(`${settingsOpen}:${agent.status.provider}`);
   const [tab, setTab] = useState<
-    "conversation" | "changes" | "takes" | "rhythm"
+    "conversation" | "generate" | "changes" | "takes"
   >("conversation");
   const [slashIndex, setSlashIndex] = useState(0);
   const slashMatches =
@@ -69,8 +68,8 @@ export function AgentPanel() {
         )
       : [];
   const chooseSlash = (command: (typeof slashCommands)[number]) => {
-    if (command.name === "rhythm") {
-      setTab("rhythm");
+    if (command.name === "generate") {
+      setTab("generate");
       store.setAgentDraft("");
     } else if (command.name === "takes" || command.name === "variation") {
       setTab("takes");
@@ -122,24 +121,113 @@ export function AgentPanel() {
         <span
           className={`${styles.dot} ${ready ? "m-accent-dot" : styles.idle}`}
         />
-        <strong className={styles.title}>Agent</strong>
-        <span className={styles.status}>
-          {connection ? providers[connection.provider].name : ""}
-        </span>
-        <Button size="icon" onClick={openSettings} title="Agent settings">
-          ⚙
-        </Button>
-        <Button
-          size="icon"
-          className={styles.close}
+        <div className={styles.heading}>
+          <strong className={styles.title}>Agent</strong>
+          <span className={styles.status}>
+            {connection
+              ? providers[connection.provider].name
+              : checking
+                ? "Connecting…"
+                : "Not connected"}
+          </span>
+        </div>
+        <button
+          type="button"
+          className={styles.iconButton}
+          disabled={busy || !agent.transcript.entries.length}
+          onClick={() => {
+            setTab("conversation");
+            setConfirmClear(true);
+          }}
+          title="New conversation"
+          aria-label="New conversation"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+            <path
+              d="M7 2.5v9M2.5 7h9"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={styles.iconButton}
+          onClick={openSettings}
+          title="Agent settings"
+          aria-label="Agent settings"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+            <path
+              d="M2 4h6M11 4h1M2 10h1M6 10h6"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+            <circle
+              cx="9.5"
+              cy="4"
+              r="1.6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+            />
+            <circle
+              cx="4.5"
+              cy="10"
+              r="1.6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={styles.iconButton}
           onClick={() =>
             store.fire("ui.showPanel", { panel: "agent", visible: false })
           }
           title="Collapse agent"
+          aria-label="Collapse agent"
         >
-          ›
-        </Button>
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+            <path
+              d="M5.5 3.5 9 7l-3.5 3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </div>
+      {confirmClear && (
+        <div
+          className={styles.confirm}
+          role="alertdialog"
+          aria-label="New conversation"
+        >
+          <span>Clear the conversation? Your music stays.</span>
+          <button className="m-button" onClick={() => setConfirmClear(false)}>
+            Cancel
+          </button>
+          <button
+            className="m-button primary-action"
+            disabled={busy}
+            onClick={() => {
+              void store
+                .request("agent.clear")
+                .then(() => setConfirmClear(false))
+                .catch(() => {});
+            }}
+          >
+            Clear conversation
+          </button>
+        </div>
+      )}
       <div className="agent-tabs" aria-label="Agent views">
         <button
           aria-pressed={tab === "conversation"}
@@ -148,8 +236,16 @@ export function AgentPanel() {
             follow.current = true;
             setTab("conversation");
           }}
+          aria-label="Conversation"
         >
-          Conversation
+          Chat
+        </button>
+        <button
+          aria-pressed={tab === "generate"}
+          className={tab === "generate" ? "m-segment-selected" : ""}
+          onClick={() => setTab("generate")}
+        >
+          Generate
         </button>
         <button
           aria-pressed={tab === "changes"}
@@ -165,14 +261,6 @@ export function AgentPanel() {
           aria-label="Takes A/B"
         >
           Takes<span className="tab-extra"> A/B</span>
-        </button>
-        <button
-          aria-pressed={tab === "rhythm"}
-          className={tab === "rhythm" ? "m-segment-selected" : ""}
-          onClick={() => setTab("rhythm")}
-          aria-label="Rhythm Lab"
-        >
-          Rhythm<span className="tab-extra"> Lab</span>
         </button>
       </div>
       <div
@@ -202,8 +290,15 @@ export function AgentPanel() {
                 </p>
                 {!checking && (
                   <div className={styles.welcomeActions}>
-                    <Button onClick={openSettings}>Set up agent</Button>
-                    <Button onClick={() => void check()}>Check again</Button>
+                    <button
+                      className="m-button primary-action"
+                      onClick={openSettings}
+                    >
+                      Set up agent
+                    </button>
+                    <button className="m-button" onClick={() => void check()}>
+                      Check again
+                    </button>
                   </div>
                 )}
               </div>
@@ -244,7 +339,11 @@ export function AgentPanel() {
               item.kind === "steps" ? (
                 <Steps key={item.key} steps={item.steps} />
               ) : (
-                <article className="agent-message" key={item.key}>
+                <article
+                  className="agent-message"
+                  data-role={item.entry.role === "user" ? "user" : "agent"}
+                  key={item.key}
+                >
                   <span className="caps">
                     {item.entry.role === "user" ? "You" : "Agent"}
                   </span>
@@ -260,8 +359,8 @@ export function AgentPanel() {
               ),
             )}
           </>
-        ) : tab === "rhythm" ? (
-          <RhythmLab busy={busy} />
+        ) : tab === "generate" ? (
+          <GeneratePanel busy={busy} />
         ) : tab === "takes" ? (
           <TakePanel
             busy={busy}
@@ -337,15 +436,8 @@ export function AgentPanel() {
       </div>
       <div
         className="agent-composer"
-        hidden={tab === "rhythm" || tab === "takes"}
+        hidden={tab === "generate" || tab === "takes"}
       >
-        <ModelSelector
-          key={`${agent.status.provider}:${agent.status.model}:${agent.status.reasoningEffort}`}
-          provider={agent.status.provider}
-          model={agent.status.model}
-          effort={agent.status.reasoningEffort}
-          disabled={busy}
-        />
         <div className="agent-status" role="status">
           <span>
             {composer.sending
@@ -389,154 +481,141 @@ export function AgentPanel() {
             </button>
           </div>
         )}
-        <div className={styles.context}>
-          {chips.length === 0 ? (
-            <span>The agent sees your whole project.</span>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={styles.contextToggle}
-                aria-pressed={composer.withContext}
-                title={
-                  composer.withContext
-                    ? "Your selection goes with the message. Click to send without it."
-                    : "Click to send your selection with the message."
-                }
-                onClick={() => store.setAgentContext(!composer.withContext)}
-              >
-                {composer.withContext ? "About" : "Not about"}
-              </button>
-              {chips.map((chip) => (
-                <span
-                  key={chip.label}
-                  className={`${styles.subject} ${composer.withContext ? "" : styles.subjectOff}`}
-                  title={chip.detail}
-                >
-                  {chip.label}
-                </span>
-              ))}
-            </>
-          )}
-        </div>
-        {slashMatches.length > 0 && (
-          <div
-            className={styles.slashMenu}
-            role="listbox"
-            id="agent-slash-menu"
-            aria-label="Agent commands"
-          >
-            {slashMatches.map((command, index) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={index === slashIndex}
-                id={`agent-slash-${index}`}
-                key={command.name}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => chooseSlash(command)}
-              >
-                <strong>/{command.name}</strong>
-                <span>{command.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <textarea
-          ref={input}
-          aria-label="Message to agent"
-          aria-describedby="agent-send-help"
-          placeholder="Describe your idea, or type / for commands…"
-          aria-controls={slashMatches.length ? "agent-slash-menu" : undefined}
-          aria-activedescendant={
-            slashMatches.length ? `agent-slash-${slashIndex}` : undefined
-          }
-          value={composer.draft}
-          onChange={(e) => {
-            store.setAgentDraft(e.target.value);
-            setSlashIndex(0);
-          }}
-          onKeyDown={(e) => {
-            if (slashMatches.length && !e.nativeEvent.isComposing) {
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                e.preventDefault();
-                setSlashIndex(
-                  (i) =>
-                    (i +
-                      (e.key === "ArrowDown" ? 1 : -1) +
-                      slashMatches.length) %
-                    slashMatches.length,
-                );
-                return;
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                chooseSlash(slashMatches[slashIndex] ?? slashMatches[0]);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                store.setAgentDraft("");
-                return;
-              }
-            }
-            if (
-              e.key === "Enter" &&
-              !e.shiftKey &&
-              !e.nativeEvent.isComposing &&
-              !e.repeat
-            ) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="agent-send">
-          <span id="agent-send-help">
-            Enter to send · Shift Enter for a new line
-          </span>
-          <Button
-            disabled={!composer.draft.trim() || busy || !ready || checking}
-            onClick={() => void send()}
-          >
-            Send
-          </Button>
-        </div>
-        {agent.transcript.entries.length > 0 && (
-          <div className={styles.newConversation}>
-            {confirmClear ? (
-              <>
-                <span>Clear the conversation? Your music stays.</span>
-                <button
-                  className="m-button"
-                  onClick={() => setConfirmClear(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="m-button"
-                  disabled={busy}
-                  onClick={() => {
-                    void store
-                      .request("agent.clear")
-                      .then(() => setConfirmClear(false))
-                      .catch(() => {});
-                  }}
-                >
-                  Clear conversation
-                </button>
-              </>
+        <div className={styles.composerCard}>
+          <div className={styles.context}>
+            {chips.length === 0 ? (
+              <span>The agent sees your whole project.</span>
             ) : (
-              <button
-                className="m-button"
-                disabled={busy}
-                onClick={() => setConfirmClear(true)}
-              >
-                New conversation
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={styles.contextToggle}
+                  aria-pressed={composer.withContext}
+                  title={
+                    composer.withContext
+                      ? "Your selection goes with the message. Click to send without it."
+                      : "Click to send your selection with the message."
+                  }
+                  onClick={() => store.setAgentContext(!composer.withContext)}
+                >
+                  {composer.withContext ? "About" : "Not about"}
+                </button>
+                {chips.map((chip) => (
+                  <span
+                    key={chip.label}
+                    className={`${styles.subject} ${composer.withContext ? "" : styles.subjectOff}`}
+                    title={chip.detail}
+                  >
+                    {chip.label}
+                  </span>
+                ))}
+              </>
             )}
           </div>
-        )}
+          {slashMatches.length > 0 && (
+            <div
+              className={styles.slashMenu}
+              role="listbox"
+              id="agent-slash-menu"
+              aria-label="Agent commands"
+            >
+              {slashMatches.map((command, index) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={index === slashIndex}
+                  id={`agent-slash-${index}`}
+                  key={command.name}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => chooseSlash(command)}
+                >
+                  <strong>/{command.name}</strong>
+                  <span>{command.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={input}
+            aria-label="Message to agent"
+            aria-describedby="agent-send-help"
+            placeholder="Describe your idea, or type / for commands…"
+            aria-controls={slashMatches.length ? "agent-slash-menu" : undefined}
+            aria-activedescendant={
+              slashMatches.length ? `agent-slash-${slashIndex}` : undefined
+            }
+            value={composer.draft}
+            onChange={(e) => {
+              store.setAgentDraft(e.target.value);
+              setSlashIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (slashMatches.length && !e.nativeEvent.isComposing) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setSlashIndex(
+                    (i) =>
+                      (i +
+                        (e.key === "ArrowDown" ? 1 : -1) +
+                        slashMatches.length) %
+                      slashMatches.length,
+                  );
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  chooseSlash(slashMatches[slashIndex] ?? slashMatches[0]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  store.setAgentDraft("");
+                  return;
+                }
+              }
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing &&
+                !e.repeat
+              ) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
+          <div className={styles.composerBar}>
+            <ModelSelector
+              key={`${agent.status.provider}:${agent.status.model}:${agent.status.reasoningEffort}`}
+              provider={agent.status.provider}
+              model={agent.status.model}
+              effort={agent.status.reasoningEffort}
+              disabled={busy}
+            />
+            <span id="agent-send-help" className={styles.sendHelp}>
+              Enter to send · Shift Enter for a new line
+            </span>
+            <button
+              type="button"
+              className={styles.send}
+              aria-label="Send"
+              title="Send (Enter)"
+              disabled={!composer.draft.trim() || busy || !ready || checking}
+              onClick={() => void send()}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                <path
+                  d="M7 11.5v-9M3 6.5 7 2.5l4 4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   );
@@ -550,8 +629,7 @@ type Entry = {
   tool?: ToolCall;
 };
 type Item = { key: string } & (
-  | { kind: "message"; entry: Entry }
-  | { kind: "steps"; steps: ToolCall[] }
+  { kind: "message"; entry: Entry } | { kind: "steps"; steps: ToolCall[] }
 );
 
 /**

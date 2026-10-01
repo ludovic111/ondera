@@ -2,7 +2,7 @@
 
 <!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune-tools --test command_docs`. -->
 
-ryolune has 190 commands. The window, `ryolune-cli`, `ryolune-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ryolune-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
+ryolune has 199 commands. The window, `ryolune-cli`, `ryolune-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ryolune-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
 
 Conventions: bars and beats are zero-based; note `start` and `length` are beats relative to their clip; pitch 60 is C4; velocity is 1–127; a fader value of 0.75 is unity gain. Strip commands accept a track id or `master`, `bus-a`, `bus-b`; insert slots are 0–7.
 
@@ -16,7 +16,7 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 - [track](#track) — `track.list`, `track.add`, `track.remove`, `track.rename`, `track.setMute`, `track.setSolo`, `track.setArmed`, `track.setMonitor`, `track.setVolume`, `track.setPan`, `track.setColor`, `track.move`, `track.select`, `track.setOutput`, `track.group`, `track.duplicate`
 - [clip](#clip) — `clip.list`, `clip.get`, `clip.create`, `clip.move`, `clip.resize`, `clip.rename`, `clip.split`, `clip.duplicate`, `clip.copy`, `clip.cut`, `clip.paste`, `clip.remove`, `clip.setNotes`, `clip.addLoop`, `clip.select`, `clip.trim`, `clip.deselect`, `clip.setFades`, `clip.setGain`, `clip.humanize`, `clip.velocityRamp`, `clip.fitScale`, `clip.reverseMidi`, `clip.legato`, `clip.repeat`, `clip.quantize`, `clip.transpose`
 - [note](#note) — `note.list`, `note.add`, `note.update`, `note.remove`, `note.preview`, `note.hold`, `note.releaseAll`
-- [strip](#strip) — `strip.get`, `strip.setInstrument`, `strip.setInsert`, `strip.setSendLevel`, `strip.setPlugin`, `strip.setBypass`, `strip.getState`, `strip.setState`, `strip.setSend`, `strip.moveInsert`, `strip.parameters`, `strip.setParameter`, `strip.setParameters`, `strip.programs`, `strip.setProgram`, `strip.removeInsert`
+- [strip](#strip) — `strip.get`, `strip.setInstrument`, `strip.setInsert`, `strip.setSendLevel`, `strip.setPlugin`, `strip.setBypass`, `strip.getState`, `strip.setState`, `strip.setSend`, `strip.moveInsert`, `strip.parameters`, `strip.setParameter`, `strip.setParameters`, `strip.programs`, `strip.setProgram`, `strip.removeInsert`, `strip.loadSample`
 - [master](#master) — `master.setVolume`
 - [history](#history) — `history.undo`, `history.redo`, `history.info`
 - [source](#source) — `source.peaks`
@@ -32,7 +32,8 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 - [audio](#audio) — `audio.devices`, `audio.status`, `audio.allowSpeakerMonitoring`, `audio.setOutput`, `audio.setInput`, `audio.setMidiInput`, `audio.reconnect`
 - [ui](#ui) — `ui.screenshot`, `ui.showPanel`, `ui.openPluginWindow`, `ui.closePluginWindow`, `ui.dismissError`, `ui.closePluginWindows`, `ui.musicalTyping`, `ui.setTool`, `ui.status`, `ui.state`
 - [app](#app) — `app.info`, `app.checkUpdates`, `app.installUpdate`, `app.quit`, `app.confirm`, `app.openGuide`, `app.relaunch`
-- [agent](#agent) — `agent.status`, `agent.configure`, `agent.providers`, `agent.models`, `agent.connection`, `agent.send`, `agent.stop`, `agent.transcript`, `agent.changes`, `agent.revert`, `agent.clear`
+- [agent](#agent) — `agent.status`, `agent.configure`, `agent.providers`, `agent.mcp`, `agent.openClient`, `agent.models`, `agent.connection`, `agent.send`, `agent.stop`, `agent.transcript`, `agent.changes`, `agent.revert`, `agent.clear`
+- [generate](#generate) — `generate.services`, `generate.audio`, `generate.list`, `generate.preview`, `generate.place`, `generate.delete`
 
 ## session
 
@@ -1168,6 +1169,20 @@ Empty an insert slot on a track or bus, removing the plugin, its settings and an
 | `trackId` | string | yes | Track id, as listed by track.list. |
 | `slot` | integer | yes | Insert slot 0-7. |
 
+### `strip.loadSample`
+
+*Edits*
+
+Turn a sound into an instrument: load an audio file, or audio already in the song, into Sample Keys, which plays it across the keyboard from its root note. On the given MIDI track, else on a new one named after the sound. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `trackId` | string |  | MIDI track to play it on (default: a new track). |
+| `path` | string |  | Audio file to load (WAV, AIFF, FLAC, MP3, Ogg, AAC…). |
+| `sourceId` | string |  | Audio already in the song, by source id from session.overview, instead of a file. |
+| `rootNote` | integer |  | The MIDI note that plays the sound at its own pitch, 0-127 (default 60). |
+| `name` | string |  | Name of a new track (default: the sound's name). |
+
 ## master
 
 ### `master.setVolume`
@@ -1770,7 +1785,7 @@ Show or hide an interface panel: agent, automation, mixer (every channel, in pla
 |---|---|---|---|
 | `panel` | string | yes | agent, automation, mixer, controllers, settings, help, export, recovery, master, bus-a or bus-b. |
 | `visible` | boolean |  | Show (default) or hide. |
-| `section` | string |  | Settings section: general, audio, interface, agent, plugins, control, updates or about. |
+| `section` | string |  | Settings section: general, audio, interface, agent, generation, plugins, control, updates or about. |
 
 ### `ui.openPluginWindow`
 
@@ -1880,11 +1895,11 @@ Answer the unsaved-changes prompt the window shows before New, Open, Quit or Rel
 
 *Edits · Needs the app*
 
-Open one of ryolune's pages in the web browser.
+Open one of ryolune's pages, or a sound service's key page, in the web browser.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: donate to ryolune, once or monthly (optional, unlocks nothing). |
+| `guide` | string | yes | plugins: writing native plugins with the Rust SDK. support: donate to ryolune, once or monthly (optional, unlocks nothing). elevenlabs, stability, fal: where to get that service's API key. custom: the contract a custom generation endpoint follows. |
 
 ### `app.relaunch`
 
@@ -1908,7 +1923,7 @@ Select the agent provider, model and reasoning effort together. Only while idle.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `provider` | string | yes | codex, claude, anthropic, openai or compatible. |
+| `provider` | string | yes | codex, claude, anthropic, openai, gemini, openrouter, mistral, groq, deepseek, xai, ollama, lmstudio or compatible. |
 | `model` | string | yes | Model ID; empty uses the provider default. |
 | `reasoningEffort` | string | yes | Provider effort level; empty uses its default. |
 
@@ -1917,6 +1932,22 @@ Select the agent provider, model and reasoning effort together. Only while idle.
 *Needs the app*
 
 Available agent providers and whether each is configured.
+
+### `agent.mcp`
+
+*Needs the app*
+
+How to connect an outside agent to this window over MCP: the ryolune-mcp command, its environment, whether the bridge is on, and a ready configuration for Claude Code, Codex, Cursor, VS Code, Claude Desktop, Gemini CLI, Windsurf, opencode, Zed and any other MCP client.
+
+### `agent.openClient`
+
+*Edits · Needs the app*
+
+Open an outside agent's install link with ryolune's MCP server filled in (Cursor and VS Code install from a link; the app asks before adding it). Only a person can do this.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `client` | string | yes | cursor or vscode. |
 
 ### `agent.models`
 
@@ -1978,3 +2009,71 @@ Undo back to just before one agent change, or redo up to it. Same as the buttons
 *Edits · Needs the app*
 
 Clear the agent conversation; the edits it made stay in Undo.
+
+## generate
+
+### `generate.services`
+
+The sound generation services ryolune can call (ElevenLabs, Stable Audio, fal.ai and a custom endpoint): the one chosen in Settings > Generation, which have a key, and what each makes best.
+
+### `generate.audio`
+
+*Edits · Needs the app*
+
+Make a sound from a description with a generation service and put it in the song: a song or a loop as an audio clip (a loop follows the song's tempo and key), a sound effect or one-shot as an audio clip, or an instrument note as a Sample Keys track you play from the keyboard. Runs as a job over the network, on the service's credits, and keeps the result in generate.list. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prompt` | string | yes | What it should sound like, in plain words: genre, instruments, mood, character. |
+| `kind` | string |  | song, loop (default), sound or instrument. |
+| `seconds` | number |  | Length in seconds. Defaults: song 60, sound 3, instrument 3; a loop defaults to its bars. |
+| `bars` | integer |  | For a loop: its length in bars at the song's tempo, 1-32 (default 4). |
+| `service` | string |  | elevenlabs, stability, fal or custom (default: the one in Settings > Generation). |
+| `instrumental` | boolean |  | No vocals (default true; songs only). |
+| `followSong` | boolean |  | Tell the service the song's tempo and key (default true for loops and songs). |
+| `seed` | integer |  | Seed for services that take one, to repeat a result. |
+| `name` | string |  | Name of the clip or instrument track (default: from the prompt). |
+| `place` | boolean |  | Put it in the song (default true); false only keeps it in generate.list. |
+| `trackId` | string |  | Track to place it on: an audio track for audio, a MIDI track for an instrument (default: a new track). |
+| `startBar` | number |  | Zero-based bar where an audio clip starts (default: the playhead). |
+| `rootNote` | integer |  | For an instrument: the MIDI note the sound plays at its own pitch, 0-127 (default 60, middle C). |
+
+### `generate.list`
+
+The sounds generated on this computer, newest first, with the description, service, kind and length of each. They stay in ryolune's data folder until generate.delete.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `limit` | integer |  | At most this many, 1-200 (default 50). |
+
+### `generate.preview`
+
+One generated sound as base64 audio with its MIME type, to audition it before placing it.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Generated sound id, from generate.list. |
+
+### `generate.place`
+
+*Edits*
+
+Put a sound from generate.list in the song: as an audio clip, or as a Sample Keys instrument played from the keyboard. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Generated sound id, from generate.list. |
+| `as` | string |  | audio or instrument (default: how it was made). |
+| `trackId` | string |  | Track to place it on (default: a new track). |
+| `startBar` | number |  | Zero-based bar where an audio clip starts (default: the playhead). |
+| `rootNote` | integer |  | For an instrument: the MIDI note the sound plays at its own pitch (default 60). |
+
+### `generate.delete`
+
+*Edits*
+
+Delete a generated sound from this computer. Clips already in a song keep their audio.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Generated sound id, from generate.list. |

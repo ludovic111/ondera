@@ -320,6 +320,7 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_app::SPECS)
         .chain(crate::control_params::SPECS)
         .chain(crate::control_overview::SPECS)
+        .chain(crate::control_generate::SPECS)
         .copied()
         .collect()
 });
@@ -675,6 +676,13 @@ impl Args<'_> {
     }
 }
 
+/// Checked arguments of a registry command, for modules that take JSON from elsewhere.
+pub(crate) fn args_for<'a>(name: &str, params: &'a Value) -> Result<Args<'a>> {
+    validate(
+        spec(name).ok_or_else(|| format!("Unknown command `{name}`"))?,
+        params,
+    )
+}
 /// Reject unknown, missing or mistyped parameters before anything touches the store.
 fn validate<'a>(spec: &'static Spec, params: &'a Value) -> Result<Args<'a>> {
     let map = match params {
@@ -811,6 +819,12 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         .any(|s| s.name == name)
     {
         return crate::control_overview::call(host, name, &a);
+    }
+    if crate::control_generate::SPECS
+        .iter()
+        .any(|s| s.name == name)
+    {
+        return crate::control_generate::call(host, name, &a, agent);
     }
     let result = match name {
         "session.info" => Ok(info(host)),
@@ -1800,6 +1814,31 @@ pub(crate) fn full_strip(s: &Session, track: &str) -> Strip {
 fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
     let path = Path::new(a.str("path")?);
     let buffer = Arc::new(decode_file(path)?);
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Audio")
+        .to_string();
+    place_audio(
+        host,
+        buffer,
+        &name,
+        a.opt_str("trackId"),
+        a.opt_f64("startBar"),
+        agent,
+    )
+}
+/// Put decoded audio in the song as a new source and one clip, in one undo step: on the
+/// given audio track, else the selected one, else a new track named `name`; at `start_bar`,
+/// else the playhead. `session.importAudio` and `generate.*` share it.
+pub fn place_audio(
+    host: &mut dyn Host,
+    buffer: Arc<audio::AudioBuffer>,
+    name: &str,
+    track_id: Option<&str>,
+    start_bar: Option<f64>,
+    agent: bool,
+) -> Result<Value> {
     if audio::session_bytes(host.store().session(), host.library())
         .saturating_add(buffer.frames.len() * 8)
         > audio::MAX_LIBRARY_BYTES
@@ -1807,7 +1846,7 @@ fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
         return Err("Decoded audio library exceeds 1 GiB".into());
     }
     let s = host.store().session();
-    let track = match a.opt_str("trackId") {
+    let track = match track_id {
         Some(t) => {
             let t = find_track(s, t)?;
             if t.kind != "audio" {
@@ -1828,15 +1867,12 @@ fn import_audio(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
         commands.push(Command::AddTrack(t));
         id
     });
-    let name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Audio")
-        .to_string();
+    let name = name.to_string();
     let bpb = s.beats_per_bar();
-    let start_bar = a
-        .opt_f64("startBar")
-        .unwrap_or_else(|| host.position() / bpb);
+    let start_bar = start_bar.unwrap_or_else(|| host.position() / bpb);
+    if !crate::model::valid_time(start_bar) {
+        return Err("startBar must be between 0 and 1,000,000".into());
+    }
     let source = Source {
         id: new_id("source"),
         name: name.clone(),

@@ -14,13 +14,19 @@ same song, and every edit it makes is one undo away.
 - **Audio engine in Rust**: sample-accurate automation and controllers, plugin delay
   compensation, input monitoring, count-in, crash-isolated plugin scanning. Nothing audio runs in
   JavaScript.
-- **34 stock instruments and effects** with front panels that draw what the audio does, plus
+- **35 stock instruments and effects** with front panels that draw what the audio does, plus
   your own CLAP, VST3, Audio Unit (macOS) and ryolune native plugins.
 - **One carefully drawn theme**, graphite by night and porcelain by day, with text contrast
   tested on every surface.
 - **Built for AI control**: everything a person can do in the window is a command that the
   built-in agent, `ryolune-cli` and any MCP client can call, with a one-call overview of the whole
-  song and full access to external plugins' parameters and state.
+  song and full access to external plugins' parameters and state. The built-in agent runs on
+  Codex, Claude Code, Anthropic, OpenAI, Gemini, OpenRouter, Mistral, Groq, DeepSeek, xAI, Ollama,
+  LM Studio or any compatible server; Settings shows a ready setup for Claude Code, Codex,
+  Cursor, VS Code, Claude Desktop, Gemini CLI and other MCP apps.
+- **Sounds from a description**: loops that fit your bars and key, song ideas, one-shots and
+  playable instruments, made with ElevenLabs, Stable Audio, fal.ai or your own endpoint and placed
+  in one undo step. Any sound can become a Sample Keys instrument.
 - **Offline and private**: no account, no subscription, no telemetry. Songs are single `.ryolune`
   files with the audio inside.
 
@@ -87,7 +93,7 @@ See [AI_CONTROL.md](docs/AI_CONTROL.md) for the agent, the CLI, MCP, permissions
 | [Keyboard shortcuts](docs/SHORTCUTS.md) | Every shortcut (generated from the app) |
 | [AI control](docs/AI_CONTROL.md) | The built-in agent, `ryolune-cli`, `ryolune-mcp`, permissions, recipes |
 | [Command reference](docs/COMMANDS.md) | Every command and parameter (generated from the registry) |
-| [The agent panel](docs/AGENT.md) | Providers, sign-in, the conversation, Changes and Takes |
+| [The agent panel](docs/AGENT.md) | Providers, outside agents, the conversation, Generate, Changes and Takes |
 | [Plugins](docs/PLUGINS.md) | CLAP, VST3 and Audio Unit hosting |
 | [Native plugins](docs/NATIVE_PLUGINS.md) | Writing plugins in Rust with the ryolune SDK |
 | [Development](docs/DEVELOPMENT.md) | Code layout, building, checks, releases |

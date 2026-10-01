@@ -290,8 +290,64 @@ const settings = {
     showTooltips: true,
     followPlayhead: true,
   },
-  agent: { provider: "claude" },
+  agent: {
+    provider: "claude",
+    permissions: {
+      fileOperations: true,
+      transport: true,
+      replaceSession: false,
+      settings: false,
+      appControl: false,
+      generation: true,
+    },
+  },
+  generation: {
+    service: "elevenlabs",
+    elevenlabsApiKey: query.get("generation") === "off" ? "" : "••••4f2a",
+    stabilityApiKey: "",
+    falApiKey: "",
+    falModel: "fal-ai/stable-audio",
+    customUrl: "",
+    customApiKey: "",
+  },
 };
+
+/** Sounds the fixture has "generated", newest first. */
+const generated = [
+  {
+    id: "1790870000000-dusty-boom-bap",
+    name: "Dusty boom bap",
+    description: "Dusty boom-bap drums with a lazy swing",
+    kind: "loop",
+    service: "elevenlabs",
+    seconds: 8.2,
+    created: Math.round(Date.now() / 1000) - 240,
+  },
+  {
+    id: "1790860000000-felt-piano",
+    name: "Felt piano",
+    description: "Felt piano, soft and intimate, close-miked",
+    kind: "instrument",
+    service: "elevenlabs",
+    seconds: 3,
+    created: Math.round(Date.now() / 1000) - 5400,
+  },
+];
+const MCP = "/Applications/ryolune.app/Contents/MacOS/ryolune-mcp";
+const CONTROL = "~/Library/Application Support/ryolune/control.json";
+const mcpBlock = JSON.stringify(
+  {
+    mcpServers: {
+      ryolune: {
+        command: MCP,
+        args: ["--live"],
+        env: { RYOLUNE_CONTROL: CONTROL },
+      },
+    },
+  },
+  null,
+  2,
+);
 
 const P = (
   id: number,
@@ -964,7 +1020,12 @@ function command(method: string, params: Params): unknown {
         platform: "macos",
         version: "dev",
         catalog: {
-          instruments: ["ryolune Synth", "Grand Piano", "Drum Kit", "Choir Pad"],
+          instruments: [
+            "ryolune Synth",
+            "Grand Piano",
+            "Drum Kit",
+            "Choir Pad",
+          ],
           effects: Object.keys(STOCK_PARAMETERS),
           loops: [{ name: "Night beat", instrument: "Drum Kit", bars: 4 }],
         },
@@ -1118,10 +1179,113 @@ function command(method: string, params: Params): unknown {
       return [];
     case "agent.connection":
       return { provider: "claude", state: "configured", message: "" };
+    case "agent.mcp":
+      return {
+        bridgeEnabled: true,
+        command: MCP,
+        clients: [
+          {
+            id: "claude-code",
+            name: "Claude Code",
+            how: "Run this once in a terminal.",
+            text: `claude mcp add ryolune --scope user -e RYOLUNE_CONTROL="${CONTROL}" -- ${MCP} --live`,
+            file: null,
+            link: false,
+          },
+          {
+            id: "codex",
+            name: "Codex CLI",
+            how: "Run this once in a terminal.",
+            text: `codex mcp add ryolune --env RYOLUNE_CONTROL="${CONTROL}" -- ${MCP} --live`,
+            file: null,
+            link: false,
+          },
+          {
+            id: "cursor",
+            name: "Cursor",
+            how: "Click Add to Cursor, or paste this in the file below.",
+            text: mcpBlock,
+            file: "~/.cursor/mcp.json",
+            link: true,
+          },
+          {
+            id: "vscode",
+            name: "VS Code (Copilot)",
+            how: "Click Add to VS Code, or paste this in the file below.",
+            text: mcpBlock,
+            file: ".vscode/mcp.json",
+            link: true,
+          },
+          {
+            id: "claude-desktop",
+            name: "Claude Desktop",
+            how: "Paste this in the file below, then restart Claude.",
+            text: mcpBlock,
+            file: "~/Library/Application Support/Claude/claude_desktop_config.json",
+            link: false,
+          },
+          {
+            id: "other",
+            name: "Any other MCP client",
+            how: "Most clients take this standard block.",
+            text: mcpBlock,
+            file: null,
+            link: false,
+          },
+        ],
+      };
+    case "agent.openClient":
+      return { opened: params.client };
+    case "generate.services":
+      return {
+        chosen: settings.generation.service,
+        services: [
+          [
+            "elevenlabs",
+            "ElevenLabs",
+            Boolean(settings.generation.elevenlabsApiKey),
+          ],
+          ["stability", "Stable Audio (Stability AI)", false],
+          ["fal", "fal.ai", false],
+          ["custom", "Custom endpoint", false],
+        ].map(([id, label, ready]) => ({ id, label, ready, makes: "" })),
+      };
+    case "generate.list":
+      return { total: generated.length, sounds: generated };
+    case "generate.audio": {
+      const sound = {
+        id: `${Date.now()}-generated`,
+        name: String(params.prompt).split(/\s+/).slice(0, 3).join(" "),
+        description: String(params.prompt),
+        kind: String(params.kind ?? "loop"),
+        service: String(params.service ?? "elevenlabs"),
+        seconds: Number(params.seconds ?? 8),
+        created: Math.round(Date.now() / 1000),
+      };
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          generated.unshift(sound);
+          resolve({ generated: sound });
+        }, 1500),
+      );
+    }
+    case "generate.preview":
+      return { id: params.id, mime: "audio/wav", base64: "" };
+    case "generate.place":
+      return {};
+    case "generate.delete": {
+      const at = generated.findIndex((g) => g.id === params.id);
+      if (at >= 0) generated.splice(at, 1);
+      return { deleted: params.id };
+    }
     case "ui.showPanel": {
       const name = String(params.panel);
-      if (name in ui)
-        (ui as Params)[name] = params.open ?? !(ui as Params)[name];
+      if (name === "settings" && params.section) {
+        (ui as Params).settings = true;
+        (ui as Params).settingsSection = params.section;
+      } else if (name in ui)
+        (ui as Params)[name] =
+          params.open ?? params.visible ?? !(ui as Params)[name];
       void emit("daw:ui", { ...ui });
       return {};
     }
