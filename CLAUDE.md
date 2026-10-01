@@ -246,3 +246,28 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   `~/.ryolune/keys/update-signing.key` on the owner's machine; never commit it. Builds are ad-hoc
   signed, not notarized.
 - `legacy/` is reference material, not the active implementation.
+
+## lsuite: bring ryolune up to the suite standard (next session, decided 2026-10-01)
+
+ryolune is part of **lsuite** (lowercase), the free open-source creative suite with kimchi
+(video) and zenith (hub). The contract is `STANDARD.md` in ludovic111/lsuite (locally
+`../lsuite/STANDARD.md`): every action a command, CLI + MCP + built-in agent on one registry,
+signed auto-update, apps that work together. ryolune is the reference implementation; what is
+still missing here:
+
+- [ ] **Discovery**: write `~/.lsuite/apps/ryolune.json` at start (version, paths of the app,
+      `ryolune-cli`, `ryolune-mcp`, bridge port while running, data folder). ryolune is the first
+      app to do it, so design the format (small, versioned) and document it in `../lsuite/STANDARD.md`.
+- [ ] **Hand-offs**: export a mix or stems straight onto a kimchi project's audio track
+      (read kimchi's discovery file, use its CLI/MCP), and accept a cut from kimchi (audio,
+      length, markers) to score. Each as a registry command.
+- [ ] **Shared command names** with the other apps where the concept matches (`app.version`,
+      `app.checkUpdates`, `history.*`, `export.*`); add aliases rather than breaking scripts.
+- [ ] **Site**: the page is now lsuite.xyz/ryolune (`../lsuite/ryolune/index.html`), not `site/`.
+      It still describes 0.11 (six themes, theme gallery): update it for 0.12 (one theme in dark
+      and light, more agents, generation) with captures from `site/img`, and from now on update it
+      with every release (version in hero and JSON-LD, what's new, downloads).
+- [ ] Point `SUPPORT_URL` (desktop/src/control.rs) at `https://lsuite.xyz/ryolune/support` in the
+      next release (ryolune.com/support is a Porkbun 301 there already).
+
+When done, tick these, and update the status table at the end of `../lsuite/STANDARD.md`.
