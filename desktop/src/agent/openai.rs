@@ -9,7 +9,6 @@ use ryolune_engine::{settings::Provider, Result};
 use serde_json::{json, Value};
 use std::{io::BufReader, sync::atomic::Ordering, sync::mpsc};
 
-const OPENAI: &str = "https://api.openai.com/v1";
 const LINE_LIMIT: usize = 4 * 1024 * 1024;
 
 fn tools() -> Vec<Value> {
@@ -72,26 +71,36 @@ fn wire(system: &str, messages: &[Message]) -> Vec<Value> {
     out
 }
 
+/// The service's name in messages: "Gemini", "OpenRouter", "OpenAI".
+fn provider_name(provider: Provider) -> &'static str {
+    provider
+        .label()
+        .trim_end_matches(" API key")
+        .trim_end_matches(" on this computer")
+}
+
 pub(crate) fn run(turn: Turn) -> Result<()> {
     let provider = turn.settings.agent.provider;
-    let base = if provider == Provider::Compatible {
-        let base = turn
-            .settings
-            .agent
-            .compatible_base_url
-            .trim()
-            .trim_end_matches('/');
-        if base.is_empty() {
-            return Err("Set the compatible endpoint's base URL in Settings > Agent.".into());
-        }
-        base.to_string()
-    } else {
-        OPENAI.into()
-    };
+    let hosted = provider.hosted();
+    let base = turn
+        .settings
+        .base_url(provider)
+        .filter(|b| !b.is_empty())
+        .ok_or("Set the compatible endpoint's base URL in Settings > Agent.")?;
     let key = turn.settings.api_key(provider);
-    if provider == Provider::OpenAi && key.is_none() {
-        return Err("No OpenAI API key. Add one in Settings > Agent or set OPENAI_API_KEY.".into());
+    let needs_key = provider == Provider::OpenAi || hosted.is_some_and(|h| h.needs_key);
+    if needs_key && key.is_none() {
+        return Err(format!(
+            "No {} API key. Add one in Settings > Agent{}.",
+            provider_name(provider),
+            hosted
+                .and_then(|h| h.env.first())
+                .or(Some(&"OPENAI_API_KEY").filter(|_| provider == Provider::OpenAi))
+                .map(|env| format!(" or set {env}"))
+                .unwrap_or_default()
+        ));
     }
+    let strict = hosted.is_some_and(|h| h.strict);
     let model = turn.settings.model();
     if model.is_empty() {
         return Err("Set a model name in Settings > Agent.".into());
@@ -123,9 +132,15 @@ pub(crate) fn run(turn: Turn) -> Result<()> {
             "tools": tools,
             "tool_choice": "auto",
             "stream": true,
-            "stream_options": { "include_usage": true },
-            "max_completion_tokens": turn.settings.agent.max_output_tokens,
         });
+        // OpenAI renamed the token limit; services that copied the older API, and reject
+        // fields they do not know, get the name they accept.
+        if strict {
+            body["max_tokens"] = json!(turn.settings.agent.max_output_tokens);
+        } else {
+            body["stream_options"] = json!({ "include_usage": true });
+            body["max_completion_tokens"] = json!(turn.settings.agent.max_output_tokens);
+        }
         if !turn.settings.agent.reasoning_effort.is_empty() {
             body["reasoning_effort"] = json!(turn.settings.agent.reasoning_effort);
         }

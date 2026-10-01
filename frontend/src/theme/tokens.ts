@@ -6,38 +6,24 @@
  * Scales that never change (type, spacing, dimensions) are constants below.
  * Everything visual is themed: `color`, `gradient`, `shadow`, `fill`, `line`,
  * `blur`, `radius`, `canvasShadow` and `clipMix` are live objects that
- * setTheme() refills from one of the six themes (modern.ts, skeuo.ts,
- * aero.ts, console.ts, ink.ts, neon.ts), each in a dark and a light mode. Canvas code reads them at paint
- * time, so it follows the theme without subscribing to anything.
+ * setTheme() refills from the ryolune theme (ryolune.ts) in its dark or light
+ * mode. Canvas code reads them at paint time, so it follows the mode without
+ * subscribing to anything.
  *
  * Do not add visual constants anywhere else.
  */
-import { aero } from "./aero";
-import { consoleTheme } from "./console";
-import { ink } from "./ink";
-import { modern } from "./modern";
-import { neon } from "./neon";
-import { skeuo } from "./skeuo";
-import type { Mode, ThemeId, ThemeSpec } from "./schema";
+import { ryolune } from "./ryolune";
+import type { Mode, ThemeSpec } from "./schema";
 
 export { white, black } from "./schema";
-export type { CanvasShadowLayer, Mode, ThemeId } from "./schema";
+export type { CanvasShadowLayer, Mode } from "./schema";
 
-const BUILDERS: Record<ThemeId, (mode: Mode) => ThemeSpec> = {
-  modern,
-  skeuo,
-  aero,
-  console: consoleTheme,
-  ink,
-  neon,
-};
-
-export function buildTheme(theme: ThemeId, mode: Mode): ThemeSpec {
-  return BUILDERS[theme](mode);
+export function buildTheme(mode: Mode): ThemeSpec {
+  return ryolune(mode);
 }
 
-// Live groups. Skeuomorphic dark is the design source, so it is the default.
-const initial = buildTheme("skeuo", "dark");
+// Live groups. Dark is the design source, so it is the default.
+const initial = buildTheme("dark");
 export const color = { ...initial.color };
 export const gradient = { ...initial.gradient };
 export const shadow = { ...initial.shadow };
@@ -213,8 +199,8 @@ export const timeline = {
 } as const;
 
 /** Refill the live groups. Returns the spec so the caller can emit CSS. */
-export function setTheme(theme: ThemeId, mode: Mode): ThemeSpec {
-  const spec = buildTheme(theme, mode);
+export function setTheme(mode: Mode): ThemeSpec {
+  const spec = buildTheme(mode);
   Object.assign(color, spec.color);
   Object.assign(gradient, spec.gradient);
   Object.assign(shadow, spec.shadow);
@@ -252,7 +238,7 @@ function emit(
   }
 }
 
-/** Every token of the current theme as a CSS custom property. */
+/** Every token of the current mode as a CSS custom property. */
 export function cssVariables(): Record<string, string> {
   const vars: Record<string, string> = {};
   emit(vars, "color", color);

@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SECTIONS: [&str; 8] = [
+const SECTIONS: [&str; 9] = [
     "General",
     "Audio & MIDI",
     "Interface",
@@ -27,8 +27,11 @@ const SECTIONS: [&str; 8] = [
     "Control",
     "Updates",
     "About",
+    "Generation",
 ];
-pub(crate) const SECTION_KEYS: [&str; 8] = [
+/// Settings sections by index. Generation came last (0.12), so earlier indices keep their
+/// meaning; the React window orders them itself.
+pub(crate) const SECTION_KEYS: [&str; 9] = [
     "general",
     "audio",
     "interface",
@@ -37,6 +40,7 @@ pub(crate) const SECTION_KEYS: [&str; 8] = [
     "control",
     "updates",
     "about",
+    "generation",
 ];
 const SIDEBAR: f32 = 168.0;
 const WINDOW: Vec2 = vec2(820.0, 560.0);
@@ -758,6 +762,21 @@ impl Ryolune {
             Provider::OpenAi => {
                 changed |= row_text(ui, "API key", "Stored in settings.json, readable only by you. OPENAI_API_KEY is used when blank.", &mut draft.agent.openai_api_key, true);
                 row_note(ui, "Talks to api.openai.com directly from this app with streaming and function calling.".to_string());
+            }
+            // Reference egui window only: the hosted and local services are configured in
+            // the React Settings window.
+            Provider::Gemini
+            | Provider::OpenRouter
+            | Provider::Mistral
+            | Provider::Groq
+            | Provider::DeepSeek
+            | Provider::Xai
+            | Provider::Ollama
+            | Provider::LmStudio => {
+                row_note(
+                    ui,
+                    format!("{} is configured in Settings > Agent.", provider.label()),
+                );
             }
             Provider::Compatible => {
                 changed |= row_text(

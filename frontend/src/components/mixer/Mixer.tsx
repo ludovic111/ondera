@@ -81,7 +81,10 @@ function Strip({ track, index }: { track: Track; index: number }) {
         selected || dispatch(commands.track.select({ trackId: track.id }))
       }
     >
-      <div className={styles.kind} title={output ? `Routed to ${output}` : undefined}>
+      <div
+        className={styles.kind}
+        title={output ? `Routed to ${output}` : undefined}
+      >
         {{ audio: "AUD", midi: "MIDI", bus: "BUS" }[track.kind]} ·{" "}
         {output ? `→ ${output}` : `${inserts} fx`}
       </div>
@@ -120,6 +123,7 @@ function Strip({ track, index }: { track: Track; index: number }) {
         <Button
           size="sm"
           title="Mute"
+          tone="mute"
           pressed={track.mute}
           onClick={() =>
             dispatch(
@@ -132,6 +136,7 @@ function Strip({ track, index }: { track: Track; index: number }) {
         <Button
           size="sm"
           title="Solo"
+          tone="solo"
           pressed={track.solo}
           onClick={() =>
             dispatch(
@@ -145,6 +150,7 @@ function Strip({ track, index }: { track: Track; index: number }) {
           <Button
             size="sm"
             title="Record arm"
+            tone="arm"
             lit={track.armed}
             onClick={() =>
               dispatch(

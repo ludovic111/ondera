@@ -1,5 +1,9 @@
 export const slashCommands = [
-  { name: "rhythm", label: "Open the Euclidean Rhythm Lab", prompt: "" },
+  {
+    name: "generate",
+    label: "Make a sound, loop or instrument with your sound service",
+    prompt: "",
+  },
   {
     name: "diagnose",
     label: "Diagnose any problem",

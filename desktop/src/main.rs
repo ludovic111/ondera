@@ -7,6 +7,7 @@ mod chrome;
 mod control;
 mod editor;
 mod export;
+mod generate;
 mod native;
 mod plugins;
 mod recovery;

@@ -131,7 +131,7 @@ pub const SPECS: &[Spec] = &[
     edit("ui.showPanel", "Show or hide an interface panel: agent, automation, mixer (every channel, in place of the region editor), controllers (the controller lane under the piano roll), tempo (the tempo track under the ruler), palette (the command palette), settings, help, export, recovery, or master / bus-a / bus-b in the inspector.", &[
         req("panel", Kind::String, "agent, automation, mixer, controllers, settings, help, export, recovery, master, bus-a or bus-b."),
         opt("visible", Kind::Boolean, "Show (default) or hide."),
-        opt("section", Kind::String, "Settings section: general, audio, interface, agent, plugins, control, updates or about."),
+        opt("section", Kind::String, "Settings section: general, audio, interface, agent, generation, plugins, control, updates or about."),
     ]),
     edit("ui.openPluginWindow", "Open a plugin's parameter panel in the window, or its native editor with native=true.", &[
         TRACK_ID, SLOT,
@@ -158,8 +158,8 @@ pub const SPECS: &[Spec] = &[
     edit("app.confirm", "Answer the unsaved-changes prompt the window shows before New, Open, Quit or Relaunch. ui.status reports it as `prompt`.", &[
         req("choice", Kind::String, "save, discard or cancel."),
     ]),
-    edit("app.openGuide", "Open one of ryolune's pages in the web browser.", &[
-        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: donate to ryolune, once or monthly (optional, unlocks nothing)."),
+    edit("app.openGuide", "Open one of ryolune's pages, or a sound service's key page, in the web browser.", &[
+        req("guide", Kind::String, "plugins: writing native plugins with the Rust SDK. support: donate to ryolune, once or monthly (optional, unlocks nothing). elevenlabs, stability, fal: where to get that service's API key. custom: the contract a custom generation endpoint follows."),
     ]),
     edit("app.relaunch", "Relaunch the app, for example after an update was installed. Unsaved changes prompt first.", &[]),
     edit("session.saveRecoveredTake", "Write a recording that could not be placed on a track to a WAV file, which frees the window to open other sessions. ui.status reports it as `recoveredTake`.", &[
@@ -171,11 +171,15 @@ pub const SPECS: &[Spec] = &[
     ]),
     query("agent.status", "The built-in agent: provider, model, whether a task is running, turn count and last reply.", &[]),
     edit("agent.configure", "Select the agent provider, model and reasoning effort together. Only while idle.", &[
-        req("provider", Kind::String, "codex, claude, anthropic, openai or compatible."),
+        req("provider", Kind::String, "codex, claude, anthropic, openai, gemini, openrouter, mistral, groq, deepseek, xai, ollama, lmstudio or compatible."),
         req("model", Kind::String, "Model ID; empty uses the provider default."),
         req("reasoningEffort", Kind::String, "Provider effort level; empty uses its default."),
     ]),
     query("agent.providers", "Available agent providers and whether each is configured.", &[]),
+    query("agent.mcp", "How to connect an outside agent to this window over MCP: the ryolune-mcp command, its environment, whether the bridge is on, and a ready configuration for Claude Code, Codex, Cursor, VS Code, Claude Desktop, Gemini CLI, Windsurf, opencode, Zed and any other MCP client.", &[]),
+    edit("agent.openClient", "Open an outside agent's install link with ryolune's MCP server filled in (Cursor and VS Code install from a link; the app asks before adding it). Only a person can do this.", &[
+        req("client", Kind::String, "cursor or vscode."),
+    ]),
     query("agent.models", "Discover the models each connected provider offers, grouped by provider. Asks the providers over the network, so it runs as a job and answers when they have.", &[]),
     query("agent.connection", "Check that the configured agent provider can be reached and is signed in: provider, state and a message. Runs as a job, like agent.models.", &[]),
     edit("agent.send", "Send a prompt to the built-in agent panel, like typing in the window.", &[
@@ -211,6 +215,7 @@ pub fn is_live_only(name: &str) -> bool {
                 | "app.confirm"
                 | "app.openGuide"
                 | "app.relaunch"
+                | "generate.audio"
                 | "session.saveRecoveredTake"
                 | "app.checkUpdates"
                 | "app.installUpdate"
@@ -227,8 +232,10 @@ pub fn denied_for_agent_request(
     params: &serde_json::Value,
     permissions: &settings::Permissions,
 ) -> Option<String> {
-    if matches!(name, "rhythm.preview" | "ui.screenshot")
-        && params.get("path").is_some_and(|p| !p.is_null())
+    if matches!(
+        name,
+        "rhythm.preview" | "ui.screenshot" | "strip.loadSample"
+    ) && params.get("path").is_some_and(|p| !p.is_null())
         && !permissions.file_operations
     {
         return Some(format!(
@@ -296,6 +303,10 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
             if !permissions.app_control =>
         {
             deny("application control", "appControl")
+        }
+        "generate.audio" if !permissions.generation => deny("sound generation", "generation"),
+        "generate.delete" if !permissions.file_operations => {
+            deny("file operations", "fileOperations")
         }
         _ => None,
     }

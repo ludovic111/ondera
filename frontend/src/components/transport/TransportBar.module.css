@@ -6,7 +6,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 16px;
+  padding: 0 14px;
   white-space: nowrap;
   background: var(--gradient-transport);
   box-shadow: var(--shadow-transport);
@@ -14,14 +14,41 @@
   container-type: inline-size;
 }
 
+/* The two halves share the width equally so the display sits in the middle of the bar;
+   a half never shrinks below its content, so on a narrow window the display moves aside
+   instead of anything clipping. */
+.side {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.end {
+  justify-content: flex-end;
+}
+
+/* Transport keys sit together in one recessed tray, like a hardware cluster. */
 .group {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   flex: none;
+  padding: 2px;
+  border-radius: calc(var(--radius-control) + 2px);
+  background: var(--color-groove-alt);
+  box-shadow: var(--shadow-groove-shallow);
+}
+
+.group > button:not([aria-pressed="true"]) {
+  background: transparent;
+  box-shadow: none;
+}
+
+.group > button:not([aria-pressed="true"]):hover:not(:disabled) {
+  background: var(--fill-hover);
 }
 
 .right {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 14px;

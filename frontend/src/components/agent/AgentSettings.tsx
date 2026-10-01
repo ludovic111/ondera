@@ -5,9 +5,11 @@ import type { Params } from "../../state/native";
 import {
   canChat,
   isProvider,
+  providerGroups,
   providers,
   useAgentConnection,
 } from "./connection";
+import { ExternalAgents } from "./ExternalAgents";
 import { effortName, useModels } from "./models";
 import styles from "./AgentSettings.module.css";
 
@@ -29,6 +31,10 @@ const permissionLabels: Record<string, [string, string]> = {
     "Allow changes to preferences and audio devices.",
   ],
   appControl: ["Quit and update ryolune", "Allow application control."],
+  generation: [
+    "Generate sounds",
+    "Let the agent make sounds with your generation service, on its credits.",
+  ],
 };
 
 export function AgentSettings({
@@ -50,7 +56,11 @@ export function AgentSettings({
   const agent = useSyncExternalStore(store.subscribeMeta, store.getAgent);
   const provider = isProvider(settings.provider) ? settings.provider : "codex";
   const service = providers[provider];
-  const account = provider === "codex" || provider === "claude";
+  const account = service.kind === "account";
+  const urlPath = "urlPath" in service ? service.urlPath : undefined;
+  const keyPath = "keyPath" in service ? service.keyPath : undefined;
+  // Services without a default model need one chosen before the first message.
+  const modelRequired = !account && !service.defaultModel;
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
   const [notice, setNotice] = useState("");
@@ -63,7 +73,9 @@ export function AgentSettings({
   } = useAgentConnection(provider);
   const [effort, setEffort] = useState(String(settings.reasoningEffort ?? ""));
   const [model, setModel] = useState(String(settings.model ?? ""));
-  const [url, setUrl] = useState(String(settings.compatibleBaseUrl ?? ""));
+  const [url, setUrl] = useState(
+    String(urlPath ? (settings[urlPath] ?? "") : ""),
+  );
   const [instructions, setInstructions] = useState(
     String(settings.instructions ?? ""),
   );
@@ -77,13 +89,9 @@ export function AgentSettings({
   const [executable, setExecutable] = useState(
     String(settings[`${provider}Executable`] ?? ""),
   );
-  const keyPath =
-    provider === "anthropic"
-      ? "anthropicApiKey"
-      : provider === "openai"
-        ? "openaiApiKey"
-        : "compatibleApiKey";
-  const hasKey = Boolean(settings[keyPath]);
+  const hasKey = Boolean(keyPath && settings[keyPath]);
+  const offered =
+    catalog.groups.find((g) => g.provider === provider)?.models ?? [];
   const unsaved =
     effort !== String(settings.reasoningEffort ?? "") ||
     instructions !== String(settings.instructions ?? "") ||
@@ -91,8 +99,7 @@ export function AgentSettings({
     maxRounds !== Number(settings.maxToolRounds ?? 48) ||
     model !== String(settings.model ?? "") ||
     key !== "" ||
-    (provider === "compatible" &&
-      url !== String(settings.compatibleBaseUrl ?? "")) ||
+    (urlPath !== undefined && url !== String(settings[urlPath] ?? "")) ||
     (account && executable !== String(settings[`${provider}Executable`] ?? ""));
   useEffect(() => {
     onDirtyChange?.(unsaved);
@@ -160,10 +167,14 @@ export function AgentSettings({
           disabled={busy || unsaved || agent.status.running}
           onChange={(event) => void save([["provider", event.target.value]])}
         >
-          {Object.entries(providers).map(([id, item]) => (
-            <option key={id} value={id}>
-              {item.name}
-            </option>
+          {providerGroups.map(([group, ids]) => (
+            <optgroup key={group} label={group}>
+              {ids.map((id) => (
+                <option key={id} value={id}>
+                  {providers[id].name}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </label>
@@ -185,38 +196,43 @@ export function AgentSettings({
                   ],
                 ]
               : []),
-            ...(provider === "compatible"
-              ? [["compatibleBaseUrl", url.trim()] as [string, unknown]]
+            ...(urlPath ? [[urlPath, url.trim()] as [string, unknown]] : []),
+            ...(keyPath && key.trim()
+              ? [[keyPath, key.trim()] as [string, unknown]]
               : []),
-            ...(key.trim() ? [[keyPath, key.trim()] as [string, unknown]] : []),
           ]);
         }}
       >
         <fieldset disabled={busy || agent.status.running}>
           <legend>{account ? "Your account" : "Connection details"}</legend>
-          {provider === "compatible" && (
+          {urlPath && (
             <>
               <label>
                 <span>Server address</span>
                 <input
                   type="url"
-                  required
+                  required={service.kind === "endpoint"}
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="http://localhost:1234/v1"
+                  placeholder={
+                    "defaultUrl" in service
+                      ? service.defaultUrl
+                      : "http://localhost:1234/v1"
+                  }
                 />
               </label>
               <p>
-                Use the OpenAI-compatible address from your server, including
-                /v1 when required.
+                {service.kind === "local"
+                  ? `Leave empty for ${service.name}'s usual address.`
+                  : "Use the OpenAI-compatible address from your server, including /v1 when required."}
               </p>
             </>
           )}
-          {!account && (
+          {keyPath && (
             <>
               <label>
                 <span>
-                  API key{provider === "compatible" ? " (optional)" : ""}
+                  API key{service.kind === "endpoint" ? " (optional)" : ""}
                 </span>
                 <input
                   type="password"
@@ -240,19 +256,31 @@ export function AgentSettings({
                   Remove saved key
                 </button>
               )}
-              {provider === "compatible" && (
-                <label>
-                  <span>Model name</span>
-                  <input
-                    required
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder="Model loaded in your server"
-                    spellCheck={false}
-                  />
-                </label>
-              )}
             </>
+          )}
+          {modelRequired && (
+            <label>
+              <span>Model name</span>
+              <input
+                required
+                list="agent-model-choices"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={
+                  offered.length
+                    ? "Choose one of your models"
+                    : "Model name, as the service lists it"
+                }
+                spellCheck={false}
+              />
+              <datalist id="agent-model-choices">
+                {offered.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </datalist>
+            </label>
           )}
           <label>
             <span>Reasoning effort</span>
@@ -275,7 +303,7 @@ export function AgentSettings({
           <details>
             <summary>Advanced connection settings</summary>
             <div className={styles.advanced}>
-              {provider !== "compatible" && (
+              {!modelRequired && (
                 <label>
                   <span>Model (optional)</span>
                   <input
@@ -413,7 +441,11 @@ export function AgentSettings({
               )
             }
           >
-            {account ? "Installation and sign-in help ↗" : "Get an API key ↗"}
+            {account
+              ? "Installation and sign-in help ↗"
+              : service.kind === "local"
+                ? `Download ${service.name} ↗`
+                : "Get an API key ↗"}
           </button>
         )}
       </div>
@@ -448,6 +480,7 @@ export function AgentSettings({
           })}
         </div>
       </details>
+      <ExternalAgents />
     </section>
   );
 }

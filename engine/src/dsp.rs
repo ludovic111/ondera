@@ -6,7 +6,7 @@ pub use ryolune_plugin::dsp::{
 };
 use std::f64::consts::TAU;
 
-pub const INSTRUMENTS: [&str; 11] = [
+pub const INSTRUMENTS: [&str; 12] = [
     "ryolune Synth",
     "E-Piano Mk I",
     "Drum Machine",
@@ -18,6 +18,7 @@ pub const INSTRUMENTS: [&str; 11] = [
     "Tonewheel Organ",
     "String Ensemble",
     "Analog Bass",
+    "Sample Keys",
 ];
 pub const EFFECTS: [&str; 23] = [
     "ryolune Comp",

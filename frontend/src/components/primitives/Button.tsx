@@ -10,6 +10,8 @@ export interface ButtonProps {
   /** Accent-lit: record arm and the agent send key only. */
   lit?: boolean;
   size?: "md" | "wide" | "sm" | "auto" | "icon";
+  /** Colour of the on state for channel keys: mute, solo, record arm. */
+  tone?: "mute" | "solo" | "arm" | undefined;
   onClick?: (e: MouseEvent<HTMLElement>) => void;
   className?: string | undefined;
   style?: CSSProperties | undefined;
@@ -23,6 +25,7 @@ export function Button({
   pressed,
   lit,
   size = "md",
+  tone,
   onClick,
   className,
   style,
@@ -35,6 +38,7 @@ export function Button({
       title={title}
       aria-label={title}
       aria-pressed={pressed ?? lit}
+      data-tone={tone}
       onClick={onClick}
       className={[styles.button, styles[size], material, className]
         .filter(Boolean)

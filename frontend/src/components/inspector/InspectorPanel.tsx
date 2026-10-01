@@ -24,6 +24,7 @@ import {
 } from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { Knob } from "../primitives/Knob";
+import { RecordSmallIcon } from "../primitives/Icons";
 import { LedStrip } from "../primitives/LedStrip";
 import { CapsLabel } from "../primitives/CapsLabel";
 import { PopupMenu, type MenuState } from "../menu/PopupMenu";
@@ -118,8 +119,7 @@ export function InspectorPanel() {
         separator,
         {
           label: "New Bus",
-          onSelect: () =>
-            store.fire("track.group", { trackIds: [track.id] }),
+          onSelect: () => store.fire("track.group", { trackIds: [track.id] }),
         },
       ],
     });
@@ -548,6 +548,7 @@ export function InspectorPanel() {
         <div className={styles.channelButtons}>
           <button
             className="m-button"
+            data-tone="mute"
             aria-pressed={track.mute}
             onClick={() =>
               store.fire("track.setMute", {
@@ -560,6 +561,7 @@ export function InspectorPanel() {
           </button>
           <button
             className="m-button"
+            data-tone="solo"
             aria-pressed={track.solo}
             onClick={() =>
               store.fire("track.setSolo", {
@@ -573,6 +575,7 @@ export function InspectorPanel() {
           {track.kind !== "bus" && (
             <button
               className="m-button"
+              data-tone="arm"
               aria-label="Arm track"
               aria-pressed={track.armed}
               onClick={() =>
@@ -582,7 +585,7 @@ export function InspectorPanel() {
                 })
               }
             >
-              ●
+              <RecordSmallIcon />
             </button>
           )}
           {track.kind === "audio" && (

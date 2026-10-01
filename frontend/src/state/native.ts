@@ -42,7 +42,7 @@ export interface UiState {
   /** Monitoring is muted: built-in microphone into built-in speakers would feed back. */
   monitorBlocked?: boolean;
   scale: number;
-  /** Theme id; "graphite" and unknown values fall back to skeuo. */
+  /** Always "ryolune": the one theme; `mode` picks dark or light. */
   appearance?: string;
   mode?: "dark" | "light" | "auto";
   recoveryStatus: string;

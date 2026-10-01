@@ -71,7 +71,7 @@ fn example_bundle_exports_its_plugins_through_the_abi() {
 #[test]
 fn stock_library_serves_every_plugin_through_the_same_abi() {
     let tables = stock::tables();
-    assert_eq!(tables.len(), 34);
+    assert_eq!(tables.len(), 35);
     let manifests = native::manifests(tables).unwrap();
     for manifest in &manifests {
         assert!(manifest.id.starts_with("org.ryolune.stock."));

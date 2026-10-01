@@ -1,39 +1,25 @@
-import { cssVariables, setTheme, type Mode, type ThemeId } from "./tokens";
-import { THEMES } from "./schema";
+import { cssVariables, setTheme, type Mode } from "./tokens";
 
 export type ModeSetting = Mode | "auto";
 
-/** Settings written before 0.6 named the two appearances differently. */
-export function normalizeTheme(value: string | undefined): ThemeId {
-  if (value === "graphite") return "skeuo";
-  return (THEMES as readonly string[]).includes(value ?? "")
-    ? (value as ThemeId)
-    : "skeuo";
-}
+/** The one theme's id, written to `data-theme` and to `interface.appearance`. */
+export const THEME_ID = "ryolune";
 
 const systemDark = () =>
   typeof matchMedia !== "function" ||
   matchMedia("(prefers-color-scheme: dark)").matches;
 
-export const resolveMode = (mode: ModeSetting | undefined): Mode =>
+export const resolveMode = (mode: ModeSetting | string | undefined): Mode =>
   mode === "light" || mode === "dark" ? mode : systemDark() ? "dark" : "light";
 
-let emitted: string[] = [];
-
 export function applyAppearance(
-  theme: ThemeId,
   mode: Mode,
   root: HTMLElement = document.documentElement,
 ): void {
-  setTheme(theme, mode);
-  const vars = cssVariables();
-  // Theme-only properties of the previous theme must not leak into this one.
-  for (const name of emitted)
-    if (!(name in vars)) root.style.removeProperty(name);
-  for (const [name, value] of Object.entries(vars))
+  setTheme(mode);
+  for (const [name, value] of Object.entries(cssVariables()))
     root.style.setProperty(name, value);
-  emitted = Object.keys(vars);
-  root.dataset.theme = theme;
+  root.dataset.theme = THEME_ID;
   root.dataset.mode = mode;
   root.style.colorScheme = mode;
   // Canvases repaint from the live token objects.
@@ -44,5 +30,5 @@ export function applyAppearance(
 export function applyTokens(
   root: HTMLElement = document.documentElement,
 ): void {
-  applyAppearance("skeuo", "dark", root);
+  applyAppearance("dark", root);
 }

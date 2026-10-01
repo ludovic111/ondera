@@ -22,6 +22,7 @@ pub struct Settings {
     pub audio: Audio,
     pub interface: Interface,
     pub agent: Agent,
+    pub generation: Generation,
     pub plugins: Plugins,
     pub control: Control,
 }
@@ -60,7 +61,7 @@ pub struct Audio {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Interface {
-    /// Theme: one of [`THEMES`].
+    /// Theme: always `ryolune` since 0.12 (see [`THEMES`]); `mode` picks dark or light.
     pub appearance: String,
     /// `dark`, `light`, or `auto` to follow the system.
     pub mode: String,
@@ -82,15 +83,53 @@ pub enum Provider {
     /// The OpenAI API with an API key.
     #[serde(rename = "openai")]
     OpenAi,
-    /// Any OpenAI-compatible endpoint (local models, other vendors).
+    /// Google Gemini through its OpenAI-compatible endpoint, with a Gemini API key.
+    Gemini,
+    /// OpenRouter: hundreds of models from every lab behind one key.
+    OpenRouter,
+    /// Mistral's La Plateforme.
+    Mistral,
+    /// Groq's fast inference of open models.
+    Groq,
+    /// DeepSeek's API.
+    DeepSeek,
+    /// xAI's Grok API.
+    Xai,
+    /// Models running on this computer in Ollama.
+    Ollama,
+    /// Models running on this computer in LM Studio.
+    LmStudio,
+    /// Any other OpenAI-compatible endpoint (local servers, other vendors).
     Compatible,
 }
+/// A service that speaks the OpenAI Chat Completions API at a fixed address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hosted {
+    pub base_url: &'static str,
+    /// Environment variables read when the settings hold no key, in order.
+    pub env: &'static [&'static str],
+    /// Local servers take no key.
+    pub needs_key: bool,
+    /// Page where a key is created, or where the server is downloaded.
+    pub help_url: &'static str,
+    /// The service names its token limit `max_tokens`, not `max_completion_tokens`, and
+    /// rejects fields it does not know (stream usage options).
+    pub strict: bool,
+}
 impl Provider {
-    pub const ALL: [Provider; 5] = [
+    pub const ALL: [Provider; 13] = [
         Provider::Codex,
         Provider::Claude,
         Provider::Anthropic,
         Provider::OpenAi,
+        Provider::Gemini,
+        Provider::OpenRouter,
+        Provider::Mistral,
+        Provider::Groq,
+        Provider::DeepSeek,
+        Provider::Xai,
+        Provider::Ollama,
+        Provider::LmStudio,
         Provider::Compatible,
     ];
     pub fn label(self) -> &'static str {
@@ -99,6 +138,14 @@ impl Provider {
             Provider::Claude => "Claude Code CLI (Anthropic sign-in)",
             Provider::Anthropic => "Anthropic API key",
             Provider::OpenAi => "OpenAI API key",
+            Provider::Gemini => "Google Gemini API key",
+            Provider::OpenRouter => "OpenRouter API key",
+            Provider::Mistral => "Mistral API key",
+            Provider::Groq => "Groq API key",
+            Provider::DeepSeek => "DeepSeek API key",
+            Provider::Xai => "xAI (Grok) API key",
+            Provider::Ollama => "Ollama on this computer",
+            Provider::LmStudio => "LM Studio on this computer",
             Provider::Compatible => "OpenAI-compatible endpoint",
         }
     }
@@ -108,20 +155,118 @@ impl Provider {
             Provider::Claude => "claude",
             Provider::Anthropic => "anthropic",
             Provider::OpenAi => "openai",
+            Provider::Gemini => "gemini",
+            Provider::OpenRouter => "openrouter",
+            Provider::Mistral => "mistral",
+            Provider::Groq => "groq",
+            Provider::DeepSeek => "deepseek",
+            Provider::Xai => "xai",
+            Provider::Ollama => "ollama",
+            Provider::LmStudio => "lmstudio",
             Provider::Compatible => "compatible",
         }
     }
     pub fn parse(key: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|p| p.key() == key)
     }
-    /// The model used when the settings leave it blank.
+    /// The installed command-line agents, which bring their own sign-in.
+    pub fn is_cli(self) -> bool {
+        matches!(self, Provider::Codex | Provider::Claude)
+    }
+    /// Every provider that runs through the OpenAI Chat Completions client: OpenAI itself,
+    /// the hosted and local services and the custom endpoint.
+    pub fn speaks_openai(self) -> bool {
+        !matches!(
+            self,
+            Provider::Codex | Provider::Claude | Provider::Anthropic
+        )
+    }
+    /// The fixed address of a hosted or local OpenAI-compatible service.
+    pub fn hosted(self) -> Option<Hosted> {
+        let h = |base_url, env, needs_key, help_url, strict| Hosted {
+            base_url,
+            env,
+            needs_key,
+            help_url,
+            strict,
+        };
+        Some(match self {
+            Provider::Gemini => h(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+                true,
+                "https://aistudio.google.com/apikey",
+                false,
+            ),
+            Provider::OpenRouter => h(
+                "https://openrouter.ai/api/v1",
+                &["OPENROUTER_API_KEY"],
+                true,
+                "https://openrouter.ai/settings/keys",
+                false,
+            ),
+            Provider::Mistral => h(
+                "https://api.mistral.ai/v1",
+                &["MISTRAL_API_KEY"],
+                true,
+                "https://console.mistral.ai/api-keys",
+                true,
+            ),
+            Provider::Groq => h(
+                "https://api.groq.com/openai/v1",
+                &["GROQ_API_KEY"],
+                true,
+                "https://console.groq.com/keys",
+                false,
+            ),
+            Provider::DeepSeek => h(
+                "https://api.deepseek.com/v1",
+                &["DEEPSEEK_API_KEY"],
+                true,
+                "https://platform.deepseek.com/api_keys",
+                true,
+            ),
+            Provider::Xai => h(
+                "https://api.x.ai/v1",
+                &["XAI_API_KEY"],
+                true,
+                "https://console.x.ai",
+                false,
+            ),
+            Provider::Ollama => h(
+                "http://127.0.0.1:11434/v1",
+                &[],
+                false,
+                "https://ollama.com/download",
+                false,
+            ),
+            Provider::LmStudio => h(
+                "http://127.0.0.1:1234/v1",
+                &[],
+                false,
+                "https://lmstudio.ai",
+                false,
+            ),
+            _ => return None,
+        })
+    }
+    /// The model used when the settings leave it blank. Only aliases a vendor keeps pointing
+    /// at its current model: elsewhere the person picks one from the list the service gives.
     pub fn default_model(self) -> &'static str {
         match self {
-            Provider::Codex => "",
-            Provider::Claude => "",
             Provider::Anthropic => "claude-sonnet-5",
             Provider::OpenAi => "gpt-5",
-            Provider::Compatible => "",
+            Provider::OpenRouter => "openrouter/auto",
+            Provider::Mistral => "mistral-large-latest",
+            Provider::DeepSeek => "deepseek-chat",
+            Provider::Gemini => "gemini-flash-latest",
+            Provider::Codex
+            | Provider::Claude
+            | Provider::Groq
+            | Provider::Xai
+            | Provider::Ollama
+            | Provider::LmStudio
+            | Provider::Compatible => "",
         }
     }
 }
@@ -135,6 +280,16 @@ pub struct Agent {
     pub reasoning_effort: String,
     pub anthropic_api_key: String,
     pub openai_api_key: String,
+    pub gemini_api_key: String,
+    pub openrouter_api_key: String,
+    pub mistral_api_key: String,
+    pub groq_api_key: String,
+    pub deepseek_api_key: String,
+    pub xai_api_key: String,
+    /// Ollama's address when it is not the default `http://127.0.0.1:11434/v1`.
+    pub ollama_base_url: String,
+    /// LM Studio's address when it is not the default `http://127.0.0.1:1234/v1`.
+    pub lmstudio_base_url: String,
     pub compatible_base_url: String,
     pub compatible_api_key: String,
     pub codex_executable: String,
@@ -160,6 +315,8 @@ pub struct Permissions {
     pub settings: bool,
     /// app.quit and app.installUpdate.
     pub app_control: bool,
+    /// generate.audio: sounds made through the generation service in Settings, on its credits.
+    pub generation: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -174,6 +331,83 @@ pub struct Plugins {
     pub folders: std::collections::BTreeMap<String, String>,
     /// Most recently loaded plugin ids, newest first.
     pub recent: Vec<String>,
+}
+/// A service that makes audio from a description.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Service {
+    /// ElevenLabs: Eleven Music for songs and loops, sound effects for one-shots.
+    ElevenLabs,
+    /// Stability AI's Stable Audio.
+    Stability,
+    /// fal.ai: any of its audio models (Stable Audio, Lyria, ACE-Step…).
+    Fal,
+    /// Any HTTP endpoint that follows ryolune's generation contract (docs/AI_CONTROL.md).
+    Custom,
+}
+impl Service {
+    pub const ALL: [Service; 4] = [
+        Service::ElevenLabs,
+        Service::Stability,
+        Service::Fal,
+        Service::Custom,
+    ];
+    pub fn key(self) -> &'static str {
+        match self {
+            Service::ElevenLabs => "elevenlabs",
+            Service::Stability => "stability",
+            Service::Fal => "fal",
+            Service::Custom => "custom",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Service::ElevenLabs => "ElevenLabs",
+            Service::Stability => "Stable Audio (Stability AI)",
+            Service::Fal => "fal.ai",
+            Service::Custom => "Custom endpoint",
+        }
+    }
+    pub fn parse(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.key() == key)
+    }
+    /// Page where a key is created, or the contract a custom endpoint follows.
+    pub fn help_url(self) -> &'static str {
+        match self {
+            Service::ElevenLabs => "https://elevenlabs.io/app/settings/api-keys",
+            Service::Stability => "https://platform.stability.ai/account/keys",
+            Service::Fal => "https://fal.ai/dashboard/keys",
+            Service::Custom => {
+                "https://github.com/ludovic111/ryolune/blob/main/docs/AI_CONTROL.md#generation"
+            }
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Generation {
+    /// The service `generate.audio` uses when none is named.
+    pub service: Service,
+    pub elevenlabs_api_key: String,
+    pub stability_api_key: String,
+    pub fal_api_key: String,
+    /// The fal.ai model, such as `fal-ai/stable-audio`.
+    pub fal_model: String,
+    pub custom_url: String,
+    pub custom_api_key: String,
+}
+impl Default for Generation {
+    fn default() -> Self {
+        Self {
+            service: Service::ElevenLabs,
+            elevenlabs_api_key: String::new(),
+            stability_api_key: String::new(),
+            fal_api_key: String::new(),
+            fal_model: "fal-ai/stable-audio".into(),
+            custom_url: String::new(),
+            custom_api_key: String::new(),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -190,6 +424,7 @@ impl Default for Settings {
             audio: Audio::default(),
             interface: Interface::default(),
             agent: Agent::default(),
+            generation: Generation::default(),
             plugins: Plugins::default(),
             control: Control::default(),
         }
@@ -227,28 +462,29 @@ impl Default for Interface {
     fn default() -> Self {
         Self {
             scale: 1.0,
-            appearance: "aero".into(),
-            mode: "light".into(),
+            appearance: THEME.into(),
+            mode: "dark".into(),
             agent_panel_open_on_start: false,
             show_tooltips: true,
             follow_playhead: true,
         }
     }
 }
-/// The interface themes; each has a dark and a light mode. The renderer builds them
-/// in `frontend/src/theme/<id>.ts` and lists them in the same order.
-pub const THEMES: [&str; 6] = ["modern", "skeuo", "aero", "console", "ink", "neon"];
+/// The interface theme. Since 0.12 ryolune has one theme, in a dark and a light mode,
+/// built in `frontend/src/theme/ryolune.ts`.
+pub const THEME: &str = "ryolune";
+/// Every accepted `interface.appearance`.
+pub const THEMES: [&str; 1] = [THEME];
 impl Interface {
-    /// Files written before 0.6 had two appearances and no mode: `graphite` was
-    /// the dark skeuomorphic look, `aero` the light glass one.
+    /// Files written before 0.6 had two appearances and no mode: `graphite` was the dark
+    /// skeuomorphic look, `aero` the light glass one. From 0.6 to 0.11 there were six themes
+    /// (modern, skeuo, aero, console, ink, neon), each dark or light; they all become the one
+    /// theme and keep their mode.
     fn migrate(&mut self, stored: &str) {
         let had_mode = serde_json::from_str::<serde_json::Value>(stored)
             .ok()
             .is_some_and(|v| v["interface"]["mode"].is_string());
-        if self.appearance == "graphite" {
-            self.appearance = "skeuo".into();
-            self.mode = "dark".into();
-        } else if !had_mode {
+        if !had_mode {
             self.mode = if self.appearance == "aero" {
                 "light"
             } else {
@@ -256,6 +492,7 @@ impl Interface {
             }
             .into();
         }
+        self.appearance = THEME.into();
     }
 }
 impl Default for Agent {
@@ -266,6 +503,14 @@ impl Default for Agent {
             reasoning_effort: String::new(),
             anthropic_api_key: String::new(),
             openai_api_key: String::new(),
+            gemini_api_key: String::new(),
+            openrouter_api_key: String::new(),
+            mistral_api_key: String::new(),
+            groq_api_key: String::new(),
+            deepseek_api_key: String::new(),
+            xai_api_key: String::new(),
+            ollama_base_url: String::new(),
+            lmstudio_base_url: String::new(),
             compatible_base_url: String::new(),
             compatible_api_key: String::new(),
             codex_executable: String::new(),
@@ -285,6 +530,7 @@ impl Default for Permissions {
             replace_session: false,
             settings: false,
             app_control: false,
+            generation: true,
         }
     }
 }
@@ -304,10 +550,20 @@ pub fn invalid_copy(path: &Path) -> PathBuf {
 }
 
 /// Dotted paths of fields that hold secrets.
-pub const SECRET_PATHS: [&str; 3] = [
+pub const SECRET_PATHS: &[&str] = &[
     "agent.anthropicApiKey",
     "agent.openaiApiKey",
+    "agent.geminiApiKey",
+    "agent.openrouterApiKey",
+    "agent.mistralApiKey",
+    "agent.groqApiKey",
+    "agent.deepseekApiKey",
+    "agent.xaiApiKey",
     "agent.compatibleApiKey",
+    "generation.elevenlabsApiKey",
+    "generation.stabilityApiKey",
+    "generation.falApiKey",
+    "generation.customApiKey",
 ];
 
 impl Settings {
@@ -405,7 +661,9 @@ impl Settings {
             return Err("Model names must be printable and at most 200 characters".into());
         }
         if !THEMES.contains(&self.interface.appearance.as_str()) {
-            return Err(format!("Appearance must be one of {}", THEMES.join(", ")));
+            return Err(format!(
+                "Appearance must be {THEME}: there is one theme, set interface.mode to dark, light or auto"
+            ));
         }
         if !["dark", "light", "auto"].contains(&self.interface.mode.as_str()) {
             return Err("Mode must be dark, light or auto".into());
@@ -419,9 +677,26 @@ impl Settings {
         {
             return Err("Reasoning effort must be a short provider level name".into());
         }
-        let url = &self.agent.compatible_base_url;
-        if !(url.is_empty() || url.starts_with("http://") || url.starts_with("https://")) {
-            return Err("The compatible endpoint must be an http(s) URL".into());
+        for (url, what) in [
+            (&self.agent.compatible_base_url, "The compatible endpoint"),
+            (&self.agent.ollama_base_url, "The Ollama address"),
+            (&self.agent.lmstudio_base_url, "The LM Studio address"),
+            (
+                &self.generation.custom_url,
+                "The custom generation endpoint",
+            ),
+        ] {
+            if !(url.is_empty() || url.starts_with("http://") || url.starts_with("https://")) {
+                return Err(format!("{what} must be an http(s) URL"));
+            }
+        }
+        let fal = &self.generation.fal_model;
+        if fal.len() > 200
+            || !fal
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_./".contains(c))
+        {
+            return Err("The fal.ai model is a path such as fal-ai/stable-audio".into());
         }
         if self.general.recent_sessions.len() > 20 {
             return Err("At most 20 recent sessions are kept".into());
@@ -429,7 +704,17 @@ impl Settings {
         for key in [
             &self.agent.anthropic_api_key,
             &self.agent.openai_api_key,
+            &self.agent.gemini_api_key,
+            &self.agent.openrouter_api_key,
+            &self.agent.mistral_api_key,
+            &self.agent.groq_api_key,
+            &self.agent.deepseek_api_key,
+            &self.agent.xai_api_key,
             &self.agent.compatible_api_key,
+            &self.generation.elevenlabs_api_key,
+            &self.generation.stability_api_key,
+            &self.generation.fal_api_key,
+            &self.generation.custom_api_key,
         ] {
             if key.len() > 4096 || key.chars().any(char::is_control) {
                 return Err("API keys must be printable and shorter than 4096 characters".into());
@@ -481,20 +766,57 @@ impl Settings {
     /// A compatible endpoint is whatever server the person typed in: it gets only the key
     /// stored for it, never the OpenAI key from the environment.
     pub fn api_key(&self, provider: Provider) -> Option<String> {
-        let (stored, env) = match provider {
-            Provider::Anthropic => (&self.agent.anthropic_api_key, Some("ANTHROPIC_API_KEY")),
-            Provider::OpenAi => (&self.agent.openai_api_key, Some("OPENAI_API_KEY")),
-            Provider::Compatible => (&self.agent.compatible_api_key, None),
-            _ => return None,
+        let a = &self.agent;
+        let (stored, env): (&str, &[&str]) = match provider {
+            Provider::Anthropic => (&a.anthropic_api_key, &["ANTHROPIC_API_KEY"]),
+            Provider::OpenAi => (&a.openai_api_key, &["OPENAI_API_KEY"]),
+            Provider::Gemini => (&a.gemini_api_key, provider.hosted().map_or(&[], |h| h.env)),
+            Provider::OpenRouter => (&a.openrouter_api_key, &["OPENROUTER_API_KEY"]),
+            Provider::Mistral => (&a.mistral_api_key, &["MISTRAL_API_KEY"]),
+            Provider::Groq => (&a.groq_api_key, &["GROQ_API_KEY"]),
+            Provider::DeepSeek => (&a.deepseek_api_key, &["DEEPSEEK_API_KEY"]),
+            Provider::Xai => (&a.xai_api_key, &["XAI_API_KEY"]),
+            Provider::Compatible => (&a.compatible_api_key, &[]),
+            Provider::Codex | Provider::Claude | Provider::Ollama | Provider::LmStudio => {
+                return None
+            }
         };
-        let stored = stored.trim();
-        if !stored.is_empty() {
-            return Some(stored.to_string());
+        stored_or_env(stored, env)
+    }
+    /// Where an OpenAI-compatible provider listens: its fixed address, the local address the
+    /// person changed, or the custom endpoint. `None` for the CLI and Anthropic providers.
+    pub fn base_url(&self, provider: Provider) -> Option<String> {
+        let custom = |url: &str| Some(url.trim().trim_end_matches('/').to_string());
+        match provider {
+            Provider::OpenAi => Some("https://api.openai.com/v1".into()),
+            Provider::Compatible => custom(&self.agent.compatible_base_url),
+            Provider::Ollama if !self.agent.ollama_base_url.trim().is_empty() => {
+                custom(&self.agent.ollama_base_url)
+            }
+            Provider::LmStudio if !self.agent.lmstudio_base_url.trim().is_empty() => {
+                custom(&self.agent.lmstudio_base_url)
+            }
+            _ => provider.hosted().map(|h| h.base_url.to_string()),
         }
-        std::env::var(env?)
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
+    }
+    /// The key for a generation service: settings first, then the conventional environment
+    /// variable. A custom endpoint gets only the key stored for it.
+    pub fn generation_key(&self, service: Service) -> Option<String> {
+        let g = &self.generation;
+        let (stored, env): (&str, &[&str]) = match service {
+            Service::ElevenLabs => (&g.elevenlabs_api_key, &["ELEVENLABS_API_KEY"]),
+            Service::Stability => (&g.stability_api_key, &["STABILITY_API_KEY"]),
+            Service::Fal => (&g.fal_api_key, &["FAL_KEY", "FAL_API_KEY"]),
+            Service::Custom => (&g.custom_api_key, &[]),
+        };
+        stored_or_env(stored, env)
+    }
+    /// Whether a generation service has what it needs to be called.
+    pub fn generation_ready(&self, service: Service) -> bool {
+        match service {
+            Service::Custom => !self.generation.custom_url.trim().is_empty(),
+            _ => self.generation_key(service).is_some(),
+        }
     }
     /// The model for the configured provider.
     pub fn model(&self) -> String {
@@ -579,6 +901,18 @@ impl Settings {
     }
 }
 
+fn stored_or_env(stored: &str, env: &[&str]) -> Option<String> {
+    let stored = stored.trim();
+    if !stored.is_empty() {
+        return Some(stored.to_string());
+    }
+    env.iter().find_map(|name| {
+        std::env::var(name)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    })
+}
 fn mask(secret: &str) -> String {
     if secret.is_empty() {
         String::new()
@@ -631,56 +965,65 @@ fn coerce(current: &Value, value: Value) -> Result<Value> {
 mod tests {
     use super::*;
     #[test]
-    fn appearances_written_before_themes_had_modes_are_migrated() {
+    fn every_earlier_appearance_becomes_the_one_theme_and_keeps_its_mode() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        for (stored, theme, mode) in [
-            (
-                r#"{"interface":{"appearance":"graphite"}}"#,
-                "skeuo",
-                "dark",
-            ),
-            (r#"{"interface":{"appearance":"aero"}}"#, "aero", "light"),
+        for (stored, mode) in [
+            // Before 0.6: two appearances, no mode.
+            (r#"{"interface":{"appearance":"graphite"}}"#, "dark"),
+            (r#"{"interface":{"appearance":"aero"}}"#, "light"),
+            // 0.6 to 0.11: six themes, each with a mode.
             (
                 r#"{"interface":{"appearance":"aero","mode":"dark"}}"#,
-                "aero",
                 "dark",
             ),
             (
                 r#"{"interface":{"appearance":"modern","mode":"auto"}}"#,
-                "modern",
                 "auto",
+            ),
+            (
+                r#"{"interface":{"appearance":"skeuo","mode":"light"}}"#,
+                "light",
+            ),
+            (
+                r#"{"interface":{"appearance":"console","mode":"light"}}"#,
+                "light",
+            ),
+            (
+                r#"{"interface":{"appearance":"ink","mode":"dark"}}"#,
+                "dark",
+            ),
+            (
+                r#"{"interface":{"appearance":"neon","mode":"auto"}}"#,
+                "auto",
+            ),
+            (
+                r#"{"interface":{"appearance":"ryolune","mode":"light"}}"#,
+                "light",
             ),
         ] {
             std::fs::write(&path, stored).unwrap();
             let settings = Settings::read(&path).unwrap();
-            assert_eq!(settings.interface.appearance, theme);
-            assert_eq!(settings.interface.mode, mode);
+            assert_eq!(settings.interface.appearance, "ryolune", "{stored}");
+            assert_eq!(settings.interface.mode, mode, "{stored}");
         }
         let mut settings = Settings::default();
-        assert!(settings
-            .set("interface.appearance", json!("graphite"))
-            .is_err());
-        assert!(settings.set("interface.mode", json!("dim")).is_err());
-        for theme in THEMES {
-            settings.set("interface.appearance", json!(theme)).unwrap();
-            assert_eq!(settings.interface.appearance, theme);
-        }
-        for theme in ["console", "ink", "neon"] {
-            assert!(THEMES.contains(&theme));
-            std::fs::write(
-                &path,
-                format!(r#"{{"interface":{{"appearance":"{theme}","mode":"light"}}}}"#),
-            )
+        assert_eq!(settings.interface.appearance, "ryolune");
+        assert_eq!(settings.interface.mode, "dark");
+        settings
+            .set("interface.appearance", json!("ryolune"))
             .unwrap();
-            let settings = Settings::read(&path).unwrap();
-            assert_eq!(settings.interface.appearance, theme);
-            assert_eq!(settings.interface.mode, "light");
+        for old in ["graphite", "skeuo", "neon", "sepia"] {
+            let err = settings
+                .set("interface.appearance", json!(old))
+                .unwrap_err();
+            assert!(err.contains("interface.mode"), "{err}");
         }
-        let err = settings
-            .set("interface.appearance", json!("sepia"))
-            .unwrap_err();
-        assert!(err.contains("neon"), "{err}");
+        assert!(settings.set("interface.mode", json!("dim")).is_err());
+        for mode in ["dark", "light", "auto"] {
+            settings.set("interface.mode", json!(mode)).unwrap();
+            assert_eq!(settings.interface.mode, mode);
+        }
     }
     #[test]
     fn switching_provider_resets_an_incompatible_model_but_keeps_credentials() {

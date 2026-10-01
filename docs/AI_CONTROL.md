@@ -86,11 +86,20 @@ from the registry.
 ```sh
 # Claude Code
 claude mcp add ryolune -- /Applications/ryolune.app/Contents/MacOS/ryolune-mcp --live
+# Codex CLI
+codex mcp add ryolune -- /Applications/ryolune.app/Contents/MacOS/ryolune-mcp --live
 ```
 
 ```json
 {"mcpServers": {"ryolune": {"command": "/path/to/ryolune-mcp", "args": ["--live"]}}}
 ```
+
+The block above suits Cursor (`~/.cursor/mcp.json`), Claude Desktop, Gemini CLI
+(`~/.gemini/settings.json`), Windsurf and most other clients; VS Code uses `"servers"` with
+`"type": "stdio"`, opencode `"mcp"` with a `"command"` array, Zed `"context_servers"`.
+**Settings > Agent > Use another agent** shows each one filled in with this computer's paths
+and the `RYOLUNE_CONTROL` environment the server needs, with a Copy button, and installs Cursor
+and VS Code from their links; `ryolune-cli agent.mcp` prints the same.
 
 - `--live` requires the running app and controls it; `--headless` hosts an independent session;
   `--file <song.ryolune>` edits a file. Without a flag it uses the app when it runs.
@@ -98,7 +107,6 @@ claude mcp add ryolune -- /Applications/ryolune.app/Contents/MacOS/ryolune-mcp -
   `ryolune://session/info`, `ryolune://session/inspect`, `ryolune://catalog`, `ryolune://plugins`,
   `ryolune://presets`, `ryolune://settings` and the app state.
 - **Prompts**: `compose`, `mix-review` and `see-the-window` start common tasks.
-- The Agents section of Settings copies a ready configuration with the right path.
 
 ## Permissions
 
@@ -113,8 +121,43 @@ switches for the rest:
 | Replace the session | new session, open another song |
 | Settings | `settings.set`, `settings.reset` |
 | Application control | quit, install an update |
+| Generate sounds | `generate.audio`, which spends the generation service's credits (on by default) |
 
-Connecting an AI service, signing in and changing these permissions stay with the person.
+Connecting an AI service or a generation service, signing in and changing these permissions stay
+with the person: agents may not set `agent.*`, `control.*` or `generation.*`.
+
+## Generation
+
+`generate.audio` makes a sound from a description with the service chosen in Settings >
+Generation, keeps it in `<data folder>/generated` with a JSON note beside it, and places it in the
+song in one undo step:
+
+| kind | Default length | Lands as |
+| --- | --- | --- |
+| `loop` | `bars` (4) at the song's tempo, trimmed or padded to fit exactly | an audio clip at the playhead |
+| `song` | 60 s (5-300), `instrumental` by default | an audio clip at the playhead |
+| `sound` | 3 s (0.5-30): one-shots, effects, risers | an audio clip at the playhead |
+| `instrument` | 3 s (0.5-10): one note, middle C | Sample Keys on a new MIDI track |
+
+Loops and songs tell the service the song's tempo and key unless `followSong:false`. `place:false`
+only keeps the result. `generate.list`, `generate.preview` (base64 audio), `generate.place` (again,
+as `audio` or `instrument`) and `generate.delete` manage what was made; all but `generate.audio`
+also work headless. `strip.loadSample` turns any audio file or song source into Sample Keys.
+
+```sh
+ryolune-cli generate.audio --prompt "dusty boom-bap drums, lazy swing" --kind loop --bars 2
+ryolune-cli generate.audio --prompt "felt piano, soft and close" --kind instrument
+ryolune-cli strip.loadSample --path ~/Samples/choir-ah.wav --rootNote 64
+```
+
+Services: **ElevenLabs** (Eleven Music for songs and loops, the sound-effects model for sounds,
+instruments and loops under 3 s; `ELEVENLABS_API_KEY`), **Stable Audio** by Stability AI
+(`stable-audio-2.5`, up to 190 s; `STABILITY_API_KEY`), **fal.ai** (any audio model, such as
+`fal-ai/stable-audio`, set in Settings; `FAL_KEY`) and a **custom endpoint**. A custom endpoint
+receives a POST with JSON `{prompt, description, kind, seconds, instrumental, seed, name}` and a
+bearer token when a key is set, and answers with the audio itself (`audio/*`), or with JSON holding
+`audio` (base64, with an optional `format` such as `"wav"`) or `url` (a file to fetch). Any format
+ryolune imports works; a result may be up to 200 MB.
 
 ## Recipes
 
@@ -223,7 +266,7 @@ settings, help, the command palette and more; `view.set` scrolls and zooms; `ui.
 ## What only a person does
 
 A few things deliberately have no command: signing in to an AI service and changing the agent's
-connection or permissions, the menu bar itself, the agent panel's own composer, and pure layout
+connection or permissions or the generation service, the menu bar itself, the agent panel's own composer, and pure layout
 (vertical track scroll, folding a browser folder). The reasons are listed in
 [AGENT_PARITY.md](AGENT_PARITY.md).
 

@@ -16,21 +16,22 @@ palette and the shortcut sheet; window panels (mixer, help, settings…) are tog
 `ui.showPanel` so the CLI, MCP and agent can drive them. Check with `npm --prefix frontend test`,
 `npm --prefix frontend run build`, then the Rust checks. The public page is lsuite.xyz/ryolune, in the lsuite repo (ludovic111/lsuite); ryolune.com redirects there with the same path, so `/support` and `/download/<platform>` links keep working. `site/` is the former standalone site, no longer deployed; its launch film (`site/video/`) is made in `marketing/` (see its README).
 
-Themes (0.6): `frontend/src/theme` is the only place visual values live. `schema.ts` types a theme,
-`materials.ts` holds the physical recipes against a light model, and `modern.ts`, `skeuo.ts`,
-`aero.ts`, `console.ts` (walnut, brass, amber lamps), `ink.ts` (paper and ink, state shown by
-inversion, square corners) and `neon.ts` (violet glass, magenta accent, cyan displays) each return a
-full `ThemeSpec` for `dark` and `light`; the ids also live in `engine/src/settings.rs` `THEMES`. `tokens.ts` keeps live groups that
-`setTheme()` refills (canvas code reads them at paint time); `applyAppearance(theme, mode)` emits the
-CSS properties and sets `data-theme` / `data-mode`. Skeuomorphic dark is the design source, value
-for value. Add a token to `schema.ts` and to every theme, never a colour in a component;
-structure that only one theme needs goes in `theme/<theme>.css` and takes its colours from that
-theme's `vars` (`--<id>-frame`, `--<id>-bar`, `--<id>-lcd` also dress the Settings preview).
-`appearance.test.ts` enforces contrast on all twelve variants: fix the palette, not
-the threshold. Stock plugin panels are `components/plugin` (`response.ts` mirrors the engine DSP).
-`npm --prefix frontend run dev` in a plain browser serves a fixture song through `src/dev/mockHost.ts`
-(`?theme=&mode=&panel=`); run `node scripts/gen-site-tokens.mjs` after changing Skeuomorphic dark (the
-site wears only that one; other themes appear there as screenshots in its theme gallery).
+Theme (0.12, owner's decision 2026-10-01: "one theme, dark or light, ultra premium"): the six
+themes of 0.6-0.11 are gone. `frontend/src/theme` is the only place visual values live. `schema.ts`
+types the theme, `ryolune.ts` returns the full `ThemeSpec` for `dark` (graphite, design source) and
+`light` (porcelain): one neutral ladder, crisp 1 px edges, a fine top highlight and a short drop,
+one accent (lunar gold, amber by day), meters mint/amber, channel keys `mute`/`solo`/`danger`.
+`tokens.ts` keeps live groups that `setTheme(mode)` refills (canvas code reads them at paint time);
+`applyAppearance(mode)` emits the CSS properties and sets `data-theme="ryolune"` / `data-mode`.
+Structure the material classes cannot say goes in `theme/ryolune.css`, coloured by the `--ryo-*`
+vars from `ryolune.ts` (frame, focus, displays, primary keys). Add a token to `schema.ts` and both
+modes, never a colour in a component. `engine/src/settings.rs` `THEMES` is `["ryolune"]`; any
+older `interface.appearance` migrates to it and keeps its mode. `appearance.test.ts` enforces
+contrast on both modes: fix the palette, not the threshold. Stock plugin panels are
+`components/plugin` (`response.ts` mirrors the engine DSP). `npm --prefix frontend run dev` in a
+plain browser serves a fixture song through `src/dev/mockHost.ts` (`?mode=&panel=`); run
+`node scripts/gen-site-tokens.mjs` after changing the dark mode (`site/` tokens and captures are reused
+by the lsuite page; they wear only dark, light appears as a capture).
 
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
@@ -189,15 +190,36 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   delayed by the slowest bus so every path meets (PDC stages: tracks, buses, A/B, master).
   Commands in `control_routing.rs`. Audio Unit CF objects from `AudioUnitGetProperty` are the
   caller's to release (factory preset arrays, PresentPreset names); `Editor::current_program`.
+- 0.12 agent and generation (owner asked 2026-10-01 for better agent integration, more agents, no
+  Rhythm Lab, and generating music and instruments through provider APIs; delegated). Providers:
+  `settings::Provider` has 13 variants; every one after Anthropic runs through `agent/openai.rs`
+  (Chat Completions) with `Settings::base_url` / `api_key`; `Provider::hosted()` holds the fixed
+  address, env names, key page and `strict` (Mistral and DeepSeek get `max_tokens`, no stream
+  usage). The frontend mirror is `providers` in `components/agent/connection.ts`; keep both,
+  `SECRET_PATHS` and `validate`'s key loop in sync. Outside agents: `agent/clients.rs` builds the
+  per-client MCP recipes (`agent.mcp`) and install links (`agent.openClient`, refused to agents).
+  Generation: `control_generate.rs` shapes requests from the song (loops get tempo/key and are
+  fitted to their bars), keeps results in `<data dir>/generated` with a JSON note, and places them
+  (`place_audio` in control.rs, or Sample Keys via `load_sample`); the network call is
+  `desktop/src/generate.rs` (ElevenLabs, Stability, fal, custom contract in docs/AI_CONTROL.md),
+  run by `start_generation` in desktop control.rs and placed on the interface thread from
+  `LiveWait::Generation`. `settings.generation` is agent-protected like `agent.*` and `control.*`;
+  `permissions.generation` gates `generate.audio`. Sample Keys (`sample_keys.rs`, stock index 34)
+  keeps its sound in its state: the insert blob is the native host's `{values, state}` document
+  (`sample_keys::insert_blob`). The agent panel tabs are Chat, Generate, Changes, Takes; Rhythm Lab's
+  UI is gone, its commands stay.
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ryolune-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are
   self-hosted in `site/fonts` and the CSP allows only the site's origin; each release updates the
   site's "New in" section, hero pill, changelog, limits and version (checklist in `site/README.md`).
 - Money (owner's decision, 2026-09-29): ryolune is MIT and free forever, every update included; the
-  only income is optional donations, once or monthly, through GitHub Sponsors behind the site's
-  `/support` (`RYOLUNE_DONATION_URL`). Nothing is sold or locked, so copy says donate, never pay,
-  price or checkout. The app asks once, after the third export (`SUPPORT_AFTER_EXPORTS`).
+  only income is optional donations, once or monthly, through GitHub Sponsors behind
+  lsuite.xyz/ryolune/support (`SUPPORT_URL` in desktop control.rs, since 2026-10-01; the retired
+  `site/server.js` defaulted ryolune.com/support to `SPONSORS_URL`). Nothing
+  is sold or locked, so copy says donate or sponsor, never pay, price or checkout. The app asks once,
+  after the third export (`SUPPORT_AFTER_EXPORTS`); a quiet Sponsor key sits at the right of the
+  title bar (`app.openGuide guide=support`), and `.github/FUNDING.yml` shows GitHub's Sponsor button.
 - Every persistent UI edit dispatches `store::Command`. Keep drag previews local and group
   continuous edits with `Store::set_gesture`. Preserve undo and source/clip alignment.
 - No allocations, deallocations, blocking, I/O or logging in the audio callback. Compile graphs

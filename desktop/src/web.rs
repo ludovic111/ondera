@@ -111,7 +111,10 @@ fn daw_agent_help(provider: String) -> Result<()> {
         "claude" => "https://code.claude.com/docs/en/quickstart",
         "anthropic" => "https://console.anthropic.com/settings/keys",
         "openai" => "https://platform.openai.com/api-keys",
-        _ => return Err("No installation help for this provider".into()),
+        other => ryolune_engine::settings::Provider::parse(other)
+            .and_then(|p| p.hosted())
+            .map(|h| h.help_url)
+            .ok_or("No installation help for this provider")?,
     };
     let program = if cfg!(target_os = "macos") {
         "open"

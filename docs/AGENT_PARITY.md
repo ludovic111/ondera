@@ -329,6 +329,10 @@ are not listed, as in the window.
 | Settings › Control | `settings.set path=control.enableBridge` | covered for people; refused to agents |
 | Settings › Updates | `settings.set path=general.checkUpdatesOnStart`, `app.checkUpdates`, `app.installUpdate`, `app.relaunch` | covered |
 | Settings › Agent: provider, model, effort, keys, permissions | `agent.configure`, `settings.set path=agent.…` | window-only for agents: connections and permissions are changed by the person (enforced in `run_control_command`); the CLI and MCP can |
+| Settings › Agent › Use another agent: recipes, Copy | `agent.mcp` | covered (Copy is the clipboard of the person's computer) |
+| Settings › Agent › Use another agent: Add to Cursor / VS Code | `agent.openClient` | refused to agents: it opens another app for the person |
+| Settings › Generation: service, keys, fal model, endpoint | `settings.set path=generation.…`, `generate.services` | window-only for agents (the endpoint and keys are the person's); the CLI and MCP can |
+| Settings › Generation: Get a key | `app.openGuide` guide=elevenlabs, stability, fal or custom | covered |
 | Sign in to a provider | none | window-only: credentials stay with the person (`daw_signin`) |
 | Provider help page | none | window-only: opens a web page for the person (`daw_agent_help`) |
 | Reset preferences | `settings.reset` | covered (no window control) |
@@ -346,7 +350,9 @@ are not listed, as in the window.
 | Model picker | `agent.models`, `agent.configure`, `agent.providers` | covered |
 | Connection check | `agent.connection`, `agent.status` | covered |
 | Takes: create, switch, remove, listen | `take.create`, `take.select`, `take.remove`, `take.list`, `transport.play` | covered |
-| Rhythm Lab: preview, create | `rhythm.preview`, `rhythm.create` | covered (the Preview button sent a `name` the command refuses: fixed) |
+| Generate tab: make a loop, song, sound or instrument | `generate.audio`, `generate.services` | covered |
+| Generate tab: your sounds (listen, Add, Keys, delete) | `generate.list`, `generate.preview`, `generate.place`, `generate.delete` | covered |
+| Rhythm Lab (removed from the panel in 0.12) | `rhythm.preview`, `rhythm.create` | commands kept for agents, the CLI and MCP |
 | Tabs, draft, selection chip, slash menu | none | window-only: the composer of the panel itself |
 
 ## Private handlers (`desktop/src/web.rs`)

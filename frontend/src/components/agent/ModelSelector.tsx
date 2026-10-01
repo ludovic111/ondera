@@ -232,7 +232,7 @@ export function ModelSelector({
             <button
               type="submit"
               disabled={catalog.loading}
-              className="m-button aero-primary"
+              className="m-button primary-action"
             >
               {saving ? "Saving…" : "Use this model"}
             </button>

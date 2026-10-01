@@ -1,0 +1,208 @@
+.generate {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 0 24px;
+}
+
+.generate header h2 {
+  margin: 0 0 4px;
+  font-size: var(--fs-panel-title);
+  color: var(--color-ink-bright);
+}
+
+.generate header p,
+.hint,
+.connect p {
+  margin: 0;
+  line-height: 1.55;
+  color: var(--color-ink300);
+}
+
+.connect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--radius-glass);
+  background: var(--fill-log-live);
+  box-shadow: inset 0 0 0 1px var(--line-border);
+}
+
+.connect strong {
+  color: var(--color-ink100);
+}
+
+/* What to make: four equal segments in one tray. */
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border-radius: calc(var(--radius-control) + 2px);
+  background: var(--color-groove-alt);
+  box-shadow: var(--shadow-groove-shallow);
+}
+
+.kinds button {
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-ink300);
+  font-size: var(--fs-secondary);
+  font-weight: var(--fw-semibold);
+}
+
+.kinds button:hover {
+  color: var(--color-ink100);
+}
+
+.kinds .on,
+.kinds .on:hover {
+  background: var(--gradient-segment);
+  box-shadow: var(--shadow-segment);
+  color: var(--color-ink100);
+}
+
+.hint {
+  font-size: var(--fs-small);
+}
+
+.generate textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-groove-alt);
+  box-shadow: var(--shadow-well-input);
+  font-size: var(--fs-agent-input);
+  line-height: var(--lh-prose);
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+
+.options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-ink300);
+  font-size: var(--fs-secondary);
+}
+
+.options select {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-groove-alt);
+  box-shadow: var(--shadow-well-input);
+}
+
+.check input {
+  accent-color: var(--color-accent);
+}
+
+.go {
+  height: 34px;
+  border-radius: var(--radius-lg);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+  color: var(--color-ink100);
+  line-height: 1.5;
+}
+
+.library h3 {
+  margin: 8px 0 8px;
+}
+
+.library ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.library li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 8px;
+  border-radius: var(--radius-control);
+  background: var(--color-log-entry);
+  box-shadow: var(--shadow-log-entry);
+}
+
+.library li button {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-ink300);
+  font-size: var(--fs-small);
+  font-weight: var(--fw-semibold);
+}
+
+.library li button:hover {
+  background: var(--fill-hover);
+  color: var(--color-ink100);
+}
+
+.library li .play {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--gradient-raised);
+  box-shadow: var(--shadow-raised-sm);
+  color: var(--color-accent);
+  font-size: 9px;
+}
+
+.library li .play[aria-pressed="true"] {
+  background: var(--gradient-lit);
+  box-shadow: var(--shadow-lit);
+  color: var(--color-accent-ink);
+}
+
+.library li .remove {
+  padding: 0 6px;
+  font-size: 15px;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.meta strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-ink100);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+
+.meta span {
+  color: var(--color-ink500);
+  font-size: var(--fs-small);
+}

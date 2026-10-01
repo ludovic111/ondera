@@ -19,6 +19,7 @@ import {
 } from "../state/export";
 import { AgentSettings } from "./agent/AgentSettings";
 import { ThemePicker } from "./settings/ThemePicker";
+import { GenerationSettings } from "./settings/GenerationSettings";
 
 export function Modal({
   title,
@@ -220,6 +221,7 @@ const titles: Record<string, string> = {
   audio: "Audio & MIDI",
   interface: "Interface",
   agent: "Agent",
+  generation: "Generation",
   plugins: "Plugins",
   control: "Control",
   updates: "Updates",
@@ -331,12 +333,19 @@ function Settings({ onClose }: { onClose: () => void }) {
               />
             </div>
           )}
+          {section === "generation" && settings.generation && (
+            <GenerationSettings
+              settings={settings.generation}
+              refresh={refresh}
+            />
+          )}
           {section !== "agent" &&
+            section !== "generation" &&
             Object.entries(
               settings[section === "updates" ? "general" : section] ?? {},
             )
               .filter(([key]) => {
-                // The theme picker edits the mode together with the theme.
+                // The appearance picker (on `appearance`) edits the mode.
                 // Favourites, folders and recents are edited in the browser itself.
                 if (
                   [
@@ -363,9 +372,7 @@ function Settings({ onClose }: { onClose: () => void }) {
                   return (
                     <ThemePicker
                       key={path}
-                      appearance={String(value ?? "")}
                       mode={String(settings.interface?.mode ?? "")}
-                      onAppearance={(id) => void save(path, id)}
                       onMode={(mode) => void save("interface.mode", mode)}
                     />
                   );
@@ -766,7 +773,11 @@ function Export({ onClose }: { onClose: () => void }) {
         <button disabled={busy} onClick={onClose}>
           Close
         </button>
-        <button disabled={busy || Boolean(problem)} onClick={() => void run()}>
+        <button
+          className="primary"
+          disabled={busy || Boolean(problem)}
+          onClick={() => void run()}
+        >
           {busy ? "Exporting…" : "Export…"}
         </button>
       </footer>

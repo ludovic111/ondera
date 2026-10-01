@@ -77,7 +77,7 @@ export function TakePanel({
           />
         </label>
         <button
-          className="m-button aero-primary"
+          className="m-button primary-action"
           disabled={busy || working || data.takes.length >= 8}
         >
           Create & explore

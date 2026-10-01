@@ -57,8 +57,10 @@ describe("agent setup", () => {
       mock.invoke.mock.calls.some(
         ([method, args]) =>
           method === "daw_command" &&
-          // Looking up models and the connection is not talking to the agent.
-          !["agent.models", "agent.connection"].includes(args?.method),
+          // Looking up models, the connection and the MCP recipes is not talking to the agent.
+          !["agent.models", "agent.connection", "agent.mcp"].includes(
+            args?.method,
+          ),
       ),
     ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));

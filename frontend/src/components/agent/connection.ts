@@ -1,6 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { native } from "../../state/native";
 
+/**
+ * Every agent service, as Settings > Agent shows it. `kind` decides the form: an account
+ * signed in through a companion app, an API key, a server on this computer, or any address.
+ * Mirrors `Provider` in engine/src/settings.rs (keys, default models, key fields).
+ */
+type ProviderInfo = {
+  name: string;
+  description: string;
+  help: string;
+  destination: string;
+  kind: "account" | "key" | "local" | "endpoint";
+  /** The settings field holding its key. */
+  keyPath?: string;
+  /** The settings field holding its address, and the address when it is blank. */
+  urlPath?: string;
+  defaultUrl?: string;
+  /** The model used when none is chosen; empty means one must be chosen. */
+  defaultModel: string;
+};
+const hosted = (
+  name: string,
+  description: string,
+  help: string,
+  keyPath: string,
+  defaultModel = "",
+): ProviderInfo => ({
+  name,
+  description,
+  help,
+  destination: `Requests and session context are sent directly to ${name}.`,
+  kind: "key",
+  keyPath,
+  defaultModel,
+});
 export const providers = {
   codex: {
     name: "Codex",
@@ -9,6 +43,8 @@ export const providers = {
     help: "https://developers.openai.com/codex/cli/",
     destination:
       "Requests and session context are sent to OpenAI through Codex.",
+    kind: "account",
+    defaultModel: "",
   },
   claude: {
     name: "Claude Code",
@@ -17,30 +53,127 @@ export const providers = {
     help: "https://code.claude.com/docs/en/quickstart",
     destination:
       "Requests and session context are sent to Anthropic through Claude Code.",
+    kind: "account",
+    defaultModel: "",
   },
   anthropic: {
-    name: "Anthropic API",
-    description:
+    ...hosted(
+      "Anthropic API",
       "Connect with an Anthropic API key. API usage is billed separately from a chat subscription.",
-    help: "https://console.anthropic.com/settings/keys",
+      "https://console.anthropic.com/settings/keys",
+      "anthropicApiKey",
+      "claude-sonnet-5",
+    ),
     destination: "Requests and session context are sent directly to Anthropic.",
   },
   openai: {
-    name: "OpenAI API",
-    description:
+    ...hosted(
+      "OpenAI API",
       "Connect with an OpenAI API key. API usage is billed separately from a chat subscription.",
-    help: "https://platform.openai.com/api-keys",
+      "https://platform.openai.com/api-keys",
+      "openaiApiKey",
+      "gpt-5",
+    ),
     destination: "Requests and session context are sent directly to OpenAI.",
   },
-  compatible: {
-    name: "Local or compatible model",
+  gemini: hosted(
+    "Google Gemini",
+    "Connect with a Gemini API key from Google AI Studio.",
+    "https://aistudio.google.com/apikey",
+    "geminiApiKey",
+    "gemini-flash-latest",
+  ),
+  openrouter: hosted(
+    "OpenRouter",
+    "One key for models from every lab: Claude, GPT, Gemini, Llama, Qwen, DeepSeek and more.",
+    "https://openrouter.ai/settings/keys",
+    "openrouterApiKey",
+    "openrouter/auto",
+  ),
+  mistral: hosted(
+    "Mistral",
+    "Connect with a Mistral API key from La Plateforme.",
+    "https://console.mistral.ai/api-keys",
+    "mistralApiKey",
+    "mistral-large-latest",
+  ),
+  groq: hosted(
+    "Groq",
+    "Very fast open models with a Groq API key. Choose one that supports tools.",
+    "https://console.groq.com/keys",
+    "groqApiKey",
+  ),
+  deepseek: hosted(
+    "DeepSeek",
+    "Connect with a DeepSeek API key.",
+    "https://platform.deepseek.com/api_keys",
+    "deepseekApiKey",
+    "deepseek-chat",
+  ),
+  xai: hosted(
+    "xAI Grok",
+    "Connect with an xAI API key to use Grok.",
+    "https://console.x.ai",
+    "xaiApiKey",
+  ),
+  ollama: {
+    name: "Ollama",
     description:
-      "Connect a running server such as LM Studio or Ollama. Your model must support tool calls.",
+      "Models running in Ollama on this computer. Nothing leaves your machine. Choose a model that supports tools.",
+    help: "https://ollama.com/download",
+    destination:
+      "Requests and session context stay on this computer, in Ollama.",
+    kind: "local",
+    urlPath: "ollamaBaseUrl",
+    defaultUrl: "http://127.0.0.1:11434/v1",
+    defaultModel: "",
+  },
+  lmstudio: {
+    name: "LM Studio",
+    description:
+      "Models running in LM Studio on this computer. Nothing leaves your machine. Choose a model that supports tools.",
+    help: "https://lmstudio.ai",
+    destination:
+      "Requests and session context stay on this computer, in LM Studio.",
+    kind: "local",
+    urlPath: "lmstudioBaseUrl",
+    defaultUrl: "http://127.0.0.1:1234/v1",
+    defaultModel: "",
+  },
+  compatible: {
+    name: "Other compatible server",
+    description:
+      "Any server that speaks the OpenAI chat API with tool calls, local or hosted.",
     help: "",
     destination:
       "Requests and session context go to the server address you choose.",
+    kind: "endpoint",
+    keyPath: "compatibleApiKey",
+    urlPath: "compatibleBaseUrl",
+    defaultModel: "",
   },
-} as const;
+} satisfies Record<string, ProviderInfo>;
+/** How the service picker groups them. */
+export const providerGroups: [string, Provider[]][] = [
+  ["Your account", ["codex", "claude"]],
+  [
+    "API key",
+    [
+      "anthropic",
+      "openai",
+      "gemini",
+      "openrouter",
+      "mistral",
+      "groq",
+      "deepseek",
+      "xai",
+    ],
+  ],
+  ["On this computer", ["ollama", "lmstudio"]],
+  ["Other", ["compatible"]],
+];
+export const providerInfo = (provider: Provider): ProviderInfo =>
+  providers[provider];
 export type Provider = keyof typeof providers;
 export const isProvider = (value: unknown): value is Provider =>
   typeof value === "string" && Object.hasOwn(providers, value);

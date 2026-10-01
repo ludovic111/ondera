@@ -1,2 +1,4 @@
-# The "Sponsor" button on GitHub. lsuite.xyz/ryolune/support redirects to the donation page (GitHub Sponsors).
+# The "Sponsor" button on the GitHub repository page: GitHub Sponsors directly, and ryolune's
+# support page (lsuite.xyz/ryolune/support redirects to the donation page).
+github: ludovic111
 custom: ["https://lsuite.xyz/ryolune/support"]

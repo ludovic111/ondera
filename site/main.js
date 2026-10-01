@@ -1,7 +1,7 @@
 // ryolune site runtime: a tiny command store that mirrors the app's dispatch(command)
 // pattern, canvas drawing for the arrangement mock, the hardware rack demo, the theme
 // gallery and the page's motion. Every visual constant comes from tokens.js (the app's
-// Skeuomorphic dark theme, the one the site wears).
+// theme in its dark mode, the one the site wears).
 import { tokens as T } from './tokens.js?v=0.9';
 
 document.documentElement.classList.add('js');
@@ -834,7 +834,7 @@ if (signal) {
 }
 
 // ---------------------------------------------------------------------------
-// Tabs with a sliding pill (the theme gallery's theme and mode pickers).
+// Tabs with a sliding pill (the theme gallery's mode picker).
 // ---------------------------------------------------------------------------
 
 function placePill(group) {
@@ -854,38 +854,28 @@ if (pillGroups.length) {
 }
 
 // ---------------------------------------------------------------------------
-// Theme gallery: captures of the app's renderer in every theme and mode. The site
-// itself keeps one look; this only swaps a picture, crossfaded with a view
-// transition where the browser has one.
+// Theme gallery: captures of the app's renderer in its dark and light modes. The site
+// itself keeps one look; this only swaps a picture, crossfaded with a view transition
+// where the browser has one.
 // ---------------------------------------------------------------------------
 
 const galleryImg = $('#gallery-img');
 if (galleryImg) {
-  const themeTabs = $$('#theme-tabs [role="tab"]');
   const modeTabs = $$('#mode-tabs [role="radio"]');
-  let theme = 'skeuo', mode = 'dark', request = 0;
+  let mode = 'dark', request = 0;
+  const src = (m) => `img/theme-ryolune-${m}.webp`;
 
-  const select = (list, attr, value, key) => {
-    for (const b of list) {
-      const on = b.dataset[key] === value;
-      b.setAttribute(attr, String(on));
-      b.tabIndex = on ? 0 : -1;
-    }
-  };
   async function show() {
     const id = ++request;
-    const tab = themeTabs.find((b) => b.dataset.themeId === theme);
-    const src = `img/theme-${theme}-${mode}.webp`;
-    const alt = `The ryolune window in the ${tab.dataset.themeName} theme, ${mode} mode: arrangement, piano roll, channel inspector and agent panel`;
-    // Load before the swap so the transition never waits on the network.
     const next = new Image();
-    next.src = src;
+    next.src = src(mode);
+    // Load before the swap so the transition never waits on the network.
     try { await next.decode(); } catch { /* shown anyway */ }
     if (id !== request) return;
     const swap = () => {
-      galleryImg.src = src;
-      galleryImg.alt = alt;
-      for (const p of $$('[data-theme-desc]')) p.hidden = p.dataset.themeDesc !== theme;
+      galleryImg.src = src(mode);
+      galleryImg.alt = `The ryolune window in ${mode} mode: arrangement, piano roll, channel inspector and agent panel`;
+      for (const p of $$('[data-mode-desc]')) p.hidden = p.dataset.modeDesc !== mode;
     };
     if (document.startViewTransition && !reducedMotion) {
       document.startViewTransition(async () => {
@@ -894,32 +884,22 @@ if (galleryImg) {
       });
     } else swap();
   }
-  for (const b of themeTabs) b.addEventListener('click', () => {
-    if (b.dataset.themeId === theme) return;
-    theme = b.dataset.themeId;
-    select(themeTabs, 'aria-selected', theme, 'themeId');
-    placeAll();
-    b.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reducedMotion ? 'auto' : 'smooth' });
-    show();
-  });
   for (const b of modeTabs) b.addEventListener('click', () => {
     if (b.dataset.modeId === mode) return;
     mode = b.dataset.modeId;
-    select(modeTabs, 'aria-checked', mode, 'modeId');
+    for (const t of modeTabs) {
+      const on = t.dataset.modeId === mode;
+      t.setAttribute('aria-checked', String(on));
+      t.tabIndex = on ? 0 : -1;
+    }
     placeAll();
     show();
   });
-  // Warm the cache for the other captures once the gallery is near.
+  // Warm the cache for the other capture once the gallery is near.
   new IntersectionObserver(([e], io) => {
     if (!e.isIntersecting) return;
     io.disconnect();
-    const warm = () => {
-      for (const t of themeTabs) for (const m of ['dark', 'light']) {
-        const src = `img/theme-${t.dataset.themeId}-${m}.webp`;
-        if (!galleryImg.src.endsWith(src)) new Image().src = src;
-      }
-    };
-    (window.requestIdleCallback ?? setTimeout)(warm);
+    (window.requestIdleCallback ?? setTimeout)(() => { new Image().src = src('light'); });
   }, { rootMargin: '400px 0px' }).observe(galleryImg);
 }
 

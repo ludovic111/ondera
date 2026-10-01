@@ -44,6 +44,10 @@ const PHRASES: Record<string, (a: Args) => string> = {
   "note.update": () => "Changed a note",
   "note.remove": () => "Removed a note",
   "rhythm.create": () => "Built a rhythm",
+  "generate.audio": (a) =>
+    `Generated ${a.kind === "instrument" ? "an instrument" : `a ${a.kind ?? "loop"}`}${a.prompt ? ` “${String(a.prompt).slice(0, 40)}”` : ""}`,
+  "generate.place": () => "Placed a generated sound",
+  "strip.loadSample": () => "Turned a sound into an instrument",
   "strip.setPlugin": (a) =>
     `Loaded ${String(a.pluginId ?? "a plugin").replace(/^[a-z0-9]+:/, "")}`,
   "strip.setInstrument": (a) => `Chose the instrument${q(a.instrument)}`,

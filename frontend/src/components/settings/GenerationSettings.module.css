@@ -1,0 +1,110 @@
+.generation {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.generation h2 {
+  margin: 0 0 8px;
+  font-size: var(--fs-prose);
+  color: var(--color-ink100);
+}
+
+.generation p {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--color-ink300);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  border-radius: var(--radius-lg);
+  background: var(--color-groove-alt);
+  box-shadow: var(--shadow-well-input);
+  color: var(--color-ink100);
+}
+
+.card:hover {
+  background: var(--color-raised);
+}
+
+.card[aria-checked="true"] {
+  background: var(--color-raised);
+  box-shadow: var(--shadow-focus);
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: var(--fw-semibold);
+}
+
+.ready {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-led) 22%, transparent);
+  color: var(--color-ink100);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+}
+
+.blurb {
+  font-size: var(--fs-small);
+  line-height: 1.45;
+  color: var(--color-ink300);
+}
+
+.form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line-border);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+}
+
+.form label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.form input {
+  width: 60%;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.generation .link {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.generation .privacy {
+  font-size: var(--fs-small);
+}

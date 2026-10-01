@@ -89,6 +89,7 @@ function Dial({
         </svg>
         <Knob
           size="xl"
+          ring={false}
           angle={position * SWEEP - SWEEP / 2}
           label={p.name}
           title={`${p.name}: drag, Shift for fine, double-click to reset`}

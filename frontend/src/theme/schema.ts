@@ -1,27 +1,10 @@
 /**
- * Shape of a theme. A theme is a pure function of the mode that returns every
- * themed token group; tokens.ts holds the live copies the app reads.
+ * Shape of the theme. ryolune has one theme; `ryolune(mode)` returns every themed token
+ * group for the dark or the light mode, and tokens.ts holds the live copies the app reads.
  */
 import { formatRgba, parseColor } from "./color";
 
-export type ThemeId = "modern" | "skeuo" | "aero" | "console" | "ink" | "neon";
 export type Mode = "dark" | "light";
-export const THEMES: readonly ThemeId[] = [
-  "modern",
-  "skeuo",
-  "aero",
-  "console",
-  "ink",
-  "neon",
-];
-export const THEME_NAMES: Record<ThemeId, string> = {
-  modern: "Modern",
-  skeuo: "Skeuomorphic",
-  aero: "Frutiger Aero",
-  console: "Console",
-  ink: "Ink",
-  neon: "Neon",
-};
 
 export type ColorKey =
   | "desk"
@@ -104,6 +87,10 @@ export type ColorKey =
   | "menuSeparator"
   | "indicator"
   | "danger"
+  /** Lit mute and solo keys, and the ink on them and on a lit record key. */
+  | "mute"
+  | "solo"
+  | "toneInk"
   | "scrim";
 
 /**
@@ -127,7 +114,7 @@ export type FamilyKey =
   | "famPitch"
   | "famUtility";
 
-/** Hue of each family, shared by every theme; themes choose lightness and chroma. */
+/** Hue of each family; each mode chooses lightness and chroma. */
 export const FAMILY_HUES: Record<FamilyKey, number> = {
   famSynth: 285,
   famKeys: 85,
@@ -355,9 +342,9 @@ export interface ThemeSpec {
   /** Percent of track colour mixed against the panel for clip faces. */
   clipMix: { faceTop: number; faceBottom: number };
   fontUi: string;
-  /** Tracking of caps labels; modern and aero set type less mechanically. */
+  /** Tracking of caps labels. */
   capsTracking: string;
-  /** Theme-only custom properties consumed by the theme's own stylesheet. */
+  /** Custom properties only ryolune.css reads (window chrome, displays, primary keys). */
   vars: Record<string, string>;
 }
 
@@ -387,7 +374,7 @@ export function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** The family colours at one lightness and chroma, for a theme to spread into its palette. */
+/** The family colours at one lightness and chroma, for a mode to spread into its palette. */
 export const families = (L: number, C: number): Record<FamilyKey, string> =>
   Object.fromEntries(
     Object.entries(FAMILY_HUES).map(([key, hue]) => [key, ok(L, C, hue)]),

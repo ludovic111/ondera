@@ -4,10 +4,8 @@
   gap: 10px;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.label {
+  font-weight: var(--fw-semibold);
 }
 
 .cards {
@@ -21,7 +19,7 @@
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
-  padding: 6px 6px 8px;
+  padding: 7px 7px 10px;
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--color-groove-alt);
@@ -35,9 +33,25 @@
 }
 
 .card[aria-checked="true"] {
-  box-shadow:
-    0 0 0 2px var(--color-accent),
-    var(--shadow-well-input);
+  box-shadow: var(--shadow-focus);
+}
+
+/* Auto: the dark window on the left half, the light one on the right. */
+.split {
+  position: relative;
+  height: 86px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.split > .preview {
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
+}
+
+.split > .preview + .preview {
+  clip-path: inset(0 0 0 50%);
 }
 
 .name {

@@ -66,7 +66,7 @@ fn registry_is_unique_introspectable_and_mcp_safe() {
 fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
     let mut host = Headless::new();
     let catalog = call(&mut host, "session.catalog", json!({}));
-    assert_eq!(catalog["plugins"].as_array().unwrap().len(), 34);
+    assert_eq!(catalog["plugins"].as_array().unwrap().len(), 35);
     assert!(catalog["plugins"]
         .as_array()
         .unwrap()
@@ -81,7 +81,7 @@ fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
         "plugin.list",
         json!({"format":"stock","kind":"instrument","limit":3}),
     );
-    assert_eq!(first["total"], 11);
+    assert_eq!(first["total"], 12);
     assert_eq!(first["plugins"].as_array().unwrap().len(), 3);
     assert_eq!(first["nextOffset"], 3);
     let last = call(
@@ -89,7 +89,7 @@ fn plugin_discovery_is_filtered_paged_and_stock_catalog_stays_small() {
         "plugin.list",
         json!({"format":"stock","kind":"instrument","limit":3,"offset":9}),
     );
-    assert_eq!(last["plugins"].as_array().unwrap().len(), 2);
+    assert_eq!(last["plugins"].as_array().unwrap().len(), 3);
     assert!(last["nextOffset"].is_null());
     let found = call(
         &mut host,
@@ -367,6 +367,7 @@ fn agent_permissions_gate_dangerous_commands() {
         replace_session: false,
         settings: false,
         app_control: false,
+        generation: false,
     };
     for name in [
         "session.save",
@@ -374,6 +375,8 @@ fn agent_permissions_gate_dangerous_commands() {
         "session.new",
         "settings.set",
         "app.quit",
+        "generate.audio",
+        "generate.delete",
     ] {
         assert!(
             control_app::denied_for_agent(name, &strict).is_some(),

@@ -40,6 +40,36 @@ pub(crate) fn check(settings: &Settings) -> Connection {
                 result("missingKey", "Add an API key to connect this service.")
             };
         }
+        Provider::Gemini
+        | Provider::OpenRouter
+        | Provider::Mistral
+        | Provider::Groq
+        | Provider::DeepSeek
+        | Provider::Xai => {
+            return if settings.api_key(provider).is_none() {
+                result("missingKey", "Add an API key to connect this service.")
+            } else if settings.model().is_empty() {
+                result(
+                    "missingModel",
+                    "Key saved. Choose a model that supports tools from the list.",
+                )
+            } else {
+                result(
+                    "configured",
+                    "API key available. Send a message to check access to the model.",
+                )
+            };
+        }
+        Provider::Ollama | Provider::LmStudio => {
+            return if settings.model().is_empty() {
+                result(
+                    "missingModel",
+                    "Start the app and choose one of its models that supports tools.",
+                )
+            } else {
+                result("configured", "Model chosen. Keep the app running on this computer; send a message to check it.")
+            };
+        }
         Provider::Compatible => {
             return if settings.agent.compatible_base_url.trim().is_empty() {
                 result(
