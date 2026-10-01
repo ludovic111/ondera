@@ -4,12 +4,12 @@ The marketing site at the root of this folder is plain HTML, CSS and JavaScript,
 dependency-free Node server (`server.js`). It deploys to Railway from this directory
 (`site/` is the service's root directory), so nothing here depends on the pnpm workspace.
 
-- **One look.** The site wears the app's Skeuomorphic dark theme (the design source) and has no
-  theme switcher. The app's other themes are shown, not worn: the "Themes, in the app" section is
-  a gallery of captures of the app's renderer, one per theme and mode.
+- **One look.** The site wears the app's theme in its dark mode (the design source) and has no
+  switcher. The light mode is shown, not worn: the "One theme, in the app" section is a gallery
+  of two captures of the app's renderer, dark and light.
 - `tokens.css` and `tokens.js` are **generated** from the app's theme layer (`frontend/src/theme`)
   by `node scripts/gen-site-tokens.mjs` (run from the repo root after `npm --prefix frontend ci`).
-  They hold Skeuomorphic dark only: `tokens.css` is one `:root` block, `tokens.js` the same values
+  They hold the dark mode only: `tokens.css` is one `:root` block, `tokens.js` the same values
   for the canvas code. Do not edit the generated files; regenerate them when that theme changes.
 - Caching: `server.js` rewrites every `?v=` on a `.js`/`.css` reference (in `index.html` and in
   `main.js`'s `tokens.js` import) to a hash of that file, and serves `?v=` URLs as immutable, so a
@@ -25,10 +25,10 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
   Railway targets). With `RYOLUNE_CANONICAL_HOST=ryolune.com` set on Railway, every other host
   name (www, `site-production-7751.up.railway.app`) answers with a 301 to the same path on
   ryolune.com; `/health` is exempt so Railway's health check keeps working.
-- `/support` redirects to the donation page (GitHub Sponsors) in the host variable
-  `RYOLUNE_DONATION_URL` (https only; Railway service variable), or to the page's `#support`
-  section while it is unset. The app's Help › Support ryolune… opens `/support`, so the donation
-  page can move without a release. ryolune sells nothing: donations, once or monthly, are the
+- `/support` redirects to GitHub Sponsors (`SPONSORS_URL`, github.com/sponsors/ludovic111), or
+  to another https page set as the host variable `RYOLUNE_DONATION_URL`. The site's Sponsor
+  buttons (nav, support section, footer) and the app's Sponsor key and Help › Support ryolune…
+  all open `/support`, so the donation page can move without a release. ryolune sells nothing: donations, once or monthly, are the
   only money it takes, so the copy never says pay, price or checkout.
 - `server.js` also redirects `/download` (by User-Agent) and `/download/<platform>` to the latest
   GitHub release asset; keep `ASSETS` in step with `update::asset_name`. It replaces `%ORIGIN%` in
@@ -49,14 +49,11 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
   downloads before Play (`preload="none"`). They are copies of `marketing/brag-output/brag-4k.mp4`
   and `brag.mp4` (see `marketing/README.md` to re-record them). `server.js` streams `.mp4` with byte
   ranges (Safari needs them to play, every browser to seek) instead of reading it into memory.
-- `img/theme-<id>-<mode>.webp` (2000x1250) feed the theme gallery. They are the frontend renderer
-  with its fixture song: `npm --prefix frontend run dev`, open `/?theme=<id>&mode=<mode>` at
-  1600x1000 with a device scale of 1.25, screenshot, then `cwebp -q 74 -m 6`.
-- **Adding an app theme to the site:** add a tab to `#theme-tabs` in `index.html` (`data-theme-id`,
-  `data-theme-name`) and its `<p data-theme-desc>` line, add `img/theme-<id>-dark.webp` and
-  `-light.webp`, and update the theme count. The count is written in exactly one place: the
-  `#themes-title` heading ("Six themes, each in dark and light.", marked `THEME COUNT` in a
-  comment). The 0.6 changelog entry names the original three and stays as history.
+- `img/theme-ryolune-<mode>.webp` (2000x1250) feed the theme gallery. They are the frontend
+  renderer with its fixture song: `npm --prefix frontend run dev`, open `/?mode=<mode>` at
+  1600x1000 with a device scale of 1.25, screenshot, then `cwebp -q 74 -m 6`. `arrangement.webp`
+  (`?mode=dark&panel=controllers`), `mixer.webp` (`&panel=mixer`) and `og.png` (the dark capture
+  at 1200x750) are taken the same way. Changelog entries before 0.12 name the old themes as history.
 - `main.js` runs the interactive DAW mock on the hero: a tiny command store using the registry's
   command names (`transport.locate`, `transport.setCycle`, `track.setMonitor`, ...), canvas drawing
   for the arrangement (clip fades and gain), song markers as buttons over the ruler (click jumps,
@@ -78,7 +75,7 @@ observer is wired at the top of `main.js` so a later error cannot leave the page
 - Stats: digits pop in with blur and a spring (`--motion-settle`).
 - Scroll progress: a 1 px accent line under the nav, `animation-timeline: scroll()` where
   supported, absent elsewhere. The nav underlines the section you are reading.
-- Theme gallery: a pill slides between tabs; the picture is preloaded, then swapped inside
+- Theme gallery: a pill slides between Dark and Light; the picture is preloaded, then swapped inside
   `document.startViewTransition` with a blur crossfade (`::view-transition-*(theme-shot)`; the root
   does not take part, so the rest of the page stays live). Without the API it swaps instantly.
 - Micro-interactions: a light sweep over lit buttons, arrows that nudge on hover, cards with a
@@ -92,7 +89,7 @@ Patterns were studied, then re-implemented from scratch in plain CSS/JS (no code
 
 - [transitions.dev](https://transitions.dev): "Texts reveal" (lines rise with offset stagger, used
   for the headline and section reveals), "Number pop-in" (stats), "Text
-  states swap" (the Copy label), "Tabs sliding" (theme and mode pickers), "3D tilt"
+  states swap" (the Copy label), "Tabs sliding" (the mode picker), "3D tilt"
   (window captures), "Accordion" (FAQ height and plus/minus morph), "Shimmer text" and "Get Pro
   button" (the lit button's light sweep), "Learn more hover" (arrows), "Page side-by-side" (the
   view transition idea, applied to the gallery swap since the site is one page).

@@ -204,7 +204,7 @@ export function RhythmLab({ busy }: { busy: boolean }) {
             Stop preview
           </button>
           <button
-            className="m-button aero-primary"
+            className="m-button primary-action"
             type="button"
             disabled={!name.trim()}
             onClick={() => void run(false)}

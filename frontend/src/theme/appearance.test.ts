@@ -1,63 +1,40 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { applyAppearance, normalizeTheme } from "./applyTokens";
+import { applyAppearance, THEME_ID } from "./applyTokens";
 import { buildTheme, color, cssVariables, font, line } from "./tokens";
-import { contrast, FAMILY_HUES, THEMES, type Mode } from "./schema";
+import { contrast, FAMILY_HUES, type Mode } from "./schema";
 import { mix, parseColor } from "./color";
 
 const MODES: Mode[] = ["dark", "light"];
-const variants = THEMES.flatMap((t) => MODES.map((m) => [t, m] as const));
 
-afterEach(() => applyAppearance("skeuo", "dark"));
+afterEach(() => applyAppearance("dark"));
 
-it("keeps the design-source graphite values for skeuomorphic dark", () => {
-  const spec = buildTheme("skeuo", "dark");
-  expect(spec.color.panel).toBe("#2c2c2b");
-  expect(spec.color.ink100).toBe("#e8e7e4");
-  expect(spec.shadow.raised).toBe(
-    "inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.55), 0 3px 5px rgba(0,0,0,0.25)",
-  );
-});
-
-it("restores every token after switching through all themes repeatedly", () => {
-  applyAppearance("skeuo", "dark");
+it("restores every token after switching modes repeatedly", () => {
+  applyAppearance("dark");
   const original = cssVariables();
   for (let n = 0; n < 2; n++) {
-    for (const [theme, mode] of variants) {
-      applyAppearance(theme, mode);
-      expect(document.documentElement.dataset.theme).toBe(theme);
+    for (const mode of MODES) {
+      applyAppearance(mode);
+      expect(document.documentElement.dataset.theme).toBe(THEME_ID);
       expect(document.documentElement.dataset.mode).toBe(mode);
-      expect(color.ink100).toBe(buildTheme(theme, mode).color.ink100);
-      expect(line.barLine).toBe(buildTheme(theme, mode).line.barLine);
+      expect(color.ink100).toBe(buildTheme(mode).color.ink100);
+      expect(line.barLine).toBe(buildTheme(mode).line.barLine);
     }
-    applyAppearance("skeuo", "dark");
+    applyAppearance("dark");
     expect(font.ui).toContain("Manrope");
     const style = document.documentElement.style;
     for (const [key, value] of Object.entries(original))
       expect(style.getPropertyValue(key), key).toBe(value);
-    // Theme-only properties of other themes are removed again.
-    for (const own of [
-      "--aero-frame",
-      "--console-frame",
-      "--ink-solid",
-      "--neon-rule",
-    ])
-      expect(style.getPropertyValue(own), own).toBe("");
   }
 });
 
-it("maps legacy and unknown appearance names", () => {
-  expect(normalizeTheme("graphite")).toBe("skeuo");
-  expect(normalizeTheme("aero")).toBe("aero");
-  expect(normalizeTheme("modern")).toBe("modern");
-  for (const id of ["console", "ink", "neon"])
-    expect(normalizeTheme(id)).toBe(id);
-  expect(normalizeTheme(undefined)).toBe("skeuo");
-  expect(normalizeTheme("nope")).toBe("skeuo");
+it("gives both modes the same custom properties", () => {
+  const keys = (mode: Mode) => Object.keys(buildTheme(mode).vars).sort();
+  expect(keys("light")).toEqual(keys("dark"));
 });
 
-describe.each(variants)("%s %s", (theme, mode) => {
-  const spec = buildTheme(theme, mode);
+describe.each(MODES)("ryolune %s", (mode) => {
+  const spec = buildTheme(mode);
   const c = spec.color;
 
   it("emits only colours the canvas can parse", () => {

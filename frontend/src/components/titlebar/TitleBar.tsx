@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore, type MouseEvent } from "react";
 import { useSession, useStore } from "../../state/session";
 import { buildMenu, MENU_TITLES, type MenuTitle } from "../../state/menus";
 import { anchorBelow, PopupMenu, type MenuState } from "../menu/PopupMenu";
+import { HeartIcon } from "../primitives/Icons";
 import styles from "./TitleBar.module.css";
 
 /** Window chrome. Native traffic lights overlay the left inset on macOS. Menu labels open popup menus. */
@@ -48,6 +49,17 @@ export function TitleBar() {
         {ui.dirty ? " *" : ""}
       </div>
       <span className={styles.status}>{ui.status}</span>
+      {/* ryolune is free; donations through GitHub Sponsors are the only money it takes. The
+          guide opens ryolune.com/support, which forwards to the sponsor page. */}
+      <button
+        type="button"
+        className={styles.sponsor}
+        title="Sponsor ryolune on GitHub: donate once or monthly, nothing is locked"
+        onClick={() => store.fire("app.openGuide", { guide: "support" })}
+      >
+        <HeartIcon />
+        Sponsor
+      </button>
       {menu && (
         <PopupMenu
           items={menu.items}

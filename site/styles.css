@@ -203,7 +203,7 @@ a.btn:hover, button.btn--lit:hover { transform: translateY(-1px); }
 .nav__inner .nav__menu { display: none; }
 @media (max-width: 1040px) {
   .nav__links { display: none; }
-  .nav__download { margin-left: auto; }
+  .nav__inner .nav__sponsor { margin-left: auto; }
   html.js .nav__inner .nav__menu { display: grid; }
   html.js .nav__links.is-open {
     display: flex; flex-direction: column; gap: 0; position: fixed; top: var(--site-nav-h); left: 0; right: 0; margin: 0;
@@ -217,6 +217,7 @@ a.btn:hover, button.btn--lit:hover { transform: translateY(-1px); }
   @keyframes menu-in { from { opacity: 0; transform: translateY(-6px); } }
 }
 @media (max-width: 560px) { .nav__inner { gap: 10px; } }
+@media (max-width: 520px) { .nav__sponsor { padding: 0 11px; } .nav__sponsor span { display: none; } .nav__sponsor .heart { margin-right: 0; } }
 @media (max-width: 340px) { .nav__download { display: none; } .nav__inner .nav__menu { margin-left: auto; } }
 
 /* ---------- hero ---------- */
@@ -731,7 +732,15 @@ html.js .tabs button:is([aria-selected="true"], [aria-checked="true"]) { backgro
 .rules { list-style: none; margin: 56px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
 @media (max-width: 900px) { .rules { grid-template-columns: 1fr; gap: 0; } }
 .rules li { padding: 22px 0 8px; border-top: 1px solid var(--site-hairline-strong); font-size: var(--fs-card); line-height: 1.65; color: var(--color-ink300); }
-.support__cta { margin: 40px 0 0; }
+.support__cta { margin: 40px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.support__note { color: var(--color-ink500); font-size: var(--fs-secondary); }
+/* GitHub Sponsors: a heart in the pink of the texture family, on the nav and the support call. */
+.heart { width: 13px; height: 12px; flex: none; fill: var(--color-fam-texture); }
+.btn--lit .heart { fill: currentColor; }
+.btn .heart { margin-right: 8px; }
+.nav__sponsor { margin-left: -12px; }
+.nav__sponsor:hover .heart { transform: scale(1.15); }
+.nav__sponsor .heart { transition: transform 200ms var(--ease); }
 .rules b { display: block; color: var(--color-ink-bright); font-weight: var(--fw-semibold); margin-bottom: 8px; font-size: 16px; letter-spacing: -0.01em; }
 
 /* ---------- commands section ---------- */

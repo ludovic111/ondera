@@ -7,7 +7,7 @@ contributors (human or AI) follow are in [`CLAUDE.md`](../CLAUDE.md) at the repo
 
 ```
 frontend/  React + TypeScript interface: controls, CSS materials, canvas arrangement and editors,
-    │      themes (frontend/src/theme), the action table behind menus and shortcuts
+    │      theme (frontend/src/theme), the action table behind menus and shortcuts
     │      Tauri commands, document snapshots, transport and meter events
 desktop/   Tauri 2 window: owns the document and audio, settings, the agent runtime
     │      (desktop/src/agent), native plugin windows, live-only commands, updates
@@ -101,13 +101,13 @@ RYOLUNE_BLESS=1 cargo test -p ryolune-tools --test command_docs     # docs/COMMA
 RYOLUNE_BLESS=1 npm --prefix frontend test -- shortcutsDoc          # docs/SHORTCUTS.md
 ```
 
-After changing a theme, `node scripts/gen-site-tokens.mjs` refreshes the site's tokens (the site
-uses the Skeuomorphic dark theme only).
+After changing the theme's dark mode, `node scripts/gen-site-tokens.mjs` refreshes the site's
+tokens (the site wears dark only).
 
 ## Checking the real window
 
 The interface can be checked in a plain browser: `npm --prefix frontend run dev` serves a
-fixture song through `src/dev/mockHost.ts` (`?theme=<id>&mode=dark|light&panel=mixer|settings|…`).
+fixture song through `src/dev/mockHost.ts` (`?mode=dark|light&panel=mixer|settings|…`).
 For the real window, run the app with a scratch data folder and drive it with the CLI:
 
 ```sh

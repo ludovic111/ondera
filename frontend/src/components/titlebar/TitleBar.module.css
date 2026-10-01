@@ -70,3 +70,39 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* The GitHub Sponsors key: quiet until hovered, then the heart warms up. */
+.sponsor {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 9px 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill-hover);
+  box-shadow: inset 0 0 0 1px var(--line-border);
+  color: var(--color-ink300);
+  font-size: var(--fs-small);
+  font-weight: var(--fw-semibold);
+  -webkit-app-region: no-drag;
+}
+
+.sponsor svg {
+  color: var(--color-fam-texture);
+}
+
+.sponsor:hover {
+  color: var(--color-ink100);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--color-fam-texture) 55%, transparent);
+}
+
+.sponsor:hover svg {
+  transform: scale(1.15);
+}
+
+.sponsor svg {
+  transition: transform var(--motion-base) var(--motion-settle);
+}

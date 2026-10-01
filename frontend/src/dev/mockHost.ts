@@ -1,8 +1,8 @@
 /**
  * Development-only stand-in for the Rust host. `npm run dev` in a plain browser
  * has no Tauri bridge, so this answers the handful of commands the renderer
- * needs with a fixed song. It exists to check themes and layouts quickly:
- * `?theme=modern|skeuo|aero|console|ink|neon&mode=dark|light&panel=mixer|settings|export|plugin:<name>&clip=<id>`.
+ * needs with a fixed song. It exists to check both modes and layouts quickly:
+ * `?mode=dark|light&panel=mixer|settings|export|plugin:<name>&clip=<id>`.
  * Never imported by a production build.
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -269,7 +269,7 @@ const ui = {
   busy: false,
   prompt: null,
   scale: 1,
-  appearance: query.get("theme") ?? "skeuo",
+  appearance: "ryolune",
   mode: query.get("mode") ?? "dark",
   recoveryStatus: "",
   update: { available: null, installed: false, busy: false },

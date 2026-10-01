@@ -21,7 +21,7 @@ and in the app under Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows an
 11. [Plugins](#plugins)
 12. [Files: save, import, export, recover](#files-save-import-export-recover)
 13. [The agent](#the-agent)
-14. [Themes and appearance](#themes-and-appearance)
+14. [Appearance](#appearance)
 15. [Settings](#settings)
 16. [Limits](#limits)
 
@@ -256,28 +256,30 @@ track silent?".
 Scripts and external AI tools control ryolune through the same commands: see
 [AI_CONTROL.md](AI_CONTROL.md).
 
-## Themes and appearance
+## Appearance
 
-Settings > Interface shows every theme as a live miniature, with a Dark / Light / Auto switch
-(Auto follows the system). There are six themes, each in dark and light:
+ryolune has one theme, in a dark and a light mode. Settings > Interface shows each as a live
+miniature: **Dark** (graphite, for long sessions), **Light** (porcelain, for daylight) and
+**Auto**, which follows the system while the window is open.
 
-- **Modern**: flat and quiet, one cool neutral and one accent.
-- **Skeuomorphic**: milled hardware; graphite by night, champagne aluminium by day.
-- **Frutiger Aero**: glass, water and sky.
-- **Console**: a warm analogue desk with walnut, brass keys and amber meters.
-- **Ink**: paper and ink, flat and square, one red accent; selected things are shown reversed.
-- **Neon**: violet glass lit from inside, magenta and cyan.
+One accent, lunar gold (amber in light mode), marks the playhead, lit keys and what the agent
+touched. Channel keys light in their own colours: mute blue, solo yellow, record arm red. Knobs
+show their value as a ring; a centred knob such as pan fills from the top.
 
-Scripts and the agent switch them too (`settings.set` with `interface.appearance` set to
-`modern`, `skeuo`, `aero`, `console`, `ink` or `neon`, and `interface.mode` set to `dark`,
-`light` or `auto`). The interface scale, tooltips and following the playhead are set there too.
+Scripts and the agent switch the mode too (`settings.set` with `interface.mode` set to `dark`,
+`light` or `auto`). Themes chosen in earlier versions (Modern, Skeuomorphic, Frutiger Aero,
+Console, Ink, Neon) open as ryolune in the mode they had. The interface scale, tooltips and
+following the playhead are set there too.
+
+The heart at the right of the title bar opens ryolune's GitHub Sponsors page. ryolune is free
+and nothing is locked; sponsoring, once or monthly, is how it is paid for.
 
 ## Settings
 
 Settings (`⌘,`) is organised in sections:
 
 - **General**: reopen the last song, confirm before quitting, recovery interval.
-- **Interface**: theme and mode, scale, tooltips, open the agent panel at start, follow playhead.
+- **Interface**: appearance (dark, light or auto), scale, tooltips, open the agent panel at start, follow playhead.
 - **Audio**: output and input devices, buffer size (64 to 2048 frames), count-in bars, input meter
   on armed tracks, MIDI input and connecting it at start.
 - **Plugins**: extra CLAP, VST3 and native folders, scan at start.

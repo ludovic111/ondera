@@ -1,10 +1,5 @@
 import { useRef, useState, type MouseEvent } from "react";
-import {
-  commands,
-  outputName,
-  TRACK_PALETTE,
-  type Track,
-} from "@ryolune/core";
+import { commands, outputName, TRACK_PALETTE, type Track } from "@ryolune/core";
 import { useDispatch, useSession, useStore } from "../../state/session";
 import { Button } from "../primitives/Button";
 import { HSlider } from "../primitives/HSlider";
@@ -153,6 +148,7 @@ export function TrackHeader({ track }: { track: Track }) {
           <Button
             size="sm"
             title="Mute"
+            tone="mute"
             pressed={track.mute}
             onClick={() =>
               dispatch(
@@ -168,6 +164,7 @@ export function TrackHeader({ track }: { track: Track }) {
           <Button
             size="sm"
             title="Solo"
+            tone="solo"
             pressed={track.solo}
             onClick={() =>
               dispatch(
@@ -184,6 +181,7 @@ export function TrackHeader({ track }: { track: Track }) {
             <Button
               size="sm"
               title="Record arm"
+              tone="arm"
               lit={track.armed}
               onClick={() =>
                 dispatch(

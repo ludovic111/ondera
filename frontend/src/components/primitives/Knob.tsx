@@ -15,13 +15,32 @@ export interface KnobProps {
   onChange?: (value: number) => void;
   /** Value restored on double-click. */
   defaultValue?: number;
+  /** Draw the value ring; off where the surface draws its own (plugin faces). */
+  ring?: boolean;
 }
 
 /** Pixels of vertical drag for the full value range. */
 const DRAG_TRAVEL_PX = 160;
+/** Diameter of each size in px (the size tokens), and the travel of the cap either side of up. */
+const DIAMETER = { sm: 20, md: 26, lg: 36, xl: 46 } as const;
+const SWEEP = 135;
+/** Gap between the knob and its value ring, in px. */
+const RING_GAP = 3;
+
+/** An SVG arc on a circle of radius r around (c, c), clockwise from `from` to `to` degrees. */
+function arc(c: number, r: number, from: number, to: number): string {
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  const point = (deg: number) => {
+    const t = (deg * Math.PI) / 180;
+    return `${(c + r * Math.sin(t)).toFixed(2)} ${(c - r * Math.cos(t)).toFixed(2)}`;
+  };
+  return `M ${point(a)} A ${r} ${r} 0 ${b - a > 180 ? 1 : 0} 1 ${point(b)}`;
+}
 
 /**
- * Milled aluminium knob. The whole cap rotates; the indicator is a slot.
+ * A machined knob with a value ring. The body stays lit from above while the indicator
+ * turns; the ring fills from the bottom-left stop, or from the top for a centred control
+ * (pan, whose range runs below and above zero).
  * Drag up to increase, down to decrease; shift for fine control; double-click resets.
  */
 export function Knob({
@@ -34,6 +53,7 @@ export function Knob({
   max,
   onChange,
   defaultValue,
+  ring = true,
 }: KnobProps) {
   const drag = useRef<{ y: number; value: number } | null>(null);
   const interactive =
@@ -68,6 +88,13 @@ export function Knob({
     if (interactive && defaultValue !== undefined) onChange!(defaultValue);
   };
 
+  const bipolar = min !== undefined && max !== undefined && min < 0 && max > 0;
+  const turn = Math.max(-SWEEP, Math.min(SWEEP, angle));
+  const box = DIAMETER[size] + RING_GAP * 2 + 2;
+  const centre = box / 2;
+  const radius = DIAMETER[size] / 2 + RING_GAP;
+  const from = bipolar ? 0 : -SWEEP;
+
   return (
     <div
       className={[
@@ -75,7 +102,6 @@ export function Knob({
         styles[size],
         interactive ? styles.interactive : "",
       ].join(" ")}
-      style={{ transform: `rotate(${angle}deg)` }}
       title={title}
       role={interactive ? "slider" : undefined}
       tabIndex={interactive ? 0 : undefined}
@@ -114,8 +140,30 @@ export function Knob({
       onPointerUp={onPointerUp}
       onDoubleClick={onDoubleClick}
     >
+      {ring && (
+        <svg
+          className={styles.ring}
+          width={box}
+          height={box}
+          viewBox={`0 0 ${box} ${box}`}
+          aria-hidden
+        >
+          <path
+            className={styles.track}
+            d={arc(centre, radius, -SWEEP, SWEEP)}
+          />
+          {Math.abs(turn - from) > 1 && (
+            <path
+              className={styles.value}
+              d={arc(centre, radius, from, turn)}
+            />
+          )}
+        </svg>
+      )}
       {(size === "lg" || size === "xl") && <div className={styles.inner} />}
-      <div className={styles.indicator} />
+      <div className={styles.rotor} style={{ transform: `rotate(${turn}deg)` }}>
+        <div className={styles.indicator} />
+      </div>
     </div>
   );
 }

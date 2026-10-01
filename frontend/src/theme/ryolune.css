@@ -1,0 +1,134 @@
+/*
+ * ryolune structure: what the one theme does beyond the material classes. Colours come
+ * from ryolune.ts (the --ryo-* properties and the token groups), so the same rules
+ * serve the dark and the light mode.
+ */
+
+::selection {
+  background: var(--ryo-selection);
+}
+
+/* Focus is a soft accent halo hugging the control rather than a hard ring around it. */
+:is(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ryo-focus);
+  outline-offset: 1px;
+}
+:is(input, select, textarea):focus-visible {
+  outline-offset: 0;
+}
+
+/* Thin overlay-style scrollbars: a rounded thumb, no track, no arrows. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ryo-scroll-thumb) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 10px;
+  background: var(--ryo-scroll-thumb) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ryo-scroll-thumb-hover) padding-box;
+}
+
+/* Displays are sunk glass: a faint vertical fall-off instead of a flat fill. */
+.m-well-deep {
+  background: var(--ryo-display);
+}
+
+/* Caps labels are set a touch lighter than bold: quieter, still crisp. */
+:is(.caps, .t-caps) {
+  font-weight: var(--fw-semibold);
+}
+
+/* Play lights up in the accent while the transport runs. */
+.play-key[aria-pressed="true"] {
+  background: var(--ryo-play);
+  box-shadow: var(--shadow-lit);
+  color: var(--ryo-primary-ink);
+}
+
+/* Channel keys light in their own colour: mute blue, solo yellow, arm red. The transport's
+   record key keeps a red dot while idle. */
+.record-key {
+  color: var(--color-danger);
+}
+[data-tone][aria-pressed="true"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 0 0 1px rgb(0 0 0 / 0.28);
+  color: var(--color-tone-ink);
+}
+[data-tone="mute"][aria-pressed="true"] {
+  background: var(--color-mute);
+}
+[data-tone="solo"][aria-pressed="true"] {
+  background: var(--color-solo);
+}
+[data-tone="arm"][aria-pressed="true"] {
+  background: var(--color-danger);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 0 0 1px rgb(0 0 0 / 0.28),
+    0 0 12px color-mix(in oklab, var(--color-danger) 45%, transparent);
+  color: var(--color-ink-bright);
+}
+:root[data-mode="light"] [data-tone="arm"][aria-pressed="true"] {
+  color: var(--color-material-card);
+}
+
+/* One primary action per surface (apply, start, send) wears the accent. */
+.primary-action,
+.agent-send .m-button,
+.native-dialog button.primary {
+  background: var(--ryo-primary);
+  box-shadow: var(--shadow-lit);
+  color: var(--ryo-primary-ink);
+  font-weight: var(--fw-semibold);
+}
+:is(
+    .primary-action,
+    .agent-send .m-button,
+    .native-dialog button.primary
+  ):hover:not(:disabled) {
+  background: var(--ryo-primary-hover);
+}
+
+/* Dialogs: a calm header with room around the title. */
+.native-dialog > header {
+  height: 44px;
+  padding: 0 16px 0 18px;
+  font-size: var(--fs-prose);
+  letter-spacing: 0.005em;
+}
+.native-dialog > header button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  font-size: 18px;
+  line-height: 1;
+}
+.native-dialog > header button:hover {
+  background: var(--fill-hover);
+  color: var(--color-ink100);
+}
+.dialog-content {
+  padding: 18px 20px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :is(.m-glass, .m-glass-agent, .m-glass-card) {
+    backdrop-filter: none;
+    background: var(--color-material-card);
+  }
+}

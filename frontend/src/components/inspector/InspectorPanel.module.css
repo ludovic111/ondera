@@ -360,11 +360,19 @@
   font-size: 12px;
 }
 .channelButtons button {
-  width: 20px;
-  height: 18px;
-  font-size: 10px;
+  width: var(--size-small-button-w);
+  height: var(--size-small-button-h);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-button);
+  font-size: var(--fs-caps);
+  font-weight: var(--fw-bold);
 }
-.channelButtons button[aria-pressed="true"] {
+.channelButtons button[aria-pressed="true"]:not([data-tone]) {
   color: var(--color-accent-ink);
   background: var(--gradient-lit);
+}
+.channelButtons > span {
+  margin-left: 4px;
 }

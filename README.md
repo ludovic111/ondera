@@ -16,8 +16,8 @@ same song, and every edit it makes is one undo away.
   JavaScript.
 - **34 stock instruments and effects** with front panels that draw what the audio does, plus
   your own CLAP, VST3, Audio Unit (macOS) and ryolune native plugins.
-- **Six themes**, each in dark and light: Modern, Skeuomorphic, Frutiger Aero, Console, Ink and
-  Neon.
+- **One carefully drawn theme**, graphite by night and porcelain by day, with text contrast
+  tested on every surface.
 - **Built for AI control**: everything a person can do in the window is a command that the
   built-in agent, `ryolune-cli` and any MCP client can call, with a one-call overview of the whole
   song and full access to external plugins' parameters and state.
@@ -83,7 +83,7 @@ See [AI_CONTROL.md](docs/AI_CONTROL.md) for the agent, the CLI, MCP, permissions
 
 | Document | What it covers |
 | --- | --- |
-| [User guide](docs/USER_GUIDE.md) | The window, tracks, recording, editing, mixing, automation, files, themes, settings |
+| [User guide](docs/USER_GUIDE.md) | The window, tracks, recording, editing, mixing, automation, files, appearance, settings |
 | [Keyboard shortcuts](docs/SHORTCUTS.md) | Every shortcut (generated from the app) |
 | [AI control](docs/AI_CONTROL.md) | The built-in agent, `ryolune-cli`, `ryolune-mcp`, permissions, recipes |
 | [Command reference](docs/COMMANDS.md) | Every command and parameter (generated from the registry) |

@@ -36,17 +36,19 @@ const ASSETS = {
   'linux-x86_64': 'ryolune-linux-x86_64.zip',
 };
 
+/** ryolune's GitHub Sponsors page: monthly or one-time donations. */
+export const SPONSORS_URL = 'https://github.com/sponsors/ludovic111';
+
 /**
- * Where `/support` sends people: the donation page (GitHub Sponsors), set on the host as
- * `RYOLUNE_DONATION_URL` so it can change without a release (the app links to `/support`).
- * Until it is set, or if it is not https, the page's own support section answers.
+ * Where `/support` sends people: GitHub Sponsors, unless the host sets another https page as
+ * `RYOLUNE_DONATION_URL` (the app links to `/support`, so this changes without a release).
  */
 export function supportTarget(donation = process.env.RYOLUNE_DONATION_URL) {
   try {
     const url = new URL(String(donation ?? ''));
     if (url.protocol === 'https:') return url.href;
   } catch {}
-  return '/#support';
+  return SPONSORS_URL;
 }
 
 /**

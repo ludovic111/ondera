@@ -1,7 +1,7 @@
 // Emits site/tokens.css and site/tokens.js from the app's theme layer
-// (frontend/src/theme), so the site wears the app's brand: the design-source
-// theme, Skeuomorphic dark. The app ships several themes; the site wears one
-// and only talks about the others (the theme gallery in site/index.html).
+// (frontend/src/theme), so the site wears the app's brand: the one theme in its
+// dark mode, the design source. The light mode appears on the site only as a
+// capture in the theme gallery (site/index.html).
 // Run from the repo root after `npm --prefix frontend ci`:
 //   node scripts/gen-site-tokens.mjs
 import { writeFileSync, mkdtempSync } from 'node:fs';
@@ -26,11 +26,11 @@ await esbuild.build({
 const mod = await import(pathToFileURL(out).href);
 
 // The one variant the site wears.
-const THEME = 'skeuo';
+const THEME = 'ryolune';
 const MODE = 'dark';
 const SOURCE = 'frontend/src/theme';
 
-const spec = mod.setTheme(THEME, MODE);
+const spec = mod.setTheme(MODE);
 const [r, g, b] = spec.color.accent.match(/[\d.]+/g);
 const vars = {
   ...mod.cssVariables(),

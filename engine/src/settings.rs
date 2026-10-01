@@ -60,7 +60,7 @@ pub struct Audio {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Interface {
-    /// Theme: one of [`THEMES`].
+    /// Theme: always `ryolune` since 0.12 (see [`THEMES`]); `mode` picks dark or light.
     pub appearance: String,
     /// `dark`, `light`, or `auto` to follow the system.
     pub mode: String,
@@ -227,28 +227,29 @@ impl Default for Interface {
     fn default() -> Self {
         Self {
             scale: 1.0,
-            appearance: "aero".into(),
-            mode: "light".into(),
+            appearance: THEME.into(),
+            mode: "dark".into(),
             agent_panel_open_on_start: false,
             show_tooltips: true,
             follow_playhead: true,
         }
     }
 }
-/// The interface themes; each has a dark and a light mode. The renderer builds them
-/// in `frontend/src/theme/<id>.ts` and lists them in the same order.
-pub const THEMES: [&str; 6] = ["modern", "skeuo", "aero", "console", "ink", "neon"];
+/// The interface theme. Since 0.12 ryolune has one theme, in a dark and a light mode,
+/// built in `frontend/src/theme/ryolune.ts`.
+pub const THEME: &str = "ryolune";
+/// Every accepted `interface.appearance`.
+pub const THEMES: [&str; 1] = [THEME];
 impl Interface {
-    /// Files written before 0.6 had two appearances and no mode: `graphite` was
-    /// the dark skeuomorphic look, `aero` the light glass one.
+    /// Files written before 0.6 had two appearances and no mode: `graphite` was the dark
+    /// skeuomorphic look, `aero` the light glass one. From 0.6 to 0.11 there were six themes
+    /// (modern, skeuo, aero, console, ink, neon), each dark or light; they all become the one
+    /// theme and keep their mode.
     fn migrate(&mut self, stored: &str) {
         let had_mode = serde_json::from_str::<serde_json::Value>(stored)
             .ok()
             .is_some_and(|v| v["interface"]["mode"].is_string());
-        if self.appearance == "graphite" {
-            self.appearance = "skeuo".into();
-            self.mode = "dark".into();
-        } else if !had_mode {
+        if !had_mode {
             self.mode = if self.appearance == "aero" {
                 "light"
             } else {
@@ -256,6 +257,7 @@ impl Interface {
             }
             .into();
         }
+        self.appearance = THEME.into();
     }
 }
 impl Default for Agent {
@@ -405,7 +407,9 @@ impl Settings {
             return Err("Model names must be printable and at most 200 characters".into());
         }
         if !THEMES.contains(&self.interface.appearance.as_str()) {
-            return Err(format!("Appearance must be one of {}", THEMES.join(", ")));
+            return Err(format!(
+                "Appearance must be {THEME}: there is one theme, set interface.mode to dark, light or auto"
+            ));
         }
         if !["dark", "light", "auto"].contains(&self.interface.mode.as_str()) {
             return Err("Mode must be dark, light or auto".into());
@@ -631,56 +635,65 @@ fn coerce(current: &Value, value: Value) -> Result<Value> {
 mod tests {
     use super::*;
     #[test]
-    fn appearances_written_before_themes_had_modes_are_migrated() {
+    fn every_earlier_appearance_becomes_the_one_theme_and_keeps_its_mode() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        for (stored, theme, mode) in [
-            (
-                r#"{"interface":{"appearance":"graphite"}}"#,
-                "skeuo",
-                "dark",
-            ),
-            (r#"{"interface":{"appearance":"aero"}}"#, "aero", "light"),
+        for (stored, mode) in [
+            // Before 0.6: two appearances, no mode.
+            (r#"{"interface":{"appearance":"graphite"}}"#, "dark"),
+            (r#"{"interface":{"appearance":"aero"}}"#, "light"),
+            // 0.6 to 0.11: six themes, each with a mode.
             (
                 r#"{"interface":{"appearance":"aero","mode":"dark"}}"#,
-                "aero",
                 "dark",
             ),
             (
                 r#"{"interface":{"appearance":"modern","mode":"auto"}}"#,
-                "modern",
                 "auto",
+            ),
+            (
+                r#"{"interface":{"appearance":"skeuo","mode":"light"}}"#,
+                "light",
+            ),
+            (
+                r#"{"interface":{"appearance":"console","mode":"light"}}"#,
+                "light",
+            ),
+            (
+                r#"{"interface":{"appearance":"ink","mode":"dark"}}"#,
+                "dark",
+            ),
+            (
+                r#"{"interface":{"appearance":"neon","mode":"auto"}}"#,
+                "auto",
+            ),
+            (
+                r#"{"interface":{"appearance":"ryolune","mode":"light"}}"#,
+                "light",
             ),
         ] {
             std::fs::write(&path, stored).unwrap();
             let settings = Settings::read(&path).unwrap();
-            assert_eq!(settings.interface.appearance, theme);
-            assert_eq!(settings.interface.mode, mode);
+            assert_eq!(settings.interface.appearance, "ryolune", "{stored}");
+            assert_eq!(settings.interface.mode, mode, "{stored}");
         }
         let mut settings = Settings::default();
-        assert!(settings
-            .set("interface.appearance", json!("graphite"))
-            .is_err());
-        assert!(settings.set("interface.mode", json!("dim")).is_err());
-        for theme in THEMES {
-            settings.set("interface.appearance", json!(theme)).unwrap();
-            assert_eq!(settings.interface.appearance, theme);
-        }
-        for theme in ["console", "ink", "neon"] {
-            assert!(THEMES.contains(&theme));
-            std::fs::write(
-                &path,
-                format!(r#"{{"interface":{{"appearance":"{theme}","mode":"light"}}}}"#),
-            )
+        assert_eq!(settings.interface.appearance, "ryolune");
+        assert_eq!(settings.interface.mode, "dark");
+        settings
+            .set("interface.appearance", json!("ryolune"))
             .unwrap();
-            let settings = Settings::read(&path).unwrap();
-            assert_eq!(settings.interface.appearance, theme);
-            assert_eq!(settings.interface.mode, "light");
+        for old in ["graphite", "skeuo", "neon", "sepia"] {
+            let err = settings
+                .set("interface.appearance", json!(old))
+                .unwrap_err();
+            assert!(err.contains("interface.mode"), "{err}");
         }
-        let err = settings
-            .set("interface.appearance", json!("sepia"))
-            .unwrap_err();
-        assert!(err.contains("neon"), "{err}");
+        assert!(settings.set("interface.mode", json!("dim")).is_err());
+        for mode in ["dark", "light", "auto"] {
+            settings.set("interface.mode", json!(mode)).unwrap();
+            assert_eq!(settings.interface.mode, mode);
+        }
     }
     #[test]
     fn switching_provider_resets_an_incompatible_model_but_keeps_credentials() {

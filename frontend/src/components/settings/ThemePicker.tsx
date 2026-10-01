@@ -1,48 +1,31 @@
 import { useMemo } from "react";
 import { TRACK_PALETTE } from "@ryolune/core";
-import { SegmentedControl } from "../primitives/SegmentedControl";
-import {
-  normalizeTheme,
-  resolveMode,
-  type ModeSetting,
-} from "../../theme/applyTokens";
+import { resolveMode, type ModeSetting } from "../../theme/applyTokens";
 import { buildTheme } from "../../theme/tokens";
-import { THEMES, THEME_NAMES, type ThemeId } from "../../theme/schema";
+import type { Mode } from "../../theme/schema";
 import styles from "./ThemePicker.module.css";
 
-const BLURB: Record<ThemeId, string> = {
-  modern: "Flat, quiet, one accent",
-  skeuo: "Milled hardware, lit from above",
-  aero: "Glass, water and sky",
-  console: "Walnut, brass and amber lamps",
-  ink: "Paper, ink and a red pencil",
-  neon: "Violet glass lit from inside",
-};
+const CHOICES: readonly { id: ModeSetting; name: string; blurb: string }[] = [
+  { id: "dark", name: "Dark", blurb: "Graphite, for long sessions" },
+  { id: "light", name: "Light", blurb: "Porcelain, for daylight" },
+  { id: "auto", name: "Auto", blurb: "Follows the system" },
+];
 const CLIPS = [
   [TRACK_PALETTE.drums, 8, 46],
   [TRACK_PALETTE.bass, 8, 70],
   [TRACK_PALETTE.keys, 30, 52],
 ] as const;
 
-/**
- * A window in miniature, painted with the real tokens of that theme. A theme that
- * dresses the window frame, the transport or the displays in its own stylesheet
- * names them `--<id>-frame`, `--<id>-bar` and `--<id>-lcd`.
- */
-function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
-  const t = useMemo(() => buildTheme(id, mode), [id, mode]);
+/** A window in miniature, painted with the real tokens of one mode. */
+function Preview({ mode }: { mode: Mode }) {
+  const t = useMemo(() => buildTheme(mode), [mode]);
   const c = t.color;
-  const own = (part: string): string | undefined => t.vars[`--${id}-${part}`];
-  const frame = own("frame");
   return (
-    <div
-      className={styles.preview}
-      style={{ background: frame ?? c.timeline, padding: frame ? 3 : 0 }}
-    >
+    <div className={styles.preview} style={{ background: c.timeline }}>
       <div
         className={styles.bar}
         style={{
-          background: own("bar") ?? t.gradient.transport,
+          background: t.gradient.transport,
           boxShadow: t.shadow.transport,
         }}
       >
@@ -60,7 +43,7 @@ function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
         <span
           className={styles.lcd}
           style={{
-            background: own("lcd") ?? c.wellDeep,
+            background: t.vars["--ryo-display"] ?? c.wellDeep,
             color: c.wellInk,
             boxShadow: t.shadow.wellDeep,
           }}
@@ -74,7 +57,7 @@ function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
           <i style={{ background: c.indicator }} />
         </span>
       </div>
-      <div className={styles.lanes} style={{ background: c.timeline }}>
+      <div className={styles.lanes}>
         {CLIPS.map(([track, left, width], i) => (
           <div
             key={i}
@@ -99,50 +82,40 @@ function Preview({ id, mode }: { id: ThemeId; mode: "dark" | "light" }) {
   );
 }
 
+/** Dark, Light or Auto, each shown as the window it gives; Auto is split down the middle. */
 export function ThemePicker({
-  appearance,
   mode,
-  onAppearance,
   onMode,
 }: {
-  appearance: string;
   mode: string;
-  onAppearance: (id: ThemeId) => void;
   onMode: (mode: ModeSetting) => void;
 }) {
-  const current = normalizeTheme(appearance);
   const setting = (
     ["dark", "light", "auto"].includes(mode) ? mode : "dark"
   ) as ModeSetting;
-  const shown = resolveMode(setting);
   return (
     <div className={styles.picker}>
-      <div className={styles.row}>
-        <span>Theme</span>
-        <SegmentedControl
-          items={[
-            { id: "dark", label: "Dark" },
-            { id: "light", label: "Light" },
-            { id: "auto", label: "Auto", title: "Follow the system" },
-          ]}
-          value={setting}
-          onChange={onMode}
-        />
-      </div>
-      <div className={styles.cards} role="radiogroup" aria-label="Theme">
-        {THEMES.map((id) => (
+      <span className={styles.label}>Appearance</span>
+      <div className={styles.cards} role="radiogroup" aria-label="Appearance">
+        {CHOICES.map(({ id, name, blurb }) => (
           <button
             key={id}
             type="button"
             role="radio"
-            aria-checked={id === current}
-            aria-pressed={id === current}
+            aria-checked={id === setting}
             className={styles.card}
-            onClick={() => onAppearance(id)}
+            onClick={() => onMode(id)}
           >
-            <Preview id={id} mode={shown} />
-            <span className={styles.name}>{THEME_NAMES[id]}</span>
-            <span className={styles.blurb}>{BLURB[id]}</span>
+            {id === "auto" ? (
+              <div className={styles.split}>
+                <Preview mode="dark" />
+                <Preview mode="light" />
+              </div>
+            ) : (
+              <Preview mode={resolveMode(id)} />
+            )}
+            <span className={styles.name}>{name}</span>
+            <span className={styles.blurb}>{blurb}</span>
           </button>
         ))}
       </div>

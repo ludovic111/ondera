@@ -119,7 +119,9 @@ export function AgentPanel() {
   return (
     <aside className={styles.panel} aria-label="Agent" data-motion="from-right">
       <div className={styles.header} data-surface="agent-header">
-        <span className={`${styles.dot} ${ready ? "m-led-accent" : ""}`} />
+        <span
+          className={`${styles.dot} ${ready ? "m-accent-dot" : styles.idle}`}
+        />
         <strong className={styles.title}>Agent</strong>
         <span className={styles.status}>
           {connection ? providers[connection.provider].name : ""}
