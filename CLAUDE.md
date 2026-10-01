@@ -14,7 +14,7 @@ Since 0.4 the window is Tauri 2 with the React renderer in `frontend/` (`docs/TA
 happens in `frontend/src`: `state/actions.ts` is the one table behind menus, shortcuts, the command
 palette and the shortcut sheet; window panels (mixer, help, settings…) are toggled through
 `ui.showPanel` so the CLI, MCP and agent can drive them. Check with `npm --prefix frontend test`,
-`npm --prefix frontend run build`, then the Rust checks. The marketing site is `site/`; its launch film (`site/video/`) is made in `marketing/` (see its README).
+`npm --prefix frontend run build`, then the Rust checks. The public page is lsuite.xyz/ryolune, in the lsuite repo (ludovic111/lsuite); ryolune.com redirects there with the same path, so `/support` and `/download/<platform>` links keep working. `site/` is the former standalone site, no longer deployed; its launch film (`site/video/`) is made in `marketing/` (see its README).
 
 Theme (0.12, owner's decision 2026-10-01: "one theme, dark or light, ultra premium"): the six
 themes of 0.6-0.11 are gone. `frontend/src/theme` is the only place visual values live. `schema.ts`
@@ -30,8 +30,8 @@ older `interface.appearance` migrates to it and keeps its mode. `appearance.test
 contrast on both modes: fix the palette, not the threshold. Stock plugin panels are
 `components/plugin` (`response.ts` mirrors the engine DSP). `npm --prefix frontend run dev` in a
 plain browser serves a fixture song through `src/dev/mockHost.ts` (`?mode=&panel=`); run
-`node scripts/gen-site-tokens.mjs` after changing the dark mode (the site wears only that one; light
-appears there as a capture in its gallery).
+`node scripts/gen-site-tokens.mjs` after changing the dark mode (`site/` tokens and captures are reused
+by the lsuite page; they wear only dark, light appears as a capture).
 
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
@@ -214,8 +214,9 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   self-hosted in `site/fonts` and the CSP allows only the site's origin; each release updates the
   site's "New in" section, hero pill, changelog, limits and version (checklist in `site/README.md`).
 - Money (owner's decision, 2026-09-29): ryolune is MIT and free forever, every update included; the
-  only income is optional donations, once or monthly, through GitHub Sponsors behind the site's
-  `/support` (`SPONSORS_URL` in `site/server.js`, overridable with `RYOLUNE_DONATION_URL`). Nothing
+  only income is optional donations, once or monthly, through GitHub Sponsors behind
+  lsuite.xyz/ryolune/support (`SUPPORT_URL` in desktop control.rs, since 2026-10-01; the retired
+  `site/server.js` defaulted ryolune.com/support to `SPONSORS_URL`). Nothing
   is sold or locked, so copy says donate or sponsor, never pay, price or checkout. The app asks once,
   after the third export (`SUPPORT_AFTER_EXPORTS`); a quiet Sponsor key sits at the right of the
   title bar (`app.openGuide guide=support`), and `.github/FUNDING.yml` shows GitHub's Sponsor button.

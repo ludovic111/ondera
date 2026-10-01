@@ -21,9 +21,9 @@ use std::{
 
 const TOOLS: [&str; 3] = ["pointer", "pencil", "scissors"];
 const BROWSER_TABS: [&str; 4] = ["instruments", "loops", "plugins", "files"];
-/// The site's `/support` page redirects to the donation page, so it can change without a new
-/// release (`RYOLUNE_DONATION_URL` in `site/server.js`).
-const SUPPORT_URL: &str = "https://ryolune.com/support";
+/// ryolune's support page on lsuite.xyz, which redirects to the donation page (GitHub
+/// Sponsors), so it can change without a new release.
+const SUPPORT_URL: &str = "https://lsuite.xyz/ryolune/support";
 
 /// Who is waiting for a deferred command: a bridge client or the built-in agent.
 pub(crate) enum Reply {

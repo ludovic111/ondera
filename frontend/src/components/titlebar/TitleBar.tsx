@@ -50,7 +50,7 @@ export function TitleBar() {
       </div>
       <span className={styles.status}>{ui.status}</span>
       {/* ryolune is free; donations through GitHub Sponsors are the only money it takes. The
-          guide opens ryolune.com/support, which forwards to the sponsor page. */}
+          guide opens lsuite.xyz/ryolune/support, which forwards to the sponsor page. */}
       <button
         type="button"
         className={styles.sponsor}

@@ -1,5 +1,8 @@
 # ryolune
 
+Part of [lsuite](https://lsuite.xyz), the free, open-source creative suite your AI can drive.
+Website: **[lsuite.xyz/ryolune](https://lsuite.xyz/ryolune)**.
+
 **The open-source DAW your AI can drive.** A complete digital audio workstation for macOS,
 Windows and Linux in which every action, from adding a track to mixing a plugin's parameters, is
 a command that you, the built-in agent, a script or any MCP client (Claude Code, Codex, Cursor…)
@@ -121,7 +124,7 @@ export. Windows builds are not code-signed.
 ## Support ryolune
 
 ryolune is open source and free forever: every feature and every update, for everyone. If it
-earns a place in your music, you can [donate](https://ryolune.com/support), once or monthly.
+earns a place in your music, you can [donate](https://lsuite.xyz/ryolune/support), once or monthly.
 Donations are optional, unlock nothing, and are the only money ryolune takes; they keep it built
 full time.
 
