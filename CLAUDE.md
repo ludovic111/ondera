@@ -247,14 +247,30 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   signed, not notarized.
 - `legacy/` is reference material, not the active implementation.
 
-## lsuite: bring ryolune up to the suite standard (next session, decided 2026-10-01)
+## lsuite: bring ryolune up to the suite standard (next session; notes updated 2026-10-01)
 
 ryolune is part of **lsuite** (lowercase), the free open-source creative suite with kimchi
-(video) and zenith (hub). The contract is `STANDARD.md` in ludovic111/lsuite (locally
-`../lsuite/STANDARD.md`): every action a command, CLI + MCP + built-in agent on one registry,
-signed auto-update, apps that work together. ryolune is the reference implementation; what is
-still missing here:
+(video) and zenith (hub). Two documents in ludovic111/lsuite (locally `../lsuite/`) are the
+contract: `STANDARD.md` (every action a command, CLI + MCP + built-in agent on one registry,
+signed auto-update, apps that work together) and `design/DESIGN.md` (the shared design system,
+live at lsuite.xyz/design). ryolune is the reference implementation of the standard.
 
+Done: 0.12.0 released and notarized (2026-10-01; the Apple developer agreement had to be
+accepted). The notarization key is now "ryolune notarization" (`APPLE_API_KEY_*` secrets); the old
+"Ondera notarization" key is revoked. The public page is lsuite.xyz/ryolune; ryolune.com is a
+Porkbun 301 there with the path kept.
+
+Still to do:
+
+- [ ] **Design system** (`../lsuite/design/`): ryolune's signature color is **teal, hue 185**
+      (`--ls-ryolune-*`, accent `#00c5b4` dark / `#009586` light), matching its icon. 0.12 uses a
+      lunar gold accent: move the accent to the teal scale (playhead, focus, lit keys, what the agent
+      touched), keep meters/mute/solo/record colors. Map `frontend/src/theme` onto the `--ls-*`
+      tokens (copy `tokens.css`; the theme layer stays the only place values live), put the chrome
+      (title bar, browser, inspector, agent panel, transport, menus, dialogs) on the three glass
+      tiers over `.ls-backdrop`, keep the arrangement, editors and mixer strips solid, use macOS
+      window vibrancy (Tauri `window-vibrancy`), and keep `appearance.test.ts` passing with the
+      glass tiers in the contrast check. Redraw the app icon from the lsuite template.
 - [ ] **Discovery**: write `~/.lsuite/apps/ryolune.json` at start (version, paths of the app,
       `ryolune-cli`, `ryolune-mcp`, bridge port while running, data folder). ryolune is the first
       app to do it, so design the format (small, versioned) and document it in `../lsuite/STANDARD.md`.
@@ -263,11 +279,10 @@ still missing here:
       length, markers) to score. Each as a registry command.
 - [ ] **Shared command names** with the other apps where the concept matches (`app.version`,
       `app.checkUpdates`, `history.*`, `export.*`); add aliases rather than breaking scripts.
-- [x] **Site** (0.12 page done 2026-10-01; keep doing it every release): the page is now lsuite.xyz/ryolune (`../lsuite/ryolune/index.html`), not `site/`.
-      It still describes 0.11 (six themes, theme gallery): update it for 0.12 (one theme in dark
-      and light, more agents, generation) with captures from `site/img`, and from now on update it
-      with every release (version in hero and JSON-LD, what's new, downloads).
+- [x] **Site** (0.12 page done 2026-10-01): keep updating lsuite.xyz/ryolune
+      (`../lsuite/ryolune/index.html`) with every release: what's new, features, captures
+      (`../lsuite/assets/img/ryolune/`). The version shown comes from the latest GitHub release.
 - [ ] Point `SUPPORT_URL` (desktop/src/control.rs) at `https://lsuite.xyz/ryolune/support` in the
-      next release (ryolune.com/support is a Porkbun 301 there already).
+      next release.
 
 When done, tick these, and update the status table at the end of `../lsuite/STANDARD.md`.
