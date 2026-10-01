@@ -263,7 +263,7 @@ still missing here:
       length, markers) to score. Each as a registry command.
 - [ ] **Shared command names** with the other apps where the concept matches (`app.version`,
       `app.checkUpdates`, `history.*`, `export.*`); add aliases rather than breaking scripts.
-- [ ] **Site**: the page is now lsuite.xyz/ryolune (`../lsuite/ryolune/index.html`), not `site/`.
+- [x] **Site** (0.12 page done 2026-10-01; keep doing it every release): the page is now lsuite.xyz/ryolune (`../lsuite/ryolune/index.html`), not `site/`.
       It still describes 0.11 (six themes, theme gallery): update it for 0.12 (one theme in dark
       and light, more agents, generation) with captures from `site/img`, and from now on update it
       with every release (version in hero and JSON-LD, what's new, downloads).
