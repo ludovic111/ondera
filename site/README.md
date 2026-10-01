@@ -1,5 +1,10 @@
 # ryolune site
 
+> **Retired (2026-10-01).** ryolune's page is now [lsuite.xyz/ryolune](https://lsuite.xyz/ryolune), in the
+> [lsuite](https://github.com/ludovic111/lsuite) repository, and ryolune.com redirects there with the same path
+> (`/support`, `/download/<platform>` and `#anchors` keep working). This folder is no longer deployed; it is
+> kept for its captures, tokens and film, which the lsuite page reuses.
+
 The marketing site at the root of this folder is plain HTML, CSS and JavaScript, served by a
 dependency-free Node server (`server.js`). It deploys to Railway from this directory
 (`site/` is the service's root directory), so nothing here depends on the pnpm workspace.
