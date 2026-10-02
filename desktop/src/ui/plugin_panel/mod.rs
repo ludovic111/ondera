@@ -720,6 +720,7 @@ impl PluginPanels {
         let move_key = key.to_string();
         div()
             .id(cid(key, "header", 0))
+            .debug_selector(|| "plugin-header".into())
             .flex()
             .items_center()
             .justify_between()
@@ -789,8 +790,16 @@ impl PluginPanels {
                                 div()
                                     .font_family(FONT_MONO)
                                     .text_size(px(10.5))
-                                    .text_color(if family.is_some() { trim } else { theme.text_3 })
-                                    .child(category.to_uppercase()),
+                                    .text_color(if family.is_some() && !bypassed {
+                                        trim
+                                    } else {
+                                        theme.text_3
+                                    })
+                                    .child(if bypassed {
+                                        format!("{} · BYPASSED", category.to_uppercase())
+                                    } else {
+                                        category.to_uppercase()
+                                    }),
                             ),
                     ),
             )
@@ -915,7 +924,7 @@ impl PluginPanels {
                     .text_color(theme.text_3)
                     .child(p.name.to_uppercase()),
             )
-            .child(knob)
+            .child(div().debug_selector(|| format!("knob-{id}")).child(knob))
             .child(
                 div()
                     .font_family(FONT_MONO)
@@ -1034,7 +1043,6 @@ impl PluginPanels {
             .flex_col()
             .gap(px(14.0))
             .p(px(14.0))
-            .when(info.bypassed, |d| d.opacity(0.6))
             .when_some(picture, |d, marks| d.child(self.display(marks, family, cx)))
             .when(!choices.is_empty(), |d| {
                 d.child(
@@ -1071,6 +1079,7 @@ impl PluginPanels {
         key: &str,
         panel: &Panel,
         p: &Parameter,
+        family: Option<Hsla>,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1090,14 +1099,21 @@ impl PluginPanels {
                 .into_any_element()
         } else {
             let this = this.clone();
-            Slider::new(cid(key, "slider", id), p.position(p.value) as f32)
-                .default_value(p.position(p.default) as f32)
+            let mut slider = Slider::new(cid(key, "slider", id), p.position(p.value) as f32)
+                .default_value(p.position(p.default) as f32);
+            if let Some(c) = family {
+                slider = slider.color(c);
+            }
+            slider
                 .on_change(move |v, phase, _, cx| {
                     let _ = this.update(cx, |this, cx| this.set_position(&k1, id, v, phase, cx));
                 })
                 .into_any_element()
         };
-        let value = if panel.editing == Some(id) {
+        let value = if p.is_choice() {
+            // The select already says it.
+            div().w(px(104.0)).into_any_element()
+        } else if panel.editing == Some(id) {
             let focused = panel.value.read(cx).is_focused(window);
             field(&panel.value, focused, cx)
                 .w(px(104.0))
@@ -1127,6 +1143,7 @@ impl PluginPanels {
                 .into_any_element()
         };
         div()
+            .w_full()
             .h(px(ROW_H))
             .flex()
             .items_center()
@@ -1205,18 +1222,23 @@ impl PluginPanels {
                 let Some(info) = panel.info.as_ref() else {
                     return vec![];
                 };
+                let family = panel
+                    .folder
+                    .as_ref()
+                    .and_then(|f| f.1.as_deref())
+                    .map(|folder| Theme::get(cx).family(folder));
                 range
                     .filter_map(|i| shown.get(i))
                     .filter_map(|id| info.parameter(*id))
-                    .map(|p| this.row(&key_owned, panel, p, window, cx))
+                    .map(|p| this.row(&key_owned, panel, p, family, window, cx))
                     .collect()
             }),
         )
+        .w_full()
         .h(px((count.max(1) as f32 * ROW_H).min(ROW_H * 12.0)));
         div()
             .flex()
             .flex_col()
-            .when(info.bypassed, |d| d.opacity(0.6))
             .child(
                 div()
                     .flex()
@@ -1451,6 +1473,107 @@ pub(crate) mod tests {
         assert_eq!(locate(app.store.session(), &key), Some((track, None)));
         let again = read(&mut app, &key).unwrap();
         assert!((again.parameter(p.id).unwrap().value - value).abs() < 1e-9);
+    }
+
+    /// The real window: the panel draws, its header drags it, and a dial's drag is one undo
+    /// step through the registry.
+    #[gpui::test]
+    fn a_panel_moves_by_its_header_and_a_dial_drag_is_one_undo_step(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, MouseButton};
+        cx.update(|cx| {
+            cx.set_global(Theme::new(crate::ui::theme::Mode::Dark, true));
+            crate::ui::actions::bind(cx);
+        });
+        let mut app = app();
+        let track = bass(&app);
+        put_inserts(&mut app, &track, &["Channel EQ"]);
+        let key = app.store.session().strips[&track].inserts[0].id.clone();
+        app.open_plugin_window(&key);
+        let daw = cx.new(|_| Daw::new(app));
+        let (view, cx) =
+            cx.add_window_view(|window, cx| PluginPanels::new(daw.clone(), window, cx));
+        let (origin, gain) = view.read_with(cx, |view, _| {
+            let panel = &view.panels[&key];
+            let info = panel.info.as_ref().expect("read on first draw");
+            let gain = info
+                .parameters
+                .iter()
+                .find(|p| p.name == "Mid Gain")
+                .unwrap()
+                .clone();
+            (panel.origin, gain)
+        });
+        // Drag the header.
+        let header = cx.debug_bounds("plugin-header").expect("header drawn");
+        let from = point(header.left() + px(120.0), header.top() + px(16.0));
+        let to = point(from.x + px(100.0), from.y + px(50.0));
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(
+            point(from.x + px(10.0), from.y + px(5.0)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+        let moved = view.read_with(cx, |view, _| view.panels[&key].origin);
+        assert_eq!(moved, point(origin.x + px(100.0), origin.y + px(50.0)));
+        // Turn Mid Gain up: several steps, one undo step.
+        let depth = daw.read_with(cx, |daw, _| daw.app.store.undo_depth());
+        let knob = cx
+            .debug_bounds(Box::leak(format!("knob-{}", gain.id).into_boxed_str()))
+            .expect("knob drawn");
+        let c = knob.center();
+        cx.simulate_mouse_down(c, MouseButton::Left, Modifiers::default());
+        for dy in [8.0, 20.0, 40.0] {
+            cx.simulate_mouse_move(
+                point(c.x, c.y - px(dy)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+        }
+        cx.simulate_mouse_up(
+            point(c.x, c.y - px(40.0)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        let (after, value) = daw.read_with(cx, |daw, _| {
+            let s = daw.app.store.session();
+            (
+                daw.app.store.undo_depth(),
+                s.strips[&track].inserts[0].params.get(&gain.id).copied(),
+            )
+        });
+        assert_eq!(after, depth + 1, "one undo step for the whole drag");
+        assert!(
+            value.is_some_and(|v| v > gain.value),
+            "{value:?} > {}",
+            gain.value
+        );
+        // The panel shows the value the document holds.
+        let shown = view.read_with(cx, |view, _| {
+            view.panels[&key]
+                .info
+                .as_ref()
+                .unwrap()
+                .parameter(gain.id)
+                .unwrap()
+                .value
+        });
+        assert_eq!(Some(shown), value);
+        // A typed value commits once, clamped, as one more step.
+        view.update_in(cx, |view, window, cx| {
+            view.start_typing(&key, gain.id, window, cx);
+            view.commit_typed(&key, "100", cx);
+            assert_eq!(view.panels[&key].editing, None);
+        });
+        let (last, typed) = daw.read_with(cx, |daw, _| {
+            let s = daw.app.store.session();
+            (
+                daw.app.store.undo_depth(),
+                s.strips[&track].inserts[0].params[&gain.id],
+            )
+        });
+        assert_eq!((last, typed), (depth + 2, gain.max));
     }
 
     #[test]
