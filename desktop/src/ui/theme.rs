@@ -138,6 +138,14 @@ pub struct Theme {
     pub marker: Hsla,
     pub hover: Hsla,
     pub selection_text: Hsla,
+
+    // Plugin displays and the automation graph, drawn on `display`.
+    /// The graticule.
+    pub display_grid: Hsla,
+    /// 0 dB, the centre and unity lines.
+    pub display_zero: Hsla,
+    /// Faint labels and ghost traces.
+    pub display_ink: Hsla,
 }
 
 impl Global for Theme {}
@@ -430,6 +438,9 @@ fn dark(opaque: bool) -> Theme {
         marker: oklch(0.8, 0.1, 222.0, 1.0),
         hover: white(0.055),
         selection_text: with_alpha(accent, 0.32),
+        display_grid: white(0.05),
+        display_zero: white(0.12),
+        display_ink: oklch(0.6, 0.009, 268.0, 1.0),
     }
 }
 
@@ -520,6 +531,9 @@ fn light(opaque: bool) -> Theme {
         marker: oklch(0.55, 0.13, 222.0, 1.0),
         hover: ink(0.042),
         selection_text: with_alpha(accent, 0.26),
+        display_grid: ink(0.06),
+        display_zero: ink(0.14),
+        display_ink: oklch(0.54, 0.012, 268.0, 1.0),
     }
 }
 
