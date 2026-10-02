@@ -55,7 +55,12 @@ struct Drive {
 
 impl Drive {
     /// Press, drag, release, double click and wheel on a control's element.
-    fn attach(self, el: gpui::Stateful<gpui::Div>, window: &mut Window, cx: &mut App) -> gpui::Stateful<gpui::Div> {
+    fn attach(
+        self,
+        el: gpui::Stateful<gpui::Div>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui::Stateful<gpui::Div> {
         let Some(f) = self.on_change.clone() else {
             return el;
         };
@@ -74,7 +79,10 @@ impl Drive {
         let up_out_f = f.clone();
         let wheel_f = f.clone();
         let click_f = f;
-        let end = move |state: &gpui::Entity<DragState>, f: &ChangeHandler, w: &mut Window, cx: &mut App| {
+        let end = move |state: &gpui::Entity<DragState>,
+                        f: &ChangeHandler,
+                        w: &mut Window,
+                        cx: &mut App| {
             let (active, last) = {
                 let s = state.read(cx);
                 (s.active, s.last)
@@ -127,7 +135,9 @@ impl Drive {
             move_state.update(cx, |s, _| s.last = next);
             move_f(next, Phase::Move, w, cx);
         })
-        .on_mouse_up(MouseButton::Left, move |_, w, cx| end_up(&up_state, &up_f, w, cx))
+        .on_mouse_up(MouseButton::Left, move |_, w, cx| {
+            end_up(&up_state, &up_f, w, cx)
+        })
         .on_mouse_up_out(MouseButton::Left, move |_, w, cx| {
             end(&up_out_state, &up_out_f, w, cx)
         })
@@ -171,7 +181,8 @@ impl NumberDrag {
         // Drive works on 0-1; map the number onto it with the requested sensitivity.
         let normal = (self.value - self.min) / span;
         let (min, per_px) = (self.min, self.per_px);
-        let f: ChangeHandler = Rc::new(move |v, phase, w, cx| on_change(min + v * span, phase, w, cx));
+        let f: ChangeHandler =
+            Rc::new(move |v, phase, w, cx| on_change(min + v * span, phase, w, cx));
         let drive = Drive {
             id: self.id,
             axis: Axis::Knob,
@@ -293,7 +304,12 @@ impl RenderOnce for Knob {
                         let start = std::f32::consts::PI * 0.75;
                         let sweep = std::f32::consts::PI * 1.5;
                         // Track and value arcs around the cap.
-                        stroke(window, &arc_points(c, r - 1.5, start, start + sweep), 2.0, theme.well);
+                        stroke(
+                            window,
+                            &arc_points(c, r - 1.5, start, start + sweep),
+                            2.0,
+                            theme.well,
+                        );
                         let (a, z) = if bipolar {
                             let mid = start + sweep * 0.5;
                             let v = start + sweep * value;
@@ -306,7 +322,8 @@ impl RenderOnce for Knob {
                         }
                         // The cap: raised face, crisp edge, a fine top highlight.
                         let cap = r - 4.5;
-                        let cap_bounds = Bounds::centered_at(c, gpui::size(px(cap * 2.0), px(cap * 2.0)));
+                        let cap_bounds =
+                            Bounds::centered_at(c, gpui::size(px(cap * 2.0), px(cap * 2.0)));
                         window.paint_quad(
                             gpui::fill(cap_bounds, theme.knob)
                                 .corner_radii(px(cap))
@@ -314,8 +331,14 @@ impl RenderOnce for Knob {
                                 .border_color(theme.knob_edge),
                         );
                         let angle = start + sweep * value;
-                        let inner = point(c.x + px((cap * 0.25) * angle.cos()), c.y + px((cap * 0.25) * angle.sin()));
-                        let outer = point(c.x + px((cap - 1.5) * angle.cos()), c.y + px((cap - 1.5) * angle.sin()));
+                        let inner = point(
+                            c.x + px((cap * 0.25) * angle.cos()),
+                            c.y + px((cap * 0.25) * angle.sin()),
+                        );
+                        let outer = point(
+                            c.x + px((cap - 1.5) * angle.cos()),
+                            c.y + px((cap - 1.5) * angle.sin()),
+                        );
                         stroke(window, &[inner, outer], 1.8, theme.text);
                     },
                 )
@@ -465,10 +488,14 @@ impl RenderOnce for Slider {
                             gpui::size(px(travel), px(4.0)),
                         );
                         window.paint_quad(gpui::fill(groove, theme.well).corner_radii(px(2.0)));
-                        let filled = Bounds::new(groove.origin, gpui::size(px(travel * value), px(4.0)));
+                        let filled =
+                            Bounds::new(groove.origin, gpui::size(px(travel * value), px(4.0)));
                         window.paint_quad(gpui::fill(filled, color).corner_radii(px(2.0)));
                         let x = b.origin.x + px(travel * value);
-                        let t = Bounds::new(point(x, b.center().y - px(thumb / 2.0)), gpui::size(px(thumb), px(thumb)));
+                        let t = Bounds::new(
+                            point(x, b.center().y - px(thumb / 2.0)),
+                            gpui::size(px(thumb), px(thumb)),
+                        );
                         window.paint_quad(
                             gpui::fill(t, theme.thumb)
                                 .corner_radii(px(thumb / 2.0))
@@ -555,24 +582,31 @@ impl RenderOnce for Meter {
                             theme.meter
                         };
                         let seg = if vertical {
-                            let w = (f32::from(b.size.width) - gap * (channels - 1) as f32) / channels as f32;
+                            let w = (f32::from(b.size.width) - gap * (channels - 1) as f32)
+                                / channels as f32;
                             let h = (f32::from(b.size.height) - gap * (n - 1) as f32) / n as f32;
                             Bounds::new(
                                 point(
                                     b.origin.x + px(ch as f32 * (w + gap)),
-                                    b.origin.y + b.size.height - px((i + 1) as f32 * h + i as f32 * gap),
+                                    b.origin.y + b.size.height
+                                        - px((i + 1) as f32 * h + i as f32 * gap),
                                 ),
                                 gpui::size(px(w), px(h)),
                             )
                         } else {
-                            let h = (f32::from(b.size.height) - gap * (channels - 1) as f32) / channels as f32;
+                            let h = (f32::from(b.size.height) - gap * (channels - 1) as f32)
+                                / channels as f32;
                             let w = (f32::from(b.size.width) - gap * (n - 1) as f32) / n as f32;
                             Bounds::new(
-                                point(b.origin.x + px(i as f32 * (w + gap)), b.origin.y + px(ch as f32 * (h + gap))),
+                                point(
+                                    b.origin.x + px(i as f32 * (w + gap)),
+                                    b.origin.y + px(ch as f32 * (h + gap)),
+                                ),
                                 gpui::size(px(w), px(h)),
                             )
                         };
-                        window.paint_quad(gpui::fill(seg, color).corner_radii(px(radius::XS / 4.0)));
+                        window
+                            .paint_quad(gpui::fill(seg, color).corner_radii(px(radius::XS / 4.0)));
                     }
                 }
             },

@@ -17,6 +17,9 @@ impl Render for Automation {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::get(cx);
         let _ = self.daw.read(cx);
-        div().size_full().text_color(theme.text_3).child("Automation")
+        div()
+            .size_full()
+            .text_color(theme.text_3)
+            .child("Automation")
     }
 }

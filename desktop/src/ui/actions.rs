@@ -68,27 +68,48 @@ pub const ACTIONS: &[ActionDef] = &[
     // Editing.
     a("deleteSelection", "Delete", &["backspace", "delete"]),
     g("duplicateClip", "Duplicate Clip", &["secondary-d"]),
-    g("splitAtPlayhead", "Split Clip at Playhead", &["secondary-t"]),
+    g(
+        "splitAtPlayhead",
+        "Split Clip at Playhead",
+        &["secondary-t"],
+    ),
     a("openInEditor", "Open in Editor", &["e"]),
-    g("copy", "Copy", &[]),
-    g("cut", "Cut", &[]),
-    g("paste", "Paste at Playhead", &[]),
+    // Text fields bind these keys too, and win while they have focus.
+    a("copy", "Copy", &["secondary-c"]),
+    a("cut", "Cut", &["secondary-x"]),
+    a("paste", "Paste at Playhead", &["secondary-v"]),
     a("quantizeRegion", "Quantize Region Notes", &[]),
     g("transposeUp", "Transpose Up a Semitone", &["alt-up"]),
     g("transposeDown", "Transpose Down a Semitone", &["alt-down"]),
-    g("transposeOctaveUp", "Transpose Up an Octave", &["alt-shift-up"]),
-    g("transposeOctaveDown", "Transpose Down an Octave", &["alt-shift-down"]),
+    g(
+        "transposeOctaveUp",
+        "Transpose Up an Octave",
+        &["alt-shift-up"],
+    ),
+    g(
+        "transposeOctaveDown",
+        "Transpose Down an Octave",
+        &["alt-shift-down"],
+    ),
     // Tracks.
     g("addAudioTrack", "New Audio Track", &["secondary-alt-a"]),
     g("addMidiTrack", "New MIDI Track", &["secondary-alt-s"]),
     a("addBusTrack", "New Bus", &[]),
     a("groupSelectedTrack", "Route Track to a New Bus", &[]),
     g("duplicateTrack", "Duplicate Track", &["secondary-shift-d"]),
-    g("removeSelectedTrack", "Delete Track", &["secondary-backspace"]),
+    g(
+        "removeSelectedTrack",
+        "Delete Track",
+        &["secondary-backspace"],
+    ),
     a("muteSelectedTrack", "Mute Track", &["m"]),
     a("soloSelectedTrack", "Solo Track", &["s"]),
     a("armSelectedTrack", "Record-Arm Track", &["a"]),
-    a("cycleMonitorSelectedTrack", "Input Monitoring: Off / Auto / On", &["i"]),
+    a(
+        "cycleMonitorSelectedTrack",
+        "Input Monitoring: Off / Auto / On",
+        &["i"],
+    ),
     // View.
     g("zoomIn", "Zoom In", &["secondary-="]),
     g("zoomOut", "Zoom Out", &["secondary--"]),
@@ -113,7 +134,11 @@ pub const ACTIONS: &[ActionDef] = &[
     a("cycleSection", "Cycle Section at Playhead", &["shift-c"]),
     // Agent.
     g("toggleAgentPanel", "Agent Panel", &["secondary-j"]),
-    g("askAgent", "Ask Agent About Selection…", &["secondary-shift-j"]),
+    g(
+        "askAgent",
+        "Ask Agent About Selection…",
+        &["secondary-shift-j"],
+    ),
     a("stopAgent", "Stop Current Agent Action", &[]),
     g("musicalTyping", "Musical Typing", &["secondary-k"]),
     // File.
@@ -152,6 +177,113 @@ pub const ACTIONS: &[ActionDef] = &[
     a("pluginGuide", "Native Plugin SDK…", &[]),
     a("support", "Support ryolune…", &[]),
 ];
+
+/// The shortcut sheet (Help > Shortcuts and Help, ⌘/) and `docs/SHORTCUTS.md`, by group.
+pub const GROUPS: &[(&str, &[&str])] = &[
+    (
+        "Transport",
+        &[
+            "togglePlay",
+            "stop",
+            "record",
+            "cycle",
+            "returnToStart",
+            "rewind",
+            "forward",
+            "metronome",
+        ],
+    ),
+    (
+        "Editing",
+        &[
+            "undo",
+            "redo",
+            "deleteSelection",
+            "duplicateClip",
+            "splitAtPlayhead",
+            "openInEditor",
+            "copy",
+            "cut",
+            "paste",
+            "transposeUp",
+            "transposeDown",
+            "transposeOctaveUp",
+            "transposeOctaveDown",
+        ],
+    ),
+    (
+        "Tracks",
+        &[
+            "addMidiTrack",
+            "addAudioTrack",
+            "duplicateTrack",
+            "removeSelectedTrack",
+            "muteSelectedTrack",
+            "soloSelectedTrack",
+            "armSelectedTrack",
+            "cycleMonitorSelectedTrack",
+        ],
+    ),
+    (
+        "View",
+        &[
+            "zoomIn",
+            "zoomOut",
+            "zoomToFit",
+            "followPlayhead",
+            "toggleMixer",
+            "toggleControllerLane",
+            "toggleTempoTrack",
+            "toolPointer",
+            "toolPencil",
+            "toolScissors",
+            "commandPalette",
+            "showShortcuts",
+        ],
+    ),
+    (
+        "Markers",
+        &["addMarker", "previousMarker", "nextMarker", "cycleSection"],
+    ),
+    ("Agent", &["toggleAgentPanel", "askAgent"]),
+    (
+        "File",
+        &[
+            "newSession",
+            "openSession",
+            "save",
+            "saveAs",
+            "importAudio",
+            "exportAudio",
+            "settings",
+            "musicalTyping",
+            "quit",
+        ],
+    ),
+];
+
+/// `docs/SHORTCUTS.md`, from the table.
+pub fn shortcuts_markdown() -> String {
+    let mut out = String::from("# Keyboard shortcuts\n\n<!-- Generated from desktop/src/ui/actions.rs by its tests. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`. -->\n\nThe same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux, ⌥ is Alt.\n");
+    for (group, ids) in GROUPS {
+        out.push_str(&format!("\n## {group}\n\n| Action | Keys |\n|---|---|\n"));
+        for id in *ids {
+            let Some(d) = def(id) else { continue };
+            let keys = d
+                .keys
+                .iter()
+                .filter_map(|k| label_for(k, true))
+                .map(|k| format!("`{k}`"))
+                .collect::<Vec<_>>()
+                .join(" or ");
+            if !keys.is_empty() {
+                out.push_str(&format!("| {} | {keys} |\n", d.label));
+            }
+        }
+    }
+    out.push_str("\n## Musical typing\n\nWith musical typing on (⌘K), the letter row from A to ; plays notes on the selected instrument track, and Z / X shift the octave.\n");
+    out
+}
 
 pub fn def(id: &str) -> Option<&'static ActionDef> {
     ACTIONS.iter().find(|d| d.id == id)
@@ -283,18 +415,32 @@ pub const MENUS: &[(&str, &[Option<&str>])] = &[
 
 /// The shortcut text a menu or the palette shows: ⌘⇧Z on macOS, Ctrl+Shift+Z elsewhere.
 pub fn shortcut_label(id: &str) -> Option<String> {
-    let keys = def(id)?.keys.first()?;
-    let mac = cfg!(target_os = "macos");
+    label_for(def(id)?.keys.first()?, cfg!(target_os = "macos"))
+}
+
+/// One keystroke as text, in macOS symbols or spelled out for Windows and Linux.
+pub fn label_for(keys: &str, mac: bool) -> Option<String> {
     let mut out = String::new();
     let parts: Vec<&str> = keys.split('-').collect();
     // "secondary--" is secondary + "-".
     let (mods, key) = if keys.ends_with("--") {
         (&parts[..parts.len() - 2], "-")
     } else {
-        (&parts[..parts.len() - 1], parts[parts.len() - 1])
+        (&parts[..parts.len() - 1], *parts.last()?)
     };
+    // macOS writes modifiers in the order ⌃⌥⇧⌘.
+    let rank = |m: &&str| match *m {
+        "ctrl" => 0,
+        "alt" => 1,
+        "shift" => 2,
+        _ => 3,
+    };
+    let mut mods = mods.to_vec();
+    if mac {
+        mods.sort_by_key(rank);
+    }
     for m in mods {
-        out.push_str(match (*m, mac) {
+        out.push_str(match (m, mac) {
             ("secondary" | "cmd", true) => "⌘",
             ("secondary" | "ctrl", false) => "Ctrl+",
             ("ctrl", true) => "⌃",
@@ -412,10 +558,11 @@ pub fn enabled(id: &str, daw: &Daw) -> bool {
         "redo" => app.store.can_redo(),
         "deleteSelection" => selected_note(s).is_some() || selected_clip(s).is_some(),
         "duplicateClip" | "copy" | "cut" | "repeatRegion" => selected_clip(s).is_some(),
-        "splitAtPlayhead" => selected_clip(s)
-            .is_some_and(|c| bar > c.start_bar && bar < c.start_bar + c.length_bars),
-        "openInEditor" | "quantizeRegion" | "humanize" | "crescendo" | "diminuendo"
-        | "legato" | "reverseMidi" | "fitMajor" | "fitMinor" => is_midi(selected_clip(s)),
+        "splitAtPlayhead" => {
+            selected_clip(s).is_some_and(|c| bar > c.start_bar && bar < c.start_bar + c.length_bars)
+        }
+        "openInEditor" | "quantizeRegion" | "humanize" | "crescendo" | "diminuendo" | "legato"
+        | "reverseMidi" | "fitMajor" | "fitMinor" => is_midi(selected_clip(s)),
         "transposeUp" | "transposeDown" | "transposeOctaveUp" | "transposeOctaveDown" => {
             selected_note(s).is_some() || is_midi(selected_clip(s))
         }
@@ -447,7 +594,9 @@ pub fn checked(id: &str, daw: &Daw) -> Option<bool> {
         "muteSelectedTrack" => track.is_some_and(|t| t.mute),
         "soloSelectedTrack" => track.is_some_and(|t| t.solo),
         "armSelectedTrack" => track.is_some_and(|t| t.armed),
-        "cycleMonitorSelectedTrack" => track.is_some_and(|t| t.monitor != ryolune_engine::model::Monitor::Off),
+        "cycleMonitorSelectedTrack" => {
+            track.is_some_and(|t| t.monitor != ryolune_engine::model::Monitor::Off)
+        }
         "followPlayhead" => s.view.follow_playhead,
         "toggleAgentPanel" => app.agents.open,
         "toggleMixer" => app.show_mixer,
@@ -466,7 +615,11 @@ pub fn checked(id: &str, daw: &Daw) -> Option<bool> {
 }
 
 fn panel(daw: &mut Daw, name: &str, visible: bool, cx: &mut Context<Daw>) {
-    daw.run("ui.showPanel", json!({"panel": name, "visible": visible}), cx);
+    daw.run(
+        "ui.showPanel",
+        json!({"panel": name, "visible": visible}),
+        cx,
+    );
 }
 fn settings_section(daw: &mut Daw, section: &str, cx: &mut Context<Daw>) {
     daw.run(
@@ -534,7 +687,12 @@ fn on_clip(daw: &mut Daw, method: &str, mut params: Value, cx: &mut Context<Daw>
     params["clipId"] = json!(clip);
     daw.run(method, params, cx);
 }
-fn on_track(daw: &mut Daw, method: &str, f: impl FnOnce(&ryolune_engine::model::Track) -> Value, cx: &mut Context<Daw>) {
+fn on_track(
+    daw: &mut Daw,
+    method: &str,
+    f: impl FnOnce(&ryolune_engine::model::Track) -> Value,
+    cx: &mut Context<Daw>,
+) {
     let Some(params) = selected_track(daw.app.store.session()).map(|t| {
         let mut p = f(t);
         p["trackId"] = json!(t.id);
@@ -787,8 +945,18 @@ pub fn perform(id: &str, daw: &mut Daw, cx: &mut Context<Daw>) -> bool {
         "diminuendo" => on_clip(daw, "clip.velocityRamp", json!({"from": 110, "to": 55}), cx),
         "legato" => on_clip(daw, "clip.legato", json!({}), cx),
         "reverseMidi" => on_clip(daw, "clip.reverseMidi", json!({}), cx),
-        "fitMajor" => on_clip(daw, "clip.fitScale", json!({"root": 0, "scale": "major"}), cx),
-        "fitMinor" => on_clip(daw, "clip.fitScale", json!({"root": 0, "scale": "minor"}), cx),
+        "fitMajor" => on_clip(
+            daw,
+            "clip.fitScale",
+            json!({"root": 0, "scale": "major"}),
+            cx,
+        ),
+        "fitMinor" => on_clip(
+            daw,
+            "clip.fitScale",
+            json!({"root": 0, "scale": "minor"}),
+            cx,
+        ),
         "repeatRegion" => on_clip(daw, "clip.repeat", json!({"count": 3}), cx),
         "checkUpdates" => {
             daw.fire("app.checkUpdates", cx);
@@ -832,7 +1000,33 @@ mod tests {
                 assert!(keys.insert(*k), "{k} is bound twice");
             }
         }
-        assert_eq!(shortcut_label("undo").unwrap().chars().last(), Some('Z'));
-        assert_eq!(shortcut_label("zoomOut").unwrap().chars().last(), Some('-'));
+        assert_eq!(label_for("secondary-shift-z", true).unwrap(), "⇧⌘Z");
+        assert_eq!(
+            label_for("secondary-shift-z", false).unwrap(),
+            "Ctrl+Shift+Z"
+        );
+        assert_eq!(label_for("secondary--", true).unwrap(), "⌘-");
+    }
+
+    #[test]
+    fn shortcuts_doc_matches_the_table_and_every_group_entry_exists() {
+        for (_, ids) in GROUPS {
+            for id in *ids {
+                assert!(def(id).is_some(), "{id}");
+            }
+        }
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/SHORTCUTS.md");
+        let fresh = shortcuts_markdown();
+        if std::env::var_os("RYOLUNE_BLESS").is_some() {
+            std::fs::write(&path, &fresh).unwrap();
+            return;
+        }
+        let current = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
+        assert!(
+            current == fresh,
+            "docs/SHORTCUTS.md is out of date: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`"
+        );
     }
 }

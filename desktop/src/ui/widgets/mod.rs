@@ -6,7 +6,9 @@ pub mod dial;
 pub mod menu;
 pub mod text_input;
 
-pub use controls::{any, caps, child_id, dot, icon, mono, row, tip, Button, Key, Segmented, Switch, Variant};
+pub use controls::{
+    any, caps, child_id, dot, icon, mono, row, tip, Button, Key, Segmented, Switch, Variant,
+};
 pub use dial::{meter_position, Fader, Knob, Meter, NumberDrag, Phase, Slider};
 pub use menu::{on_context_menu, select_button, MenuHost, MenuItem, PopupMenu};
 pub use text_input::{field, InputEvent, TextInput};

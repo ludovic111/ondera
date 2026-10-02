@@ -200,7 +200,9 @@ impl RenderOnce for Button {
             .gap(px(6.0))
             .h(px(h))
             .when(icon_only, |d| d.w(px(h)))
-            .when(!icon_only, |d| d.px(px(if self.compact { 8.0 } else { 12.0 })))
+            .when(!icon_only, |d| {
+                d.px(px(if self.compact { 8.0 } else { 12.0 }))
+            })
             .when(self.full_width, |d| d.w_full())
             .rounded(px(radius::SM))
             .bg(bg)
@@ -232,7 +234,9 @@ impl RenderOnce for Button {
             .when_some(on_click.filter(|_| !disabled), |d, f| {
                 d.on_click(move |e, w, cx| f(e, w, cx))
             })
-            .when_some(tooltip, |d, text| d.tooltip(move |_, cx| tip(text.clone(), cx)))
+            .when_some(tooltip, |d, text| {
+                d.tooltip(move |_, cx| tip(text.clone(), cx))
+            })
     }
 }
 
@@ -271,7 +275,12 @@ pub struct Key {
     size: f32,
 }
 impl Key {
-    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, on: bool, color: Hsla) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        on: bool,
+        color: Hsla,
+    ) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
@@ -331,8 +340,12 @@ impl RenderOnce for Key {
             .cursor_pointer()
             .hover(move |s| s.bg(hover))
             .child(self.label)
-            .when_some(self.on_click, |d, f| d.on_click(move |e, w, cx| f(e, w, cx)))
-            .when_some(tooltip, |d, text| d.tooltip(move |_, cx| tip(text.clone(), cx)))
+            .when_some(self.on_click, |d, f| {
+                d.on_click(move |e, w, cx| f(e, w, cx))
+            })
+            .when_some(tooltip, |d, text| {
+                d.tooltip(move |_, cx| tip(text.clone(), cx))
+            })
     }
 }
 
@@ -399,7 +412,9 @@ impl RenderOnce for Segmented {
                     .whitespace_nowrap()
                     .text_color(if on { theme.text } else { theme.text_2 })
                     .when(on, |d| {
-                        d.bg(theme.control).border_1().border_color(theme.control_edge)
+                        d.bg(theme.control)
+                            .border_1()
+                            .border_color(theme.control_edge)
                     })
                     .when(!on, |d| d.cursor_pointer().hover(|s| s.bg(theme.hover)))
                     .child(label)
@@ -448,7 +463,11 @@ impl RenderOnce for Switch {
                 div()
                     .size(px(12.0))
                     .rounded_full()
-                    .bg(if on { theme.text_on_accent } else { theme.thumb })
+                    .bg(if on {
+                        theme.text_on_accent
+                    } else {
+                        theme.thumb
+                    })
                     .when(on, |d| d.ml(px(12.0))),
             )
             .when_some(f, |d, f| d.on_click(move |_, w, cx| f(!on, w, cx)))

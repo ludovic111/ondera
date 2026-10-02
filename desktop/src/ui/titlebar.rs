@@ -27,7 +27,13 @@ impl TitleBar {
         }
     }
 
-    fn open_menu(&mut self, title: &'static str, x: f32, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_menu(
+        &mut self,
+        title: &'static str,
+        x: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let entries = MENUS
             .iter()
             .find(|(t, _)| *t == title)
@@ -48,7 +54,8 @@ impl TitleBar {
             );
         }
         self.open_title = Some(title);
-        self.menu.open(items, gpui::point(px(x), px(32.0)), window, cx);
+        self.menu
+            .open(items, gpui::point(px(x), px(32.0)), window, cx);
     }
 }
 
@@ -71,7 +78,11 @@ impl Render for TitleBar {
             self.open_title = None;
         }
         let open_title = self.open_title;
-        let left_inset = if cfg!(target_os = "macos") { 82.0 } else { 12.0 };
+        let left_inset = if cfg!(target_os = "macos") {
+            82.0
+        } else {
+            12.0
+        };
         let mut x = left_inset;
         let menus: Vec<_> = MENUS
             .iter()
@@ -198,7 +209,8 @@ impl Render for TitleBar {
                     .child("Sponsor")
                     .tooltip(|_, cx| {
                         super::widgets::tip(
-                            "Sponsor ryolune on GitHub: donate once or monthly, nothing is locked".into(),
+                            "Sponsor ryolune on GitHub: donate once or monthly, nothing is locked"
+                                .into(),
                             cx,
                         )
                     })

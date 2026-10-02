@@ -108,10 +108,6 @@ impl Ryolune {
         }
     }
 
-
-
-
-
     pub(crate) fn start_settings_job(&mut self, label: String, exe: PathBuf, args: &[&str]) {
         let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
         let (tx, receiver) = mpsc::sync_channel(1);
@@ -241,7 +237,6 @@ pub(crate) fn reveal(path: &Path) {
     };
     let _ = Command::new(program).arg(path).spawn();
 }
-
 
 #[cfg(test)]
 mod cli_tests {

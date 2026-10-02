@@ -102,7 +102,9 @@ mod mac {
         // main thread, for its window number.
         let number = unsafe {
             let view: &objc2_app_kit::NSView = appkit.ns_view.cast().as_ref();
-            view.window().ok_or("The view has no window")?.windowNumber()
+            view.window()
+                .ok_or("The view has no window")?
+                .windowNumber()
         };
         // SAFETY: CoreGraphics calls on a window this process owns; every object created
         // here is released before returning.

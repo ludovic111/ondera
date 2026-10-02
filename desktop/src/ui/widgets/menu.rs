@@ -46,7 +46,10 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
-    pub fn new(label: impl Into<SharedString>, pick: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+    pub fn new(
+        label: impl Into<SharedString>,
+        pick: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
         MenuItem::Item {
             label: label.into(),
             detail: None,
@@ -98,7 +101,13 @@ impl MenuItem {
         item
     }
     fn selectable(&self) -> bool {
-        matches!(self, MenuItem::Item { disabled: false, .. })
+        matches!(
+            self,
+            MenuItem::Item {
+                disabled: false,
+                ..
+            }
+        )
     }
 }
 
@@ -136,7 +145,11 @@ impl PopupMenu {
         }
         let mut i = self.hovered.unwrap_or(if forward { n - 1 } else { 0 });
         for _ in 0..n {
-            i = if forward { (i + 1) % n } else { (i + n - 1) % n };
+            i = if forward {
+                (i + 1) % n
+            } else {
+                (i + n - 1) % n
+            };
             if self.items[i].selectable() {
                 self.hovered = Some(i);
                 break;
@@ -191,71 +204,73 @@ impl Render for PopupMenu {
                 spread_radius: px(0.0),
             }])
             .text_size(px(size::BASE))
-            .children(self.items.iter().enumerate().map(|(i, item)| match item {
-                MenuItem::Separator => div()
-                    .my(px(4.0))
-                    .h(px(1.0))
-                    .bg(theme.line)
-                    .into_any_element(),
-                MenuItem::Header(text) => div()
-                    .px(px(12.0))
-                    .pt(px(6.0))
-                    .pb(px(2.0))
-                    .text_size(px(size::XS))
-                    .text_color(theme.text_3)
-                    .child(text.clone())
-                    .into_any_element(),
-                MenuItem::Item {
-                    label,
-                    detail,
-                    checked,
-                    disabled,
-                    swatch,
-                    ..
-                } => {
-                    let on = hovered == Some(i) && !disabled;
-                    div()
-                        .id(i)
-                        .mx(px(4.0))
-                        .px(px(8.0))
-                        .h(px(26.0))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .rounded(px(radius::SM))
-                        .text_color(if *disabled { theme.text_3 } else { theme.text })
-                        .when(on, |d| d.bg(theme.accent_soft))
-                        .when(!disabled, |d| {
-                            d.cursor_pointer().on_click(cx.listener(move |this, _, window, cx| {
-                                this.pick(i, window, cx)
+            .children(self.items.iter().enumerate().map(|(i, item)| {
+                match item {
+                    MenuItem::Separator => div()
+                        .my(px(4.0))
+                        .h(px(1.0))
+                        .bg(theme.line)
+                        .into_any_element(),
+                    MenuItem::Header(text) => div()
+                        .px(px(12.0))
+                        .pt(px(6.0))
+                        .pb(px(2.0))
+                        .text_size(px(size::XS))
+                        .text_color(theme.text_3)
+                        .child(text.clone())
+                        .into_any_element(),
+                    MenuItem::Item {
+                        label,
+                        detail,
+                        checked,
+                        disabled,
+                        swatch,
+                        ..
+                    } => {
+                        let on = hovered == Some(i) && !disabled;
+                        div()
+                            .id(i)
+                            .mx(px(4.0))
+                            .px(px(8.0))
+                            .h(px(26.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .rounded(px(radius::SM))
+                            .text_color(if *disabled { theme.text_3 } else { theme.text })
+                            .when(on, |d| d.bg(theme.accent_soft))
+                            .when(!disabled, |d| {
+                                d.cursor_pointer().on_click(
+                                    cx.listener(move |this, _, window, cx| {
+                                        this.pick(i, window, cx)
+                                    }),
+                                )
+                            })
+                            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                                if *over {
+                                    this.hovered = Some(i);
+                                    cx.notify();
+                                }
                             }))
-                        })
-                        .on_hover(cx.listener(move |this, over: &bool, _, cx| {
-                            if *over {
-                                this.hovered = Some(i);
-                                cx.notify();
-                            }
-                        }))
-                        .child(
-                            div()
-                                .w(px(12.0))
-                                .flex_none()
-                                .when(checked == &Some(true), |d| {
+                            .child(div().w(px(12.0)).flex_none().when(
+                                checked == &Some(true),
+                                |d| {
                                     d.child(super::controls::icon("check", 10.0, theme.accent_text))
-                                }),
-                        )
-                        .when_some(*swatch, |d, c| d.child(super::controls::dot(c, 8.0)))
-                        .child(div().flex_1().whitespace_nowrap().child(label.clone()))
-                        .when_some(detail.clone(), |d, text| {
-                            d.child(
-                                div()
-                                    .pl(px(16.0))
-                                    .text_size(px(size::SM))
-                                    .text_color(theme.text_3)
-                                    .child(text),
-                            )
-                        })
-                        .into_any_element()
+                                },
+                            ))
+                            .when_some(*swatch, |d, c| d.child(super::controls::dot(c, 8.0)))
+                            .child(div().flex_1().whitespace_nowrap().child(label.clone()))
+                            .when_some(detail.clone(), |d, text| {
+                                d.child(
+                                    div()
+                                        .pl(px(16.0))
+                                        .text_size(px(size::SM))
+                                        .text_color(theme.text_3)
+                                        .child(text),
+                                )
+                            })
+                            .into_any_element()
+                    }
                 }
             }))
     }
@@ -289,12 +304,13 @@ impl MenuHost {
         cx: &mut Context<V>,
     ) {
         let previous = window.focused(cx);
-        let subscription = cx.subscribe_in(&menu, window, move |_, _, _: &DismissEvent, window, cx| {
-            if let Some(previous) = &previous {
-                window.focus(previous);
-            }
-            cx.notify();
-        });
+        let subscription =
+            cx.subscribe_in(&menu, window, move |_, _, _: &DismissEvent, window, cx| {
+                if let Some(previous) = &previous {
+                    window.focus(previous);
+                }
+                cx.notify();
+            });
         window.focus(&menu.focus_handle(cx));
         self.open = Some((menu, position, subscription));
         cx.notify();
@@ -346,7 +362,12 @@ pub fn select_button(
         .text_color(theme.text)
         .cursor_pointer()
         .hover(|s| s.bg(theme.control_hover))
-        .child(div().whitespace_nowrap().overflow_hidden().child(label.into()))
+        .child(
+            div()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .child(label.into()),
+        )
         .child(super::controls::icon("chevron-down", 9.0, theme.text_3))
 }
 

@@ -44,6 +44,18 @@ fn reference() -> String {
          (it is one undo step when it changes the song). **Needs the app** marks a command only \
          the running window can serve; the others also work on a file (`ryolune-cli --file song.ryolune …`).\n\n",
     );
+    out.push_str(
+        "Names shared across the lsuite apps are accepted too, and run the ryolune command \
+         beside them: ",
+    );
+    out.push_str(
+        &control::ALIASES
+            .iter()
+            .map(|(alias, real)| format!("`{alias}` → `{real}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    out.push_str(".\n\n");
     out.push_str("## Families\n\n");
     for (family, list) in &families {
         let _ = writeln!(

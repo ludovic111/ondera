@@ -267,7 +267,10 @@ impl Render for Workspace {
             // The backdrop's two soft glows of ryolune teal (`.ls-backdrop`), under the glass:
             // a point of light with a wide blur, so only the glow shows.
             .child(glow(gpui::point(px(120.0), px(60.0)), theme.aurora))
-            .child(glow(gpui::point(px(1400.0), px(980.0)), theme.aurora.opacity(0.7)))
+            .child(glow(
+                gpui::point(px(1400.0), px(980.0)),
+                theme.aurora.opacity(0.7),
+            ))
             .child(
                 div()
                     .h(px(layout::TITLE_BAR))

@@ -2,15 +2,17 @@
 
 <!-- Generated from the command registry by tools/tests/command_docs.rs. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune-tools --test command_docs`. -->
 
-ryolune has 199 commands. The window, `ryolune-cli`, `ryolune-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ryolune-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
+ryolune has 203 commands. The window, `ryolune-cli`, `ryolune-mcp` and the built-in agent all run these same commands, with the same undo history. On the CLI a command is `ryolune-cli <name> --param value`; in MCP it is the tool `<name>` with the dot replaced by an underscore (`track.add` is `track_add`); the agent sees the same tools.
 
 Conventions: bars and beats are zero-based; note `start` and `length` are beats relative to their clip; pitch 60 is C4; velocity is 1–127; a fader value of 0.75 is unity gain. Strip commands accept a track id or `master`, `bus-a`, `bus-b`; insert slots are 0–7.
 
 **Edits** marks a command that can change the song, the transport, settings or files (it is one undo step when it changes the song). **Needs the app** marks a command only the running window can serve; the others also work on a file (`ryolune-cli --file song.ryolune …`).
 
+Names shared across the lsuite apps are accepted too, and run the ryolune command beside them: `app.version` → `app.info`, `project.overview` → `session.overview`, `export.audio` → `session.exportAudio`, `export.stems` → `session.exportStems`, `export.midi` → `session.exportMidi`.
+
 ## Families
 
-- [session](#session) — `session.info`, `session.get`, `session.inspect`, `session.catalog`, `session.commands`, `session.new`, `session.open`, `session.save`, `session.rename`, `session.bounce`, `session.importAudio`, `session.importMidi`, `session.exportMidi`, `session.exportAudio`, `session.exportStems`, `session.batch`, `session.saveRecoveredTake`, `session.snapshots`, `session.restoreSnapshot`, `session.overview`
+- [session](#session) — `session.info`, `session.get`, `session.inspect`, `session.catalog`, `session.commands`, `session.new`, `session.open`, `session.save`, `session.rename`, `session.bounce`, `session.importAudio`, `session.importMidi`, `session.exportMidi`, `session.exportAudio`, `session.exportStems`, `session.batch`, `session.saveRecoveredTake`, `session.snapshots`, `session.restoreSnapshot`, `session.overview`, `session.scoreCut`
 - [plugin](#plugin) — `plugin.list`, `plugin.scan`, `plugin.folders`, `plugin.setFavorite`, `plugin.setFolder`, `plugin.scaffold`, `plugin.install`, `plugin.describe`
 - [transport](#transport) — `transport.play`, `transport.record`, `transport.stop`, `transport.locate`, `transport.returnToStart`, `transport.setTempo`, `transport.setTimeSignature`, `transport.setKey`, `transport.setCycle`, `transport.setMetronome`, `transport.setSnap`, `transport.punch`
 - [track](#track) — `track.list`, `track.add`, `track.remove`, `track.rename`, `track.setMute`, `track.setSolo`, `track.setArmed`, `track.setMonitor`, `track.setVolume`, `track.setPan`, `track.setColor`, `track.move`, `track.select`, `track.setOutput`, `track.group`, `track.duplicate`
@@ -31,9 +33,11 @@ Conventions: bars and beats are zero-based; note `start` and `length` are beats 
 - [settings](#settings) — `settings.get`, `settings.set`, `settings.reset`
 - [audio](#audio) — `audio.devices`, `audio.status`, `audio.allowSpeakerMonitoring`, `audio.setOutput`, `audio.setInput`, `audio.setMidiInput`, `audio.reconnect`
 - [ui](#ui) — `ui.screenshot`, `ui.showPanel`, `ui.openPluginWindow`, `ui.closePluginWindow`, `ui.dismissError`, `ui.closePluginWindows`, `ui.musicalTyping`, `ui.setTool`, `ui.status`, `ui.state`
-- [app](#app) — `app.info`, `app.checkUpdates`, `app.installUpdate`, `app.quit`, `app.confirm`, `app.openGuide`, `app.relaunch`
+- [app](#app) — `app.info`, `app.checkUpdates`, `app.installUpdate`, `app.quit`, `app.confirm`, `app.openGuide`, `app.relaunch`, `app.suite`
 - [agent](#agent) — `agent.status`, `agent.configure`, `agent.providers`, `agent.mcp`, `agent.openClient`, `agent.models`, `agent.connection`, `agent.send`, `agent.stop`, `agent.transcript`, `agent.changes`, `agent.revert`, `agent.clear`
 - [generate](#generate) — `generate.services`, `generate.audio`, `generate.list`, `generate.preview`, `generate.place`, `generate.delete`
+- [export](#export) — `export.toKimchi`
+- [handoff](#handoff) — `handoff.inbox`
 
 ## session
 
@@ -233,6 +237,20 @@ Everything about the song in one compact answer; call it first. Song (tempo, tem
 | `trackId` | string |  | Only this track (id or name), with every clip. |
 | `maxClips` | integer |  | Clips listed per track, 0-200. Default: 12, fewer in songs with many tracks (about 48 in all); the rest are counted and their bars shown in covers. |
 | `parameters` | boolean |  | List changed plugin parameters (default true, at most 6 per plugin). |
+
+### `session.scoreCut`
+
+*Edits*
+
+Score a cut from kimchi: put its audio on a new audio track at bar 1 and its markers on the ruler at the bars where they fall, so the music can follow the picture. Takes a hand-off manifest from kimchi (handoff.inbox) or the audio, length and markers directly. One undo step.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `manifest` | string |  | A kimchi hand-off manifest (JSON file) from handoff.inbox. |
+| `path` | string |  | The cut's audio (WAV, AIFF, FLAC, MP3, Ogg, AAC…), if there is no manifest. |
+| `name` | string |  | Name for the audio track (default: the cut's name). |
+| `markers` | array |  | Markers of the cut: objects with `time` (seconds) and `label`. |
+| `durationSeconds` | number |  | Length of the cut; sets the cycle over it when given. |
 
 ## plugin
 
@@ -1907,6 +1925,10 @@ Open one of ryolune's pages, or a sound service's key page, in the web browser.
 
 Relaunch the app, for example after an update was installed. Unsaved changes prompt first.
 
+### `app.suite`
+
+The lsuite apps installed on this computer (ryolune, kimchi, zenith…) from their discovery files in ~/.lsuite/apps: version, paths of each app and its CLI and MCP server, whether it is running and on which bridge port, and the hand-offs it accepts.
+
 ## agent
 
 ### `agent.status`
@@ -2077,3 +2099,27 @@ Delete a generated sound from this computer. Clips already in a song keep their 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Generated sound id, from generate.list. |
+
+## export
+
+### `export.toKimchi`
+
+*Edits*
+
+Render the mix (or one stem per track) and put it on a kimchi video project, on a new audio track, ready to cut picture to. When kimchi is closed the files are added to the project straight away (its previous project file is kept as a backup); when kimchi is open they wait in its lsuite inbox with a note saying where they go. Runs as a job in the app.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `project` | string |  | kimchi project id or name (default: the one changed most recently). |
+| `stems` | boolean |  | One file and one kimchi track per ryolune track instead of the mix (default false). |
+| `trackIds` | array |  | With stems: the tracks to send (default all). |
+| `startSeconds` | number |  | Where the audio starts on kimchi's timeline, in seconds (default 0). |
+| `startBar` | number |  | Zero-based bar the render starts at (default 0). |
+| `endBar` | number |  | Exclusive bar the render ends at (default: the end of the song). |
+| `tailSeconds` | number |  | Effect tail after the end, 0-120 seconds (default 3). |
+
+## handoff
+
+### `handoff.inbox`
+
+Hand-offs other lsuite apps left for ryolune (a cut from kimchi to score), oldest first, from ~/.lsuite/inbox/ryolune. Pass a manifest to session.scoreCut.

@@ -43,7 +43,10 @@ mod tests {
     fn fonts_and_icons_are_bundled() {
         assert_eq!(fonts().len(), 6);
         for name in ["play", "stop", "record", "cycle", "ring", "chevron-down"] {
-            assert!(Assets::get(&format!("icons/{name}.svg")).is_some(), "{name}");
+            assert!(
+                Assets::get(&format!("icons/{name}.svg")).is_some(),
+                "{name}"
+            );
         }
     }
 }

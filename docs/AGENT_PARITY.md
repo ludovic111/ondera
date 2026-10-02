@@ -9,10 +9,11 @@ are deliberately window-only, with the reason.
 
 Checked by `engine/tests/agent_parity.rs`:
 
-- every action id in `frontend/src/state/actions.ts` (menus, shortcuts, command palette) has
-  an entry in `docs/agent-parity.json` and a row below, and names only registry commands;
-- every `family.action` string the frontend sends is a registry command (or, in the
-  presentation table `frontend/src/core/index.ts`, a name `NativeStore.translate` maps to one);
+- every action id in `desktop/src/ui/actions.rs` (menus, shortcuts, command palette, the
+  shortcut sheet) has an entry in `docs/agent-parity.json` and a row below, and names only
+  registry commands;
+- every `family.action` string the window's GPUI views (`desktop/src/ui`) send is a registry
+  command (or one of the shared lsuite aliases in `control::ALIASES`);
 - every command named in this file exists;
 - every command and parameter has a description (what it does, units, ranges).
 
@@ -50,7 +51,7 @@ Output is bounded: clips per track adapt to the track count (about 48 in all, `m
 change it), plugin parameters are the changed ones (at most 6 per plugin), `truncated` says
 what was left out and `next` names the commands that drill down.
 
-## Actions: menus, shortcuts and the command palette (`actions.ts`)
+## Actions: menus, shortcuts and the command palette (`desktop/src/ui/actions.rs`)
 
 | Action | Shortcut | Command(s) | |
 |---|---|---|---|
@@ -109,41 +110,39 @@ what was left out and `next` names the commands that drill down.
 | `previousMarker` | ⇧B | `marker.previous` | covered |
 | `cycleSection` | ⇧C | `marker.cycleSection` | covered |
 
-Keys outside the table: ⌘, opens Settings (`ui.showPanel` panel=settings); ⌘K toggles
-musical typing (`ui.musicalTyping`, `note.releaseAll`); ⌘N/⌘O/⌘S/⇧⌘S/⌘I/⌘B are the File menu
-below.
+Musical typing plays the letter keys while it is on (`note.hold`, `note.releaseAll`).
 
-## Menus beyond the actions (`menus.ts`)
+## Menu actions (since 0.13 every menu item is an action of the table)
 
-| Menu item | Command(s) | |
-|---|---|---|
-| File › New session / Open demo | `session.new` (demo) | covered; the window asks about unsaved changes first, a script answers that prompt with `app.confirm` |
-| File › Open… | `session.open` path | covered; the file chooser is window-only (a script gives the path) |
-| File › Save / Save as… | `session.save` (path) | covered |
-| File › Import audio… | `session.importAudio` path, trackId, startBar | covered |
-| File › Import MIDI… | `session.importMidi` | covered |
-| File › Export audio… | `ui.showPanel` panel=export, then `session.exportAudio` or `session.exportStems` | covered |
-| File › Export MIDI… | `session.exportMidi` | covered |
-| File › Recover session… | `session.snapshots`, `session.restoreSnapshot` | covered |
-| File › Settings… | `ui.showPanel` panel=settings section=… | covered |
-| File › Quit | `app.quit` (discard) | covered |
-| Edit › Humanize | `clip.humanize` | covered |
-| Edit › Velocity crescendo / diminuendo | `clip.velocityRamp` | covered |
-| Edit › Legato | `clip.legato` | covered; now disabled for audio regions |
-| Edit › Reverse MIDI phrase | `clip.reverseMidi` | covered; now disabled for audio regions |
-| Edit › Fit to C major / minor | `clip.fitScale` | covered; now disabled for audio regions |
-| Edit › Repeat region × 4 | `clip.repeat` | covered |
-| Track › Show master strip / reverb bus / delay bus | `ui.showPanel` panel=master, bus-a, bus-b | covered |
-| Mix › Save recovered take… | `session.saveRecoveredTake` | covered |
-| Mix › Reconnect output | `audio.reconnect` | covered |
-| Mix › Output / Input device, MIDI input… | `audio.setOutput`, `audio.setInput`, `audio.setMidiInput`; `ui.showPanel` panel=settings section=audio | covered; the menu now opens the Audio section |
-| Mix › Musical typing | `ui.musicalTyping` | covered |
-| Mix › Rescan plugins | `plugin.scan` | covered |
-| Agent › Agent settings… | `ui.showPanel` panel=settings section=agent | covered; the menu now opens the Agent section |
-| View › Automation | `ui.showPanel` panel=automation | covered |
-| Help › Check for updates… | `app.checkUpdates`, `app.installUpdate`, `app.relaunch` | covered |
-| Help › Native plugin SDK… | `app.openGuide` guide=plugins | covered |
-| Help › Support ryolune…, Settings › About › Support ryolune…, the one-time ask after the third export | `app.openGuide` guide=support; the ask is `settings.get`/`settings.set path=general.exportsCompleted` and `general.supportAsked` | covered |
+| Action | Menu item | Command(s) | |
+|---|---|---|---|
+| `newSession`, `openDemo` | File › New session / Open demo | `session.new` (demo) | covered; the window asks about unsaved changes first, a script answers that prompt with `app.confirm` |
+| `openSession` | File › Open… | `session.open` path | covered; the file chooser is window-only (a script gives the path) |
+| `save`, `saveAs` | File › Save / Save as… | `session.save` (path) | covered |
+| `importAudio` | File › Import audio… | `session.importAudio` path, trackId, startBar | covered |
+| `importMidi` | File › Import MIDI… | `session.importMidi` | covered |
+| `exportAudio` | File › Export audio… | `ui.showPanel` panel=export, then `session.exportAudio` or `session.exportStems` | covered |
+| `exportMidi` | File › Export MIDI… | `session.exportMidi` | covered |
+| `recoverSession` | File › Recover session… | `session.snapshots`, `session.restoreSnapshot` | covered |
+| `settings` | File › Settings… (⌘,) | `ui.showPanel` panel=settings section=… | covered |
+| `quit` | File › Quit | `app.quit` (discard) | covered |
+| `humanize` | Edit › Humanize | `clip.humanize` | covered |
+| `crescendo`, `diminuendo` | Edit › Velocity crescendo / diminuendo | `clip.velocityRamp` | covered |
+| `legato` | Edit › Legato | `clip.legato` | covered; disabled for audio regions |
+| `reverseMidi` | Edit › Reverse MIDI phrase | `clip.reverseMidi` | covered; disabled for audio regions |
+| `fitMajor`, `fitMinor` | Edit › Fit to C major / minor | `clip.fitScale` | covered; disabled for audio regions |
+| `repeatRegion` | Edit › Repeat region × 4 | `clip.repeat` | covered |
+| `showMaster`, `showBusA`, `showBusB` | Track › Show master strip / reverb bus / delay bus | `ui.showPanel` panel=master, bus-a, bus-b | covered |
+| `saveRecoveredTake` | Mix › Save recovered take… | `session.saveRecoveredTake` | covered |
+| `reconnectOutput` | Mix › Reconnect output | `audio.reconnect` | covered |
+| `audioSettings` | Mix › Audio and MIDI devices… | `audio.setOutput`, `audio.setInput`, `audio.setMidiInput`; `ui.showPanel` panel=settings section=audio | covered |
+| `musicalTyping` | Mix › Musical typing (⌘K) | `ui.musicalTyping` | covered |
+| `rescanPlugins` | Mix › Rescan plugins | `plugin.scan` | covered |
+| `agentSettings` | Agent › Agent settings… | `ui.showPanel` panel=settings section=agent | covered |
+| `toggleAutomation` | View › Automation | `ui.showPanel` panel=automation | covered |
+| `checkUpdates` | Help › Check for updates… | `app.checkUpdates`, `app.installUpdate`, `app.relaunch` | covered |
+| `pluginGuide` | Help › Native plugin SDK… | `app.openGuide` guide=plugins | covered |
+| `support` | Help › Support ryolune…, Settings › About, the one-time ask after the third export | `app.openGuide` guide=support; the ask is `settings.get`/`settings.set path=general.exportsCompleted` and `general.supportAsked` | covered |
 
 ## Arrangement
 
@@ -355,21 +354,19 @@ are not listed, as in the window.
 | Rhythm Lab (removed from the panel in 0.12) | `rhythm.preview`, `rhythm.create` | commands kept for agents, the CLI and MCP |
 | Tabs, draft, selection chip, slash menu | none | window-only: the composer of the panel itself |
 
-## Private handlers (`desktop/src/web.rs`)
+## Window plumbing (GPUI)
 
-The window's own handlers are allow-listed in `PRIVATE_HANDLERS` and `PRIVATE_TAURI`. None
-of them is something a script needs that the registry lacks:
+Since 0.13 the window is Rust (GPUI): views read the host directly and change it only through
+registry commands (`Daw::run`), so there are no private handlers left. What remains
+window-only is plumbing, not capability:
 
-| Handler | What it is | Registry equivalent |
-|---|---|---|
-| `web.ready`, `web.rendered`, `web.document`, `web.capture`, `web.captureError` | handshake, document snapshot, screenshot delivery | `session.get`, `ui.screenshot` |
-| `web.peaks` | full-resolution waveform for drawing | `source.peaks` |
-| `web.file` | the File menu with the window's choosers and unsaved-changes prompt | `session.new`, `session.open`, `session.save`, `session.importAudio`, `session.importMidi`, `ui.showPanel` export, `session.saveRecoveredTake`, `app.relaunch`, `app.quit`, `app.confirm` |
-| `web.liveNote` | musical-typing key events | `note.hold`, `note.releaseAll` |
-| `web.gesture` | groups a pointer drag into one undo step | `session.batch` |
-| `daw_pick` | native file and folder choosers | commands take paths |
-| `daw_snapshot` | webview capture | `ui.screenshot` |
-| `daw_signin`, `daw_agent_help` | provider sign-in and help | window-only (see Dialogs) |
+| Window mechanism | Registry equivalent |
+|---|---|
+| A pointer drag grouped into one undo step (`Daw::gesture`) | `session.batch` |
+| Musical-typing key events | `note.hold`, `note.releaseAll` |
+| Native file and folder choosers | commands take paths |
+| Window capture | `ui.screenshot` |
+| Provider sign-in through Codex or Claude Code | window-only (see Dialogs) |
 
 ## Names instead of ids
 

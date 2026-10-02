@@ -1,59 +1,292 @@
 {
-  "about": "Every action in frontend/src/state/actions.ts (menus, shortcuts, command palette) and the registry commands that do the same for the CLI, MCP and the built-in agent. engine/tests/agent_parity.rs fails when an action has no entry here or an entry names a command the registry does not have. The full table, including drags, dialogs and window-only interactions, is docs/AGENT_PARITY.md.",
+  "about": "Every action in desktop/src/ui/actions.rs (menus, shortcuts, command palette) and the registry commands that do the same for the CLI, MCP and the built-in agent. engine/tests/agent_parity.rs fails when an action has no entry here or an entry names a command the registry does not have. The full table, including drags, dialogs and window-only interactions, is docs/AGENT_PARITY.md.",
   "actions": {
-    "undo": ["history.undo"],
-    "redo": ["history.redo"],
-    "togglePlay": ["transport.play", "transport.stop"],
-    "stop": ["transport.stop"],
-    "record": ["transport.punch", "transport.record"],
-    "cycle": ["transport.setCycle"],
-    "returnToStart": ["transport.returnToStart"],
-    "rewind": ["transport.locate"],
-    "forward": ["transport.locate"],
-    "metronome": ["transport.setMetronome"],
-    "deleteSelection": ["note.remove", "clip.remove"],
-    "duplicateClip": ["clip.duplicate"],
-    "splitAtPlayhead": ["clip.split"],
-    "openInEditor": ["view.set"],
-    "addAudioTrack": ["track.add", "track.move"],
-    "addMidiTrack": ["track.add", "track.move"],
-    "removeSelectedTrack": ["track.remove"],
-    "muteSelectedTrack": ["track.setMute"],
-    "soloSelectedTrack": ["track.setSolo"],
-    "armSelectedTrack": ["track.setArmed"],
-    "quantizeRegion": ["clip.quantize"],
-    "cycleMonitorSelectedTrack": ["track.setMonitor"],
-    "zoomIn": ["view.set"],
-    "zoomOut": ["view.set"],
-    "zoomToFit": ["view.fit"],
-    "followPlayhead": ["view.set"],
-    "toggleAgentPanel": ["ui.showPanel"],
-    "askAgent": ["ui.showPanel", "agent.send"],
-    "stopAgent": ["agent.stop"],
-    "editorPianoRoll": ["view.set"],
-    "editorScore": ["view.set"],
-    "editorStep": ["view.set"],
-    "toolPointer": ["ui.setTool"],
-    "toolPencil": ["ui.setTool"],
-    "toolScissors": ["ui.setTool"],
-    "copy": ["clip.copy"],
-    "cut": ["clip.cut"],
-    "paste": ["clip.paste"],
-    "duplicateTrack": ["track.duplicate"],
-    "transposeUp": ["clip.transpose", "note.update"],
-    "transposeDown": ["clip.transpose", "note.update"],
-    "transposeOctaveUp": ["clip.transpose", "note.update"],
-    "transposeOctaveDown": ["clip.transpose", "note.update"],
-    "toggleMixer": ["ui.showPanel"],
-    "toggleControllerLane": ["ui.showPanel"],
-    "addBusTrack": ["track.add"],
-    "groupSelectedTrack": ["track.group"],
-    "toggleTempoTrack": ["ui.showPanel", "tempo.set", "tempo.move", "tempo.remove", "tempo.clear"],
-    "commandPalette": ["ui.showPanel", "session.commands"],
-    "showShortcuts": ["ui.showPanel", "session.commands"],
-    "addMarker": ["marker.add"],
-    "nextMarker": ["marker.next"],
-    "previousMarker": ["marker.previous"],
-    "cycleSection": ["marker.cycleSection"]
+    "undo": [
+      "history.undo"
+    ],
+    "redo": [
+      "history.redo"
+    ],
+    "togglePlay": [
+      "transport.play",
+      "transport.stop"
+    ],
+    "stop": [
+      "transport.stop"
+    ],
+    "record": [
+      "transport.punch",
+      "transport.record"
+    ],
+    "cycle": [
+      "transport.setCycle"
+    ],
+    "returnToStart": [
+      "transport.returnToStart"
+    ],
+    "rewind": [
+      "transport.locate"
+    ],
+    "forward": [
+      "transport.locate"
+    ],
+    "metronome": [
+      "transport.setMetronome"
+    ],
+    "deleteSelection": [
+      "note.remove",
+      "clip.remove"
+    ],
+    "duplicateClip": [
+      "clip.duplicate"
+    ],
+    "splitAtPlayhead": [
+      "clip.split"
+    ],
+    "openInEditor": [
+      "view.set"
+    ],
+    "addAudioTrack": [
+      "track.add",
+      "track.move"
+    ],
+    "addMidiTrack": [
+      "track.add",
+      "track.move"
+    ],
+    "removeSelectedTrack": [
+      "track.remove"
+    ],
+    "muteSelectedTrack": [
+      "track.setMute"
+    ],
+    "soloSelectedTrack": [
+      "track.setSolo"
+    ],
+    "armSelectedTrack": [
+      "track.setArmed"
+    ],
+    "quantizeRegion": [
+      "clip.quantize"
+    ],
+    "cycleMonitorSelectedTrack": [
+      "track.setMonitor"
+    ],
+    "zoomIn": [
+      "view.set"
+    ],
+    "zoomOut": [
+      "view.set"
+    ],
+    "zoomToFit": [
+      "view.fit"
+    ],
+    "followPlayhead": [
+      "view.set"
+    ],
+    "toggleAgentPanel": [
+      "ui.showPanel"
+    ],
+    "askAgent": [
+      "ui.showPanel",
+      "agent.send"
+    ],
+    "stopAgent": [
+      "agent.stop"
+    ],
+    "editorPianoRoll": [
+      "view.set"
+    ],
+    "editorScore": [
+      "view.set"
+    ],
+    "editorStep": [
+      "view.set"
+    ],
+    "toolPointer": [
+      "ui.setTool"
+    ],
+    "toolPencil": [
+      "ui.setTool"
+    ],
+    "toolScissors": [
+      "ui.setTool"
+    ],
+    "copy": [
+      "clip.copy"
+    ],
+    "cut": [
+      "clip.cut"
+    ],
+    "paste": [
+      "clip.paste"
+    ],
+    "duplicateTrack": [
+      "track.duplicate"
+    ],
+    "transposeUp": [
+      "clip.transpose",
+      "note.update"
+    ],
+    "transposeDown": [
+      "clip.transpose",
+      "note.update"
+    ],
+    "transposeOctaveUp": [
+      "clip.transpose",
+      "note.update"
+    ],
+    "transposeOctaveDown": [
+      "clip.transpose",
+      "note.update"
+    ],
+    "toggleMixer": [
+      "ui.showPanel"
+    ],
+    "toggleControllerLane": [
+      "ui.showPanel"
+    ],
+    "addBusTrack": [
+      "track.add"
+    ],
+    "groupSelectedTrack": [
+      "track.group"
+    ],
+    "toggleTempoTrack": [
+      "ui.showPanel",
+      "tempo.set",
+      "tempo.move",
+      "tempo.remove",
+      "tempo.clear"
+    ],
+    "commandPalette": [
+      "ui.showPanel",
+      "session.commands"
+    ],
+    "showShortcuts": [
+      "ui.showPanel",
+      "session.commands"
+    ],
+    "addMarker": [
+      "marker.add"
+    ],
+    "nextMarker": [
+      "marker.next"
+    ],
+    "previousMarker": [
+      "marker.previous"
+    ],
+    "cycleSection": [
+      "marker.cycleSection"
+    ],
+    "toggleAutomation": [
+      "ui.showPanel"
+    ],
+    "musicalTyping": [
+      "ui.musicalTyping"
+    ],
+    "newSession": [
+      "session.new"
+    ],
+    "openSession": [
+      "session.open"
+    ],
+    "openDemo": [
+      "session.new"
+    ],
+    "save": [
+      "session.save"
+    ],
+    "saveAs": [
+      "session.save"
+    ],
+    "importAudio": [
+      "session.importAudio"
+    ],
+    "importMidi": [
+      "session.importMidi"
+    ],
+    "exportAudio": [
+      "session.exportAudio",
+      "session.exportStems"
+    ],
+    "exportMidi": [
+      "session.exportMidi"
+    ],
+    "recoverSession": [
+      "session.snapshots",
+      "session.restoreSnapshot"
+    ],
+    "settings": [
+      "ui.showPanel",
+      "settings.set"
+    ],
+    "quit": [
+      "app.quit"
+    ],
+    "saveRecoveredTake": [
+      "session.saveRecoveredTake"
+    ],
+    "reconnectOutput": [
+      "audio.reconnect"
+    ],
+    "audioSettings": [
+      "audio.status",
+      "audio.setOutput",
+      "audio.setInput",
+      "audio.setMidiInput"
+    ],
+    "rescanPlugins": [
+      "plugin.scan"
+    ],
+    "showMaster": [
+      "ui.showPanel",
+      "strip.get"
+    ],
+    "showBusA": [
+      "ui.showPanel",
+      "strip.get"
+    ],
+    "showBusB": [
+      "ui.showPanel",
+      "strip.get"
+    ],
+    "humanize": [
+      "clip.humanize"
+    ],
+    "crescendo": [
+      "clip.velocityRamp"
+    ],
+    "diminuendo": [
+      "clip.velocityRamp"
+    ],
+    "legato": [
+      "clip.legato"
+    ],
+    "reverseMidi": [
+      "clip.reverseMidi"
+    ],
+    "fitMajor": [
+      "clip.fitScale"
+    ],
+    "fitMinor": [
+      "clip.fitScale"
+    ],
+    "repeatRegion": [
+      "clip.repeat"
+    ],
+    "agentSettings": [
+      "agent.configure",
+      "settings.set"
+    ],
+    "checkUpdates": [
+      "app.checkUpdates"
+    ],
+    "pluginGuide": [
+      "app.openGuide"
+    ],
+    "support": [
+      "app.openGuide"
+    ]
   }
 }

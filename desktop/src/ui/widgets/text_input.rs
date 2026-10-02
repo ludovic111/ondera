@@ -718,7 +718,13 @@ fn shape(
         let wrap = if input.multiline { width } else { None };
         let shaped = window
             .text_system()
-            .shape_text(SharedString::from(line.to_string()), font_size, &runs, wrap, None)
+            .shape_text(
+                SharedString::from(line.to_string()),
+                font_size,
+                &runs,
+                wrap,
+                None,
+            )
             .ok()
             .and_then(|mut v| (!v.is_empty()).then(|| v.remove(0)))
             .unwrap_or_default();
@@ -782,7 +788,12 @@ impl Element for TextElement {
     ) -> Vec<PaintQuad> {
         let theme = Theme::get(cx).clone();
         let line_height = window.line_height();
-        let laid = shape(self.input.read(cx), Some(bounds.size.width), window, theme.text_3);
+        let laid = shape(
+            self.input.read(cx),
+            Some(bounds.size.width),
+            window,
+            theme.text_3,
+        );
         self.input.update(cx, |input, _| {
             input.lines = laid.lines;
             input.starts = laid.starts;
@@ -845,7 +856,11 @@ impl Element for TextElement {
         cx: &mut App,
     ) {
         let focus = self.input.read(cx).focus.clone();
-        window.handle_input(&focus, ElementInputHandler::new(bounds, self.input.clone()), cx);
+        window.handle_input(
+            &focus,
+            ElementInputHandler::new(bounds, self.input.clone()),
+            cx,
+        );
         let caret = if self.input.read(cx).selected.is_empty() {
             quads.pop()
         } else {
@@ -923,9 +938,7 @@ impl Render for TextInput {
             .w_full()
             .when(mono, |d| d.font_family(crate::ui::theme::FONT_MONO))
             .when(!mono, |d| d.font_family(FONT_UI))
-            .child(TextElement {
-                input: cx.entity(),
-            })
+            .child(TextElement { input: cx.entity() })
     }
 }
 
@@ -958,8 +971,10 @@ mod tests {
         let events = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
         let seen = events.clone();
         cx.update(|cx| {
-            cx.subscribe(&input, move |_, e: &InputEvent, _| seen.borrow_mut().push(e.clone()))
-                .detach()
+            cx.subscribe(&input, move |_, e: &InputEvent, _| {
+                seen.borrow_mut().push(e.clone())
+            })
+            .detach()
         });
         cx.update(|cx| {
             input.update(cx, |i, cx| {

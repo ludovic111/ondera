@@ -241,7 +241,9 @@ fn family_hue(folder: &str) -> f32 {
             return HUES[hash as usize % HUES.len()].1;
         }
     };
-    HUES.iter().find(|(k, _)| *k == key).map_or(0.0, |(_, h)| *h)
+    HUES.iter()
+        .find(|(k, _)| *k == key)
+        .map_or(0.0, |(_, h)| *h)
 }
 
 pub fn hex(rgb: u32) -> Hsla {

@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-<!-- Generated from frontend/src/state/actions.ts by frontend/src/components/palette/shortcutsDoc.test.ts. Do not edit by hand: run `RYOLUNE_BLESS=1 npm --prefix frontend test -- shortcutsDoc`. -->
+<!-- Generated from desktop/src/ui/actions.rs by its tests. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`. -->
 
 The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux, ⌥ is Alt.
 
@@ -23,7 +23,7 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 |---|---|
 | Undo | `⌘Z` |
 | Redo | `⇧⌘Z` |
-| Delete | `⌫` |
+| Delete | `⌫` or `Del` |
 | Duplicate Clip | `⌘D` |
 | Split Clip at Playhead | `⌘T` |
 | Open in Editor | `E` |
@@ -39,15 +39,31 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 
 | Action | Keys |
 |---|---|
-| New Audio Track | `⌥⌘A` |
 | New MIDI Track | `⌥⌘S` |
+| New Audio Track | `⌥⌘A` |
+| Duplicate Track | `⇧⌘D` |
 | Delete Track | `⌘⌫` |
 | Mute Track | `M` |
 | Solo Track | `S` |
 | Record-Arm Track | `A` |
 | Input Monitoring: Off / Auto / On | `I` |
-| Duplicate Track | `⇧⌘D` |
+
+## View
+
+| Action | Keys |
+|---|---|
+| Zoom In | `⌘=` |
+| Zoom Out | `⌘-` |
+| Zoom to Fit Session | `Z` |
+| Follow Playhead | `F` |
+| Mixer | `X` |
+| Controller Lane | `L` |
 | Tempo Track | `⇧T` |
+| Pointer Tool | `1` |
+| Pencil Tool | `2` |
+| Scissors Tool | `3` |
+| Command Palette… | `⌘P` |
+| Shortcuts and Help | `⌘/` |
 
 ## Markers
 
@@ -58,36 +74,26 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 | Go to Next Marker | `⇧N` |
 | Cycle Section at Playhead | `⇧C` |
 
-## View and tools
+## Agent
 
 | Action | Keys |
 |---|---|
-| Zoom In | `⌘=` |
-| Zoom Out | `⌘-` |
-| Zoom to Fit Session | `Z` |
-| Follow Playhead | `F` |
 | Agent Panel | `⌘J` |
 | Ask Agent About Selection… | `⇧⌘J` |
-| Pointer Tool | `1` |
-| Pencil Tool | `2` |
-| Scissors Tool | `3` |
-| Mixer | `X` |
-| Controller Lane | `L` |
-| Command Palette… | `⌘P` |
-| Shortcuts and Help | `⌘/` |
 
-## Session
+## File
 
 | Action | Keys |
 |---|---|
-| New session | `⌘N` |
+| New Session | `⌘N` |
 | Open… | `⌘O` |
 | Save | `⌘S` |
-| Save as… | `⇧⌘S` |
-| Import audio… | `⌘I` |
-| Export audio… | `⌘B` |
+| Save As… | `⇧⌘S` |
+| Import Audio… | `⌘I` |
+| Export Audio… | `⌘B` |
 | Settings… | `⌘,` |
-| Musical typing | `⌘K` |
+| Musical Typing | `⌘K` |
+| Quit ryolune | `⌘Q` |
 
 ## Musical typing
 

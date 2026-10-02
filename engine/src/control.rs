@@ -321,12 +321,33 @@ pub static COMMANDS: std::sync::LazyLock<Vec<Spec>> = std::sync::LazyLock::new(|
         .chain(crate::control_params::SPECS)
         .chain(crate::control_overview::SPECS)
         .chain(crate::control_generate::SPECS)
+        .chain(crate::control_suite::SPECS)
         .copied()
         .collect()
 });
 
 pub fn spec(name: &str) -> Option<&'static Spec> {
+    let name = canonical(name);
     COMMANDS.iter().find(|s| s.name == name)
+}
+
+/// Names shared across lsuite apps (STANDARD.md, "Shared vocabulary") that ryolune spells
+/// its own way. Each is accepted everywhere a command name is: the window, the CLI, MCP and
+/// the agent. They are not listed as separate tools.
+pub const ALIASES: &[(&str, &str)] = &[
+    ("app.version", "app.info"),
+    ("project.overview", "session.overview"),
+    ("export.audio", "session.exportAudio"),
+    ("export.stems", "session.exportStems"),
+    ("export.midi", "session.exportMidi"),
+];
+
+/// The registry name for a command or one of its shared aliases.
+pub fn canonical(name: &str) -> &str {
+    ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map_or(name, |(_, real)| real)
 }
 
 /// JSON Schema for a command's parameters, used verbatim as an MCP tool `inputSchema`.
@@ -750,6 +771,7 @@ pub fn validate_request(name: &str, params: &Value) -> Result<()> {
 /// Run one named command. `agent` marks created clips and notes so the interface can show
 /// what an assistant changed.
 pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Result<Value> {
+    let name = canonical(name);
     let spec = spec(name).ok_or_else(|| {
         let mut close: Vec<&str> = COMMANDS
             .iter()
@@ -825,6 +847,9 @@ pub fn call(host: &mut dyn Host, name: &str, params: &Value, agent: bool) -> Res
         .any(|s| s.name == name)
     {
         return crate::control_generate::call(host, name, &a, agent);
+    }
+    if crate::control_suite::serves(name) {
+        return crate::control_suite::call(host, name, &a, agent);
     }
     let result = match name {
         "session.info" => Ok(info(host)),

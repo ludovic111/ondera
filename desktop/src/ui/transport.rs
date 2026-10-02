@@ -7,11 +7,11 @@ use super::{
     daw::Daw,
     format,
     theme::{radius, size, Theme, FONT_MONO},
-    widgets::{Button, InputEvent, Meter, MenuHost, MenuItem, NumberDrag, Phase, TextInput},
+    widgets::{Button, InputEvent, MenuHost, MenuItem, Meter, NumberDrag, Phase, TextInput},
 };
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Context, Entity, MouseButton, SharedString,
-    Subscription, Window,
+    div, prelude::*, px, AnyElement, App, Context, Entity, MouseButton, SharedString, Subscription,
+    Window,
 };
 use serde_json::json;
 
@@ -68,9 +68,19 @@ impl Transport {
         });
     }
 
-    fn pick_menu(&mut self, items: Vec<MenuItem>, e: &gpui::MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu
-            .open(items, gpui::point(e.position.x - px(12.0), px(66.0)), window, cx);
+    fn pick_menu(
+        &mut self,
+        items: Vec<MenuItem>,
+        e: &gpui::MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu.open(
+            items,
+            gpui::point(e.position.x - px(12.0), px(66.0)),
+            window,
+            cx,
+        );
     }
 
     fn display(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -119,7 +129,11 @@ impl Transport {
                 .font_family(FONT_MONO)
                 .text_size(px(21.0))
                 .line_height(px(24.0))
-                .text_color(if dim { theme.text_2 } else { theme.text_display })
+                .text_color(if dim {
+                    theme.text_2
+                } else {
+                    theme.text_display
+                })
                 .child(text)
                 .into_any_element()
         };
@@ -144,7 +158,11 @@ impl Transport {
             .child(dot())
             .child(pos.division.to_string())
             .child(dot())
-            .child(div().text_color(theme.text_2).child(format!("{:03}", pos.tick)))
+            .child(
+                div()
+                    .text_color(theme.text_2)
+                    .child(format!("{:03}", pos.tick)),
+            )
             .into_any_element();
 
         let tempo_value = if self.editing_tempo {
@@ -231,7 +249,10 @@ impl Transport {
             .h_full()
             .cursor_pointer()
             .hover(|s| s.bg(theme.hover))
-            .child(cell("SIG", big(format!("{}/{}", sig.0, sig.1).into(), false)))
+            .child(cell(
+                "SIG",
+                big(format!("{}/{}", sig.0, sig.1).into(), false),
+            ))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, e, window, cx| {
@@ -323,14 +344,14 @@ impl Render for Transport {
         let snap = s.transport.snap_division;
         let agent_open = app.agents.open;
         let agent_running = app.agents.runtime.running();
-        let counting_in = app
-            .device
-            .as_ref()
-            .is_some_and(|d| d.telemetry.counting_in.load(std::sync::atomic::Ordering::Relaxed));
-        let (peaks, cpu) = app
-            .device
-            .as_ref()
-            .map_or(([0.0; 4], 0.0), |d| (d.telemetry.peaks(), d.telemetry.load()));
+        let counting_in = app.device.as_ref().is_some_and(|d| {
+            d.telemetry
+                .counting_in
+                .load(std::sync::atomic::Ordering::Relaxed)
+        });
+        let (peaks, cpu) = app.device.as_ref().map_or(([0.0; 4], 0.0), |d| {
+            (d.telemetry.peaks(), d.telemetry.load())
+        });
         let master_db = format::peak_db(peaks[0].max(peaks[1]));
         let menu = self.menu.render(window, cx);
 
@@ -367,9 +388,23 @@ impl Render for Transport {
                     .gap(px(12.0))
                     .child(
                         group()
-                            .child(Button::icon("return", "return").tooltip("Go to beginning (↩)").on_click(act("returnToStart")))
-                            .child(Button::icon("rewind", "rewind").icon_size(13.0).tooltip("Rewind one bar (,)").on_click(act("rewind")))
-                            .child(Button::icon("forward", "forward").icon_size(13.0).tooltip("Forward one bar (.)").on_click(act("forward"))),
+                            .child(
+                                Button::icon("return", "return")
+                                    .tooltip("Go to beginning (↩)")
+                                    .on_click(act("returnToStart")),
+                            )
+                            .child(
+                                Button::icon("rewind", "rewind")
+                                    .icon_size(13.0)
+                                    .tooltip("Rewind one bar (,)")
+                                    .on_click(act("rewind")),
+                            )
+                            .child(
+                                Button::icon("forward", "forward")
+                                    .icon_size(13.0)
+                                    .tooltip("Forward one bar (.)")
+                                    .on_click(act("forward")),
+                            ),
                     )
                     .child(
                         group()
@@ -379,7 +414,12 @@ impl Render for Transport {
                                     .tooltip("Play (Space)")
                                     .on_click(act("togglePlay")),
                             )
-                            .child(Button::icon("stop", "stop").icon_size(10.0).tooltip("Stop · twice to return to start").on_click(act("stop")))
+                            .child(
+                                Button::icon("stop", "stop")
+                                    .icon_size(10.0)
+                                    .tooltip("Stop · twice to return to start")
+                                    .on_click(act("stop")),
+                            )
                             .child(
                                 Button::icon("record", "record")
                                     .icon_size(11.0)
@@ -392,7 +432,13 @@ impl Render for Transport {
                                     })
                                     .on_click(act("record")),
                             )
-                            .child(Button::icon("cycle", "cycle").icon_size(13.0).lit(cycle).tooltip("Cycle (C) · drag in the ruler to set the range").on_click(act("cycle"))),
+                            .child(
+                                Button::icon("cycle", "cycle")
+                                    .icon_size(13.0)
+                                    .lit(cycle)
+                                    .tooltip("Cycle (C) · drag in the ruler to set the range")
+                                    .on_click(act("cycle")),
+                            ),
                     )
                     .when(counting_in, |d| {
                         d.child(
@@ -415,27 +461,57 @@ impl Render for Transport {
                     .gap(px(14.0))
                     .child(
                         group()
-                            .child(Button::new("click", "Click").lit(metronome).tooltip("Metronome (K)").on_click(act("metronome")))
                             .child(
-                                Button::new("snap", if snap == 1 { "Snap Bar".to_string() } else { format!("Snap 1/{snap}") })
-                                    .tooltip("Snap grid")
-                                    .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
+                                Button::new("click", "Click")
+                                    .lit(metronome)
+                                    .tooltip("Metronome (K)")
+                                    .on_click(act("metronome")),
+                            )
+                            .child(
+                                Button::new(
+                                    "snap",
+                                    if snap == 1 {
+                                        "Snap Bar".to_string()
+                                    } else {
+                                        format!("Snap 1/{snap}")
+                                    },
+                                )
+                                .tooltip("Snap grid")
+                                .on_click(cx.listener(
+                                    move |this, e: &gpui::ClickEvent, window, cx| {
                                         let daw = this.daw.clone();
                                         let items = SNAPS
                                             .iter()
                                             .map(|&d| {
                                                 let daw = daw.clone();
-                                                MenuItem::new(if d == 1 { "Bar".to_string() } else { format!("1/{d}") }, move |_, cx| {
-                                                    daw.update(cx, |daw, cx| {
-                                                        daw.run("transport.setSnap", json!({ "division": d }), cx);
-                                                    })
-                                                })
+                                                MenuItem::new(
+                                                    if d == 1 {
+                                                        "Bar".to_string()
+                                                    } else {
+                                                        format!("1/{d}")
+                                                    },
+                                                    move |_, cx| {
+                                                        daw.update(cx, |daw, cx| {
+                                                            daw.run(
+                                                                "transport.setSnap",
+                                                                json!({ "division": d }),
+                                                                cx,
+                                                            );
+                                                        })
+                                                    },
+                                                )
                                                 .checked(snap == d)
                                             })
                                             .collect();
                                         let at = e.position();
-                                        this.menu.open(items, gpui::point(at.x - px(30.0), px(66.0)), window, cx);
-                                    })),
+                                        this.menu.open(
+                                            items,
+                                            gpui::point(at.x - px(30.0), px(66.0)),
+                                            window,
+                                            cx,
+                                        );
+                                    },
+                                )),
                             ),
                     )
                     .child(
@@ -444,7 +520,12 @@ impl Render for Transport {
                             .items_center()
                             .gap(px(8.0))
                             .child(caps("MASTER"))
-                            .child(div().w(px(150.0)).h(px(14.0)).child(Meter::new([peaks[0], peaks[1]]).segments(22)))
+                            .child(
+                                div()
+                                    .w(px(150.0))
+                                    .h(px(14.0))
+                                    .child(Meter::new([peaks[0], peaks[1]]).segments(22)),
+                            )
                             .child(readout(format::db(master_db, 1))),
                     )
                     .child(
@@ -453,7 +534,12 @@ impl Render for Transport {
                             .items_center()
                             .gap(px(8.0))
                             .child(caps("CPU"))
-                            .child(div().w(px(80.0)).h(px(14.0)).child(Meter::new([cpu]).linear().segments(12)))
+                            .child(
+                                div()
+                                    .w(px(80.0))
+                                    .h(px(14.0))
+                                    .child(Meter::new([cpu]).linear().segments(12)),
+                            )
                             .child(readout(format!("{}%", (cpu * 100.0).round() as i32))),
                     )
                     .child(
@@ -465,26 +551,31 @@ impl Render for Transport {
                             .h(px(28.0))
                             .px(px(12.0))
                             .rounded(px(radius::SM))
-                            .bg(if agent_open { theme.accent_soft } else { theme.control })
+                            .bg(if agent_open {
+                                theme.accent_soft
+                            } else {
+                                theme.control
+                            })
                             .border_1()
-                            .border_color(if agent_open { theme.accent_ring } else { theme.control_edge })
+                            .border_color(if agent_open {
+                                theme.accent_ring
+                            } else {
+                                theme.control_edge
+                            })
                             .text_size(px(size::BASE))
                             .cursor_pointer()
                             .hover(|s| s.bg(theme.control_hover))
-                            .child(
-                                div()
-                                    .size(px(8.0))
-                                    .rounded_full()
-                                    .bg(theme.accent)
-                                    .when(agent_running, |d| {
-                                        d.shadow(vec![gpui::BoxShadow {
-                                            color: theme.accent_glow,
-                                            offset: gpui::point(px(0.0), px(0.0)),
-                                            blur_radius: px(8.0),
-                                            spread_radius: px(1.0),
-                                        }])
-                                    }),
-                            )
+                            .child(div().size(px(8.0)).rounded_full().bg(theme.accent).when(
+                                agent_running,
+                                |d| {
+                                    d.shadow(vec![gpui::BoxShadow {
+                                        color: theme.accent_glow,
+                                        offset: gpui::point(px(0.0), px(0.0)),
+                                        blur_radius: px(8.0),
+                                        spread_radius: px(1.0),
+                                    }])
+                                },
+                            ))
                             .child("Agent")
                             .on_click(act("toggleAgentPanel")),
                     ),

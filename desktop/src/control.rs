@@ -158,6 +158,8 @@ impl Ryolune {
         agent: bool,
         source: &str,
     ) -> Result<Value> {
+        // Shared lsuite names (`app.version`, `export.audio`…) run their ryolune command.
+        let method = control::canonical(method);
         if method == "session.batch" && !self.batching {
             return self.run_batch(params, agent, source);
         }
@@ -216,6 +218,8 @@ impl Ryolune {
                     | "session.exportMidi"
                     | "session.exportAudio"
                     | "session.exportStems"
+                    | "session.scoreCut"
+                    | "export.toKimchi"
                     | "plugin.scan"
             ) {
                 self.available()?;
@@ -228,6 +232,7 @@ impl Ryolune {
                         | "session.bounce"
                         | "session.exportAudio"
                         | "session.exportStems"
+                        | "export.toKimchi"
                 ) {
                     self.guarded(Ryolune::capture_plugin_states)?;
                 }
@@ -406,7 +411,7 @@ impl Ryolune {
                     );
                     value["dirty"] = json!(self.store.dirty());
                 }
-                "session.importAudio" | "session.importMidi" => {
+                "session.importAudio" | "session.importMidi" | "session.scoreCut" => {
                     let prior = self.store.snapshot();
                     let next = host.store.session();
                     let mut commands = vec![];
@@ -433,7 +438,17 @@ impl Ryolune {
                             });
                         }
                     }
-                    if job.method == "session.importMidi" {
+                    if job.method == "session.scoreCut" {
+                        for marker in &next.markers {
+                            if !prior.markers.iter().any(|m| m.id == marker.id) {
+                                commands.push(Command::PutMarker(marker.clone()));
+                            }
+                        }
+                    }
+                    if matches!(
+                        job.method.as_str(),
+                        "session.importMidi" | "session.scoreCut"
+                    ) {
                         commands.push(Command::SetTransport(next.transport.clone()));
                         if next.tempo_changes != prior.tempo_changes {
                             commands.push(Command::SetTempoChanges(next.tempo_changes.clone()));

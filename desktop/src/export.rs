@@ -280,8 +280,6 @@ impl ExportDialog {
             Err(error) => self.error = Some(error.clone()),
         }
     }
-
-
 }
 
 impl Ryolune {

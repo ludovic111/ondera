@@ -115,13 +115,7 @@ impl AgentPanel {
     fn activity(&self, sequence: u64) -> Option<&Activity> {
         self.history.iter().find(|e| e.sequence == sequence)
     }
-
-
-
-
-
 }
-
 
 impl Ryolune {
     fn connection(&self) -> Connection {
@@ -138,8 +132,6 @@ impl Ryolune {
     pub(crate) fn discovery_path(&self) -> std::path::PathBuf {
         self.connection().discovery
     }
-
-
 
     /// Start a turn with the configured provider from the prompt in the panel; used by the
     /// Send button and by `agent.send` from the registry.
@@ -243,7 +235,6 @@ impl Ryolune {
             self.dispatch(Command::Redo);
         }
     }
-
 
     pub(crate) fn record_agent_activity(
         &mut self,
@@ -623,7 +614,6 @@ mod tests {
     use super::*;
     use ryolune_engine::store;
 
-
     #[test]
     fn stopping_stays_busy_until_worker_cleanup_has_completed() {
         let mut panel = AgentPanel::default();
@@ -636,7 +626,6 @@ mod tests {
         assert!(!panel.runner_busy());
         assert!(panel.runtime.status.starts_with("Stopped"));
     }
-
 
     #[test]
     fn copied_configuration_targets_this_window_without_copying_secrets() {
@@ -834,7 +823,6 @@ mod tests {
         assert_eq!(title, "Session info");
         assert!(cli_form("clip.setNotes", &json!({"clipId":"c","notes":[]})).contains("--params"));
     }
-
 
     #[test]
     fn large_activity_is_bounded_on_a_utf8_boundary() {

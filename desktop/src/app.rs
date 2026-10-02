@@ -144,6 +144,10 @@ pub struct Ryolune {
     pub(crate) wake: crate::Wake,
     /// The pointer is down or a text field has focus: background work waits for it.
     pub(crate) interacting: bool,
+    /// When this window started, for the lsuite discovery entry.
+    pub(crate) started_at: String,
+    /// The discovery entry last written (without its timestamp).
+    pub(crate) published: Option<serde_json::Value>,
     pub(crate) export: crate::export::ExportDialog,
     pub(crate) recovery: crate::recovery::Recovery,
     pub(crate) control_job: Option<crate::control::ControlJob>,
@@ -319,6 +323,8 @@ impl Ryolune {
             show_automation: false,
             wake: std::sync::Arc::new(|| {}),
             interacting: false,
+            started_at: ryolune_engine::lsuite::now_rfc3339(),
+            published: None,
             export: Default::default(),
             recovery: Default::default(),
             control_job: None,
@@ -1893,6 +1899,10 @@ impl Ryolune {
         self.poll_input();
         self.poll_live_jobs();
         self.poll_export();
+        // The suite's view of this window: the bridge port and the open document move.
+        if self.frames % 120 == 1 {
+            self.publish_discovery(!self.closing);
+        }
     }
     /// Files dropped on the window: audio is imported, a MIDI file lands at the playhead.
     pub(crate) fn drop_files(&mut self, paths: Vec<PathBuf>) -> Result<()> {
@@ -2450,7 +2460,10 @@ mod tests {
         assert_eq!(app.typing_down, vec![60]);
         assert!(app.typing_key("x", true));
         assert_eq!(app.typing_octave, 1);
-        assert!(app.typing_key("a", false), "released after the octave changed");
+        assert!(
+            app.typing_key("a", false),
+            "released after the octave changed"
+        );
         assert!(app.typing_down.is_empty());
         assert!(!app.typing_key("q", true));
     }

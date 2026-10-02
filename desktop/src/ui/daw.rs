@@ -33,7 +33,12 @@ fn fingerprint(app: &Ryolune) -> u64 {
     (app.playing, app.record_enabled, app.musical_typing).hash(&mut h);
     (app.zoom.to_bits(), app.scroll.to_bits()).hash(&mut h);
     (&app.status, &app.error, app.intent.is_some()).hash(&mut h);
-    (app.job.is_some(), app.control_job.is_some(), app.scan_job.is_some()).hash(&mut h);
+    (
+        app.job.is_some(),
+        app.control_job.is_some(),
+        app.scan_job.is_some(),
+    )
+        .hash(&mut h);
     (
         app.show_mixer,
         app.show_controllers,
@@ -89,7 +94,11 @@ impl Daw {
 
     /// Start the interface thread's work: a tick per frame while busy, ten a second while
     /// idle, and an immediate pass whenever another thread wakes the window.
-    pub fn start(&mut self, wake: futures::channel::mpsc::UnboundedReceiver<()>, cx: &mut Context<Self>) {
+    pub fn start(
+        &mut self,
+        wake: futures::channel::mpsc::UnboundedReceiver<()>,
+        cx: &mut Context<Self>,
+    ) {
         self._tick = Some(cx.spawn(async move |this, cx| loop {
             let Ok(busy) = this.update(cx, |daw, cx| {
                 daw.tick(cx);
@@ -123,6 +132,7 @@ impl Daw {
     pub fn tick(&mut self, cx: &mut Context<Self>) {
         self.app.tick();
         if self.app.closing {
+            self.app.publish_discovery(false);
             self.app.shutdown_audio();
             cx.quit();
             return;
@@ -153,7 +163,12 @@ impl Daw {
     }
 
     /// Run a registry command and hand the error back.
-    pub fn request(&mut self, method: &str, params: Value, cx: &mut Context<Self>) -> Result<Value> {
+    pub fn request(
+        &mut self,
+        method: &str,
+        params: Value,
+        cx: &mut Context<Self>,
+    ) -> Result<Value> {
         let result = self
             .app
             .run_control_command(method, &params, false, "Interface");
