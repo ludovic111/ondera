@@ -115,9 +115,14 @@ impl Workspace {
     }
 
     /// Musical typing: while it is on, the letter keys play the selected instrument.
-    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = &event.keystroke;
-        if k.modifiers.platform || k.modifiers.control || k.modifiers.alt || event.is_held {
+        if k.modifiers.platform
+            || k.modifiers.control
+            || k.modifiers.alt
+            || event.is_held
+            || typing(window)
+        {
             return;
         }
         let handled = self.daw.update(cx, |daw, _| {
@@ -127,8 +132,11 @@ impl Workspace {
             cx.stop_propagation();
         }
     }
-    fn key_up(&mut self, event: &KeyUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn key_up(&mut self, event: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = &event.keystroke;
+        if typing(window) {
+            return;
+        }
         let handled = self.daw.update(cx, |daw, _| {
             daw.app.musical_typing && daw.app.typing_key(&k.key, false)
         });
@@ -320,4 +328,12 @@ fn glow(at: gpui::Point<gpui::Pixels>, color: gpui::Hsla) -> gpui::Div {
             blur_radius: px(420.0),
             spread_radius: px(260.0),
         }])
+}
+
+/// A text field has the keyboard: letters are text, not notes.
+fn typing(window: &Window) -> bool {
+    window
+        .context_stack()
+        .iter()
+        .any(|context| context.contains("TextInput"))
 }

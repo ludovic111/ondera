@@ -308,7 +308,7 @@ impl RenderOnce for Knob {
                             window,
                             &arc_points(c, r - 1.5, start, start + sweep),
                             2.0,
-                            theme.well,
+                            theme.groove,
                         );
                         let (a, z) = if bipolar {
                             let mid = start + sweep * 0.5;
@@ -399,7 +399,7 @@ impl RenderOnce for Fader {
                             point(b.center().x - px(2.0), b.origin.y + px(cap_h / 2.0)),
                             gpui::size(px(4.0), px(travel)),
                         );
-                        window.paint_quad(gpui::fill(groove, theme.well).corner_radii(px(2.0)));
+                        window.paint_quad(gpui::fill(groove, theme.groove).corner_radii(px(2.0)));
                         let y = b.origin.y + px(travel * (1.0 - value));
                         let cap = Bounds::new(
                             point(b.origin.x + px(2.0), y),
@@ -487,7 +487,7 @@ impl RenderOnce for Slider {
                             point(b.origin.x + px(thumb / 2.0), b.center().y - px(2.0)),
                             gpui::size(px(travel), px(4.0)),
                         );
-                        window.paint_quad(gpui::fill(groove, theme.well).corner_radii(px(2.0)));
+                        window.paint_quad(gpui::fill(groove, theme.groove).corner_radii(px(2.0)));
                         let filled =
                             Bounds::new(groove.origin, gpui::size(px(travel * value), px(4.0)));
                         window.paint_quad(gpui::fill(filled, color).corner_radii(px(2.0)));

@@ -65,6 +65,8 @@ pub struct Theme {
     pub editor: Hsla,
     pub display: Hsla,
     pub well: Hsla,
+    /// The track a fader cap, a slider thumb or a knob's arc runs in.
+    pub groove: Hsla,
 
     // Controls.
     pub control: Hsla,
@@ -414,6 +416,7 @@ fn dark(opaque: bool) -> Theme {
         editor: n(0.175),
         display: hex(0x07080a),
         well: n(0.15),
+        groove: n(0.12),
         control: n(0.285),
         control_hover: n(0.315),
         control_pressed: n(0.2),
@@ -513,6 +516,7 @@ fn light(opaque: bool) -> Theme {
         editor: hex(0xfbfcfd),
         display: hex(0xe3e6ec),
         well: hex(0xe8ebf0),
+        groove: hex(0xc9ced7),
         control: hex(0xffffff),
         control_hover: hex(0xf4f5f8),
         control_pressed: hex(0xe3e6ec),
