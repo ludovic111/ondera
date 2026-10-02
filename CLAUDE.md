@@ -9,49 +9,54 @@ host accepts both; `plugins/abi1-fixture` keeps its old crate name, symbol and i
 secret is still named `ONDERA_SIGNING_KEY`; release notes before 0.11 and `legacy/` keep the old
 name as history.
 
-Since 0.4 the window is Tauri 2 with the React renderer in `frontend/` (`docs/TAURI_MIGRATION.md`);
-`desktop/src/web.rs` hosts it and the egui painting code below is kept as reference only. UI work
-happens in `frontend/src`: `state/actions.ts` is the one table behind menus, shortcuts, the command
-palette and the shortcut sheet; window panels (mixer, help, settings…) are toggled through
-`ui.showPanel` so the CLI, MCP and agent can drive them. Check with `npm --prefix frontend test`,
-`npm --prefix frontend run build`, then the Rust checks. The public page is lsuite.xyz/ryolune, in the lsuite repo (ludovic111/lsuite); ryolune.com redirects there with the same path, so `/support` and `/download/<platform>` links keep working. `site/` is the former standalone site, no longer deployed; its launch film (`site/video/`) is made in `marketing/` (see its README).
+Since 0.13 (2026-10-02, owner's request: "enlève tauri, passe au GPUI") the window is drawn with
+GPUI 0.2 (gpui.rs, Zed's framework, direct upstream crate, `runtime_shaders` so no Metal
+toolchain is needed) in `desktop/src/ui`; Tauri, the React `frontend/` and the egui painting code
+are gone. `desktop/src/ui/README.md` is the contract: the `Daw` entity (`ui/daw.rs`) owns the
+host (`crate::app::Ryolune`) and ticks it (per frame while busy, 10/s idle, at once when the
+bridge or a worker calls `Ryolune::wake`); views read `daw.read(cx).app` and change things only
+through registry commands (`daw.run`, `daw.request`), with `daw.gesture(true/false)` around
+drags. `ui/actions.rs` is the one table behind the title-bar menus, the macOS menu bar,
+shortcuts and the command palette (ids mapped in `docs/agent-parity.json`); the shortcut sheet
+(`ui/dialogs/help.rs`) generates `docs/SHORTCUTS.md`. Panels: `titlebar`, `transport`,
+`browser/`, `arrangement/`, `editor/`, `inspector/`, `mixer`, `agent_panel/`, `plugin_panel/`,
+`automation`, `dialogs/`, `settings_window/`, `palette`; shared controls in `ui/widgets/`
+(Button, Key, Segmented, Switch, Knob, Fader, Slider, NumberDrag, Meter, TextInput, menus).
+Window captures (`ui.screenshot`, `--screenshot`) use CoreGraphics (`ui/capture.rs`, macOS only).
+Check with `cargo test -p ryolune` (scratch profile env vars), then look at the real window
+(`--screenshot`, or the app driven by `ryolune-cli` with `RYOLUNE_CONTROL` in a scratch folder).
 
-Theme (0.12, owner's decision 2026-10-01: "one theme, dark or light, ultra premium"): the six
-themes of 0.6-0.11 are gone. `frontend/src/theme` is the only place visual values live. `schema.ts`
-types the theme, `ryolune.ts` returns the full `ThemeSpec` for `dark` (graphite, design source) and
-`light` (porcelain): one neutral ladder, crisp 1 px edges, a fine top highlight and a short drop,
-one accent (lunar gold, amber by day), meters mint/amber, channel keys `mute`/`solo`/`danger`.
-`tokens.ts` keeps live groups that `setTheme(mode)` refills (canvas code reads them at paint time);
-`applyAppearance(mode)` emits the CSS properties and sets `data-theme="ryolune"` / `data-mode`.
-Structure the material classes cannot say goes in `theme/ryolune.css`, coloured by the `--ryo-*`
-vars from `ryolune.ts` (frame, focus, displays, primary keys). Add a token to `schema.ts` and both
-modes, never a colour in a component. `engine/src/settings.rs` `THEMES` is `["ryolune"]`; any
-older `interface.appearance` migrates to it and keeps its mode. `appearance.test.ts` enforces
-contrast on both modes: fix the palette, not the threshold. Stock plugin panels are
-`components/plugin` (`response.ts` mirrors the engine DSP). `npm --prefix frontend run dev` in a
-plain browser serves a fixture song through `src/dev/mockHost.ts` (`?mode=&panel=`); run
-`node scripts/gen-site-tokens.mjs` after changing the dark mode (`site/` tokens and captures are reused
-by the lsuite page; they wear only dark, light appears as a capture).
+Theme (0.13, lsuite design system, owner's decision 2026-10-01): `desktop/src/ui/theme.rs` is the
+only place visual values live, built on `../lsuite/design/tokens.json`: ryolune teal (hue 185,
+`#00c5b4` dark / `#009586` light; `accent_fill` is one step darker by day so white text keeps
+4.5:1), lsuite neutrals, three glass tiers (`theme.glass(1|2|3)`: chrome, floating, modal) over a
+translucent backdrop with two teal glows, and the window is `WindowBackgroundAppearance::Blurred`
+(opaque with macOS Reduce transparency). Work surfaces (lanes, editors, mixer strips) stay solid.
+App tokens kept: meters mint/amber, `mute`/`solo`/`record`, families (`theme.family(folder)`),
+the track palette. Add a token to both modes, never a colour in a view; the contrast test in
+`theme.rs` covers every surface and glass tier over white and black desktops: fix the palette,
+not the threshold. `engine/src/settings.rs` `THEMES` is still `["ryolune"]` with
+`interface.mode` dark/light/auto. Fonts: Manrope and IBM Plex Mono TTFs in `desktop/assets/fonts`
+(the files must carry the plain family names; the old ones said "Manrope ExtraLight"). Icons are
+SVGs in `desktop/assets/icons` (tinted by GPUI); the app icon's source is
+`desktop/icons/ryolune.svg` (`scripts/make-icon.sh`). The public page is lsuite.xyz/ryolune, in
+the lsuite repo (ludovic111/lsuite); ryolune.com redirects there with the same path, so
+`/support` and `/download/<platform>` links keep working. `site/` is the former standalone site,
+no longer deployed; its launch film (`site/video/`) is made in `marketing/` (see its README).
 
 The owner requested a complete Rust rewrite on 2026-09-12, including the interface.
 This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.md`.
 
-- `desktop/`: native egui interface with wgpu, no webview. `desktop/src/theme.rs` holds every visual
-  token and the skeuomorphic material recipes from `design/ryolune Arrangement.dc.html` (spec sheet 02:
-  raised, pressed, lit, groove, well, knob, fader cap, clip slab, glass, plus faceplate, screw,
-  brushed, switch, LED button, plate). Paint with those helpers; never introduce colours, gradients
-  or shadows elsewhere. Floating windows use `window_frame()` and wrap their content in `plate()`;
-  modals use `dialog_frame()`. `chrome.rs` is the title bar, transport, browser and inspector;
-  `timeline.rs` the arrangement; `editor.rs` the region editor; `agents.rs` the agent panel at the
-  right edge (380 px open, 32 px rail closed): a conversation with streamed replies and one card
-  per tool call, a Changes tab with Revert/Redo, and one prompt. `agent/` is the runtime (providers
-  `anthropic`, `openai`, `cli` for Codex and Claude Code; tool calls execute on the interface thread
-  through `run_control_command`). `settings.rs` is the Settings window (⌘,) over
-  `engine::settings::Settings`; apply changes through `apply_settings`, never by writing fields.
-  The window draws its own title bar (native macOS title bar hidden, traffic lights overlaid at
-  the left). Keep every panel to what the design frame shows; anything extra goes into a menu or
-  Settings, not the panel. Fonts are Manrope and IBM Plex Mono (OFL) bundled in
-  `desktop/assets/fonts`.
+- `desktop/`: the app. The host (`app.rs` `Ryolune`: store, audio, plugins, workers; no UI code)
+  and the GPUI window in `desktop/src/ui` (above). `agents.rs` holds the agent panel's state (the
+  Changes log with Revert/Redo, the prompt); the panel itself is `ui/agent_panel/` (380 px open,
+  32 px rail closed). `agent/` is the runtime (providers `anthropic`, `openai`, `cli` for Codex and
+  Claude Code; tool calls execute on the interface thread through `run_control_command`).
+  `settings.rs` holds the Settings window's state over `engine::settings::Settings`; apply changes
+  through `apply_settings` / `settings.set`, never by writing fields. The window draws its own
+  title bar (transparent native title bar, traffic lights at the left, `ui/platform.rs` moves the
+  window). Keep every panel to what the design frame shows; anything extra goes into a menu or
+  Settings, not the panel.
 - `engine/`: pure Rust command store, session model, DSP, audio devices and documents.
   `engine/src/control.rs` is the public command registry (`control_app.rs` holds the view, preset,
   settings, audio, ui, app and agent families); `control/wire.rs` the loopback protocol. `tools/`
@@ -70,17 +75,15 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
 - 0.7 work (decided 2026-09-19, owner delegated the calls): the registry is the contract for GUI
   parity, so a new window interaction lands as a command first (`control_edit.rs` for edits and
   `session.batch`, `control_plugins.rs` for the plugin library, live-only ones in
-  `desktop/src/control.rs`) and the frontend calls that name; do not add private `web.*` handlers
+  `desktop/src/control.rs`) and the window calls that name; no private window-only handlers
   for things a script could want. Plugins are browsed by sound folder: `control_plugins.rs` files
   every descriptor (`automatic_folder`, ordered `EFFECT_RULES`), favourites/recents/overrides live in
-  `settings.plugins`, and the frontend maps a folder to a `fam*` colour token in `theme/families.ts`.
-  Motion is a theme token group (`motion` in `schema.ts`); `theme/motion.css` is the only place that
-  says what moves, components opt in with `data-motion`, and drags are never eased. The count-in
+  `settings.plugins`, and the window colours a folder with `Theme::family`. Drags are never eased. The count-in
   lives in the renderer (`Renderer::count_in`), the capture callback drops frames while
   `Telemetry::counting_in` is set, and `InputMeter` holds the input open only while an audio track
   is armed. Native plugin calls are panic-guarded in `sdk/src/ffi.rs` (`Guarded`); test plugins with
-  `ryolune_plugin::testing::Bench`. Continuous controls are coalesced in `NativeStore`
-  (`CONTINUOUS`); add a command there when a new dial dispatches on pointer move.
+  `ryolune_plugin::testing::Bench`. Continuous controls dispatch on every move inside one
+  `Daw::gesture`, so a drag is one undo step.
 - 0.8 (released 2026-09-23; the owner delegated lossy export and MIDI CC scope): input monitoring
   is a bounded ring (`device::monitor_ring`) from the one input stream to the output callback's `MonitorTap`, which resamples, waits for one input buffer before it
   starts, skips a backlog and counts drops and underruns in `Telemetry`; `Renderer::render_monitored`
@@ -133,7 +136,7 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   Audio clips carry `fade_in`/`fade_out` (seconds), `fade_curve`
   and `gain_db`, absent when default; build them with `ClipData::audio(src, offset)`;
   `Command::PutClip` clamps fades (`model::clamp_fades`) and `render.rs` `clip_envelope` applies
-  fades, gain and the 3 ms edge ramp per sample; `frontend/src/core/fade.ts` mirrors the curves.
+  fades, gain and the 3 ms edge ramp per sample; the arrangement's waveform drawing mirrors the curves.
   `Session.markers` (bar order, absent when empty) change only through `Command::PutMarker` /
   `RemoveMarker` from `control_arrange.rs`; marker navigation is gated by the agent's transport
   permission. Ogg is `Container::Ogg` through `vorbis_rs` (C built by `cc`, no system packages),
@@ -154,8 +157,8 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   0-1 or display text (`Editor::parse_text`), programs through `Editor::programs` (VST3
   program-change parameter, AU factory presets loaded into a fresh instance and saved as
   state). `docs/AGENT_PARITY.md` is the audit of window interactions against the registry;
-  `engine/tests/agent_parity.rs` fails when an `actions.ts` action has no entry in
-  `docs/agent-parity.json`, when the frontend sends an unknown name, or when a command has
+  `engine/tests/agent_parity.rs` fails when an action of `desktop/src/ui/actions.rs` has no
+  entry in `docs/agent-parity.json`, when the window sends an unknown name, or when a command has
   no real description. A new window interaction adds its row there.
 - 0.9 (2026-09-25, owner asked to "improve the app" and delegated): stock voices are scaled by
   `dsp::HEADROOM` (0.5, -6 dB) because loops and chords clipped at unity; old songs play 6 dB
@@ -179,8 +182,8 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   use `Session::bars_seconds` / `seconds_bars` / `tempo_map()`, never `60 / tempo`. The renderer
   advances `position` by the segment's tempo each frame, keeps `seconds` for audio clips
   (`Scheduled.start_seconds`), resnaps it at segment ends and fills `frame_beats` for
-  automation and the click. `frontend/src/core/tempo.ts` mirrors the map; the tempo track is
-  `TempoRow.tsx` + `canvas/tempoLane.ts` (`ui.showPanel panel=tempo`). Commands are
+  automation and the click. the tempo track is drawn by the arrangement
+  (`desktop/src/ui/arrangement`, `ui.showPanel panel=tempo`). Commands are
   `control_tempo.rs`; MIDI export writes ramps as sixteenth steps of equal duration. Meter
   changes inside a song are not supported. Buses: a track of kind `bus` (no clips, never armed)
   sums tracks routed to it (`Track.output`) or sending to it (`Send.bus`; sends 0/1 default to
@@ -195,8 +198,8 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   `settings::Provider` has 13 variants; every one after Anthropic runs through `agent/openai.rs`
   (Chat Completions) with `Settings::base_url` / `api_key`; `Provider::hosted()` holds the fixed
   address, env names, key page and `strict` (Mistral and DeepSeek get `max_tokens`, no stream
-  usage). The frontend mirror is `providers` in `components/agent/connection.ts`; keep both,
-  `SECRET_PATHS` and `validate`'s key loop in sync. Outside agents: `agent/clients.rs` builds the
+  usage). The Settings window's agent section (`desktop/src/ui/settings_window/agent.rs`) lists them
+  (a test keeps it in step); keep it, `SECRET_PATHS` and `validate`'s key loop in sync. Outside agents: `agent/clients.rs` builds the
   per-client MCP recipes (`agent.mcp`) and install links (`agent.openClient`, refused to agents).
   Generation: `control_generate.rs` shapes requests from the song (loops get tempo/key and are
   fitted to their bars), keeps results in `<data dir>/generated` with a JSON note, and places them
@@ -208,6 +211,10 @@ This supersedes the former Electron / TypeScript architecture in `legacy/CLAUDE.
   keeps its sound in its state: the insert blob is the native host's `{values, state}` document
   (`sample_keys::insert_blob`). The agent panel tabs are Chat, Generate, Changes, Takes; Rhythm Lab's
   UI is gone, its commands stay.
+- Tests: a cargo test binary resolves settings, data, the control file, `~/.lsuite` and the kimchi
+  library to a per-process scratch folder when no override is set (`host::scan::test_sandbox`);
+  still run tests and the app with `RYOLUNE_SETTINGS`, `RYOLUNE_DATA_DIR`, `RYOLUNE_CONTROL` and
+  `LSUITE_HOME` in a scratch folder (a test run without them overwrote the owner's settings once).
 - Parallel worktrees must not share `CARGO_TARGET_DIR`: cargo can link another worktree's
   `ryolune-engine` into yours. The site: `site/server.js` swaps each `?v=` on `.js`/`.css` for a
   content hash (immutable caching), serves `/sitemap.xml` and hides its own sources; fonts are
@@ -262,27 +269,19 @@ Porkbun 301 there with the path kept.
 
 Still to do:
 
-- [ ] **Design system** (`../lsuite/design/`): ryolune's signature color is **teal, hue 185**
-      (`--ls-ryolune-*`, accent `#00c5b4` dark / `#009586` light), matching its icon. 0.12 uses a
-      lunar gold accent: move the accent to the teal scale (playhead, focus, lit keys, what the agent
-      touched), keep meters/mute/solo/record colors. Map `frontend/src/theme` onto the `--ls-*`
-      tokens (copy `tokens.css`; the theme layer stays the only place values live), put the chrome
-      (title bar, browser, inspector, agent panel, transport, menus, dialogs) on the three glass
-      tiers over `.ls-backdrop`, keep the arrangement, editors and mixer strips solid, use macOS
-      window vibrancy (Tauri `window-vibrancy`), and keep `appearance.test.ts` passing with the
-      glass tiers in the contrast check. Redraw the app icon from the lsuite template.
-- [ ] **Discovery**: write `~/.lsuite/apps/ryolune.json` at start (version, paths of the app,
-      `ryolune-cli`, `ryolune-mcp`, bridge port while running, data folder). ryolune is the first
-      app to do it, so design the format (small, versioned) and document it in `../lsuite/STANDARD.md`.
-- [ ] **Hand-offs**: export a mix or stems straight onto a kimchi project's audio track
-      (read kimchi's discovery file, use its CLI/MCP), and accept a cut from kimchi (audio,
-      length, markers) to score. Each as a registry command.
-- [ ] **Shared command names** with the other apps where the concept matches (`app.version`,
-      `app.checkUpdates`, `history.*`, `export.*`); add aliases rather than breaking scripts.
+- [x] **Design system** (0.13, 2026-10-02: done in the GPUI window; see Theme above). The app
+      icon is redrawn from the lsuite template.
+- [x] **Discovery** (0.13: `~/.lsuite/apps/ryolune.json`, format 1 in `engine/src/lsuite.rs`,
+      written by `desktop/src/discovery.rs`; `app.suite` reads every app's. Documented in lsuite's
+      STANDARD.md on branch `claude/ryolune-discovery-handoffs` of the lsuite repo, not merged.)
+- [x] **Hand-offs** (0.13: `export.toKimchi`, `session.scoreCut`, `handoff.inbox` in
+      `engine/src/control_suite.rs`; kimchi still has to take its inbox and send cuts.)
+- [x] **Shared command names** (0.13: `control::ALIASES`: `app.version`, `project.overview`,
+      `export.audio`, `export.stems`, `export.midi`.)
 - [x] **Site** (0.12 page done 2026-10-01): keep updating lsuite.xyz/ryolune
       (`../lsuite/ryolune/index.html`) with every release: what's new, features, captures
       (`../lsuite/assets/img/ryolune/`). The version shown comes from the latest GitHub release.
-- [ ] Point `SUPPORT_URL` (desktop/src/control.rs) at `https://lsuite.xyz/ryolune/support` in the
+- [x] Point `SUPPORT_URL` (desktop/src/control.rs) at `https://lsuite.xyz/ryolune/support` in the
       next release.
 
 When done, tick these, and update the status table at the end of `../lsuite/STANDARD.md`.

@@ -14,7 +14,10 @@ Not in git: the footage (`work/record.mjs` makes it), the music (copy
 `happy-beats-business-moves-vol-1-by-ende-dot-app.mp3` from the /brag skill's `assets/music/` into
 `composition/assets/music/`) and the final MP4s (published as `site/video/`).
 
-To rebuild after a UI change (needs FFmpeg and Node 22):
+The 0.12 film was recorded from the React renderer, which 0.13 replaced with the GPUI window:
+`record.mjs` drove that renderer in a browser and needs a new way in (for example frames from
+`ryolune-cli ui.screenshot`) before the film can be remade. The 0.12 steps, for reference
+(needs FFmpeg and Node 22):
 
 ```sh
 npm --prefix frontend run dev                     # another terminal

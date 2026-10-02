@@ -14,13 +14,15 @@ and Audio Unit plugins, automate anything, and export a mix or stems as WAV, AIF
 Vorbis. Ask the built-in agent for a bass line or a mix check in your own words: it works on the
 same song, and every edit it makes is one undo away.
 
-- **Audio engine in Rust**: sample-accurate automation and controllers, plugin delay
-  compensation, input monitoring, count-in, crash-isolated plugin scanning. Nothing audio runs in
-  JavaScript.
+- **All Rust, window included**: the audio engine (sample-accurate automation and controllers,
+  plugin delay compensation, input monitoring, count-in, crash-isolated plugin scanning) and the
+  window, drawn on the GPU with GPUI. No webview, no JavaScript.
 - **35 stock instruments and effects** with front panels that draw what the audio does, plus
   your own CLAP, VST3, Audio Unit (macOS) and ryolune native plugins.
-- **One carefully drawn theme**, graphite by night and porcelain by day, with text contrast
-  tested on every surface.
+- **The lsuite look**: frosted glass chrome over solid work surfaces and ryolune teal, in dark
+  and light, with text contrast tested on every surface and glass tier.
+- **Works with the rest of lsuite**: send a mix or stems onto a kimchi video project, score a
+  cut that comes back from kimchi, and find the other apps through `~/.lsuite`.
 - **Built for AI control**: everything a person can do in the window is a command that the
   built-in agent, `ryolune-cli` and any MCP client can call, with a one-call overview of the whole
   song and full access to external plugins' parameters and state. The built-in agent runs on
