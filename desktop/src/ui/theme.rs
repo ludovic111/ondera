@@ -138,6 +138,25 @@ pub struct Theme {
     pub marker: Hsla,
     pub hover: Hsla,
     pub selection_text: Hsla,
+
+    // Region editor (piano roll, score, step, controller lane).
+    /// Every other key row, lifted a little so rows read across a wide roll.
+    pub row_shade: Hsla,
+    /// The bar ticks in the editor's ruler.
+    pub ruler_tick: Hsla,
+    /// The step lines of the step view.
+    pub step_cell: Hsla,
+    /// A note being drawn with the pencil.
+    pub pencil_preview: Hsla,
+    /// Where a note being moved or resized would land.
+    pub drag_ghost: Hsla,
+    pub drag_ghost_edge: Hsla,
+    /// The light along a note's top edge.
+    pub note_highlight: Hsla,
+    /// The drop under a note.
+    pub note_shadow: Hsla,
+    /// Staff lines, ledger lines and duration tails of the score view.
+    pub staff: Hsla,
 }
 
 impl Global for Theme {}
@@ -172,6 +191,14 @@ impl Theme {
         match self.mode {
             Mode::Dark => oklch(0.78, 0.115, hue, 1.0),
             Mode::Light => oklch(0.55, 0.13, hue, 1.0),
+        }
+    }
+    /// A note's two shades from its track colour (top and bottom of its face): the same hue
+    /// at a fixed lightness, so every track's notes read alike on the editor surface.
+    pub fn note_shades(&self, track: Hsla) -> (Hsla, Hsla) {
+        match self.mode {
+            Mode::Dark => (with_lightness(track, 0.8), with_lightness(track, 0.66)),
+            Mode::Light => (with_lightness(track, 0.74), with_lightness(track, 0.62)),
         }
     }
     /// A track's colour: the document keeps a CSS colour; an unreadable one falls back to
@@ -266,6 +293,27 @@ pub fn with_alpha(mut c: Hsla, alpha: f32) -> Hsla {
 }
 fn teal(n: u32) -> Hsla {
     hex(TEAL[step(n)])
+}
+
+/// The same colour at another OKLCH lightness (0-1): hue and chroma kept.
+pub fn with_lightness(color: Hsla, lightness: f32) -> Hsla {
+    let c: Rgba = color.into();
+    let decode = |x: f32| {
+        if x <= 0.040_45 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let (r, g, b) = (decode(c.r), decode(c.g), decode(c.b));
+    let l = (0.412_221_46 * r + 0.536_332_55 * g + 0.051_445_995 * b).cbrt();
+    let m = (0.211_903_5 * r + 0.680_699_5 * g + 0.107_396_96 * b).cbrt();
+    let s = (0.088_302_46 * r + 0.281_718_85 * g + 0.629_978_7 * b).cbrt();
+    let a = 1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s;
+    let bb = 0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s;
+    let chroma = (a * a + bb * bb).sqrt();
+    let hue = bb.atan2(a).to_degrees();
+    oklch(lightness, chroma, hue, c.a)
 }
 
 /// OKLCH to sRGB (CSS Color 4), gamut-clipped.
@@ -432,6 +480,15 @@ fn dark(opaque: bool) -> Theme {
         marker: oklch(0.8, 0.1, 222.0, 1.0),
         hover: white(0.055),
         selection_text: with_alpha(accent, 0.32),
+        row_shade: white(0.022),
+        ruler_tick: white(0.24),
+        step_cell: white(0.05),
+        pencil_preview: with_alpha(accent, 0.24),
+        drag_ghost: white(0.09),
+        drag_ghost_edge: white(0.42),
+        note_highlight: white(0.28),
+        note_shadow: black(0.4),
+        staff: white(0.3),
     }
 }
 
@@ -522,6 +579,15 @@ fn light(opaque: bool) -> Theme {
         marker: oklch(0.55, 0.13, 222.0, 1.0),
         hover: ink(0.042),
         selection_text: with_alpha(accent, 0.26),
+        row_shade: ink(0.02),
+        ruler_tick: ink(0.3),
+        step_cell: ink(0.05),
+        pencil_preview: with_alpha(accent, 0.24),
+        drag_ghost: ink(0.08),
+        drag_ghost_edge: ink(0.42),
+        note_highlight: white(0.4),
+        note_shadow: hexa(0x141628, 0.14),
+        staff: ink(0.34),
     }
 }
 
@@ -562,6 +628,28 @@ pub mod layout {
     pub const ARRANGEMENT_MIN: f32 = 420.0;
     pub const WINDOW_MIN_W: f32 = 1120.0;
     pub const WINDOW_MIN_H: f32 = 760.0;
+}
+
+/// The region editor's fixed sizes.
+pub mod editor {
+    /// The keyboard column at the left of the roll and the controller lane's head.
+    pub const KEY_COLUMN: f32 = 56.0;
+    /// One key row of the piano roll.
+    pub const KEY_ROW: f32 = 12.0;
+    /// The bar ruler over the roll.
+    pub const RULER: f32 = 18.0;
+    /// The controller lane under the roll.
+    pub const CONTROLLER_LANE: f32 = 96.0;
+    /// Radius of a controller point, how near the pointer must come to grab one, and the
+    /// space kept above the highest and below the lowest value.
+    pub const CONTROLLER_POINT: f32 = 3.0;
+    pub const CONTROLLER_GRIP: f32 = 6.0;
+    pub const CONTROLLER_INSET: f32 = 6.0;
+    /// Grab zone at a note's right edge for resizing.
+    pub const NOTE_EDGE_GRIP: f32 = 5.0;
+    /// Distance between staff lines, and a note head's radius, in the score view.
+    pub const STAFF_GAP: f32 = 8.0;
+    pub const NOTE_HEAD_R: f32 = 3.5;
 }
 
 pub const FONT_UI: &str = "Manrope";
@@ -675,6 +763,22 @@ mod tests {
         // OKLCH white is white.
         let w: Rgba = oklch(1.0, 0.0, 0.0, 1.0).into();
         assert!(w.r > 0.99 && w.g > 0.99 && w.b > 0.99);
+    }
+
+    #[test]
+    fn a_colour_keeps_its_hue_at_another_lightness() {
+        let base = oklch(0.6, 0.12, 250.0, 1.0);
+        let same: Rgba = with_lightness(base, 0.6).into();
+        let b: Rgba = base.into();
+        assert!(
+            (same.r - b.r).abs() < 0.01
+                && (same.g - b.g).abs() < 0.01
+                && (same.b - b.b).abs() < 0.01
+        );
+        let lighter: Rgba = with_lightness(base, 0.8).into();
+        assert!(luminance(lighter) > luminance(b));
+        // Blue stays blue.
+        assert!(lighter.b > lighter.r && lighter.b > lighter.g);
     }
 
     #[test]
