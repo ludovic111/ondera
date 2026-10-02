@@ -688,3 +688,162 @@ mod tests {
         assert_eq!(to_hex(light), 0x009586);
     }
 }
+
+/// Arrangement sizes: clips, fades, the ruler's flags and the tempo track, on the same scale
+/// as [`layout`].
+pub mod arrange {
+    /// Space between a lane's edge and the clips on it.
+    pub const CLIP_INSET: f32 = 6.0;
+    /// The title strip across the top of a clip.
+    pub const CLIP_TITLE: f32 = 17.0;
+    pub const CLIP_RADIUS: f32 = 5.0;
+    /// Height of a note in a clip's MIDI preview.
+    pub const CLIP_NOTE_H: f32 = 3.0;
+    /// Grab zone at each clip edge for trimming.
+    pub const CLIP_EDGE_GRIP: f32 = 8.0;
+    /// Fade handle in an audio clip's title strip, and its grab zone.
+    pub const FADE_HANDLE: f32 = 8.0;
+    pub const FADE_GRIP: f32 = 7.0;
+    /// Grab zone at each cycle-range edge in the ruler.
+    pub const CYCLE_GRIP: f32 = 7.0;
+    /// Marker flags sit in the ruler's lower half: their top and height.
+    pub const MARKER_TOP: f32 = 18.0;
+    pub const MARKER_H: f32 = 14.0;
+    /// Beat ticks at the ruler's foot.
+    pub const RULER_TICK: f32 = 7.0;
+    /// The playhead's triangle in the ruler.
+    pub const PLAYHEAD_FLAG_W: f32 = 14.0;
+    pub const PLAYHEAD_FLAG_H: f32 = 9.0;
+    /// The tempo track: its height, a point's radius and its grab zone.
+    pub const TEMPO_LANE: f32 = 64.0;
+    pub const TEMPO_POINT: f32 = 4.0;
+    pub const TEMPO_GRIP: f32 = 8.0;
+    /// The track colour down a header's left edge.
+    pub const COLOR_STRIP: f32 = 5.0;
+    pub const ZOOM_RAIL: f32 = 110.0;
+    /// A name or tempo typed in place.
+    pub const INLINE_INPUT_H: f32 = 24.0;
+}
+
+/// The arrangement's own inks: lanes, clip faces, fades, the ruler and its flags. Derived
+/// from the theme so they follow the mode.
+#[derive(Clone, Debug)]
+pub struct Timeline {
+    pub lane_top: Hsla,
+    pub lane_bottom: Hsla,
+    pub ruler_bar: Hsla,
+    pub ruler_tick: Hsla,
+    pub ruler_bottom: Hsla,
+    pub cycle_edge: Hsla,
+    pub cycle_handle: Hsla,
+    pub drag_ghost: Hsla,
+    pub drag_ghost_edge: Hsla,
+    pub pencil_preview: Hsla,
+    pub drop_target: Hsla,
+    pub split_guide: Hsla,
+    /// What a clip face mixes the track colour with, and how much of the colour it keeps at
+    /// the top and the bottom.
+    pub face_base: Hsla,
+    pub face_top: f32,
+    pub face_bottom: f32,
+    pub clip_shadow: Hsla,
+    pub clip_title_bottom: Hsla,
+    pub clip_highlight: Hsla,
+    pub clip_contact: Hsla,
+    pub clip_selected: Hsla,
+    pub midi_note: Hsla,
+    pub waveform_mid: Hsla,
+    pub fade_shade: Hsla,
+    pub fade_curve: Hsla,
+    pub fade_handle: Hsla,
+    pub marker_flag: Hsla,
+    pub marker_lane: Hsla,
+    pub tempo_fill: Hsla,
+    pub header: Hsla,
+}
+
+impl Theme {
+    pub fn timeline(&self) -> Timeline {
+        let dark = self.mode == Mode::Dark;
+        let ink = |a: f32| if dark { white(a) } else { hexa(0x14161b, a) };
+        Timeline {
+            lane_top: if dark { white(0.018) } else { white(0.6) },
+            lane_bottom: if dark {
+                black(0.32)
+            } else {
+                hexa(0x141620, 0.07)
+            },
+            ruler_bar: ink(if dark { 0.24 } else { 0.3 }),
+            ruler_tick: ink(if dark { 0.1 } else { 0.13 }),
+            ruler_bottom: if dark {
+                black(0.55)
+            } else {
+                hexa(0x141628, 0.1)
+            },
+            cycle_edge: with_alpha(self.accent, 0.85),
+            cycle_handle: with_alpha(self.accent, 0.95),
+            drag_ghost: ink(if dark { 0.09 } else { 0.08 }),
+            drag_ghost_edge: ink(0.42),
+            pencil_preview: with_alpha(self.accent, 0.24),
+            drop_target: with_alpha(self.accent, if dark { 0.09 } else { 0.1 }),
+            split_guide: with_alpha(self.accent, 0.95),
+            face_base: self.bg_raised,
+            face_top: if dark { 0.64 } else { 0.6 },
+            face_bottom: if dark { 0.52 } else { 0.7 },
+            clip_shadow: if dark {
+                black(0.45)
+            } else {
+                hexa(0x141620, 0.18)
+            },
+            clip_title_bottom: if dark {
+                black(0.12)
+            } else {
+                hexa(0x141620, 0.05)
+            },
+            clip_highlight: if dark { white(0.16) } else { white(0.75) },
+            clip_contact: if dark {
+                black(0.32)
+            } else {
+                hexa(0x141620, 0.1)
+            },
+            clip_selected: self.text_display,
+            midi_note: if dark {
+                white(0.84)
+            } else {
+                hexa(0x141620, 0.72)
+            },
+            waveform_mid: if dark {
+                white(0.28)
+            } else {
+                hexa(0x141620, 0.24)
+            },
+            fade_shade: if dark {
+                black(0.38)
+            } else {
+                hexa(0x141620, 0.14)
+            },
+            fade_curve: if dark {
+                white(0.86)
+            } else {
+                hexa(0x141620, 0.72)
+            },
+            fade_handle: if dark {
+                white(0.94)
+            } else {
+                hexa(0x141620, 0.82)
+            },
+            marker_flag: if dark {
+                hexa(0x16171c, 0.9)
+            } else {
+                white(0.94)
+            },
+            marker_lane: with_alpha(self.marker, if dark { 0.28 } else { 0.3 }),
+            tempo_fill: with_alpha(self.accent, 0.1),
+            header: if dark {
+                oklch(0.205, 0.008, 268.0, 1.0)
+            } else {
+                hex(0xf7f8fb)
+            },
+        }
+    }
+}
