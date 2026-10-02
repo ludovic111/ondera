@@ -87,20 +87,10 @@ pub(crate) struct LiveJob {
     started: Instant,
 }
 
-/// Set by the Tauri window so a waiting CLI or MCP request is answered at once instead of on
-/// the next 33 ms tick.
-pub(crate) static CONTROL_WAKE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
-    std::sync::OnceLock::new();
-
 impl Ryolune {
-    pub(crate) fn start_control(&mut self, ctx: &eframe::egui::Context) {
-        let ctx = ctx.clone();
-        match wire::Server::start(move || {
-            ctx.request_repaint();
-            if let Some(wake) = CONTROL_WAKE.get() {
-                wake();
-            }
-        }) {
+    pub(crate) fn start_control(&mut self) {
+        let wake = self.wake.clone();
+        match wire::Server::start(move || wake()) {
             Ok(server) => self.control = Some(server),
             Err(e) => self.status = format!("Live control unavailable: {e}"),
         }
@@ -502,13 +492,12 @@ impl Ryolune {
         work: impl FnOnce() -> Result<Value> + Send + 'static,
     ) -> Value {
         let (tx, rx) = mpsc::sync_channel(1);
+        let wake = self.wake.clone();
         std::thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
                 .unwrap_or_else(|_| Err("The background job failed".into()));
             let _ = tx.send(result);
-            if let Some(wake) = CONTROL_WAKE.get() {
-                wake();
-            }
+            wake();
         });
         self.start_live(LiveWait::Worker(rx), method, params, source)
     }
@@ -522,11 +511,10 @@ impl Ryolune {
         source: &str,
     ) -> Result<Value> {
         let (tx, rx) = mpsc::sync_channel(1);
+        let wake = self.wake.clone();
         let send = move |result: Result<GenerationDone>| {
             let _ = tx.send(result);
-            if let Some(wake) = CONTROL_WAKE.get() {
-                wake();
-            }
+            wake();
         };
         if method == "generate.audio" {
             let request =
@@ -663,21 +651,23 @@ impl Ryolune {
             }
         }
     }
-    /// Ask the viewport for pending screenshots; time out jobs nobody can finish.
-    pub(crate) fn poll_live_jobs(&mut self, ctx: &eframe::egui::Context) {
-        self.poll_workers();
-        let mut request_capture = false;
+    /// A window capture a live job asked for and the window has not taken yet. Marks it
+    /// taken, so each request is captured once.
+    pub(crate) fn take_capture_request(&mut self) -> bool {
+        let mut wanted = false;
         for job in &mut self.live_jobs {
             if let LiveWait::Screenshot { requested, .. } = &mut job.wait {
                 if !*requested {
                     *requested = true;
-                    request_capture = true;
+                    wanted = true;
                 }
             }
         }
-        if request_capture {
-            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Screenshot(Default::default()));
-        }
+        wanted
+    }
+    /// Time out jobs nobody can finish.
+    pub(crate) fn poll_live_jobs(&mut self) {
+        self.poll_workers();
         let expired: Vec<usize> = self
             .live_jobs
             .iter()
@@ -699,9 +689,6 @@ impl Ryolune {
             if let Some(reply) = job.reply {
                 reply.respond(result);
             }
-        }
-        if !self.live_jobs.is_empty() {
-            ctx.request_repaint();
         }
     }
     /// Complete every pending live job of one kind with the same result.
@@ -725,7 +712,7 @@ impl Ryolune {
         }
     }
     /// A finished window capture: write it where the live job asked.
-    pub(crate) fn deliver_screenshot(&mut self, image: &eframe::egui::ColorImage) -> bool {
+    pub(crate) fn deliver_screenshot(&mut self, image: &image::RgbaImage) -> bool {
         let Some(index) = self
             .live_jobs
             .iter()
@@ -741,15 +728,7 @@ impl Ryolune {
             if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            let data: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
-            image::save_buffer(
-                &path,
-                &data,
-                image.width() as u32,
-                image.height() as u32,
-                image::ColorType::Rgba8,
-            )
-            .map_err(|e| e.to_string())?;
+            image.save(&path).map_err(|e| e.to_string())?;
             Ok(json!({
                 "path": path,
                 "width": image.width(),
@@ -823,7 +802,7 @@ impl Ryolune {
         json!({
             "frontendReady": self.frontend_ready,
             "agentPanel": self.agents.open,
-            "automation": self.automation.open,
+            "automation": self.show_automation,
             "settings": self.settings_ui.open,
             "settingsSection": crate::settings::SECTION_KEYS[self.settings_ui.section.min(crate::settings::SECTION_KEYS.len() - 1)],
             "help": self.show_help,
@@ -917,7 +896,7 @@ impl Ryolune {
             "panels": {
                 "agent": self.agents.open,
                 "mixer": self.show_mixer,
-                "automation": self.automation.open,
+                "automation": self.show_automation,
                 "controllers": self.show_controllers,
                 "tempo": self.show_tempo,
                 "palette": self.show_palette,
@@ -1433,7 +1412,7 @@ impl Host for Ryolune {
                 let visible = params["visible"].as_bool().unwrap_or(true);
                 match panel {
                     "agent" => self.agents.open = visible,
-                    "automation" => self.automation.open = visible,
+                    "automation" => self.show_automation = visible,
                     "settings" => {
                         let section = params["section"].as_str().map(|key| {
                             crate::settings::SECTION_KEYS.iter().position(|candidate| *candidate == key)

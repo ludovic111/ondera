@@ -10,12 +10,10 @@
 //! place and relaunches. Set `RYOLUNE_PRETEND_VERSION=0.0.1` to exercise the flow against a real
 //! release.
 
-use crate::app::{Intent, Ryolune};
+use crate::app::Ryolune;
 use crate::control::LiveWait;
-use crate::theme::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use eframe::egui;
 use ryolune_engine::Result;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1237,80 +1235,6 @@ impl Ryolune {
             }
             self.finish_live(|wait| matches!(wait, LiveWait::UpdateInstall), live);
         }
-    }
-    /// Title-bar notice, shown once a newer release is known.
-    pub(crate) fn update_button(&mut self, ui: &mut egui::Ui) {
-        let label = match (&self.updates.available, &self.updates.installed) {
-            (_, Some(_)) => "Relaunch to update".to_string(),
-            (Some(r), None) => format!("Update to {}", r.version),
-            (None, None) => return,
-        };
-        if text_button(ui, &label, Face::Lit).clicked() {
-            self.updates.show = true;
-        }
-    }
-    pub(crate) fn update_dialog(&mut self, ctx: &egui::Context) {
-        if !self.updates.show {
-            return;
-        }
-        let Some(release) = self.updates.available.clone() else {
-            self.updates.show = false;
-            return;
-        };
-        egui::Modal::new(egui::Id::new("update")).frame(dialog_frame()).show(ctx, |ui| {
-            ui.set_max_width(440.0);
-            let title = if self.updates.installed.is_some() {
-                format!("ryolune {} is installed", release.version)
-            } else {
-                format!("ryolune {} is available", release.version)
-            };
-            ui.label(text(title, FS_PANEL_TITLE, Weight::Bold, INK));
-            ui.add_space(6.0);
-            let body = if self.updates.installed.is_some() {
-                "Relaunch to start using it. Your session is saved first if it has changes."
-                    .to_string()
-            } else if self.updates.installing.is_some() {
-                format!("Downloading {}…", release.asset)
-            } else {
-                format!(
-                    "You have {}. The update downloads from GitHub, is verified, replaces this copy and relaunches.",
-                    current_version()
-                )
-            };
-            ui.label(text(body, FS_BODY, Weight::Medium, DIM));
-            let notes: Vec<&str> = release
-                .notes
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .take(8)
-                .collect();
-            if !notes.is_empty() && self.updates.installed.is_none() {
-                ui.add_space(8.0);
-                for line in notes {
-                    ui.label(text(line, FS_SECONDARY, Weight::Medium, INK_CONTROL));
-                }
-            }
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if self.updates.installed.is_some() {
-                    if text_button(ui, "Relaunch now", Face::Lit).clicked() {
-                        self.updates.show = false;
-                        self.request(Intent::Relaunch);
-                    }
-                    if text_button(ui, "Later", Face::Raised).clicked() {
-                        self.updates.show = false;
-                    }
-                } else if self.updates.installing.is_none() {
-                    if text_button(ui, "Install and relaunch", Face::Lit).clicked() {
-                        self.install_update();
-                    }
-                    if text_button(ui, "Later", Face::Raised).clicked() {
-                        self.updates.show = false;
-                    }
-                }
-            });
-        });
     }
 }
 

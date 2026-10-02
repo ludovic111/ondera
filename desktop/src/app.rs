@@ -1,8 +1,4 @@
-use crate::{
-    plugins::{Bank, ScanEvent},
-    theme::*,
-};
-use eframe::egui;
+use crate::plugins::{Bank, ScanEvent};
 use ryolune_engine::{
     audio::{self, Library},
     device::{DeviceEngine, LiveInput, Message, RecordedAudio, Recorder},
@@ -22,7 +18,6 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         mpsc, Arc,
     },
-    time::Duration,
 };
 
 /// A note captured from MIDI input or musical typing while recording.
@@ -82,17 +77,10 @@ pub struct Ryolune {
     pub scroll: f64,
     pub tool: usize,
     pub browser_tab: usize,
-    pub browser_filter: String,
-    pub browser_selected: Option<String>,
     pub error: Option<String>,
     pub status: String,
     pub path: Option<PathBuf>,
     pub(crate) session_file: Option<SessionFileLock>,
-    pub clip_drag: Option<crate::timeline::ClipDrag>,
-    pub note_drag: Option<crate::editor::NoteDrag>,
-    pub ruler_anchor: Option<f64>,
-    pub draw_clip_anchor: Option<(String, f64)>,
-    pub draw_note_anchor: Option<f64>,
     pub(crate) pending_preview: Option<(String, u8, u8)>,
     pub editor_low: u8,
     pub editor_zoom: f32,
@@ -150,7 +138,12 @@ pub struct Ryolune {
     pub input_device: Option<String>,
     pub(crate) control: Option<ryolune_engine::control::wire::Server>,
     pub(crate) agents: crate::agents::AgentPanel,
-    pub(crate) automation: crate::automation::AutomationUi,
+    /// The automation window is open.
+    pub show_automation: bool,
+    /// Asks the window to run its next tick soon: a control request, a worker or the agent.
+    pub(crate) wake: crate::Wake,
+    /// The pointer is down or a text field has focus: background work waits for it.
+    pub(crate) interacting: bool,
     pub(crate) export: crate::export::ExportDialog,
     pub(crate) recovery: crate::recovery::Recovery,
     pub(crate) control_job: Option<crate::control::ControlJob>,
@@ -192,16 +185,16 @@ impl Ryolune {
     }
 
     pub fn new(
-        ctx: &egui::Context,
+        wake: crate::Wake,
         path: Option<PathBuf>,
         screenshot: Option<PathBuf>,
         control: bool,
         check_updates: bool,
     ) -> Self {
-        install(ctx);
         let screenshot_run = screenshot.is_some();
         let settings = Settings::load();
         let mut app = Self::from_session(store::demo(), screenshot);
+        app.wake = wake;
         app.settings = settings.clone();
         app.output_device = settings.audio.output_device.clone();
         app.input_device = settings.audio.input_device.clone();
@@ -209,13 +202,10 @@ impl Ryolune {
             app.midi_port = settings.audio.midi_input.clone();
         }
         app.agents.open = settings.interface.agent_panel_open_on_start;
-        if (settings.interface.scale - 1.0).abs() > f32::EPSILON {
-            ctx.set_zoom_factor(settings.interface.scale);
-        }
         app.catalog = host::scan::installed();
         app.connect();
         if control && settings.control.enable_bridge {
-            app.start_control(ctx);
+            app.start_control();
         }
         if check_updates && settings.general.check_updates_on_start && !screenshot_run {
             app.check_for_updates(false);
@@ -274,17 +264,10 @@ impl Ryolune {
             scroll: 0.0,
             tool: 0,
             browser_tab: 0,
-            browser_filter: String::new(),
-            browser_selected: None,
             error: None,
             status: "Preparing audio…".into(),
             path: None,
             session_file: None,
-            clip_drag: None,
-            note_drag: None,
-            ruler_anchor: None,
-            draw_clip_anchor: None,
-            draw_note_anchor: None,
             pending_preview: None,
             editor_low: 36,
             editor_zoom: 1.0,
@@ -333,7 +316,9 @@ impl Ryolune {
             input_device: None,
             control: None,
             agents: Default::default(),
-            automation: Default::default(),
+            show_automation: false,
+            wake: std::sync::Arc::new(|| {}),
+            interacting: false,
             export: Default::default(),
             recovery: Default::default(),
             control_job: None,
@@ -1305,6 +1290,10 @@ impl Ryolune {
     }
     pub fn add_track(&mut self, kind: &str) -> String {
         let index = self.store.session().tracks.len();
+        // The legacy palette by position, as hex so every older reader understands it.
+        const TRACKS: [&str; 8] = [
+            "#ed835e", "#b191ea", "#6ab3fd", "#d991d2", "#e0af3b", "#95bd69", "#eb8182", "#ee9748",
+        ];
         let color = TRACKS[index % 8];
         let id = id("track");
         let track = Track {
@@ -1318,7 +1307,7 @@ impl Ryolune {
                 },
                 index + 1
             ),
-            color: format!("#{:02x}{:02x}{:02x}", color.r(), color.g(), color.b()),
+            color: color.into(),
             kind: kind.into(),
             volume: 0.75,
             pan: 0.0,
@@ -1623,8 +1612,8 @@ impl Ryolune {
             })
         });
     }
-    pub(crate) fn poll_agent(&mut self, ctx: &egui::Context) {
-        self.run_agent_tools(ctx);
+    pub(crate) fn poll_agent(&mut self) {
+        self.run_agent_tools();
         if !self.agents.runner_busy() && self.job.is_none() && self.control_job.is_none() {
             if let Some(intent) = self.after_agent.take() {
                 // The runner joins its MCP children before becoming idle. Reject commands
@@ -1732,138 +1721,6 @@ impl Ryolune {
             }
         }
     }
-    pub(crate) fn keyboard(&mut self, ctx: &egui::Context) {
-        let editing_text = ctx
-            .memory(|m| m.focused())
-            .is_some_and(|id| egui::TextEdit::load_state(ctx, id).is_some());
-        if editing_text || self.intent.is_some() {
-            return;
-        }
-        let mods = ctx.input(|i| i.modifiers);
-        let pressed = |key| ctx.input_mut(|i| i.consume_key(mods, key));
-        if mods.command {
-            if pressed(egui::Key::Comma) {
-                self.open_settings(None);
-            }
-            if pressed(egui::Key::K) {
-                self.toggle_musical_typing();
-            }
-            if pressed(egui::Key::S) {
-                self.save(mods.shift);
-            }
-            if pressed(egui::Key::O) {
-                self.request(Intent::Open);
-            }
-            if pressed(egui::Key::N) {
-                self.request(Intent::New);
-            }
-            if pressed(egui::Key::I) {
-                self.import(None);
-            }
-            if pressed(egui::Key::B) {
-                self.bounce();
-            }
-            if pressed(egui::Key::D) {
-                self.duplicate_clip();
-            }
-            if pressed(egui::Key::T) {
-                self.split_selected(self.position / self.store.session().beats_per_bar());
-            }
-            if pressed(egui::Key::Z) {
-                self.dispatch(if mods.shift {
-                    Command::Redo
-                } else {
-                    Command::Undo
-                });
-            }
-            if pressed(egui::Key::Equals) || pressed(egui::Key::Plus) {
-                self.zoom = (self.zoom * 1.25).min(480.0);
-            }
-            if pressed(egui::Key::Minus) {
-                self.zoom = (self.zoom / 1.25).max(12.0);
-            }
-            return;
-        }
-        if pressed(egui::Key::Space) {
-            self.play();
-        }
-        if pressed(egui::Key::Num0) {
-            self.stop();
-        }
-        if pressed(egui::Key::Enter) {
-            self.locate(0.0);
-        }
-        if pressed(egui::Key::Backspace) || pressed(egui::Key::Delete) {
-            self.delete_selected();
-        }
-        if self.musical_typing {
-            self.musical_typing_keys(ctx);
-            return;
-        }
-        if pressed(egui::Key::C) {
-            let mut t = self.store.session().transport.clone();
-            t.cycle = !t.cycle;
-            self.dispatch(Command::SetTransport(t));
-        }
-        if pressed(egui::Key::K) {
-            let mut t = self.store.session().transport.clone();
-            t.metronome = !t.metronome;
-            self.dispatch(Command::SetTransport(t));
-        }
-        if pressed(egui::Key::R) {
-            self.record_enabled = !self.record_enabled;
-            if self.playing {
-                if self.record_enabled {
-                    self.start_recording();
-                } else {
-                    self.finish_recording();
-                }
-            }
-        }
-        for (key, tool) in [
-            (egui::Key::Num1, 0),
-            (egui::Key::Num2, 1),
-            (egui::Key::Num3, 2),
-        ] {
-            if pressed(key) {
-                self.tool = tool;
-            }
-        }
-        if pressed(egui::Key::F) {
-            let mut v = self.store.session().view.clone();
-            v.follow_playhead = !v.follow_playhead;
-            self.dispatch(Command::SetView(v));
-        }
-        if pressed(egui::Key::Z) {
-            self.zoom = (700.0 / self.store.session().end_bar() as f32).clamp(12.0, 480.0);
-            self.scroll = 0.0;
-        }
-        if let Some(t) = self
-            .store
-            .session()
-            .tracks
-            .iter()
-            .find(|t| Some(&t.id) == self.store.session().view.selected_track_id.as_ref())
-        {
-            let mut t = t.clone();
-            let mut changed = false;
-            if pressed(egui::Key::M) {
-                t.mute = !t.mute;
-                changed = true;
-            }
-            if pressed(egui::Key::S) {
-                t.solo = !t.solo;
-                changed = true;
-            }
-            if pressed(egui::Key::A) {
-                t.armed = !t.armed;
-                changed = true;
-            }
-            if changed {
-                self.dispatch(Command::UpdateTrack(t));
-            }
-        }
-    }
     pub(crate) fn toggle_musical_typing(&mut self) {
         self.musical_typing = !self.musical_typing;
         if !self.musical_typing {
@@ -1875,75 +1732,62 @@ impl Ryolune {
             self.status = "Musical typing on: A–L play, Z / X shift octave".into();
         }
     }
-    /// The computer keyboard as a two-octave piano (Cmd/Ctrl+K).
-    fn musical_typing_keys(&mut self, ctx: &egui::Context) {
-        use egui::Key;
+    /// The computer keyboard as a two-octave piano (Cmd/Ctrl+K): `key` is the lowercase key
+    /// name the window reports. Returns whether the key belongs to musical typing.
+    pub(crate) fn typing_key(&mut self, key: &str, pressed: bool) -> bool {
         let base = 60 + self.typing_octave * 12;
-        let semitone = |key: Key| -> Option<i32> {
-            Some(match key {
-                Key::A => 0,
-                Key::W => 1,
-                Key::S => 2,
-                Key::E => 3,
-                Key::D => 4,
-                Key::F => 5,
-                Key::T => 6,
-                Key::G => 7,
-                Key::Y => 8,
-                Key::H => 9,
-                Key::U => 10,
-                Key::J => 11,
-                Key::K => 12,
-                Key::O => 13,
-                Key::L => 14,
-                Key::P => 15,
-                Key::Semicolon => 16,
-                _ => return None,
-            })
-        };
-        let events = ctx.input(|i| i.events.clone());
-        for event in events {
-            let egui::Event::Key {
-                key,
-                pressed,
-                repeat,
-                modifiers,
-                ..
-            } = event
-            else {
-                continue;
-            };
-            if modifiers.command || repeat {
-                continue;
-            }
-            match key {
-                Key::Z if pressed => self.typing_octave = (self.typing_octave - 1).max(-3),
-                Key::X if pressed => self.typing_octave = (self.typing_octave + 1).min(3),
-                _ => {
-                    if let Some(offset) = semitone(key) {
-                        let pitch = (base + offset).clamp(0, 127) as u8;
-                        if pressed && !self.typing_down.contains(&pitch) {
-                            self.typing_down.push(pitch);
-                            self.live_note(true, pitch, 100);
-                        } else if !pressed {
-                            // Release whichever pitch this key started, even after an octave change.
-                            let candidates: Vec<u8> = self
-                                .typing_down
-                                .iter()
-                                .copied()
-                                .filter(|p| {
-                                    (*p as i32 - offset).rem_euclid(12) == base.rem_euclid(12)
-                                })
-                                .collect();
-                            for p in candidates {
-                                self.typing_down.retain(|q| *q != p);
-                                self.live_note(false, p, 0);
-                            }
-                        }
-                    }
+        let offset = match key {
+            "a" => 0,
+            "w" => 1,
+            "s" => 2,
+            "e" => 3,
+            "d" => 4,
+            "f" => 5,
+            "t" => 6,
+            "g" => 7,
+            "y" => 8,
+            "h" => 9,
+            "u" => 10,
+            "j" => 11,
+            "k" => 12,
+            "o" => 13,
+            "l" => 14,
+            "p" => 15,
+            ";" => 16,
+            "z" => {
+                if pressed {
+                    self.typing_octave = (self.typing_octave - 1).max(-3);
                 }
+                return true;
+            }
+            "x" => {
+                if pressed {
+                    self.typing_octave = (self.typing_octave + 1).min(3);
+                }
+                return true;
+            }
+            _ => return false,
+        };
+        let pitch = (base + offset).clamp(0, 127) as u8;
+        if pressed {
+            if !self.typing_down.contains(&pitch) {
+                self.typing_down.push(pitch);
+                self.live_note(true, pitch, 100);
+            }
+        } else {
+            // Release whichever pitch this key started, even after an octave change.
+            let candidates: Vec<u8> = self
+                .typing_down
+                .iter()
+                .copied()
+                .filter(|p| (*p as i32 - offset).rem_euclid(12) == base.rem_euclid(12))
+                .collect();
+            for p in candidates {
+                self.typing_down.retain(|q| *q != p);
+                self.live_note(false, p, 0);
             }
         }
+        true
     }
     pub fn delete_selected(&mut self) {
         let s = self.store.session();
@@ -2032,212 +1876,85 @@ impl Ryolune {
             },
         }));
     }
-    pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
-        if let Some(intent) = self.intent {
-            let dirty = self.store.dirty();
-            egui::Modal::new(egui::Id::new("unsaved"))
-                .frame(dialog_frame())
-                .show(ctx, |ui| {
-                    ui.set_max_width(400.0);
-                    ui.label(text(
-                        if dirty {
-                            "Save your changes?"
-                        } else {
-                            "Quit ryolune?"
-                        },
-                        FS_PANEL_TITLE,
-                        Weight::Bold,
-                        INK,
-                    ));
-                    ui.add_space(6.0);
-                    ui.label(text(
-                        if dirty {
-                            "This session has unsaved changes."
-                        } else {
-                            "Everything is saved. Settings > General turns this question off."
-                        },
-                        FS_BODY,
-                        Weight::Medium,
-                        DIM,
-                    ));
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        if dirty {
-                            if text_button(ui, "Save", Face::Lit).clicked() {
-                                self.intent = None;
-                                self.after_save = Some(intent);
-                                self.save(false);
-                            }
-                            if text_button(ui, "Discard", Face::Raised).clicked() {
-                                self.intent = None;
-                                self.execute(intent);
-                            }
-                        } else if text_button(ui, "Quit", Face::Lit).clicked() {
-                            self.intent = None;
-                            self.execute(intent);
-                        }
-                        if text_button(ui, "Cancel", Face::Raised).clicked() {
-                            self.intent = None;
-                        }
-                    });
-                });
-        }
-        if let Some(message) = self.error.clone() {
-            egui::Modal::new(egui::Id::new("error"))
-                .frame(dialog_frame())
-                .show(ctx, |ui| {
-                    ui.set_max_width(480.0);
-                    ui.horizontal(|ui| {
-                        let (dot, _) =
-                            ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                        accent_dot(ui.painter(), dot.center(), 3.5, true);
-                        ui.label(text("ryolune", FS_PANEL_TITLE, Weight::Bold, INK));
-                    });
-                    ui.add_space(6.0);
-                    ui.add(
-                        egui::Label::new(text(message, FS_BODY, Weight::Medium, INK_CONTROL))
-                            .wrap(),
-                    );
-                    ui.add_space(12.0);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if text_button(ui, "OK", Face::Raised).clicked() {
-                            self.error = None;
-                        }
-                    });
-                });
-        }
-        if self.show_help {
-            egui::Window::new("Working in ryolune")
-                .open(&mut self.show_help)
-                .frame(window_frame())
-                .show(ctx, |ui| plate(ui, "help-plate", |ui| {
-                    ui.spacing_mut().item_spacing.y = 6.0;
-                    for line in [
-                        "Space: play / stop. Enter: return to start. R: record, A: arm selected track.",
-                        "Double-click a MIDI lane to create a region. Draw notes in the piano roll.",
-                        "Drag regions to move, drag edges to trim, right-click for options.",
-                        "Tools 1 / 2 / 3: pointer, pencil, scissors. Alt disables snapping.",
-                        "M / S: mute / solo. C: cycle. K: metronome. F: follow. Z: fit.",
-                        "Cmd/Ctrl + S / O / I / B: save, open, import, bounce.",
-                        "Cmd/Ctrl + Z / Shift+Z: undo / redo. Cmd/Ctrl + D / T: duplicate / split.",
-                        "Drag across the ruler to set the cycle range. Drop audio files to import.",
-                        "Drag the tempo readout, click the signature or key to change them.",
-                        "Cmd/Ctrl + K: musical typing (A–L play notes, Z / X change octave).",
-                        "Audio > MIDI input picks a keyboard; arm an instrument track and record to capture notes.",
-                        "Effects tab: ryolune plugins plus scanned CLAP, VST3 and Audio Unit plugins.",
-                        "Click an insert to open its parameters; Open plugin window shows the native editor.",
-                        "Master and A / B buses have their own insert chains in the inspector.",
-                        "Cmd/Ctrl + , opens Settings: audio devices, the agent provider, plugin folders and updates.",
-                        "The Agent panel (right edge) talks to Codex, Claude Code or an API key; every edit it makes can be reverted.",
-                    ] {
-                        ui.label(text(line, FS_BODY, Weight::Medium, INK_CONTROL));
-                    }
-                }));
-        }
-    }
 }
-impl eframe::App for Ryolune {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let gesture = ctx.input(|i| i.pointer.any_down()) || ctx.wants_keyboard_input();
-        self.store.set_gesture(gesture);
+impl Ryolune {
+    /// One pass of the interface thread's work: audio and workers, the control bridge, the
+    /// agent, recovery and updates. The window calls it every frame it runs; nothing here
+    /// draws.
+    pub(crate) fn tick(&mut self) {
         self.frames += 1;
         self.poll();
         self.poll_control_job();
-        self.poll_recovery(ctx);
-        self.poll_agent(ctx);
-        self.serve_control(gesture);
+        self.poll_recovery();
+        self.poll_agent();
+        self.poll_bridge();
+        self.serve_control(self.interacting);
         self.poll_updates();
-        self.poll_live_jobs(ctx);
-        self.keyboard(ctx);
-        if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.request(Intent::Quit);
+        self.poll_input();
+        self.poll_live_jobs();
+        self.poll_export();
+    }
+    /// Files dropped on the window: audio is imported, a MIDI file lands at the playhead.
+    pub(crate) fn drop_files(&mut self, paths: Vec<PathBuf>) -> Result<()> {
+        let is_midi = |p: &PathBuf| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| ["mid", "midi", "smf"].contains(&e.to_ascii_lowercase().as_str()))
+        };
+        let (midi, rest): (Vec<_>, Vec<_>) = paths.into_iter().partition(is_midi);
+        let audio: Vec<_> = rest
+            .into_iter()
+            .filter(|p| audio::is_importable(p))
+            .collect();
+        if midi.is_empty() && audio.is_empty() {
+            return Err(
+                "Drop audio (WAV, AIFF, FLAC, MP3, Ogg, AAC/M4A, CAF, WebM) or a MIDI file".into(),
+            );
         }
-        if self.closing {
-            self.stop();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        if !audio.is_empty() {
+            // One import runs at a time: say what was left out rather than drop it silently.
+            if !midi.is_empty() {
+                self.error = Some(format!(
+                    "Importing the audio. {} MIDI file{} left out: drop MIDI on its own.",
+                    midi.len(),
+                    if midi.len() == 1 { " was" } else { "s were" }
+                ));
+            }
+            self.import(Some(audio));
+        } else if let Some(path) = midi.first() {
+            let bar = (self.position / self.store.session().beats_per_bar()).floor();
+            self.run_control_command(
+                "session.importMidi",
+                &serde_json::json!({ "path": path, "startBar": bar }),
+                false,
+                "Interface",
+            )?;
         }
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{}{} — ryolune",
-            self.store.session().name,
-            if self.store.dirty() { " *" } else { "" }
-        )));
-        self.title_bar(ctx);
-        self.transport(ctx);
-        self.browser(ctx);
-        self.agent_panel(ctx);
-        self.inspector(ctx);
-        egui::TopBottomPanel::bottom("editor")
-            .default_height(300.0)
-            .height_range(200.0..=560.0)
-            .resizable(true)
-            .frame(egui::Frame::new().fill(EDITOR))
-            .show(ctx, |ui| {
-                self.editor(ui);
-            });
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(TIMELINE))
-            .show(ctx, |ui| {
-                self.arrangement(ui);
-            });
-        self.dialogs(ctx);
-        self.plugin_windows(ctx);
-        self.automation_window(ctx);
-        self.export_dialog(ctx);
-        self.settings_window(ctx);
-        self.update_dialog(ctx);
-        let dropped: Vec<_> = ctx.input(|i| {
-            i.raw
-                .dropped_files
-                .iter()
-                .filter_map(|f| f.path.clone())
-                .collect()
-        });
-        if !dropped.is_empty() {
-            self.import(Some(dropped));
-        }
-        if self.playing
+        Ok(())
+    }
+    /// Answer waiting control requests at once, between full ticks.
+    pub(crate) fn serve(&mut self) {
+        self.poll_control_job();
+        self.poll_workers();
+        self.serve_control(self.interacting);
+    }
+    /// Something is moving: the window ticks at frame rate instead of idling.
+    pub(crate) fn busy(&self) -> bool {
+        self.playing
             || self.job.is_some()
             || self.scan_job.is_some()
             || self.midi_recording
+            || self.record_enabled
             || self.updates.busy()
             || !self.live_jobs.is_empty()
-        {
-            ctx.request_repaint_after(Duration::from_millis(33));
-        } else {
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
-        if self.screenshot.is_some() && self.frames > 40 && self.job.is_none() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-        }
-        for event in ctx.input(|i| i.events.clone()) {
-            if let egui::Event::Screenshot { image, .. } = event {
-                if self.deliver_screenshot(&image) {
-                    continue;
-                }
-                if let Some(path) = self.screenshot.take() {
-                    let data: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
-                    match image::save_buffer(
-                        &path,
-                        &data,
-                        image.width() as u32,
-                        image.height() as u32,
-                        image::ColorType::Rgba8,
-                    ) {
-                        Ok(()) => self.closing = true,
-                        Err(e) => self.error = Some(e.to_string()),
-                    }
-                }
-            }
-        }
+            || self.agents.runtime.running()
+            || self.control_job.is_some()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui::{vec2, Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect};
 
     #[test]
     fn audio_prepared_for_a_replaced_session_is_not_kept() {
@@ -2285,40 +2002,8 @@ mod tests {
         assert!(app.after_save.is_none());
     }
 
-    fn frame(app: &mut Ryolune, ctx: &egui::Context, events: Vec<Event>, time: f64, editor: bool) {
-        let input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
-            events,
-            time: Some(time),
-            focused: true,
-            ..Default::default()
-        };
-        let _ = ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                if editor {
-                    app.editor(ui);
-                } else {
-                    app.arrangement(ui);
-                }
-            });
-        });
-    }
-    fn pointer(pos: Pos2, pressed: bool) -> Vec<Event> {
-        vec![
-            Event::PointerMoved(pos),
-            Event::PointerButton {
-                pos,
-                button: PointerButton::Primary,
-                pressed,
-                modifiers: Modifiers::NONE,
-            },
-        ]
-    }
-    fn setup() -> (Ryolune, egui::Context) {
-        let app = Ryolune::from_session(store::demo(), None);
-        let ctx = egui::Context::default();
-        install(&ctx);
-        (app, ctx)
+    fn setup() -> Ryolune {
+        Ryolune::from_session(store::demo(), None)
     }
     fn notes(app: &Ryolune) -> &Vec<Note> {
         let clip = app
@@ -2371,7 +2056,7 @@ mod tests {
     #[test]
     fn switching_sessions_waits_for_agent_cleanup_and_rejects_queued_edits() {
         use ryolune_engine::control::wire;
-        let (mut app, ctx) = setup();
+        let mut app = setup();
         app.store.mark_unsaved();
         let before = serde_json::to_value(app.store.session()).unwrap();
         let directory = std::env::temp_dir().join(id("ryolune-agent-stop"));
@@ -2397,10 +2082,10 @@ mod tests {
             )
         });
         wake_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        app.poll_agent(&ctx);
+        app.poll_agent();
         assert!(app.intent.is_none());
         complete();
-        app.poll_agent(&ctx);
+        app.poll_agent();
         assert!(matches!(app.intent, Some(Intent::New)));
         assert!(client
             .join()
@@ -2415,138 +2100,11 @@ mod tests {
     }
 
     #[test]
-    fn piano_click_draws_note_and_undo_restores_it() {
-        let (mut app, ctx) = setup();
-        frame(&mut app, &ctx, vec![], 0.0, true);
-        let rect = ctx
-            .read_response(Id::new(("piano-grid", "bass-2")))
-            .unwrap()
-            .rect;
-        let p = rect.min + vec2(100.0, 25.0);
-        let count = notes(&app).len();
-        frame(&mut app, &ctx, pointer(p, true), 0.1, true);
-        frame(&mut app, &ctx, pointer(p, false), 0.2, true);
-        assert_eq!(notes(&app).len(), count + 1);
-        assert!(app.error.is_none());
-        app.dispatch(Command::Undo);
-        assert_eq!(notes(&app).len(), count);
-    }
-    #[test]
-    fn piano_drag_creates_requested_length() {
-        let (mut app, ctx) = setup();
-        frame(&mut app, &ctx, vec![], 0.0, true);
-        let rect = ctx
-            .read_response(Id::new(("piano-grid", "bass-2")))
-            .unwrap()
-            .rect;
-        let p = rect.min + vec2(100.0, 25.0);
-        frame(&mut app, &ctx, pointer(p, true), 0.1, true);
-        frame(
-            &mut app,
-            &ctx,
-            vec![Event::PointerMoved(p + vec2(120.0, 0.0))],
-            0.2,
-            true,
-        );
-        frame(
-            &mut app,
-            &ctx,
-            pointer(p + vec2(120.0, 0.0), false),
-            0.3,
-            true,
-        );
-        assert!(
-            notes(&app).last().unwrap().length > 2.0,
-            "Drag should preserve its start across frames"
-        );
-    }
-    #[test]
-    fn dragging_region_body_moves_without_resizing() {
-        let (mut app, ctx) = setup();
-        frame(&mut app, &ctx, vec![], 0.0, false);
-        let rect = ctx.read_response(Id::new(("clip", "bass-1"))).unwrap().rect;
-        let p = rect.center();
-        frame(&mut app, &ctx, pointer(p, true), 0.1, false);
-        frame(
-            &mut app,
-            &ctx,
-            vec![Event::PointerMoved(p + vec2(240.0, 0.0))],
-            0.2,
-            false,
-        );
-        frame(
-            &mut app,
-            &ctx,
-            pointer(p + vec2(240.0, 0.0), false),
-            0.3,
-            false,
-        );
-        let c = app
-            .store
-            .session()
-            .clips
-            .iter()
-            .find(|c| c.id == "bass-1")
-            .unwrap();
-        assert_eq!(c.length_bars, 4.0);
-        assert_eq!(c.start_bar, 5.0);
-    }
-    #[test]
-    fn ruler_drag_sets_full_cycle_range() {
-        let (mut app, ctx) = setup();
-        frame(&mut app, &ctx, vec![], 0.0, false);
-        let rect = ctx.read_response(Id::new("ruler-drag")).unwrap().rect;
-        let p = rect.left_center() + vec2(48.0, 0.0);
-        frame(&mut app, &ctx, pointer(p, true), 0.1, false);
-        frame(
-            &mut app,
-            &ctx,
-            vec![Event::PointerMoved(p + vec2(144.0, 0.0))],
-            0.2,
-            false,
-        );
-        frame(
-            &mut app,
-            &ctx,
-            pointer(p + vec2(144.0, 0.0), false),
-            0.3,
-            false,
-        );
-        let t = &app.store.session().transport;
-        assert_eq!(t.cycle_start_bar, 1.0);
-        assert_eq!(t.cycle_end_bar, 4.0);
-    }
-    #[test]
     fn ui_callbacks_can_use_sendable_device_handles() {
         fn send<T: std::marker::Send>() {}
         send::<DeviceEngine>();
         send::<Recorder>();
         send::<LiveInput>();
-    }
-    #[test]
-    fn undo_shortcut_works_after_focusing_a_non_text_control() {
-        let (mut app, ctx) = setup();
-        let original = app.store.session().name.clone();
-        app.dispatch(Command::Rename("Edited".into()));
-        ctx.memory_mut(|m| m.request_focus(Id::new("combo")));
-        let mods = Modifiers {
-            command: true,
-            ctrl: true,
-            ..Default::default()
-        };
-        let input = RawInput {
-            modifiers: mods,
-            events: vec![Event::Key {
-                key: egui::Key::Z,
-                physical_key: Some(egui::Key::Z),
-                pressed: true,
-                repeat: false,
-                modifiers: mods,
-            }],
-            ..Default::default()
-        };
-        let _ = ctx.run(input, |ctx| app.keyboard(ctx));
-        assert_eq!(app.store.session().name, original);
     }
     #[test]
     fn quit_waits_for_final_take_then_offers_to_save_it() {
@@ -2784,21 +2342,6 @@ mod tests {
         assert!(app.plugins.loaded.is_empty());
     }
     #[test]
-    fn inspector_renders_bus_strips_without_a_track() {
-        let (mut app, ctx) = setup();
-        app.dispatch(Command::Select {
-            track: Some(BUS_A.into()),
-            clip: None,
-            note: None,
-        });
-        let input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
-            ..Default::default()
-        };
-        let _ = ctx.run(input, |ctx| app.inspector(ctx));
-        assert!(app.error.is_none());
-    }
-    #[test]
     fn failed_take_cancels_deferred_quit_and_preserves_session() {
         let mut app = Ryolune::from_session(store::empty(), None);
         app.sync_needed = false;
@@ -2887,6 +2430,53 @@ mod tests {
     }
 
     #[test]
+    fn a_drop_of_audio_and_midi_says_the_midi_was_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("loop.wav");
+        let mid = dir.path().join("riff.mid");
+        std::fs::write(&wav, b"").unwrap();
+        std::fs::write(&mid, b"").unwrap();
+        let mut app = setup();
+        app.drop_files(vec![wav, mid]).unwrap();
+        let error = app.error.clone().unwrap_or_default();
+        assert!(error.contains("MIDI file was left out"), "{error}");
+    }
+
+    #[test]
+    fn musical_typing_keys_play_shift_and_release_the_note_they_started() {
+        let mut app = setup();
+        assert!(app.typing_key("a", true));
+        assert_eq!(app.typing_down, vec![60]);
+        assert!(app.typing_key("x", true));
+        assert_eq!(app.typing_octave, 1);
+        assert!(app.typing_key("a", false), "released after the octave changed");
+        assert!(app.typing_down.is_empty());
+        assert!(!app.typing_key("q", true));
+    }
+
+    #[test]
+    fn a_fader_gesture_is_one_undo_step() {
+        let mut app = setup();
+        let track = app.store.session().tracks[0].id.clone();
+        let original = app.store.session().tracks[0].volume;
+        let depth = app.store.undo_depth();
+        app.store.set_gesture(true);
+        for volume in [0.2, 0.4, 0.6] {
+            app.run_control_command(
+                "track.setVolume",
+                &serde_json::json!({"trackId":track,"volume":volume}),
+                false,
+                "Interface",
+            )
+            .unwrap();
+        }
+        app.store.set_gesture(false);
+        assert_eq!(app.store.undo_depth(), depth + 1);
+        app.dispatch(Command::Undo);
+        assert_eq!(app.store.session().tracks[0].volume, original);
+    }
+
+    #[test]
     fn typing_release_uses_original_owner_after_track_selection_changes() {
         let mut app = Ryolune::from_session(store::empty(), None);
         app.midi_route
@@ -2902,7 +2492,7 @@ mod tests {
 
     #[test]
     fn idle_control_keeps_a_drag_as_one_undo_step() {
-        let (mut app, _ctx) = setup();
+        let mut app = setup();
         let dir = std::env::temp_dir().join(format!("ryolune-gesture-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         app.control = Some(
