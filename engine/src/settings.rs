@@ -471,7 +471,7 @@ impl Default for Interface {
     }
 }
 /// The interface theme. Since 0.12 ryolune has one theme, in a dark and a light mode,
-/// built in `frontend/src/theme/ryolune.ts`.
+/// built in `desktop/src/ui/theme.rs` on the lsuite design system.
 pub const THEME: &str = "ryolune";
 /// Every accepted `interface.appearance`.
 pub const THEMES: [&str; 1] = [THEME];

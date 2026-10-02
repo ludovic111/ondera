@@ -4,7 +4,6 @@
 
 ## Checks
 
-- [ ] `npm --prefix frontend test` and `npm --prefix frontend run build`
 - [ ] `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`
 - [ ] Checked in a real window (for interface changes)
 

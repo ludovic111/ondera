@@ -24,7 +24,7 @@ pub(crate) const SECTIONS: [&str; 9] = [
     "Generation",
 ];
 /// Settings sections by index. Generation came last (0.12), so earlier indices keep their
-/// meaning; the React window orders them itself.
+/// meaning; the window orders them itself.
 pub(crate) const SECTION_KEYS: [&str; 9] = [
     "general",
     "audio",

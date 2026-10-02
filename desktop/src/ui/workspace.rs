@@ -151,6 +151,8 @@ impl Workspace {
     fn sync_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (title, capture) = self.daw.update(cx, |daw, _| {
             let app = &mut daw.app;
+            // `ui.status` reports it as frontendReady: the window has drawn once.
+            app.frontend_ready = true;
             let title = format!(
                 "{}{} — ryolune",
                 app.store.session().name,

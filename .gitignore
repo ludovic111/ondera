@@ -11,6 +11,3 @@ dist/
 *.dSYM/
 target
 
-/frontend/node_modules/
-/frontend/dist/
-/desktop/gen/

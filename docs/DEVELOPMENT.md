@@ -6,11 +6,10 @@ contributors (human or AI) follow are in [`CLAUDE.md`](../CLAUDE.md) at the repo
 ## Layout
 
 ```
-frontend/  React + TypeScript interface: controls, CSS materials, canvas arrangement and editors,
-    │      theme (frontend/src/theme), the action table behind menus and shortcuts
-    │      Tauri commands, document snapshots, transport and meter events
-desktop/   Tauri 2 window: owns the document and audio, settings, the agent runtime
-    │      (desktop/src/agent), native plugin windows, live-only commands, updates
+desktop/   the app: the host that owns the document and audio, settings, the agent runtime
+    │      (desktop/src/agent), native plugin windows, live-only commands, updates, and the
+    │      window drawn with GPUI (desktop/src/ui: theme on the lsuite tokens, the action
+    │      table behind menus and shortcuts, controls, every panel; see its README.md)
 tools/     ryolune-cli and ryolune-mcp: thin clients of the command registry, live or on a file
 engine/    command registry (control*.rs), session model and validation, undo/redo, documents,
     │      DSP and stock plugins, plugin hosts (native ABI, CLAP, VST3, Audio Units), scanning,
@@ -48,29 +47,27 @@ audio and 4-hour exports.
 
 ## Build
 
-Install Rust 1.88 or newer and Node.js 24 (Node builds the interface; the packaged app does not
-need it). The desktop crate embeds `frontend/dist`, so build the frontend first:
+Install Rust 1.88 or newer; nothing else builds the interface (GPUI compiles its Metal
+shaders when the window opens, so no Metal toolchain is needed either):
 
 ```sh
-npm --prefix frontend ci
-npm --prefix frontend run build
 cargo run --release
 ```
 
 Use release builds for real-time audio. Platform prerequisites:
 
 - **macOS**: the Xcode command-line tools.
-- **Windows**: Visual Studio C++ build tools and the Windows SDK, MSVC Rust toolchain, and the
-  Edge WebView2 runtime.
+- **Windows**: Visual Studio C++ build tools and the Windows SDK, and the MSVC Rust toolchain.
 - **Ubuntu/Debian**:
 
   ```sh
   sudo apt-get install build-essential pkg-config libasound2-dev libudev-dev \
-    libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev \
-    libxrandr-dev libxinerama-dev libegl1-mesa-dev libgl1-mesa-dev \
-    libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libdbus-1-dev \
-    libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev
+    libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libx11-xcb-dev \
+    libxcb1-dev libfontconfig1-dev libfreetype6-dev libvulkan-dev libdbus-1-dev \
+    libssl-dev libzstd-dev
   ```
+
+  The window draws with Vulkan (`libvulkan1` and a driver, such as `mesa-vulkan-drivers`).
 
   File dialogs use the desktop portal (`xdg-desktop-portal` and a backend).
 
@@ -84,8 +81,6 @@ a Developer ID and notarized when `APPLE_SIGNING_IDENTITY` (and `APPLE_API_KEY_P
 Run all of these before a pull request:
 
 ```sh
-npm --prefix frontend test
-npm --prefix frontend run build
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
@@ -98,23 +93,22 @@ Generated documentation is checked by tests. After changing a command or a short
 
 ```sh
 RYOLUNE_BLESS=1 cargo test -p ryolune-tools --test command_docs     # docs/COMMANDS.md
-RYOLUNE_BLESS=1 npm --prefix frontend test -- shortcutsDoc          # docs/SHORTCUTS.md
+RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts                     # docs/SHORTCUTS.md
 ```
-
-After changing the theme's dark mode, `node scripts/gen-site-tokens.mjs` refreshes the site's
-tokens (the site wears dark only).
 
 ## Checking the real window
 
-The interface can be checked in a plain browser: `npm --prefix frontend run dev` serves a
-fixture song through `src/dev/mockHost.ts` (`?mode=dark|light&panel=mixer|settings|…`).
-For the real window, run the app with a scratch data folder and drive it with the CLI:
+`target/debug/ryolune --screenshot window.png` opens the demo song, captures the window and
+quits. To look at other states, run the app with a scratch profile and drive it with the CLI
+(`LSUITE_HOME` keeps its lsuite discovery entry out of `~/.lsuite` too):
 
 ```sh
-export RYOLUNE_DATA_DIR=/tmp/ryolune-check RYOLUNE_CONTROL=/tmp/ryolune-check/control.json
+export RYOLUNE_DATA_DIR=/tmp/ryolune-check RYOLUNE_CONTROL=/tmp/ryolune-check/control.json \
+  RYOLUNE_SETTINGS=/tmp/ryolune-check/settings.json LSUITE_HOME=/tmp/ryolune-check/lsuite
 RYOLUNE_NO_UPDATE=1 target/debug/ryolune &
 target/debug/ryolune-cli app.info                       # repeat until it answers
 target/debug/ryolune-cli session.overview
+target/debug/ryolune-cli ui.showPanel --panel mixer --visible true
 target/debug/ryolune-cli ui.screenshot --path /tmp/ryolune-check/window.png
 target/debug/ryolune-cli app.quit --discard true
 ```

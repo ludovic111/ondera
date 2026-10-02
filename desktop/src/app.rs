@@ -107,7 +107,7 @@ pub struct Ryolune {
     pub(crate) frames: usize,
     pub(crate) frontend_ready: bool,
     pub show_help: bool,
-    /// The web window shows the mixer in place of the region editor.
+    /// The window shows the mixer in place of the region editor.
     pub show_mixer: bool,
     /// The region editor shows the controller lane under the piano roll.
     pub show_controllers: bool,

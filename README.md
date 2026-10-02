@@ -106,12 +106,10 @@ See [AI_CONTROL.md](docs/AI_CONTROL.md) for the agent, the CLI, MCP, permissions
 ## Build from source
 
 ```sh
-npm --prefix frontend ci
-npm --prefix frontend run build
 cargo run --release
 ```
 
-Rust 1.88+ and Node.js 24 are needed. Platform prerequisites, checks and the release process are
+Rust 1.88+ is all it needs: the window is Rust too, drawn on the GPU with GPUI. Platform prerequisites, checks and the release process are
 in [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Limits
