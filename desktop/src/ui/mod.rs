@@ -22,6 +22,7 @@ pub mod palette;
 pub mod platform;
 pub mod plugin_panel;
 pub mod settings_window;
+pub mod strip;
 pub mod theme;
 pub mod titlebar;
 pub mod transport;
