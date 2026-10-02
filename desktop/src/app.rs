@@ -1955,6 +1955,7 @@ impl Ryolune {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn audio_prepared_for_a_replaced_session_is_not_kept() {
@@ -2031,7 +2032,7 @@ mod tests {
         assert_eq!(status(true, false, true, true), Some("Count-in…"));
         assert_eq!(status(false, false, false, false), None);
 
-        let (mut app, _) = setup();
+        let mut app = setup();
         app.midi_recording = true;
         app.status = "Recording MIDI…".into();
         app.finish_recording();

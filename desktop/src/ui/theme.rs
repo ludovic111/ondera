@@ -102,6 +102,9 @@ pub struct Theme {
     // Accent: ryolune teal.
     pub accent: Hsla,
     pub accent_hover: Hsla,
+    /// The accent as a fill that carries text (primary buttons, lit keys): one step darker
+    /// by day so white text keeps 4.5:1.
+    pub accent_fill: Hsla,
     pub accent_text: Hsla,
     pub accent_soft: Hsla,
     pub accent_ring: Hsla,
@@ -397,6 +400,7 @@ fn dark(opaque: bool) -> Theme {
         scrim: hexa(0x050608, 0.55),
         accent,
         accent_hover: teal(300),
+        accent_fill: accent,
         accent_text: teal(300),
         accent_soft: with_alpha(accent, 0.16),
         accent_ring: with_alpha(accent, 0.55),
@@ -486,6 +490,7 @@ fn light(opaque: bool) -> Theme {
         scrim: hexa(0xf0f2f6, 0.6),
         accent,
         accent_hover: teal(700),
+        accent_fill: teal(700),
         accent_text: teal(700),
         accent_soft: with_alpha(accent, 0.12),
         accent_ring: with_alpha(accent, 0.55),
@@ -647,8 +652,8 @@ mod tests {
                     }
                 }
                 // Text on the accent fill and the accent as text on the window.
-                let accent: Rgba = t.accent.into();
-                assert!(contrast(t.text_on_accent.into(), accent) >= 4.5, "{mode:?}");
+                let fill: Rgba = t.accent_fill.into();
+                assert!(contrast(t.text_on_accent.into(), fill) >= 4.5, "{mode:?}");
                 for base in composites(&t, t.glass(1)) {
                     assert!(contrast(over(t.accent_text, base), base) >= 3.0, "{mode:?}");
                 }

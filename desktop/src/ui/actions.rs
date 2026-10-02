@@ -318,6 +318,7 @@ pub fn shortcut_label(id: &str) -> Option<String> {
 }
 
 pub fn bind(cx: &mut App) {
+    super::widgets::bind(cx);
     let mut bindings = vec![];
     for def in ACTIONS {
         let context = match def.scope {

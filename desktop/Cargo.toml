@@ -16,6 +16,7 @@ gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 futures = "0.3"
 rust-embed = { version = "8", features = ["include-exclude", "debug-embed"] }
 raw-window-handle = "0.6"
+unicode-segmentation = "1"
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
@@ -33,6 +34,7 @@ path = "src/main.rs"
 
 [dev-dependencies]
 ryolune-tools = { path = "../tools" }
+gpui = { version = "0.2.2", features = ["runtime_shaders", "test-support"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
