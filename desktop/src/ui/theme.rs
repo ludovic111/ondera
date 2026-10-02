@@ -138,6 +138,11 @@ pub struct Theme {
     pub marker: Hsla,
     pub hover: Hsla,
     pub selection_text: Hsla,
+
+    // Brand marks (the agent's model picker): makers' logos sit on a white tile in both
+    // modes, as their owners draw them; one-colour marks take `logo_ink`.
+    pub logo_tile: Hsla,
+    pub logo_ink: Hsla,
 }
 
 impl Global for Theme {}
@@ -430,6 +435,8 @@ fn dark(opaque: bool) -> Theme {
         marker: oklch(0.8, 0.1, 222.0, 1.0),
         hover: white(0.055),
         selection_text: with_alpha(accent, 0.32),
+        logo_tile: hex(0xffffff),
+        logo_ink: hex(0x273e4e),
     }
 }
 
@@ -520,6 +527,8 @@ fn light(opaque: bool) -> Theme {
         marker: oklch(0.55, 0.13, 222.0, 1.0),
         hover: ink(0.042),
         selection_text: with_alpha(accent, 0.26),
+        logo_tile: hex(0xffffff),
+        logo_ink: hex(0x273e4e),
     }
 }
 
