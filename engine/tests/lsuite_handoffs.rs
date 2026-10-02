@@ -53,6 +53,7 @@ fn a_mix_goes_onto_kimchi_and_a_cut_comes_back_to_score() {
     )
     .unwrap();
     assert_eq!(sent["placed"], true, "{sent}");
+    assert_eq!(sent["via"], "file", "kimchi is not running here: {sent}");
     let doc: Value =
         serde_json::from_str(&std::fs::read_to_string(project.join("project.json")).unwrap())
             .unwrap();
@@ -61,16 +62,25 @@ fn a_mix_goes_onto_kimchi_and_a_cut_comes_back_to_score() {
     let wav = doc["assets"][0]["path"].as_str().unwrap();
     assert!(std::path::Path::new(wav).is_file());
 
-    // kimchi sends its cut back: the same audio, two markers and the cut's length.
-    let manifest = scratch.path().join("cut.json");
+    // kimchi sends its cut back, as its handoff.toRyolune writes it: the WAV and
+    // `<name>.kimchi-cut.json` in ~/.lsuite/handoff/ryolune.
+    let folder = scratch.path().join("lsuite/handoff/ryolune");
+    std::fs::create_dir_all(&folder).unwrap();
+    let manifest = folder.join("Teaser.kimchi-cut.json");
     std::fs::write(
         &manifest,
-        json!({"from": "kimchi", "kind": "cut", "name": "Teaser", "audio": wav,
-            "durationSeconds": 4.0,
+        json!({"format": 1, "from": "kimchi", "project": "Teaser", "audio": wav,
+            "seconds": 4.0, "range": {"from": 0.0, "to": 4.0}, "fps": 30.0,
             "markers": [{"time": 0.0, "label": "Open"}, {"time": 2.0, "label": "Title"}]})
         .to_string(),
     )
     .unwrap();
+    let waiting = control::call(&mut host, "handoff.inbox", &json!({}), false).unwrap();
+    assert_eq!(
+        waiting["handoffs"].as_array().unwrap().len(),
+        1,
+        "{waiting}"
+    );
     let scored = control::call(
         &mut host,
         "session.scoreCut",

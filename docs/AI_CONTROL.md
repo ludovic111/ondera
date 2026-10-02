@@ -167,15 +167,17 @@ server are, its data folder, the hand-offs it takes and, while it runs, its pid 
 port (never a token). `app.suite` lists them, so an agent working in ryolune knows which other
 apps it can drive and how.
 
-- **To kimchi.** `export.toKimchi` renders the mix (or `stems: true`, one file per track) and
-  puts it on a kimchi project (`project`: id or name, default the latest) on a new audio
-  track at `startSeconds`. kimchi closed: the project file gets the audio straight away, its
-  previous version kept beside it. kimchi open: the files wait in kimchi's lsuite inbox
-  (`~/.lsuite/inbox/kimchi`), and the answer says so.
-- **From kimchi.** A cut to score (its audio, length and markers) arrives as a manifest in
-  ryolune's inbox (`handoff.inbox` lists them). `session.scoreCut manifest=…` puts the audio
-  on a new track at bar 1, each marker on the ruler at the bar where it falls, and the cycle
-  over the cut, in one undo step. Without a manifest, give `path`, `markers` (`time` in
+- **To kimchi.** `export.toKimchi` renders the mix (or `stems: true`, one file per track) for
+  kimchi at `startSeconds`. kimchi open: kimchi places each file on its open project itself,
+  through its own `handoff.fromRyolune` on its bridge, so the change is in kimchi's undo
+  history. kimchi closed: the files are added to a project's file on new audio tracks
+  (`project`: id or name, default the latest), its previous version kept beside it.
+- **From kimchi.** kimchi's `handoff.toRyolune` renders a cut as a WAV and writes
+  `<name>.kimchi-cut.json` (length and markers) in `~/.lsuite/handoff/ryolune`; while ryolune
+  runs it also imports the audio and adds the markers through ryolune's bridge itself.
+  Otherwise `handoff.inbox` lists the waiting cuts and `session.scoreCut manifest=…` puts the
+  audio on a new track at bar 1, each marker on the ruler at the bar where it falls, and the
+  cycle over the cut, in one undo step. Without a manifest, give `path`, `markers` (`time` in
   seconds, `label`) and `durationSeconds` yourself.
 - **Shared names.** Commands that every lsuite app has keep one name across the suite:
   `app.version`, `project.overview`, `export.audio`, `export.stems` and `export.midi` work here

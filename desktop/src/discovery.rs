@@ -17,30 +17,31 @@ impl Ryolune {
                 .find(|p| p.extension().is_some_and(|e| e == "app"))
                 .map(|p| p.to_path_buf())
         });
-        let bridge = self
-            .control
-            .as_ref()
-            .map(|server| json!({ "port": server.port(), "discovery": server.path() }));
+        let server = self.control.as_ref();
         json!({
             "format": lsuite::FORMAT,
             "app": "ryolune",
             "kind": "music",
             "version": env!("CARGO_PKG_VERSION"),
+            "appPath": bundle.clone().or_else(|| executable.clone()),
             "executable": executable,
-            "bundle": bundle,
             "cli": installed("ryolune-cli"),
             "mcp": installed("ryolune-mcp"),
             "dataDir": ryolune_engine::host::scan::data_dir(),
-            "documents": [ryolune_engine::document::EXTENSION],
+            "documents": {
+                "extensions": [ryolune_engine::document::EXTENSION],
+                "description": "ryolune song (JSON, audio inside)",
+            },
             "commands": control::COMMANDS.len(),
             "handoffs": { "accepts": ["cut"], "sends": ["audio"] },
             "running": running.then(|| json!({
                 "pid": std::process::id(),
+                "controlFile": server.map(|s| s.path()),
+                "port": server.map(|s| s.port()),
                 "since": self.started_at,
-                "bridge": bridge,
                 "document": self.path,
             })),
-            "updated": lsuite::now_rfc3339(),
+            "updatedAt": lsuite::now_rfc3339(),
         })
     }
 
@@ -73,6 +74,6 @@ fn installed(name: &str) -> Value {
 /// The entry without its timestamp, to tell whether anything worth writing changed.
 fn strip_time(entry: &Value) -> Value {
     let mut entry = entry.clone();
-    entry["updated"] = Value::Null;
+    entry["updatedAt"] = Value::Null;
     entry
 }

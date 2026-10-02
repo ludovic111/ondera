@@ -2,26 +2,29 @@
 //!
 //! **Discovery.** Every lsuite app writes `~/.lsuite/apps/<app>.json` when it starts and
 //! clears its `running` part when it quits (`$LSUITE_HOME` replaces `~/.lsuite`). The format
-//! (version 1, documented in lsuite's STANDARD.md) is small on purpose:
+//! (format 1, as kimchi and zenith write it too; lsuite's STANDARD.md) is small on purpose:
 //!
 //! ```json
 //! { "format": 1, "app": "ryolune", "version": "0.13.0", "kind": "music",
-//!   "executable": "…/ryolune", "cli": "…/ryolune-cli", "mcp": "…/ryolune-mcp",
-//!   "bundle": "/Applications/ryolune.app", "dataDir": "…", "documents": ["ryolune"],
-//!   "handoffs": { "accepts": ["cut"], "sends": ["audio"] },
-//!   "running": { "pid": 4242, "since": "2026-10-02T09:00:00Z",
-//!                "bridge": { "port": 51234, "discovery": "~/.ryolune/control.json" } },
-//!   "updated": "2026-10-02T09:00:00Z" }
+//!   "appPath": "/Applications/ryolune.app", "executable": "…/MacOS/ryolune",
+//!   "cli": "…/MacOS/ryolune-cli", "mcp": "…/MacOS/ryolune-mcp", "dataDir": "…",
+//!   "documents": { "extensions": ["ryolune"], "description": "ryolune song (JSON, audio inside)" },
+//!   "running": { "pid": 4242, "controlFile": "~/.ryolune/control.json", "port": 51234,
+//!                "since": "2026-10-02T09:00:00Z" },
+//!   "updatedAt": "2026-10-02T09:00:00Z" }
 //! ```
 //!
-//! No secret is ever written there: the bridge token stays in the app's own 0600 discovery
-//! file. A reader treats `running` as stale when its pid is gone.
+//! No secret is ever written there: the bridge token stays in the app's own 0600 control
+//! file. A reader treats `running` as stale when its pid is gone and ignores fields it does
+//! not know (ryolune adds `handoffs` and `commands`).
 //!
-//! **Hand-offs.** Media goes between apps as plain files. ryolune sends a mix or stems onto a
-//! kimchi project (`export.toKimchi`): it renders into the project's folder and, when kimchi is
-//! closed, adds the files to the project on a new audio track; when kimchi is open (it would
-//! save over the change) the files and a manifest wait in `~/.lsuite/inbox/kimchi/`. A cut
-//! from kimchi comes the other way as a manifest (`session.scoreCut`).
+//! **Hand-offs.** Media goes between apps as plain files, in `~/.lsuite/handoff/<app>/`.
+//! `export.toKimchi` renders the mix or stems for kimchi: when kimchi is open, kimchi places
+//! them through its own `handoff.fromRyolune` (on its bridge, which speaks ryolune's
+//! protocol); when it is closed, they go into the project file. A cut from kimchi
+//! (`handoff.toRyolune` writes `<name>.kimchi-cut.json` beside its WAV) is scored with
+//! `session.scoreCut`; while ryolune runs, kimchi also places the cut itself through ryolune's
+//! bridge (`session.importAudio`, `marker.add`).
 
 use crate::Result;
 use serde_json::{json, Value};
@@ -46,8 +49,9 @@ pub fn home() -> PathBuf {
 pub fn app_file(app: &str) -> PathBuf {
     home().join("apps").join(format!("{app}.json"))
 }
-pub fn inbox(app: &str) -> PathBuf {
-    home().join("inbox").join(app)
+/// Where files handed to an app wait: `~/.lsuite/handoff/<app>` (as kimchi writes them).
+pub fn handoff_dir(app: &str) -> PathBuf {
+    home().join("handoff").join(app)
 }
 
 /// Write a discovery entry, atomically.
@@ -174,6 +178,9 @@ fn rfc3339(secs: i64) -> String {
 /// kimchi's project library: its discovery entry's `dataDir`, else the platform default.
 pub fn kimchi_library() -> PathBuf {
     if let Some(dir) = std::env::var_os("KIMCHI_LIBRARY").filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    if let Some(dir) = std::env::var_os("KIMCHI_DATA_DIR").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
     }
     if let Some(sandbox) = crate::host::scan::test_sandbox() {
@@ -322,9 +329,10 @@ pub fn place_on_kimchi(
 }
 
 /// Leave a hand-off for an app that is open (and would overwrite an edit to its file):
-/// `~/.lsuite/inbox/<app>/<id>.json`.
+/// `~/.lsuite/handoff/<app>/<id>.json`.
+#[allow(dead_code)]
 pub fn post(app: &str, manifest: &Value) -> Result<PathBuf> {
-    let path = inbox(app).join(format!("{}.json", uuid_v4()));
+    let path = handoff_dir(app).join(format!("{}.json", uuid_v4()));
     let text = serde_json::to_string_pretty(manifest).map_err(|e| e.to_string())?;
     write_file(&path, text.as_bytes())?;
     Ok(path)

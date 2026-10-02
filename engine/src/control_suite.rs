@@ -2,6 +2,7 @@
 //! kimchi (video). Discovery and the file formats are in `lsuite.rs`.
 
 use crate::{
+    control::wire,
     control::{decode_file, edit, opt, place_audio, query, Args, Host, Kind, Spec},
     export::{self, ExportOptions},
     lsuite,
@@ -14,8 +15,8 @@ use std::{path::PathBuf, sync::Arc};
 
 pub const SPECS: &[Spec] = &[
     query("app.suite", "The lsuite apps installed on this computer (ryolune, kimchi, zenith…) from their discovery files in ~/.lsuite/apps: version, paths of each app and its CLI and MCP server, whether it is running and on which bridge port, and the hand-offs it accepts.", &[]),
-    edit("export.toKimchi", "Render the mix (or one stem per track) and put it on a kimchi video project, on a new audio track, ready to cut picture to. When kimchi is closed the files are added to the project straight away (its previous project file is kept as a backup); when kimchi is open they wait in its lsuite inbox with a note saying where they go. Runs as a job in the app.", &[
-        opt("project", Kind::String, "kimchi project id or name (default: the one changed most recently)."),
+    edit("export.toKimchi", "Render the mix (or one stem per track) and put it on a kimchi video project, on a new audio track, ready to cut picture to. When kimchi is open, kimchi places them on its open project itself (its handoff.fromRyolune, one undo step there); when it is closed, they are added to the project file (the previous one is kept as a backup). Runs as a job in the app.", &[
+        opt("project", Kind::String, "When kimchi is closed: the project id or name (default: the one changed most recently). When it is open, its open project."),
         opt("stems", Kind::Boolean, "One file and one kimchi track per ryolune track instead of the mix (default false)."),
         opt("trackIds", Kind::Array, "With stems: the tracks to send (default all)."),
         opt("startSeconds", Kind::Number, "Where the audio starts on kimchi's timeline, in seconds (default 0)."),
@@ -30,7 +31,7 @@ pub const SPECS: &[Spec] = &[
         opt("markers", Kind::Array, "Markers of the cut: objects with `time` (seconds) and `label`."),
         opt("durationSeconds", Kind::Number, "Length of the cut; sets the cycle over it when given."),
     ]),
-    query("handoff.inbox", "Hand-offs other lsuite apps left for ryolune (a cut from kimchi to score), oldest first, from ~/.lsuite/inbox/ryolune. Pass a manifest to session.scoreCut.", &[]),
+    query("handoff.inbox", "Hand-offs other lsuite apps left for ryolune (a cut from kimchi to score), oldest first, from ~/.lsuite/handoff/ryolune (kimchi's handoff.toRyolune writes `<name>.kimchi-cut.json` there). Pass a manifest to session.scoreCut.", &[]),
 ];
 
 /// Name of a command family served here.
@@ -42,7 +43,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
     match name {
         "app.suite" => Ok(json!({ "home": lsuite::home(), "apps": lsuite::entries() })),
         "handoff.inbox" => {
-            let dir = lsuite::inbox("ryolune");
+            let dir = lsuite::handoff_dir("ryolune");
             let mut items: Vec<(std::time::SystemTime, Value)> = std::fs::read_dir(&dir)
                 .into_iter()
                 .flatten()
@@ -58,7 +59,7 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
                 .collect();
             items.sort_by_key(|(t, _)| *t);
             Ok(
-                json!({ "inbox": dir, "handoffs": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>() }),
+                json!({ "folder": dir, "handoffs": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>() }),
             )
         }
         "export.toKimchi" => to_kimchi(host, a),
@@ -67,9 +68,17 @@ pub(crate) fn call(host: &mut dyn Host, name: &str, a: &Args, agent: bool) -> Re
     }
 }
 
-fn to_kimchi(host: &mut dyn Host, a: &Args) -> Result<Value> {
-    let library = lsuite::kimchi_library();
-    let project = lsuite::kimchi_project(&library, a.opt_str("project"))?;
+/// kimchi's bridge, when kimchi is running: its control file from its discovery entry.
+fn kimchi_bridge() -> Option<std::path::PathBuf> {
+    let entry = lsuite::entry("kimchi")?;
+    entry["running"]["controlFile"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_file())
+}
+
+/// Render the mix (or stems) into `folder`.
+fn render(host: &mut dyn Host, a: &Args, folder: &std::path::Path) -> Result<Vec<lsuite::Placed>> {
     let session = host.store().session().clone();
     let song = session.name.trim_end_matches(".ryolune").to_string();
     let options = ExportOptions {
@@ -79,8 +88,7 @@ fn to_kimchi(host: &mut dyn Host, a: &Args) -> Result<Value> {
         ..ExportOptions::default()
     };
     let stamp = lsuite::now_rfc3339().replace([':', '-'], "");
-    let folder = project.dir.join("imported");
-    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
     let safe: String = song
         .chars()
         .map(|c| {
@@ -91,7 +99,7 @@ fn to_kimchi(host: &mut dyn Host, a: &Args) -> Result<Value> {
             }
         })
         .collect();
-    let files: Vec<lsuite::Placed> = if a.get("stems").and_then(Value::as_bool).unwrap_or(false) {
+    if a.get("stems").and_then(Value::as_bool).unwrap_or(false) {
         let ids: Option<Vec<String>> = a.get("trackIds").and_then(Value::as_array).map(|v| {
             v.iter()
                 .filter_map(|x| x.as_str().map(String::from))
@@ -107,7 +115,7 @@ fn to_kimchi(host: &mut dyn Host, a: &Args) -> Result<Value> {
             true,
             false,
         )?;
-        report
+        Ok(report
             .files
             .into_iter()
             .map(|f| lsuite::Placed {
@@ -118,40 +126,62 @@ fn to_kimchi(host: &mut dyn Host, a: &Args) -> Result<Value> {
                 path: f.path,
                 seconds: f.seconds,
             })
-            .collect()
+            .collect())
     } else {
         let path = folder.join(format!("{safe} {stamp}.wav"));
         let report = export::mix(&session, host.library(), &path, &options)?;
-        vec![lsuite::Placed {
+        Ok(vec![lsuite::Placed {
             path: report.path,
-            name: song.clone(),
+            name: song,
             seconds: report.seconds,
-        }]
-    };
+        }])
+    }
+}
+
+fn to_kimchi(host: &mut dyn Host, a: &Args) -> Result<Value> {
     let at = a.opt_f64("startSeconds").unwrap_or(0.0).max(0.0);
-    let open = lsuite::entry("kimchi").is_some_and(|e| !e["running"].is_null());
+    let song = host
+        .store()
+        .session()
+        .name
+        .trim_end_matches(".ryolune")
+        .to_string();
+    // kimchi is open: render into the hand-off folder and let kimchi place each file on its
+    // open project through its own command (handoff.fromRyolune), in its own undo history.
+    if let Some(control) = kimchi_bridge() {
+        let files = render(host, a, &lsuite::handoff_dir("kimchi"))?;
+        let mut client = wire::Client::connect_at(&control)
+            .map_err(|e| format!("kimchi is running but did not answer: {e}"))?;
+        let mut placed = vec![];
+        for f in &files {
+            let reply = client
+                .call(
+                    "handoff.fromRyolune",
+                    &json!({ "path": f.path, "start": at }),
+                    false,
+                )
+                .map_err(|e| format!("kimchi refused {}: {e}", f.name))?;
+            placed.push(
+                json!({"path": f.path, "name": f.name, "seconds": f.seconds, "kimchi": reply}),
+            );
+        }
+        return Ok(json!({
+            "placed": true, "via": "kimchi", "files": placed,
+            "note": "kimchi was open: the audio went on its open project, one undo step there per file.",
+        }));
+    }
+    // kimchi is closed: add the files to the project's file, keeping the previous one.
+    let library = lsuite::kimchi_library();
+    let project = lsuite::kimchi_project(&library, a.opt_str("project"))?;
+    let files = render(host, a, &project.dir.join("imported"))?;
     let listed: Vec<Value> = files
         .iter()
         .map(|f| json!({"path": f.path, "name": f.name, "seconds": f.seconds}))
         .collect();
-    if open {
-        let manifest = json!({
-            "format": lsuite::FORMAT, "from": "ryolune", "kind": "audio",
-            "project": project.id, "startSeconds": at,
-            "track": format!("ryolune · {song}"), "files": listed,
-            "created": lsuite::now_rfc3339(),
-        });
-        let note = lsuite::post("kimchi", &manifest)?;
-        return Ok(json!({
-            "project": {"id": project.id, "name": project.name},
-            "placed": false, "files": listed, "manifest": note,
-            "note": "kimchi is open, so its project was left alone: the files wait in kimchi's lsuite inbox. Close kimchi and send again to place them, or drag them onto an audio track.",
-        }));
-    }
-    let placed = lsuite::place_on_kimchi(&project, &files, at, &format!("ryolune · {song}"))?;
+    let clips = lsuite::place_on_kimchi(&project, &files, at, &format!("ryolune · {song}"))?;
     Ok(json!({
         "project": {"id": project.id, "name": project.name, "file": project.dir.join("project.json")},
-        "placed": true, "files": listed, "clips": placed,
+        "placed": true, "via": "file", "files": listed, "clips": clips,
     }))
 }
 
@@ -198,16 +228,23 @@ fn score_cut(host: &mut dyn Host, a: &Args, agent: bool) -> Result<Value> {
     let name = a
         .opt_str("name")
         .map(String::from)
-        .or_else(|| m.and_then(|m| m["name"].as_str().map(String::from)))
+        .or_else(|| {
+            m.and_then(|m| m["name"].as_str().or_else(|| m["project"].as_str()))
+                .map(String::from)
+        })
         .unwrap_or_else(|| "Cut".into());
     let markers = if a.get("markers").is_some() {
         markers_of(a.get("markers"))
     } else {
         markers_of(m.map(|m| &m["markers"]))
     };
-    let duration = a
-        .opt_f64("durationSeconds")
-        .or_else(|| m.and_then(|m| m["durationSeconds"].as_f64()));
+    let duration = a.opt_f64("durationSeconds").or_else(|| {
+        m.and_then(|m| {
+            m["durationSeconds"]
+                .as_f64()
+                .or_else(|| m["seconds"].as_f64())
+        })
+    });
 
     let buffer = Arc::new(decode_file(&audio)?);
     let placed = place_audio(

@@ -2106,11 +2106,11 @@ Delete a generated sound from this computer. Clips already in a song keep their 
 
 *Edits*
 
-Render the mix (or one stem per track) and put it on a kimchi video project, on a new audio track, ready to cut picture to. When kimchi is closed the files are added to the project straight away (its previous project file is kept as a backup); when kimchi is open they wait in its lsuite inbox with a note saying where they go. Runs as a job in the app.
+Render the mix (or one stem per track) and put it on a kimchi video project, on a new audio track, ready to cut picture to. When kimchi is open, kimchi places them on its open project itself (its handoff.fromRyolune, one undo step there); when it is closed, they are added to the project file (the previous one is kept as a backup). Runs as a job in the app.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `project` | string |  | kimchi project id or name (default: the one changed most recently). |
+| `project` | string |  | When kimchi is closed: the project id or name (default: the one changed most recently). When it is open, its open project. |
 | `stems` | boolean |  | One file and one kimchi track per ryolune track instead of the mix (default false). |
 | `trackIds` | array |  | With stems: the tracks to send (default all). |
 | `startSeconds` | number |  | Where the audio starts on kimchi's timeline, in seconds (default 0). |
@@ -2122,4 +2122,4 @@ Render the mix (or one stem per track) and put it on a kimchi video project, on 
 
 ### `handoff.inbox`
 
-Hand-offs other lsuite apps left for ryolune (a cut from kimchi to score), oldest first, from ~/.lsuite/inbox/ryolune. Pass a manifest to session.scoreCut.
+Hand-offs other lsuite apps left for ryolune (a cut from kimchi to score), oldest first, from ~/.lsuite/handoff/ryolune (kimchi's handoff.toRyolune writes `<name>.kimchi-cut.json` there). Pass a manifest to session.scoreCut.
