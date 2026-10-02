@@ -191,7 +191,6 @@ fn every_tab_draws(cx: &mut TestAppContext) {
                     Err("Track is full".into())
                 }),
                 sequence: None,
-                expanded: false,
             }),
             streaming: false,
         };

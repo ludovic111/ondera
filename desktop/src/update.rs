@@ -50,13 +50,6 @@ pub fn public_key() -> Option<[u8; 32]> {
     }
     Some(key)
 }
-/// One line for the Settings > Updates pane.
-pub fn signing_summary() -> String {
-    match public_key() {
-        Some(key) => format!("release signatures required · key {}", hex(&key[..4])),
-        None => "release signatures not configured; checksums only".into(),
-    }
-}
 /// Check `SHA256SUMS.sig` against the built-in key.
 pub fn verify_signature(message: &[u8], signature_text: &str) -> Result<()> {
     let key = public_key().ok_or("This build has no release signing key")?;

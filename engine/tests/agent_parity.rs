@@ -82,15 +82,21 @@ fn action_ids() -> BTreeSet<String> {
     let source = read("desktop/src/ui/actions.rs");
     let start = source.find("pub const ACTIONS").expect("ACTIONS table");
     let body = &source[start..start + source[start..].find("];").unwrap()];
-    body.lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let rest = line
-                .strip_prefix("a(\"")
-                .or_else(|| line.strip_prefix("g(\""))?;
-            Some(rest[..rest.find('"')?].to_string())
-        })
-        .collect()
+    // `a(` or `g(` followed (maybe on the next line) by the quoted id.
+    let mut ids = BTreeSet::new();
+    for (i, _) in body.match_indices('(') {
+        let head = &body[..i];
+        if !(head.ends_with("\n    a") || head.ends_with("\n    g")) {
+            continue;
+        }
+        let rest = body[i + 1..].trim_start();
+        if let Some(rest) = rest.strip_prefix('"') {
+            if let Some(end) = rest.find('"') {
+                ids.insert(rest[..end].to_string());
+            }
+        }
+    }
+    ids
 }
 
 #[test]
@@ -132,18 +138,28 @@ fn every_menu_shortcut_and_palette_action_maps_to_registry_commands() {
 #[test]
 fn every_command_the_window_calls_by_name_is_in_the_registry() {
     let mut unknown = vec![];
+    let mut checked = 0;
     for (path, source) in window_sources() {
         let file = path
             .strip_prefix(root())
             .unwrap_or(&path)
             .display()
             .to_string();
-        for (name, _) in command_literals(&source) {
-            if !registered(&name) && ryolune_engine::control::canonical(&name) == name {
+        for (name, before) in command_literals(&source) {
+            // Only names handed to the registry: `daw.run("…")`, `request`, `fire`.
+            let called = ["run(", "request(", "fire("]
+                .iter()
+                .any(|call| before.ends_with(call));
+            checked += usize::from(called);
+            if called && !registered(&name) && ryolune_engine::control::canonical(&name) == name {
                 unknown.push(format!("{file}: {name}"));
             }
         }
     }
+    assert!(
+        checked > 50,
+        "found only {checked} registry calls in the window"
+    );
     assert!(
         unknown.is_empty(),
         "The window calls names that are not registry commands:\n{}",

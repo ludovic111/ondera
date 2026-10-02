@@ -56,7 +56,6 @@ impl AgentPanel {
                     Err("No preset named “Drum glue”".into())
                 }),
                 sequence: None,
-                expanded: false,
             }),
             streaming: false,
         };

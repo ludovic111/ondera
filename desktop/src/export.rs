@@ -89,13 +89,13 @@ impl Default for ExportDialog {
     }
 }
 
-struct Chooser {
+pub(crate) struct Chooser {
     receiver: mpsc::Receiver<Option<PathBuf>>,
     request: PreparedCommand,
     path_key: &'static str,
 }
 
-struct PreparedCommand {
+pub(crate) struct PreparedCommand {
     method: &'static str,
     params: Value,
 }

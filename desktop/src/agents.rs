@@ -10,7 +10,7 @@ use crate::{
 };
 use ryolune_engine::{control, model::Session, store::Command, Result};
 use serde_json::{json, Value};
-use std::{collections::VecDeque, path::Path, time::Instant};
+use std::{collections::VecDeque, time::Instant};
 
 const HISTORY_LIMIT: usize = 64;
 const DETAIL_LIMIT: usize = 24_000;
@@ -38,9 +38,6 @@ struct Activity {
     track: Option<String>,
     succeeded: bool,
     running: bool,
-    expanded: bool,
-    before: u64,
-    after: u64,
     depth_before: usize,
     depth_after: usize,
 }
@@ -139,14 +136,6 @@ impl AgentPanel {
     }
     pub(crate) fn change_count(&self) -> usize {
         self.history.len()
-    }
-
-    fn working(&self) -> bool {
-        self.runtime.running()
-    }
-    /// Find the Changes entry a chat tool card refers to.
-    fn activity(&self, sequence: u64) -> Option<&Activity> {
-        self.history.iter().find(|e| e.sequence == sequence)
     }
 }
 
@@ -274,7 +263,7 @@ impl Ryolune {
         method: &str,
         params: &Value,
         source: &str,
-        revision_before: u64,
+        _revision_before: u64,
         depth_before: usize,
         result: &Result<Value>,
     ) {
@@ -317,7 +306,6 @@ impl Ryolune {
                         args: params.clone(),
                         result: Some(result.clone()),
                         sequence: Some(sequence),
-                        expanded: false,
                     }),
                     streaming: false,
                 });
@@ -328,9 +316,6 @@ impl Ryolune {
             return;
         }
         let (title, track) = describe(method, params, self.store.session());
-        for entry in &mut self.agents.history {
-            entry.expanded = false;
-        }
         self.agents.history.push_front(Activity {
             sequence,
             title,
@@ -342,9 +327,6 @@ impl Ryolune {
             track,
             succeeded: result.is_ok(),
             running,
-            expanded: false,
-            before: revision_before,
-            after: self.store.revision,
             depth_before: depth_before.min(depth_after),
             depth_after,
         });
@@ -433,23 +415,6 @@ impl AgentPanel {
     }
 }
 
-fn compact(n: u64) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 10_000 {
-        format!("{}k", n / 1000)
-    } else {
-        n.to_string()
-    }
-}
-fn first_line(text: &str, max: usize) -> String {
-    let line = text.lines().next().unwrap_or("");
-    if line.chars().count() > max {
-        line.chars().take(max - 1).collect::<String>() + "…"
-    } else {
-        line.to_string()
-    }
-}
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -605,43 +570,6 @@ fn bounded(text: String) -> String {
     }
 }
 
-pub(crate) fn mcp_config_text(discovery: &Path) -> String {
-    mcp_config(discovery)
-}
-pub(crate) fn cli_check_text(discovery: &Path) -> String {
-    cli_check(discovery)
-}
-
-fn mcp_config(discovery: &Path) -> String {
-    pretty(&json!({
-        "mcpServers": {
-            "ryolune": {
-                "command": agent::cli::companion("ryolune-mcp"),
-                "args": ["--live"],
-                "env": { "RYOLUNE_CONTROL": discovery.to_string_lossy() }
-            }
-        }
-    }))
-}
-
-fn cli_check(discovery: &Path) -> String {
-    let path = discovery.to_string_lossy();
-    let executable = agent::cli::companion("ryolune-cli");
-    if cfg!(windows) {
-        format!(
-            "$env:RYOLUNE_CONTROL = '{}'; & '{}' --live session.info",
-            path.replace('\'', "''"),
-            executable.replace('\'', "''")
-        )
-    } else {
-        format!(
-            "RYOLUNE_CONTROL='{}' '{}' --live session.info",
-            path.replace('\'', "'\\''"),
-            executable.replace('\'', "'\\''")
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,21 +589,6 @@ mod tests {
     }
 
     #[test]
-    fn copied_configuration_targets_this_window_without_copying_secrets() {
-        let path = Path::new("/tmp/ryolune user's session/control.json");
-        let config: Value = serde_json::from_str(&mcp_config(path)).unwrap();
-        assert_eq!(config["mcpServers"]["ryolune"]["args"], json!(["--live"]));
-        assert_eq!(
-            config["mcpServers"]["ryolune"]["env"]["RYOLUNE_CONTROL"],
-            path.to_string_lossy().as_ref()
-        );
-        assert!(!mcp_config(path).contains("token"));
-        let check = cli_check(path);
-        assert!(check.contains("--live session.info"));
-        assert!(check.contains("RYOLUNE_CONTROL"));
-    }
-
-    #[test]
     fn activity_records_success_errors_and_shared_history() {
         let mut app = Ryolune::from_session(store::demo(), None);
         let before = app.store.revision;
@@ -684,7 +597,6 @@ mod tests {
         let result = control::call(&mut app, "session.rename", &params, true);
         app.record_agent_activity("session.rename", &params, "test", before, depth, &result);
         assert!(app.agents.history[0].succeeded);
-        assert!(app.agents.history[0].after > before);
         assert!(app.agents.history[0].mutated());
         assert_eq!(app.store.session().name, "Agent session");
         control::call(&mut app, "history.undo", &json!({}), true).unwrap();
@@ -726,7 +638,6 @@ mod tests {
                 args: json!({"name":"From the agent"}),
                 result: None,
                 sequence: None,
-                expanded: false,
             }),
             streaming: true,
         });

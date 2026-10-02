@@ -92,7 +92,7 @@ impl Drive {
                 f(last, Phase::End, w, cx);
             }
         };
-        let end_up = end.clone();
+        let end_up = end;
         el.on_mouse_down(MouseButton::Left, move |e, w, cx| {
             cx.stop_propagation();
             if e.click_count >= 2 {
@@ -369,10 +369,6 @@ impl Fader {
             },
             width: 28.0,
         }
-    }
-    pub fn default_value(mut self, value: f32) -> Self {
-        self.drive.default = value;
-        self
     }
     pub fn on_change(mut self, f: impl Fn(f32, Phase, &mut Window, &mut App) + 'static) -> Self {
         self.drive.on_change = Some(Rc::new(f));

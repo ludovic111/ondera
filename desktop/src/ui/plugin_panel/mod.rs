@@ -336,7 +336,7 @@ impl PluginPanels {
         else {
             return;
         };
-        let value = p.from_position(position as f64);
+        let value = p.value_at(position as f64);
         self.set_value(key, id, value, phase, cx);
     }
 
@@ -1461,7 +1461,7 @@ pub(crate) mod tests {
             .find(|p| !p.is_choice())
             .unwrap()
             .clone();
-        let value = p.from_position(0.25);
+        let value = p.value_at(0.25);
         app.run_control_command(
             "strip.setParameter",
             &info.with(json!({ "parameterId": p.id, "value": value })),

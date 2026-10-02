@@ -12,8 +12,8 @@ use crate::ui::{
 };
 use gpui::{
     actions as gpui_actions, anchored, deferred, div, prelude::*, px, AnyElement, App, Context,
-    DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, MouseButton, Pixels,
-    Point, SharedString, Subscription, Window,
+    DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, Pixels, Point,
+    SharedString, Subscription, Window,
 };
 use std::rc::Rc;
 
@@ -133,10 +133,6 @@ impl PopupMenu {
             hovered: None,
             min_width: px(200.0),
         }
-    }
-    pub fn min_width(mut self, width: f32) -> Self {
-        self.min_width = px(width);
-        self
     }
     fn step(&mut self, forward: bool, cx: &mut Context<Self>) {
         let n = self.items.len();
@@ -371,15 +367,4 @@ pub fn select_button(
                 .child(label.into()),
         )
         .child(super::controls::icon("chevron-down", 9.0, theme.text_3))
-}
-
-/// Right click opens a context menu at the pointer: attach to any element.
-pub fn on_context_menu<E: InteractiveElement>(
-    el: E,
-    f: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,
-) -> E {
-    el.on_mouse_down(MouseButton::Right, move |e, w, cx| {
-        cx.stop_propagation();
-        f(e.position, w, cx)
-    })
 }

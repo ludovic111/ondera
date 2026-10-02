@@ -82,8 +82,6 @@ pub struct Ryolune {
     pub path: Option<PathBuf>,
     pub(crate) session_file: Option<SessionFileLock>,
     pub(crate) pending_preview: Option<(String, u8, u8)>,
-    pub editor_low: u8,
-    pub editor_zoom: f32,
     pub(crate) job: Option<Job>,
     pub(crate) preparing: bool,
     pub(crate) sync_needed: bool,
@@ -273,8 +271,6 @@ impl Ryolune {
             path: None,
             session_file: None,
             pending_preview: None,
-            editor_low: 36,
-            editor_zoom: 1.0,
             job: None,
             preparing: false,
             sync_needed: true,
@@ -1327,58 +1323,6 @@ impl Ryolune {
         self.dispatch(Command::AddTrack(track));
         id
     }
-    pub fn add_clip(&mut self, track: String, start_bar: f64, length_bars: f64) {
-        let clip = Clip {
-            id: id("clip"),
-            name: "MIDI region".into(),
-            agent: false,
-            track_id: track.clone(),
-            start_bar,
-            length_bars,
-            data: ClipData::Midi {
-                notes: vec![],
-                controllers: vec![],
-            },
-        };
-        let clip_id = clip.id.clone();
-        self.dispatch(Command::PutClip(clip));
-        self.dispatch(Command::Select {
-            track: Some(track),
-            clip: Some(clip_id),
-            note: None,
-        });
-    }
-    pub fn duplicate_clip(&mut self) {
-        let selected = self.store.session().view.selected_clip_id.as_ref();
-        if let Some(c) = self
-            .store
-            .session()
-            .clips
-            .iter()
-            .find(|c| Some(&c.id) == selected)
-        {
-            let mut c = c.clone();
-            c.id = id("clip");
-            c.start_bar += c.length_bars;
-            self.dispatch(Command::PutClip(c));
-        }
-    }
-    pub fn split_selected(&mut self, bar: f64) {
-        let s = self.store.session();
-        if let Some(clip) = s
-            .clips
-            .iter()
-            .find(|c| Some(&c.id) == s.view.selected_clip_id.as_ref())
-        {
-            match store::split(s, clip, bar, id("clip")) {
-                Ok((l, r)) => self.dispatch(Command::Batch(vec![
-                    Command::PutClip(l),
-                    Command::PutClip(r),
-                ])),
-                Err(e) => self.error = Some(e),
-            }
-        }
-    }
     fn import_buffer(
         &mut self,
         name: &str,
@@ -1795,93 +1739,6 @@ impl Ryolune {
         }
         true
     }
-    pub fn delete_selected(&mut self) {
-        let s = self.store.session();
-        if let Some(c) = s
-            .clips
-            .iter()
-            .find(|c| Some(&c.id) == s.view.selected_clip_id.as_ref())
-        {
-            if let Some(n) = &s.view.selected_note_id {
-                let mut c = c.clone();
-                if let ClipData::Midi { notes, .. } = &mut c.data {
-                    notes.retain(|note| &note.id != n);
-                }
-                self.dispatch(Command::PutClip(c));
-            } else {
-                self.dispatch(Command::RemoveClip(c.id.clone()));
-            }
-        }
-    }
-
-    /// Load an instrument (stock or external) onto the selected instrument
-    /// track, adding one when needed.
-    pub(crate) fn instrument(&mut self, plugin_id: &str, name: &str) {
-        let selected = self
-            .store
-            .session()
-            .tracks
-            .iter()
-            .find(|t| {
-                Some(&t.id) == self.store.session().view.selected_track_id.as_ref()
-                    && t.kind == "midi"
-            })
-            .map(|t| t.id.clone());
-        let track = selected.unwrap_or_else(|| self.add_track("midi"));
-        self.set_instrument(&track, plugin_id, name);
-        self.preview(&track, 60, 95);
-    }
-    /// Insert an effect on the selected track, bus or master strip.
-    pub(crate) fn add_effect(&mut self, plugin_id: &str, name: &str) {
-        let Some(target) = self.store.session().view.selected_track_id.clone() else {
-            self.error = Some("Select a track, a bus or the master strip first.".into());
-            return;
-        };
-        self.add_effect_to(&target, plugin_id, name);
-    }
-    pub(crate) fn add_loop(&mut self, name: &str) {
-        let patterns: serde_json::Value =
-            serde_json::from_str(include_str!("../../engine/tests/fixtures/loops.json"))
-                .expect("Bundled loops");
-        let Some(pattern) = patterns.get(name) else {
-            return;
-        };
-        let Some(instrument) = pattern["instrument"].as_str() else {
-            return;
-        };
-        self.instrument(&format!("stock:{instrument}"), instrument);
-        let Some(track) = self.store.session().view.selected_track_id.clone() else {
-            return;
-        };
-        let notes = pattern["notes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|n| Note {
-                id: id("note"),
-                start: n["start"].as_f64().unwrap_or(0.0),
-                length: n["length"].as_f64().unwrap_or(0.25),
-                pitch: n["pitch"].as_u64().unwrap_or(60) as u8,
-                velocity: n["velocity"].as_u64().unwrap_or(100) as u8,
-                agent: false,
-                channel: 0,
-            })
-            .collect();
-        // Patterns are authored in 4/4; length is translated to current bars.
-        let bpb = self.store.session().beats_per_bar();
-        self.dispatch(Command::PutClip(Clip {
-            id: id("clip"),
-            name: name.into(),
-            agent: false,
-            track_id: track,
-            start_bar: (self.position / bpb).floor(),
-            length_bars: pattern["bars"].as_f64().unwrap_or(1.0) * 4.0 / bpb,
-            data: ClipData::Midi {
-                notes,
-                controllers: vec![],
-            },
-        }));
-    }
 }
 impl Ryolune {
     /// One pass of the interface thread's work: audio and workers, the control bridge, the
@@ -2015,19 +1872,6 @@ mod tests {
 
     fn setup() -> Ryolune {
         Ryolune::from_session(store::demo(), None)
-    }
-    fn notes(app: &Ryolune) -> &Vec<Note> {
-        let clip = app
-            .store
-            .session()
-            .clips
-            .iter()
-            .find(|c| c.id == "bass-2")
-            .unwrap();
-        let ClipData::Midi { notes, .. } = &clip.data else {
-            panic!()
-        };
-        notes
     }
 
     #[test]
@@ -2299,7 +2143,7 @@ mod tests {
             clip: None,
             note: None,
         });
-        app.add_effect("stock:Limiter", "Limiter");
+        app.add_effect_to(MASTER, "stock:Limiter", "Limiter");
         let master = &app.store.session().strips[MASTER];
         assert_eq!(master.inserts.len(), 1);
         assert_eq!(master.inserts[0].plugin_id(), "stock:Limiter");

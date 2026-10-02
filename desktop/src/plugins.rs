@@ -2,15 +2,12 @@
 //! processors mounted into the audio thread's rack, and their editors kept here
 //! for parameters, state capture and native windows.
 
-use crate::{
-    app::{id, Ryolune},
-    native::NativeWindow,
-};
+use crate::{app::Ryolune, native::NativeWindow};
 use ryolune_engine::{
     device::{Message, Retired},
     host,
     model::*,
-    plugin::{Descriptor, Editor, Format, Processor},
+    plugin::{Editor, Format, Processor},
     store::Command,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -33,8 +30,6 @@ pub struct Loaded {
 }
 pub struct EditorWindow {
     pub native: Option<NativeWindow>,
-    pub filter: String,
-    pub preset_name: String,
 }
 #[derive(Default)]
 pub struct Bank {
@@ -70,16 +65,6 @@ pub fn find_insert(session: &Session, key: &str) -> Option<(String, Insert, bool
         }
     }
     None
-}
-
-pub fn format_icon(format: Format) -> &'static str {
-    match format {
-        Format::Stock => "ryolune",
-        Format::Native => "Native",
-        Format::Clap => "CLAP",
-        Format::Vst3 => "VST3",
-        Format::AudioUnit => "AU",
-    }
 }
 
 impl Ryolune {
@@ -500,11 +485,7 @@ impl Ryolune {
         self.plugins
             .windows
             .entry(key.to_string())
-            .or_insert(EditorWindow {
-                native: None,
-                filter: String::new(),
-                preset_name: String::new(),
-            });
+            .or_insert(EditorWindow { native: None });
     }
     pub(crate) fn toggle_native_window_public(&mut self, key: &str) {
         self.toggle_native_window(key);
@@ -547,6 +528,7 @@ impl Ryolune {
             Err(e) => self.error = Some(e),
         }
     }
+    #[cfg(test)]
     /// Replace one parameter of an insert or instrument, as an undoable edit.
     fn set_insert_param(&mut self, key: &str, param: u32, value: f64) {
         let Some((strip_id, _, is_synth)) = find_insert(self.store.session(), key) else {
@@ -566,6 +548,7 @@ impl Ryolune {
             strip,
         });
     }
+    #[cfg(test)]
     /// Insert an effect on a strip (track, bus or master) in the first free slot.
     pub(crate) fn add_effect_to(&mut self, strip_id: &str, plugin_id: &str, name: &str) {
         let mut strip = self
@@ -575,7 +558,7 @@ impl Ryolune {
             .get(strip_id)
             .cloned()
             .unwrap_or_default();
-        let insert = Insert::new(id("insert"), plugin_id, name);
+        let insert = Insert::new(crate::app::id("insert"), plugin_id, name);
         let key = insert.id.clone();
         if let Some(empty) = strip.inserts.iter_mut().find(|i| i.is_empty()) {
             *empty = insert;
@@ -590,34 +573,6 @@ impl Ryolune {
             strip,
         });
         self.open_plugin_window(&key);
-    }
-    /// Choose the instrument of a MIDI track: a stock preset or an external plugin.
-    pub(crate) fn set_instrument(&mut self, track: &str, plugin_id: &str, name: &str) {
-        let mut strip = self
-            .store
-            .session()
-            .strips
-            .get(track)
-            .cloned()
-            .unwrap_or_default();
-        if let Some((Format::Stock, stock_name)) = Format::parse(plugin_id) {
-            strip.instrument = stock_name.into();
-            strip.synth = None;
-        } else {
-            strip.synth = Some(Insert::new(id("synth"), plugin_id, name));
-        }
-        self.dispatch(Command::SetStrip {
-            track: track.to_string(),
-            strip,
-        });
-    }
-    /// Instruments and effects available to the browser, stock first.
-    pub(crate) fn catalog_entries(&self, instruments: bool) -> Vec<Descriptor> {
-        self.catalog
-            .iter()
-            .filter(|d| if instruments { d.instrument } else { d.effect })
-            .cloned()
-            .collect()
     }
     pub(crate) fn scan_plugins(&mut self) {
         if self.scan_job.is_some() {
@@ -693,27 +648,6 @@ impl Ryolune {
 pub enum ScanEvent {
     Progress(String),
     Done(host::scan::Cache),
-}
-pub fn strip_label(session: &Session, strip_id: &str) -> String {
-    if is_bus(strip_id) {
-        bus_name(strip_id).to_string()
-    } else {
-        session
-            .tracks
-            .iter()
-            .find(|t| t.id == strip_id)
-            .map(|t| t.name.clone())
-            .unwrap_or_else(|| strip_id.to_string())
-    }
-}
-pub fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-        out.push('…');
-        out
-    }
 }
 
 #[cfg(test)]

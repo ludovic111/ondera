@@ -86,9 +86,8 @@ pub fn test_sandbox() -> Option<PathBuf> {
                 .parent()
                 .and_then(|p| p.file_name())
                 .is_some_and(|n| n == "deps");
-            in_deps.then(|| {
-                std::env::temp_dir().join(format!("ryolune-test-{}", std::process::id()))
-            })
+            in_deps
+                .then(|| std::env::temp_dir().join(format!("ryolune-test-{}", std::process::id())))
         })
         .clone()
 }

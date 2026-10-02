@@ -151,11 +151,6 @@ impl TextInput {
         self.placeholder = text.into();
         self
     }
-    pub fn with_text(mut self, text: impl Into<String>) -> Self {
-        self.content = text.into();
-        self.selected = self.content.len()..self.content.len();
-        self
-    }
 
     pub fn text(&self) -> &str {
         &self.content
@@ -989,7 +984,7 @@ mod tests {
             })
         });
         assert_eq!(events.borrow().len(), 2);
-        let single = cx.new(|cx| TextInput::new(cx));
+        let single = cx.new(TextInput::new);
         cx.update(|cx| {
             single.update(cx, |i, cx| {
                 i.edit(0..0, "a\nb", cx);

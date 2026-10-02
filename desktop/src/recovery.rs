@@ -2,7 +2,7 @@
 //! One worker owns file I/O. Generation/revision checks prevent an old job
 //! from replacing a newer document or masking edits made during recovery.
 
-use crate::app::{Intent, Ryolune};
+use crate::app::Ryolune;
 use ryolune_engine::{
     audio::Library,
     document,
@@ -58,7 +58,7 @@ impl Default for Recovery {
     }
 }
 
-struct Worker {
+pub(crate) struct Worker {
     generation: u64,
     receiver: mpsc::Receiver<Result<Outcome>>,
 }
@@ -302,13 +302,6 @@ impl Ryolune {
             self.error = previous_error;
         }
     }
-
-    /// Open a copy of a recovery snapshot, offering to save the current work first.
-    pub(crate) fn recover_from(&mut self, path: PathBuf) {
-        self.recovery.selected = Some(path);
-        self.recovery.open = false;
-        self.request(Intent::Recover);
-    }
 }
 
 fn write_snapshot(path: &Path, session: &Session, library: &Library) -> Result<()> {
@@ -481,8 +474,8 @@ mod tests {
             app.store.dirty(),
             "Undo cannot claim a recovered copy was saved"
         );
-        app.request(Intent::Quit);
-        assert!(matches!(app.intent, Some(Intent::Quit)));
+        app.request(crate::app::Intent::Quit);
+        assert!(matches!(app.intent, Some(crate::app::Intent::Quit)));
         assert!(!app.closing);
         app.store.mark_saved(app.store.revision);
         assert!(!app.store.dirty());

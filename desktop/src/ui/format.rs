@@ -51,11 +51,6 @@ pub fn smpte(seconds: f64) -> String {
     )
 }
 
-/// The song position under the playhead, in seconds, through the tempo map.
-pub fn seconds_at(session: &Session, beats: f64) -> f64 {
-    session.tempo_map().seconds(beats)
-}
-
 /// The bar whose tempo is in force at a beat: 0 is the starting tempo.
 pub fn tempo_source_bar(session: &Session, beat: f64) -> f64 {
     let bar = beat / session.beats_per_bar();
@@ -147,14 +142,6 @@ pub fn beat_line_offsets(pixels_per_bar: f32, numerator: u32) -> Vec<f32> {
     (1..beats).map(|i| i as f32 * step).collect()
 }
 
-/// MIDI pitch as a note name: 60 → C4.
-pub fn note_name(pitch: u8) -> String {
-    const NAMES: [&str; 12] = [
-        "C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B",
-    ];
-    format!("{}{}", NAMES[pitch as usize % 12], pitch as i32 / 12 - 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,7 +163,6 @@ mod tests {
         assert_eq!(db(-3.94, 1), "−3.9");
         assert_eq!(db(f32::NEG_INFINITY, 1), "−∞");
         assert_eq!(pan(-0.15), "L 15");
-        assert_eq!(note_name(60), "C4");
         assert!((snap_bars(1.13, 16, 4.0) - 1.125).abs() < 1e-9);
     }
 }

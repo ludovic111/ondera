@@ -5,12 +5,12 @@ use crate::ui::{
     assets,
     theme::{radius, size, with_alpha, Theme, FONT_MONO},
 };
-use gpui::{
-    div, prelude::*, px, svg, AnyElement, App, ClickEvent, ElementId, Hsla, SharedString, Window,
-};
+use gpui::{div, prelude::*, px, svg, App, ClickEvent, ElementId, Hsla, SharedString, Window};
 use std::rc::Rc;
 
 pub type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+pub type SelectHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+pub type ToggleHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 
 /// An icon from `assets/icons`, tinted.
 pub fn icon(name: &str, size_px: f32, color: Hsla) -> gpui::Svg {
@@ -29,16 +29,6 @@ pub fn caps(text: impl Into<SharedString>, cx: &App) -> gpui::Div {
         .text_size(px(10.5))
         .text_color(theme.text_3)
         .child(text.into().to_uppercase())
-}
-
-/// Numbers and values in the mono face.
-pub fn mono(text: impl Into<SharedString>, cx: &App) -> gpui::Div {
-    let theme = Theme::get(cx);
-    div()
-        .font_family(FONT_MONO)
-        .text_size(px(size::SM))
-        .text_color(theme.text_2)
-        .child(text.into())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -291,10 +281,6 @@ impl Key {
             size: 20.0,
         }
     }
-    pub fn size(mut self, size: f32) -> Self {
-        self.size = size;
-        self
-    }
     pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
         self.tooltip = Some(text.into());
         self
@@ -355,7 +341,7 @@ pub struct Segmented {
     id: ElementId,
     items: Vec<SharedString>,
     selected: usize,
-    on_select: Option<Rc<dyn Fn(usize, &mut Window, &mut App)>>,
+    on_select: Option<SelectHandler>,
     full_width: bool,
 }
 impl Segmented {
@@ -428,7 +414,7 @@ impl RenderOnce for Segmented {
 pub struct Switch {
     id: ElementId,
     on: bool,
-    on_toggle: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
+    on_toggle: Option<ToggleHandler>,
 }
 impl Switch {
     pub fn new(id: impl Into<ElementId>, on: bool) -> Self {
@@ -482,27 +468,4 @@ pub fn child_id(parent: &ElementId, key: impl ToString) -> ElementId {
 /// A coloured dot: a family swatch, a track colour, a status light.
 pub fn dot(color: Hsla, size_px: f32) -> gpui::Div {
     div().flex_none().size(px(size_px)).rounded_full().bg(color)
-}
-
-/// A labelled row for settings and the inspector: label at the left, control at the right.
-pub fn row(label: impl Into<SharedString>, control: impl IntoElement, cx: &App) -> gpui::Div {
-    let theme = Theme::get(cx);
-    div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(12.0))
-        .min_h(px(28.0))
-        .child(
-            div()
-                .text_size(px(size::BASE))
-                .text_color(theme.text_2)
-                .child(label.into()),
-        )
-        .child(control)
-}
-
-/// Wrap any element so it can be handed around as one type.
-pub fn any(element: impl IntoElement) -> AnyElement {
-    element.into_any_element()
 }

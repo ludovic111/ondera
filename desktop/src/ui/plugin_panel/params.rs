@@ -70,7 +70,7 @@ impl Parameter {
     }
 
     /// Knob position 0..1 to a value; stepped parameters land on their steps.
-    pub fn from_position(&self, position: f64) -> f64 {
+    pub fn value_at(&self, position: f64) -> f64 {
         let mut t = position.clamp(0.0, 1.0);
         if self.steps > 1 {
             let n = (self.steps - 1) as f64;
@@ -204,7 +204,7 @@ mod tests {
     fn log_knobs_round_trip_and_values_read_like_the_face() {
         let p = cutoff();
         assert!((p.position(632.5) - 0.5).abs() < 0.005);
-        assert!((p.from_position(p.position(4321.0)) - 4321.0).abs() < 1e-6);
+        assert!((p.value_at(p.position(4321.0)) - 4321.0).abs() < 1e-6);
         assert_eq!(p.format(1000.0), "1.00 kHz");
         assert_eq!(p.format(12_500.0), "12.5 kHz");
         let ratio = Parameter {
@@ -232,7 +232,7 @@ mod tests {
             ..cutoff()
         };
         assert_eq!(choice.format(1.0), "High");
-        assert_eq!(choice.from_position(0.4), 1.0, "steps snap");
+        assert_eq!(choice.value_at(0.4), 1.0, "steps snap");
     }
 
     // Every keystroke used to be sent: clearing the field set the cutoff to 0 at once, and

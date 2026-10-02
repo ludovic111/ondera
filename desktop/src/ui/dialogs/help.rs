@@ -94,8 +94,13 @@ const MOUSE: [(&str, &str); 9] = [
     ),
 ];
 
-/// Every action with a shortcut, in its section.
+/// Every action with a shortcut, in its section, in this platform's key names.
 pub(crate) fn groups() -> Vec<Group> {
+    groups_for(cfg!(target_os = "macos"))
+}
+
+/// The sheet with macOS (⌘⇧) or spelled-out (Ctrl+Shift+) key names.
+pub(crate) fn groups_for(mac: bool) -> Vec<Group> {
     let mut taken = vec![false; ACTIONS.len()];
     let mut out: Vec<Group> = GROUPS
         .iter()
@@ -105,7 +110,7 @@ pub(crate) fn groups() -> Vec<Group> {
                 if taken[i] || def.keys.is_empty() || !belongs(def.id) {
                     continue;
                 }
-                if let Some(keys) = actions::shortcut_label(def.id) {
+                if let Some(keys) = def.keys.first().and_then(|k| actions::label_for(k, mac)) {
                     taken[i] = true;
                     rows.push((def.label.into(), keys.into()));
                 }
@@ -117,7 +122,10 @@ pub(crate) fn groups() -> Vec<Group> {
         .iter()
         .map(|(what, keys)| {
             let keys = if keys.starts_with('⌘') {
-                actions::shortcut_label("musicalTyping").unwrap_or_else(|| keys.to_string())
+                actions::def("musicalTyping")
+                    .and_then(|d| d.keys.first())
+                    .and_then(|k| actions::label_for(k, mac))
+                    .unwrap_or_else(|| keys.to_string())
             } else {
                 keys.to_string()
             };
@@ -231,5 +239,43 @@ mod tests {
         let transport = &groups[0];
         assert!(transport.rows.iter().any(|(what, _)| what == "Play / Stop"));
         assert!(titles.contains(&"Musical typing") && titles.contains(&"Mouse"));
+    }
+}
+
+/// `docs/SHORTCUTS.md`: the sheet as Markdown, in macOS key names.
+#[cfg(test)]
+pub(crate) fn markdown() -> String {
+    let mut out = String::from(
+        "# Keyboard shortcuts\n\n<!-- Generated from the shortcut sheet (desktop/src/ui/dialogs/help.rs) by its tests. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`. -->\n\nThe same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux, ⌥ is Alt.\n",
+    );
+    for group in groups_for(true) {
+        out.push_str(&format!(
+            "\n## {}\n\n| Action | Keys |\n|---|---|\n",
+            group.title
+        ));
+        for (what, keys) in group.rows {
+            out.push_str(&format!("| {what} | `{keys}` |\n"));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod doc_tests {
+    #[test]
+    fn shortcuts_doc_matches_the_sheet() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/SHORTCUTS.md");
+        let fresh = super::markdown();
+        if std::env::var_os("RYOLUNE_BLESS").is_some() {
+            std::fs::write(&path, &fresh).unwrap();
+            return;
+        }
+        let current = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
+        assert!(
+            current == fresh,
+            "docs/SHORTCUTS.md is out of date: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`"
+        );
     }
 }

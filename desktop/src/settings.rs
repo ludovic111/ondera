@@ -48,7 +48,6 @@ pub(crate) struct SettingsWindow {
 /// A vendor CLI run for sign-in or status checks; output shows in the pane.
 pub(crate) struct CliJob {
     pub label: String,
-    pub started: Instant,
     receiver: mpsc::Receiver<Result<String>>,
 }
 
@@ -139,11 +138,7 @@ impl Ryolune {
             let result = run_cli(&exe, &args, Duration::from_secs(240));
             let _ = tx.send(result);
         });
-        self.settings_ui.job = Some(CliJob {
-            label,
-            started: Instant::now(),
-            receiver,
-        });
+        self.settings_ui.job = Some(CliJob { label, receiver });
     }
 
     pub(crate) fn poll_settings_job(&mut self) {

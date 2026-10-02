@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-<!-- Generated from desktop/src/ui/actions.rs by its tests. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`. -->
+<!-- Generated from the shortcut sheet (desktop/src/ui/dialogs/help.rs) by its tests. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`. -->
 
 The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux, ⌥ is Alt.
 
@@ -23,7 +23,7 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 |---|---|
 | Undo | `⌘Z` |
 | Redo | `⇧⌘Z` |
-| Delete | `⌫` or `Del` |
+| Delete | `⌫` |
 | Duplicate Clip | `⌘D` |
 | Split Clip at Playhead | `⌘T` |
 | Open in Editor | `E` |
@@ -39,31 +39,14 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 
 | Action | Keys |
 |---|---|
-| New MIDI Track | `⌥⌘S` |
 | New Audio Track | `⌥⌘A` |
+| New MIDI Track | `⌥⌘S` |
 | Duplicate Track | `⇧⌘D` |
 | Delete Track | `⌘⌫` |
 | Mute Track | `M` |
 | Solo Track | `S` |
 | Record-Arm Track | `A` |
 | Input Monitoring: Off / Auto / On | `I` |
-
-## View
-
-| Action | Keys |
-|---|---|
-| Zoom In | `⌘=` |
-| Zoom Out | `⌘-` |
-| Zoom to Fit Session | `Z` |
-| Follow Playhead | `F` |
-| Mixer | `X` |
-| Controller Lane | `L` |
-| Tempo Track | `⇧T` |
-| Pointer Tool | `1` |
-| Pencil Tool | `2` |
-| Scissors Tool | `3` |
-| Command Palette… | `⌘P` |
-| Shortcuts and Help | `⌘/` |
 
 ## Markers
 
@@ -74,17 +57,11 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 | Go to Next Marker | `⇧N` |
 | Cycle Section at Playhead | `⇧C` |
 
-## Agent
+## Session
 
 | Action | Keys |
 |---|---|
-| Agent Panel | `⌘J` |
-| Ask Agent About Selection… | `⇧⌘J` |
-
-## File
-
-| Action | Keys |
-|---|---|
+| Musical Typing | `⌘K` |
 | New Session | `⌘N` |
 | Open… | `⌘O` |
 | Save | `⌘S` |
@@ -92,9 +69,46 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 | Import Audio… | `⌘I` |
 | Export Audio… | `⌘B` |
 | Settings… | `⌘,` |
-| Musical Typing | `⌘K` |
 | Quit ryolune | `⌘Q` |
+
+## View and tools
+
+| Action | Keys |
+|---|---|
+| Zoom In | `⌘=` |
+| Zoom Out | `⌘-` |
+| Zoom to Fit Session | `Z` |
+| Follow Playhead | `F` |
+| Mixer | `X` |
+| Controller Lane | `L` |
+| Tempo Track | `⇧T` |
+| Command Palette… | `⌘P` |
+| Shortcuts and Help | `⌘/` |
+| Pointer Tool | `1` |
+| Pencil Tool | `2` |
+| Scissors Tool | `3` |
+| Agent Panel | `⌘J` |
+| Ask Agent About Selection… | `⇧⌘J` |
 
 ## Musical typing
 
-With musical typing on (⌘K), the letter row from A to ; plays notes on the selected instrument track, and Z / X shift the octave.
+| Action | Keys |
+|---|---|
+| White keys, C to E | `A S D F G H J K L ;` |
+| Black keys | `W E T Y U O P` |
+| Octave down / up | `Z / X` |
+| Turn musical typing on or off | `⌘K` |
+
+## Mouse
+
+| Action | Keys |
+|---|---|
+| Draw a region | `Pencil tool, drag in a lane` |
+| Open a MIDI region in the editor | `Double-click it` |
+| Resize a region | `Drag its edges` |
+| Set the cycle | `Drag in the ruler` |
+| Fade an audio region | `Drag its top corners` |
+| Move a marker | `Drag it` |
+| Rename a marker | `Double-click it` |
+| Import audio | `Drop files from your file manager` |
+| Fine adjustment, default value | `Shift-drag, double-click a control` |

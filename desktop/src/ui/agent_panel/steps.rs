@@ -456,7 +456,6 @@ mod tests {
                 args: json!({}),
                 result: Some(Ok(json!({}))),
                 sequence: None,
-                expanded: false,
             }),
             streaming: false,
         }
@@ -487,7 +486,6 @@ mod tests {
             args: json!({}),
             result: Some(Err("Track is full".into())),
             sequence: None,
-            expanded: false,
         };
         assert!(!tool_ok(&failed));
         assert_eq!(tool_error(&failed), "Track is full");

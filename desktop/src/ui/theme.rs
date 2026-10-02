@@ -9,7 +9,7 @@
 //! text readable on every surface, glass tiers included, over the brightest and darkest
 //! desktop behind the window.
 
-use gpui::{px, App, Global, Hsla, Pixels, Rgba, SharedString};
+use gpui::{App, Global, Hsla, Rgba};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -40,7 +40,10 @@ pub struct Glass {
     pub opaque: Hsla,
 }
 
+/// The whole lsuite token set for one mode; a token a view does not use yet stays, so the
+/// two modes keep the same shape as the design system.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Theme {
     pub mode: Mode,
     /// Opaque fills instead of glass: the system asks for reduced transparency, or the
@@ -617,6 +620,7 @@ fn light(opaque: bool) -> Theme {
 }
 
 /// Type sizes (lsuite: 11 · 12 · 13 controls · 15 body · 17 · 22 · 28 · 40).
+#[allow(dead_code)]
 pub mod size {
     pub const XS: f32 = 11.0;
     pub const SM: f32 = 12.0;
@@ -627,6 +631,7 @@ pub mod size {
     pub const XXL: f32 = 28.0;
 }
 /// Radii (lsuite: 4 · 6 controls · 10 popovers · 14 panels and windows · 20 cards).
+#[allow(dead_code)]
 pub mod radius {
     pub const XS: f32 = 4.0;
     pub const SM: f32 = 6.0;
@@ -679,16 +684,6 @@ pub mod editor {
 
 pub const FONT_UI: &str = "Manrope";
 pub const FONT_MONO: &str = "IBM Plex Mono";
-
-pub fn font_ui() -> SharedString {
-    FONT_UI.into()
-}
-pub fn font_mono() -> SharedString {
-    FONT_MONO.into()
-}
-pub fn px_(v: f32) -> Pixels {
-    px(v)
-}
 
 #[cfg(test)]
 mod tests {
