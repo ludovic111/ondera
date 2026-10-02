@@ -166,7 +166,17 @@ impl Workspace {
             self.title = title;
         }
         if capture {
-            super::capture::capture(window, self.daw.clone(), cx);
+            // Bring the window forward first (Stage Manager draws others as thumbnails, and
+            // a capture would see the thumbnail), then capture once it has settled.
+            window.activate_window();
+            let daw = self.daw.clone();
+            cx.spawn_in(window, async move |_, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(500))
+                    .await;
+                let _ = cx.update(|window, cx| super::capture::capture(window, daw, cx));
+            })
+            .detach();
         }
     }
 }
