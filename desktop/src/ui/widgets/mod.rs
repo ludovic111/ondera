@@ -4,6 +4,7 @@
 pub mod controls;
 pub mod dial;
 pub mod menu;
+pub mod secret_input;
 pub mod text_input;
 
 pub use controls::{
