@@ -1,46 +1,64 @@
 //! Native audio export and MIDI file settings. File choosers run on workers;
 //! file operations use the same asynchronous registry path as CLI and MCP.
 
-use crate::{app::Ryolune, theme::*};
-use eframe::egui::{self, vec2};
+use crate::app::Ryolune;
 use ryolune_engine::{model::Session, Result};
 use serde_json::{json, Value};
 use std::{collections::BTreeSet, path::PathBuf, sync::mpsc};
 
-const SAMPLE_RATES: [u32; 3] = [44100, 48000, 96000];
-const FORMATS: [(&str, &str); 3] = [
+pub(crate) const SAMPLE_RATES: [u32; 3] = [44100, 48000, 96000];
+pub(crate) const FORMATS: [(&str, &str); 3] = [
     ("pcm16", "16-bit PCM"),
     ("pcm24", "24-bit PCM"),
     ("float32", "32-bit float"),
 ];
+/// File types a mix or stems are written as: (extension, what the dialog calls it).
+pub(crate) const CONTAINERS: [(&str, &str); 4] = [
+    ("wav", "WAV"),
+    ("aiff", "AIFF"),
+    ("flac", "FLAC (lossless, smaller)"),
+    ("ogg", "Ogg Vorbis (compressed)"),
+];
+/// Vorbis quality steps and the stereo bitrate each comes to, roughly.
+pub(crate) const OGG_QUALITIES: [(f64, &str); 5] = [
+    (0.2, "Small (about 96 kbit/s)"),
+    (0.4, "Good (about 128 kbit/s)"),
+    (0.6, "High (about 192 kbit/s)"),
+    (0.8, "Very high (about 256 kbit/s)"),
+    (1.0, "Maximum (about 500 kbit/s)"),
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
+pub(crate) enum Mode {
     Audio,
     MidiImport,
     MidiExport,
 }
 
 pub(crate) struct ExportDialog {
-    open: bool,
-    mode: Mode,
-    sample_rate: u32,
-    format: usize,
-    dither: bool,
-    range: bool,
-    start_bar: f64,
-    end_bar: f64,
-    tail_seconds: f64,
-    stems: bool,
-    include_effects: bool,
-    include_master: bool,
-    tracks: BTreeSet<String>,
-    folder_name: String,
-    import_tempo: bool,
-    chooser: Option<Chooser>,
-    awaiting: Option<String>,
-    report: Option<String>,
-    error: Option<String>,
+    pub(crate) open: bool,
+    pub(crate) mode: Mode,
+    pub(crate) sample_rate: u32,
+    pub(crate) format: usize,
+    /// Index in [`CONTAINERS`]: the file type of the mix or of every stem.
+    pub(crate) container: usize,
+    /// Ogg Vorbis quality, 0-1 (the other types use `format` and `dither`).
+    pub(crate) quality: f64,
+    pub(crate) dither: bool,
+    pub(crate) range: bool,
+    pub(crate) start_bar: f64,
+    pub(crate) end_bar: f64,
+    pub(crate) tail_seconds: f64,
+    pub(crate) stems: bool,
+    pub(crate) include_effects: bool,
+    pub(crate) include_master: bool,
+    pub(crate) tracks: BTreeSet<String>,
+    pub(crate) folder_name: String,
+    pub(crate) import_tempo: bool,
+    pub(crate) chooser: Option<Chooser>,
+    pub(crate) awaiting: Option<String>,
+    pub(crate) report: Option<String>,
+    pub(crate) error: Option<String>,
 }
 
 impl Default for ExportDialog {
@@ -50,6 +68,8 @@ impl Default for ExportDialog {
             mode: Mode::Audio,
             sample_rate: 48000,
             format: 1,
+            container: 0,
+            quality: 0.6,
             dither: true,
             range: false,
             start_bar: 1.0,
@@ -69,13 +89,13 @@ impl Default for ExportDialog {
     }
 }
 
-struct Chooser {
+pub(crate) struct Chooser {
     receiver: mpsc::Receiver<Option<PathBuf>>,
     request: PreparedCommand,
     path_key: &'static str,
 }
 
-struct PreparedCommand {
+pub(crate) struct PreparedCommand {
     method: &'static str,
     params: Value,
 }
@@ -114,8 +134,16 @@ impl ExportDialog {
     pub(crate) fn close(&mut self) {
         self.open = false;
     }
+    /// The file chooser is open.
+    pub(crate) fn choosing(&self) -> bool {
+        self.chooser.is_some()
+    }
+    /// Why the form cannot run yet, as the dialog says it.
+    pub(crate) fn problem(&self, session: &Session) -> Option<String> {
+        self.request(session).err()
+    }
 
-    fn request(&self, session: &Session) -> Result<PreparedCommand> {
+    pub(crate) fn request(&self, session: &Session) -> Result<PreparedCommand> {
         let selected: Vec<&str> = session
             .tracks
             .iter()
@@ -143,8 +171,21 @@ impl ExportDialog {
                 }
             }
             Mode::Audio => {
-                if !SAMPLE_RATES.contains(&self.sample_rate) || self.format >= FORMATS.len() {
-                    return Err("Choose a supported sample rate and WAV encoding.".into());
+                if !SAMPLE_RATES.contains(&self.sample_rate)
+                    || self.format >= FORMATS.len()
+                    || self.container >= CONTAINERS.len()
+                {
+                    return Err("Choose a supported sample rate, file type and encoding.".into());
+                }
+                let container = CONTAINERS[self.container].0;
+                let lossy = container == "ogg";
+                if !lossy && container != "wav" && FORMATS[self.format].0 == "float32" {
+                    return Err(
+                        "32-bit float is written to WAV only: choose 16 or 24-bit PCM.".into(),
+                    );
+                }
+                if lossy && !(self.quality.is_finite() && (0.0..=1.0).contains(&self.quality)) {
+                    return Err("The Ogg Vorbis quality must be between 0 and 1.".into());
                 }
                 if !self.tail_seconds.is_finite() || !(0.0..=120.0).contains(&self.tail_seconds) {
                     return Err("The effect tail must be between 0 and 120 seconds.".into());
@@ -159,10 +200,14 @@ impl ExportDialog {
                 }
                 let mut params = json!({
                     "sampleRate":self.sample_rate,
-                    "format":FORMATS[self.format].0,
-                    "dither":self.dither,
                     "tailSeconds":self.tail_seconds,
                 });
+                if lossy {
+                    params["quality"] = json!(self.quality);
+                } else {
+                    params["format"] = json!(FORMATS[self.format].0);
+                    params["dither"] = json!(self.dither && FORMATS[self.format].0 != "float32");
+                }
                 if self.range {
                     params["startBar"] = json!(self.start_bar - 1.0);
                     params["endBar"] = json!(self.end_bar - 1.0);
@@ -179,6 +224,7 @@ impl ExportDialog {
                     params["trackIds"] = json!(selected);
                     params["includeEffects"] = json!(self.include_effects);
                     params["includeMaster"] = json!(self.include_master);
+                    params["container"] = json!(container);
                 }
                 PreparedCommand {
                     method: if self.stems {
@@ -193,7 +239,7 @@ impl ExportDialog {
         Ok(request)
     }
 
-    fn choose(&mut self, session: &Session) {
+    pub(crate) fn choose(&mut self, session: &Session) {
         let request = match self.request(session) {
             Ok(request) => request,
             Err(error) => {
@@ -205,6 +251,7 @@ impl ExportDialog {
         let stems = mode == Mode::Audio && self.stems;
         let folder = self.folder_name.trim().to_string();
         let name = session.name.trim_end_matches(".ryolune").to_string();
+        let extension = CONTAINERS[self.container.min(CONTAINERS.len() - 1)].0;
         let (tx, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let path = match mode {
@@ -225,19 +272,38 @@ impl ExportDialog {
                     .set_title("Choose parent folder for stems")
                     .pick_folder()
                     .map(|parent| parent.join(folder)),
-                Mode::Audio => rfd::FileDialog::new()
-                    .add_filter("WAV audio", &["wav"])
-                    .add_filter("AIFF audio", &["aiff", "aif"])
-                    .add_filter("FLAC audio", &["flac"])
-                    .add_filter("Ogg Vorbis audio", &["ogg"])
-                    .set_file_name(format!("{name}.wav"))
-                    .save_file()
-                    .map(|mut path| {
-                        if path.extension().is_none() {
-                            path.set_extension("wav");
-                        }
-                        path
-                    }),
+                Mode::Audio => {
+                    // The chosen type comes first, so the chooser offers it.
+                    let mut dialog = rfd::FileDialog::new();
+                    let filters: [(&str, &[&str]); 4] = [
+                        ("wav", &["wav"]),
+                        ("aiff", &["aiff", "aif"]),
+                        ("flac", &["flac"]),
+                        ("ogg", &["ogg"]),
+                    ];
+                    for (key, extensions) in filters
+                        .iter()
+                        .filter(|(key, _)| *key == extension)
+                        .chain(filters.iter().filter(|(key, _)| *key != extension))
+                    {
+                        let label = match *key {
+                            "wav" => "WAV audio",
+                            "aiff" => "AIFF audio",
+                            "flac" => "FLAC audio",
+                            _ => "Ogg Vorbis audio",
+                        };
+                        dialog = dialog.add_filter(label, extensions);
+                    }
+                    dialog
+                        .set_file_name(format!("{name}.{extension}"))
+                        .save_file()
+                        .map(|mut path| {
+                            if path.extension().is_none() {
+                                path.set_extension(extension);
+                            }
+                            path
+                        })
+                }
             };
             let _ = tx.send(path);
         });
@@ -281,144 +347,6 @@ impl ExportDialog {
             Err(error) => self.error = Some(error.clone()),
         }
     }
-
-    fn track_choices(&mut self, ui: &mut egui::Ui, session: &Session) {
-        ui.horizontal(|ui| {
-            ui.label(caps("Tracks"));
-            if text_button(ui, "All", Face::Raised).clicked() {
-                self.tracks = session
-                    .tracks
-                    .iter()
-                    .filter(|track| self.mode != Mode::MidiExport || track.kind == "midi")
-                    .map(|track| track.id.clone())
-                    .collect();
-            }
-            if text_button(ui, "None", Face::Raised).clicked() {
-                self.tracks.clear();
-            }
-        });
-        egui::ScrollArea::vertical()
-            .id_salt("export-tracks")
-            .max_height(FADER_H)
-            .show(ui, |ui| {
-                for track in session
-                    .tracks
-                    .iter()
-                    .filter(|track| self.mode != Mode::MidiExport || track.kind == "midi")
-                {
-                    let mut selected = self.tracks.contains(&track.id);
-                    if ui.checkbox(&mut selected, &track.name).changed() {
-                        if selected {
-                            self.tracks.insert(track.id.clone());
-                        } else {
-                            self.tracks.remove(&track.id);
-                        }
-                    }
-                }
-            });
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, session: &Session, blocked: bool) -> bool {
-        ui.spacing_mut().item_spacing = vec2(GAP, GAP);
-        let mut choose = false;
-        ui.add_enabled_ui(!self.busy() && !blocked, |ui| {
-            match self.mode {
-                Mode::Audio => {
-                    ui.horizontal(|ui| {
-                        if let Some(selected) = segmented(ui, &["Stereo mix", "Track stems"], usize::from(self.stems), BROWSER / 2.0) {
-                            self.stems = selected == 1;
-                        }
-                    });
-                    egui::Grid::new("export-format").spacing(vec2(GAP * 2.0, GAP)).show(ui, |ui| {
-                        ui.label("Sample rate");
-                        egui::ComboBox::from_id_salt("export-rate").selected_text(format!("{} kHz", self.sample_rate as f64 / 1000.0)).show_ui(ui, |ui| {
-                            for rate in SAMPLE_RATES { ui.selectable_value(&mut self.sample_rate, rate, format!("{} kHz", rate as f64 / 1000.0)); }
-                        });
-                        ui.end_row();
-                        ui.label("WAV encoding");
-                        egui::ComboBox::from_id_salt("export-format").selected_text(FORMATS[self.format].1).show_ui(ui, |ui| {
-                            for (index, (_, label)) in FORMATS.iter().enumerate() { ui.selectable_value(&mut self.format, index, *label); }
-                        });
-                        ui.end_row();
-                        ui.label("Effect tail");
-                        ui.add(egui::DragValue::new(&mut self.tail_seconds).range(0.0..=120.0).speed(0.1).suffix(" s"));
-                        ui.end_row();
-                    });
-                    ui.add_enabled_ui(self.format != 2, |ui| {
-                        ui.checkbox(&mut self.dither, "Dither integer PCM output");
-                    });
-                    ui.checkbox(&mut self.range, "Export a range");
-                    if self.range {
-                        ui.horizontal(|ui| {
-                            ui.label("From bar");
-                            ui.add(egui::DragValue::new(&mut self.start_bar).range(1.0..=100000.0).speed(0.25));
-                            ui.label("Until bar");
-                            ui.add(egui::DragValue::new(&mut self.end_bar).range(1.0..=100000.0).speed(0.25));
-                        });
-                        ui.label(text("The end marker is excluded. Bars 1 to 9 export eight bars, plus the effect tail.", FS_SECONDARY, Weight::Medium, DIM));
-                        if text_button(ui, "Use cycle markers", Face::Raised).clicked() {
-                            self.start_bar = session.transport.cycle_start_bar + 1.0;
-                            self.end_bar = session.transport.cycle_end_bar + 1.0;
-                        }
-                    } else {
-                        ui.label(text("Exports the full arrangement, followed by the effect tail.", FS_SECONDARY, Weight::Medium, DIM));
-                    }
-                    if self.stems {
-                        ui.separator();
-                        self.track_choices(ui, session);
-                        ui.label(text("Selected tracks render individually, including muted tracks.", FS_SECONDARY, Weight::Medium, DIM));
-                        ui.checkbox(&mut self.include_effects, "Include track effects and sends");
-                        ui.checkbox(&mut self.include_master, "Apply master processing to each stem");
-                        ui.label(text("Shared buses and nonlinear effects can make the stem sum differ from the full mix.", FS_SECONDARY, Weight::Medium, DIM));
-                        ui.horizontal(|ui| { ui.label("New folder"); ui.text_edit_singleline(&mut self.folder_name); });
-                        ui.label(text("Choose its parent folder next. Existing folders are preserved.", FS_SECONDARY, Weight::Medium, DIM));
-                    }
-                }
-                Mode::MidiImport => {
-                    ui.label(text("Import MIDI notes into new instrument tracks.", FS_BODY, Weight::Medium, INK));
-                    ui.horizontal(|ui| {
-                        ui.label("Start at bar");
-                        ui.add(egui::DragValue::new(&mut self.start_bar).range(1.0..=100000.0).speed(0.25));
-                    });
-                    ui.checkbox(&mut self.import_tempo, "Use the file's initial tempo and time signature");
-                    ui.label(text("Notes retain their musical timing. Later tempo/signature changes, controller data and program changes may require manual editing; the result lists ignored data.", FS_SECONDARY, Weight::Medium, DIM));
-                }
-                Mode::MidiExport => {
-                    ui.label(text("Export instrument-track notes as a Standard MIDI File. Audio tracks and plugin sounds are not included.", FS_BODY, Weight::Medium, INK));
-                    self.track_choices(ui, session);
-                }
-            }
-            ui.separator();
-            match self.request(session) {
-                Ok(_) => {
-                    choose = text_button(ui, match self.mode {
-                        Mode::Audio if self.stems => "Choose folder and export…",
-                        Mode::Audio => "Export WAV…",
-                        Mode::MidiImport => "Choose MIDI file…",
-                        Mode::MidiExport => "Export MIDI…",
-                    }, Face::Raised).clicked();
-                }
-                Err(error) => { ui.label(text(error, FS_SECONDARY, Weight::Medium, INK_DIM)); }
-            }
-        });
-        if self.chooser.is_some() {
-            ui.label("Choose a location in the file dialog…");
-        } else if self.awaiting.is_some() {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label("Working…");
-            });
-        } else if blocked {
-            ui.label("Wait for the current file operation or recording to finish.");
-        }
-        if let Some(error) = &self.error {
-            ui.label(text(error, FS_BODY, Weight::Medium, INK_BRIGHT));
-        }
-        if let Some(report) = &self.report {
-            ui.label(text(report, FS_BODY, Weight::Medium, INK));
-        }
-        choose
-    }
 }
 
 impl Ryolune {
@@ -437,7 +365,8 @@ impl Ryolune {
             .show(Mode::MidiExport, self.store.session(), self.position);
     }
 
-    pub(crate) fn export_dialog(&mut self, ctx: &egui::Context) {
+    /// Run the export or import once its file chooser answers. Called every tick.
+    pub(crate) fn poll_export(&mut self) {
         if let Some(command) = self.export.poll_chooser() {
             self.export.awaiting = Some(command.method.into());
             let result =
@@ -449,40 +378,15 @@ impl Ryolune {
                 self.export.completed(command.method, &result);
             }
         }
-        if !self.export.open {
-            return;
-        }
-        let session = self.store.snapshot();
-        let blocked = (self.job.is_some() && !self.preparing)
+    }
+    /// The export dialog cannot start while audio is being prepared, recorded or written.
+    pub(crate) fn export_blocked(&self) -> bool {
+        (self.job.is_some() && !self.preparing)
             || self.control_job.is_some()
             || self.midi_recording
             || self.recorder.is_some()
             || self.record_pending.is_some()
-            || self.record_finishing.is_some();
-        let mut open = true;
-        let mut choose = false;
-        egui::Window::new(match self.export.mode {
-            Mode::Audio => "Export audio",
-            Mode::MidiImport => "Import MIDI",
-            Mode::MidiExport => "Export MIDI",
-        })
-        .id(egui::Id::new("media-export-dialog"))
-        .open(&mut open)
-        .default_width(BROWSER * 2.0)
-        .resizable(true)
-        .frame(window_frame())
-        .show(ctx, |ui| {
-            plate(ui, "export-plate", |ui| {
-                choose = self.export.ui(ui, &session, blocked);
-            });
-        });
-        self.export.open = open;
-        if choose {
-            self.export.choose(&session);
-        }
-        if self.export.busy() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
-        }
+            || self.record_finishing.is_some()
     }
 }
 
@@ -504,6 +408,9 @@ fn report(method: &str, value: &Value) -> String {
     }
     if let Some(duration) = value["seconds"].as_f64() {
         lines.push(format!("Duration: {duration:.2} seconds"));
+    }
+    if let Some(kbps) = value["kbps"].as_f64() {
+        lines.push(format!("Ogg Vorbis, about {} kbit/s", kbps.round()));
     }
     if let Some(files) = value["files"].as_array() {
         lines.push(format!("{} stem files", files.len()));
@@ -589,6 +496,32 @@ mod tests {
         let request = dialog.request(&session).unwrap();
         assert_eq!(request.params["startBar"], 4.0);
         assert_eq!(request.params["importTempo"], false);
+    }
+
+    #[test]
+    fn file_types_choose_their_encoding_and_stems_carry_the_container() {
+        let session = store::demo();
+        let mut dialog = ExportDialog {
+            container: 3,
+            quality: 0.8,
+            ..Default::default()
+        };
+        let request = dialog.request(&session).unwrap();
+        assert_eq!(request.params["quality"], 0.8);
+        assert!(request.params.get("format").is_none() && request.params.get("dither").is_none());
+        dialog.container = 2;
+        dialog.format = 2;
+        assert!(dialog.request(&session).is_err(), "FLAC takes no float");
+        dialog.container = 0;
+        let request = dialog.request(&session).unwrap();
+        assert_eq!(request.params["format"], "float32");
+        assert_eq!(request.params["dither"], false, "float is never dithered");
+        dialog.container = 1;
+        dialog.format = 1;
+        dialog.stems = true;
+        dialog.tracks.insert(session.tracks[0].id.clone());
+        let request = dialog.request(&session).unwrap();
+        assert_eq!(request.params["container"], "aiff");
     }
 
     #[test]

@@ -2,11 +2,7 @@
 //! One worker owns file I/O. Generation/revision checks prevent an old job
 //! from replacing a newer document or masking edits made during recovery.
 
-use crate::{
-    app::{Intent, Ryolune},
-    theme::*,
-};
-use eframe::egui;
+use crate::app::Ryolune;
 use ryolune_engine::{
     audio::Library,
     document,
@@ -26,18 +22,18 @@ use std::{
 const INTERVAL: Duration = Duration::from_secs(30);
 
 pub(crate) struct Recovery {
-    generation: u64,
-    run: u128,
-    last_attempt: Instant,
-    last_revision: Option<u64>,
-    path: Option<PathBuf>,
-    latest: Option<(PathBuf, SystemTime)>,
-    worker: Option<Worker>,
-    open: bool,
-    refresh: bool,
-    candidates: Vec<Snapshot>,
-    selected: Option<PathBuf>,
-    error: Option<String>,
+    pub(crate) generation: u64,
+    pub(crate) run: u128,
+    pub(crate) last_attempt: Instant,
+    pub(crate) last_revision: Option<u64>,
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) latest: Option<(PathBuf, SystemTime)>,
+    pub(crate) worker: Option<Worker>,
+    pub(crate) open: bool,
+    pub(crate) refresh: bool,
+    pub(crate) candidates: Vec<Snapshot>,
+    pub(crate) selected: Option<PathBuf>,
+    pub(crate) error: Option<String>,
 }
 
 impl Default for Recovery {
@@ -62,7 +58,7 @@ impl Default for Recovery {
     }
 }
 
-struct Worker {
+pub(crate) struct Worker {
     generation: u64,
     receiver: mpsc::Receiver<Result<Outcome>>,
 }
@@ -124,6 +120,10 @@ impl Recovery {
         self.worker.is_none()
             && (native_plugins || (dirty && self.last_revision != Some(revision)))
             && now.saturating_duration_since(self.last_attempt) >= interval
+    }
+    /// Listing, writing or opening a snapshot is in progress.
+    pub(crate) fn working(&self) -> bool {
+        self.worker.is_some()
     }
     pub(crate) fn select(&mut self, path: PathBuf) {
         self.selected = Some(path);
@@ -193,7 +193,7 @@ impl Ryolune {
         !self.store.can_redo() && !self.store.gesture_active()
     }
 
-    pub(crate) fn poll_recovery(&mut self, ctx: &egui::Context) {
+    pub(crate) fn poll_recovery(&mut self) {
         if let Some((generation, result)) = self.recovery.poll() {
             if generation == self.recovery.generation {
                 match result {
@@ -247,8 +247,7 @@ impl Ryolune {
             && !self.midi_recording
             && self.after_take.is_none()
             && self.intent.is_none()
-            && !ctx.input(|input| input.pointer.any_down())
-            && !ctx.wants_keyboard_input();
+            && !self.interacting;
         let now = Instant::now();
         let interval = Duration::from_secs(u64::from(
             self.settings
@@ -275,7 +274,6 @@ impl Ryolune {
             } else {
                 if !self.store.dirty() || self.recovery.last_revision == Some(self.store.revision) {
                     self.error = previous_error;
-                    self.recovery_dialog(ctx);
                     return;
                 }
                 let mut session = self.store.session().clone();
@@ -303,49 +301,6 @@ impl Ryolune {
             }
             self.error = previous_error;
         }
-        self.recovery_dialog(ctx);
-        if self.recovery.worker.is_some() {
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
-    }
-
-    fn recovery_dialog(&mut self, ctx: &egui::Context) {
-        if !self.recovery.open {
-            return;
-        }
-        let mut open = true;
-        let mut selected = None;
-        egui::Window::new("Recover a session").open(&mut open).default_width(BROWSER * 2.0)
-            .frame(window_frame()).resizable(true).show(ctx, |ui| plate(ui, "recovery-plate", |ui| {
-                ui.label(text(format!("ryolune saves a separate recovery copy every {} seconds while an edited session is idle. Your project file is preserved.", self.settings.general.recovery_interval_seconds), FS_BODY, Weight::Medium, INK));
-                ui.label(text("Choose a snapshot to open a copy. Current unsaved edits will be offered for saving first; Save then chooses the recovered project's destination.", FS_SECONDARY, Weight::Medium, DIM));
-                ui.label(mono(self.recovery.status(), FS_SMALL, FAINT));
-                ui.label(mono(directory().display().to_string(), FS_SMALL, FAINT));
-                if text_button(ui, "Refresh", Face::Raised).clicked() { self.recovery.refresh = true; }
-                ui.separator();
-                if self.recovery.worker.is_some() { ui.spinner(); }
-                if self.recovery.candidates.is_empty() && self.recovery.worker.is_none() {
-                    ui.label("No recovery snapshots are available yet.");
-                }
-                egui::ScrollArea::vertical().max_height(FADER_H * 2.0).show(ui, |ui| {
-                    for candidate in &self.recovery.candidates {
-                        ui.horizontal(|ui| {
-                            ui.add_enabled_ui(self.recovery.worker.is_none(), |ui| {
-                                if text_button(ui, &candidate.title, Face::Raised).clicked() {
-                                    selected = Some(candidate.path.clone());
-                                }
-                            });
-                            ui.label(mono(format!("{} · {:.1} MB", age(candidate.modified), candidate.bytes as f64 / 1_000_000.0), FS_SMALL, DIM));
-                        });
-                    }
-                });
-            }));
-        self.recovery.open = open;
-        if let Some(path) = selected {
-            self.recovery.selected = Some(path);
-            self.recovery.open = false;
-            self.request(Intent::Recover);
-        }
     }
 }
 
@@ -358,7 +313,7 @@ fn write_snapshot(path: &Path, session: &Session, library: &Library) -> Result<(
     document::save(session, library, path)
 }
 
-fn age(time: SystemTime) -> String {
+pub(crate) fn age(time: SystemTime) -> String {
     let seconds = time.elapsed().unwrap_or_default().as_secs();
     if seconds < 60 {
         format!("{seconds}s ago")
@@ -469,9 +424,7 @@ mod tests {
             app.dispatch(ryolune_engine::store::Command::Rename(
                 "Current work".into(),
             ));
-            let ctx = egui::Context::default();
-            install(&ctx);
-            let _ = ctx.run(egui::RawInput::default(), |ctx| app.poll_recovery(ctx));
+            app.poll_recovery();
             assert_eq!(app.store.session().name, "Current work");
             assert!(app.path.is_none());
             if !new_document {
@@ -497,9 +450,7 @@ mod tests {
             revision: app.store.revision,
         }))
         .unwrap();
-        let ctx = egui::Context::default();
-        install(&ctx);
-        let _ = ctx.run(egui::RawInput::default(), |ctx| app.poll_recovery(ctx));
+        app.poll_recovery();
         assert_eq!(app.store.session().name, "Recovered song");
         assert!(app.path.is_none());
         // A snapshot is not a project: it must not be reopened at launch as if it were one.
@@ -523,8 +474,8 @@ mod tests {
             app.store.dirty(),
             "Undo cannot claim a recovered copy was saved"
         );
-        app.request(Intent::Quit);
-        assert!(matches!(app.intent, Some(Intent::Quit)));
+        app.request(crate::app::Intent::Quit);
+        assert!(matches!(app.intent, Some(crate::app::Intent::Quit)));
         assert!(!app.closing);
         app.store.mark_saved(app.store.revision);
         assert!(!app.store.dirty());

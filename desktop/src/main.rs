@@ -2,20 +2,20 @@
 mod agent;
 mod agents;
 mod app;
-mod automation;
-mod chrome;
 mod control;
-mod editor;
+mod discovery;
 mod export;
 mod generate;
 mod native;
 mod plugins;
 mod recovery;
 mod settings;
-mod theme;
-mod timeline;
+mod ui;
 mod update;
-mod web;
+
+/// Asks the window to run its next tick soon. Called from any thread: the control bridge,
+/// workers and the agent use it so a waiting request is answered at once.
+pub(crate) type Wake = std::sync::Arc<dyn Fn() + Send + Sync>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
@@ -158,6 +158,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     update::cleanup();
-    web::run(path, screenshot, control, check_updates, show_agents)?;
+    ui::run(path, screenshot, control, check_updates, show_agents);
     Ok(())
 }

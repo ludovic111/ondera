@@ -6,23 +6,17 @@ rust-version.workspace = true
 license.workspace = true
 default-run = "ryolune"
 
-[features]
-default = ["custom-protocol"]
-custom-protocol = ["tauri/custom-protocol"]
-
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
-
 [dependencies]
-tauri = { version = "2", features = [] }
 serde.workspace = true
-tokio = { version = "1", features = ["sync"] }
 ryolune-engine = { path = "../engine" }
 serde_json.workspace = true
-eframe = { version = "0.32.3", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11", "accesskit"] }
-wgpu = { version = "25", default-features = false, features = ["metal", "dx12", "vulkan", "gles", "wgsl"] }
-# Keep Cargo.lock: gpu-allocator's broad Windows range must resolve to 0.58 for wgpu,
-# separately from CPAL's Windows 0.54 bindings. CI checks the actual Windows build.
+# The window: Zed's GPU interface framework (gpui.rs). Shaders are compiled when the window
+# opens, so the build needs no Metal toolchain.
+gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+futures = "0.3"
+rust-embed = { version = "8", features = ["include-exclude", "debug-embed"] }
+raw-window-handle = "0.6"
+unicode-segmentation = "1"
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
@@ -34,16 +28,18 @@ ryolune-plugin = { path = "../sdk" }
 tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 [[bin]]
 name = "ryolune"
 path = "src/main.rs"
 
 [dev-dependencies]
 ryolune-tools = { path = "../tools" }
+gpui = { version = "0.2.2", features = ["runtime_shaders", "test-support"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-block2 = "0.6"
-objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration", "block2"] }
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSGraphics", "NSApplication", "NSRunningApplication"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSGraphics", "NSApplication", "NSRunningApplication", "NSWorkspace"] }
 objc2-foundation = "0.3"

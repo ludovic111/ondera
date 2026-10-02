@@ -12,10 +12,9 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
 - **One look.** The site wears the app's theme in its dark mode (the design source) and has no
   switcher. The light mode is shown, not worn: the "One theme, in the app" section is a gallery
   of two captures of the app's renderer, dark and light.
-- `tokens.css` and `tokens.js` are **generated** from the app's theme layer (`frontend/src/theme`)
-  by `node scripts/gen-site-tokens.mjs` (run from the repo root after `npm --prefix frontend ci`).
-  They hold the dark mode only: `tokens.css` is one `:root` block, `tokens.js` the same values
-  for the canvas code. Do not edit the generated files; regenerate them when that theme changes.
+- `tokens.css` and `tokens.js` were generated from the 0.12 React theme layer, which 0.13
+  replaced (the window now wears the lsuite design system, `desktop/src/ui/theme.rs`); they are
+  frozen with this retired site.
 - Caching: `server.js` rewrites every `?v=` on a `.js`/`.css` reference (in `index.html` and in
   `main.js`'s `tokens.js` import) to a hash of that file, and serves `?v=` URLs as immutable, so a
   change is picked up on the next page load without a manual bump. Other files carry an ETag and
@@ -54,9 +53,10 @@ dependency-free Node server (`server.js`). It deploys to Railway from this direc
   downloads before Play (`preload="none"`). They are copies of `marketing/brag-output/brag-4k.mp4`
   and `brag.mp4` (see `marketing/README.md` to re-record them). `server.js` streams `.mp4` with byte
   ranges (Safari needs them to play, every browser to seek) instead of reading it into memory.
-- `img/theme-ryolune-<mode>.webp` (2000x1250) feed the theme gallery. They are the frontend
-  renderer with its fixture song: `npm --prefix frontend run dev`, open `/?mode=<mode>` at
-  1600x1000 with a device scale of 1.25, screenshot, then `cwebp -q 74 -m 6`. `arrangement.webp`
+- `img/theme-ryolune-<mode>.webp` (2000x1250) feed the theme gallery. Since 0.13 take them from
+  the real window: run the app with a scratch profile, `ryolune-cli settings.set
+  --path interface.mode --value '"dark"'`, `ryolune-cli ui.screenshot --path …`, then
+  `cwebp -q 74 -m 6`. `arrangement.webp`
   (`?mode=dark&panel=controllers`), `mixer.webp` (`&panel=mixer`) and `og.png` (the dark capture
   at 1200x750) are taken the same way. Changelog entries before 0.12 name the old themes as history.
 - `main.js` runs the interactive DAW mock on the hero: a tiny command store using the registry's

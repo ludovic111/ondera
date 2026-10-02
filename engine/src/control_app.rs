@@ -264,6 +264,8 @@ pub fn denied_for_agent(name: &str, permissions: &settings::Permissions) -> Opti
         | "session.exportMidi"
         | "session.exportAudio"
         | "session.exportStems"
+        | "export.toKimchi"
+        | "session.scoreCut"
         | "plugin.scan"
         | "preset.save"
         | "preset.delete"

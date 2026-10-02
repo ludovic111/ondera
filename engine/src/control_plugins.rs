@@ -1068,7 +1068,7 @@ fn collapse_layouts(plugins: Vec<Descriptor>, library: &Plugins, auto: &AutoFold
 
 /// Plain words a musician (or an agent) searches with, per sound folder, so "reverb" finds
 /// Space and every third-party reverb filed under Space & Time.
-fn folder_words(folder: &str) -> &'static str {
+pub fn folder_words(folder: &str) -> &'static str {
     match folder {
         "Synths" => "synth synthesizer lead pluck analog",
         "Keys" => "keys piano electric piano organ rhodes",

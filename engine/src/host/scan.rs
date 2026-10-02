@@ -67,8 +67,28 @@ pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("RYOLUNE_DATA_DIR") {
         return PathBuf::from(dir);
     }
+    if let Some(sandbox) = test_sandbox() {
+        return sandbox.join("data");
+    }
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| adopt_legacy(platform_dir(LEGACY_NAME), platform_dir("ryolune")))
+        .clone()
+}
+/// A cargo test binary (`target/<profile>/deps/<name>-<hash>`) never touches the person's
+/// profile, even when a test forgets `RYOLUNE_SETTINGS` / `RYOLUNE_DATA_DIR`: settings, data,
+/// the control file and the lsuite folder all go to a scratch folder for the process.
+pub fn test_sandbox() -> Option<PathBuf> {
+    static SANDBOX: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    SANDBOX
+        .get_or_init(|| {
+            let exe = std::env::current_exe().ok()?;
+            let in_deps = exe
+                .parent()
+                .and_then(|p| p.file_name())
+                .is_some_and(|n| n == "deps");
+            in_deps
+                .then(|| std::env::temp_dir().join(format!("ryolune-test-{}", std::process::id())))
+        })
         .clone()
 }
 fn platform_dir(name: &str) -> PathBuf {

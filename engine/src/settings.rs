@@ -471,7 +471,7 @@ impl Default for Interface {
     }
 }
 /// The interface theme. Since 0.12 ryolune has one theme, in a dark and a light mode,
-/// built in `frontend/src/theme/ryolune.ts`.
+/// built in `desktop/src/ui/theme.rs` on the lsuite design system.
 pub const THEME: &str = "ryolune";
 /// Every accepted `interface.appearance`.
 pub const THEMES: [&str; 1] = [THEME];
@@ -571,6 +571,9 @@ impl Settings {
     pub fn path() -> PathBuf {
         if let Some(p) = std::env::var_os("RYOLUNE_SETTINGS").filter(|p| !p.is_empty()) {
             return PathBuf::from(p);
+        }
+        if let Some(sandbox) = crate::host::scan::test_sandbox() {
+            return sandbox.join("settings.json");
         }
         data_dir().join("settings.json")
     }

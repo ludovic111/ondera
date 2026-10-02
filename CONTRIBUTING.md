@@ -1,7 +1,7 @@
 # Contributing to ryolune
 
-Thank you for helping. ryolune is a digital audio workstation with a Rust engine and a React
-window; [DEVELOPMENT.md](docs/DEVELOPMENT.md) explains the layout, the build and the checks.
+Thank you for helping. ryolune is a digital audio workstation written in Rust, its window
+included (GPUI); [DEVELOPMENT.md](docs/DEVELOPMENT.md) explains the layout, the build and the checks.
 
 ## Reporting a problem
 
@@ -15,7 +15,7 @@ helps. Crashes while loading a plugin: say which plugin, its format (CLAP, VST3,
 2. Work on a branch and keep the change focused.
 3. Follow the rules in [DEVELOPMENT.md](docs/DEVELOPMENT.md): a user-facing action goes into the
    command registry so the window, the CLI, MCP and the agent get it together; nothing allocates,
-   blocks or logs in the audio callback; visual values live in `frontend/src/theme` only.
+   blocks or logs in the audio callback; visual values live in `desktop/src/ui/theme.rs` only.
 4. Run the checks listed in the pull request template before you open the pull request.
 
 ## Contributor License Agreement

@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-<!-- Generated from frontend/src/state/actions.ts by frontend/src/components/palette/shortcutsDoc.test.ts. Do not edit by hand: run `RYOLUNE_BLESS=1 npm --prefix frontend test -- shortcutsDoc`. -->
+<!-- Generated from the shortcut sheet (desktop/src/ui/dialogs/help.rs) by its tests. Do not edit by hand: run `RYOLUNE_BLESS=1 cargo test -p ryolune shortcuts`. -->
 
 The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Windows and Linux, ⌥ is Alt.
 
@@ -41,13 +41,12 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 |---|---|
 | New Audio Track | `⌥⌘A` |
 | New MIDI Track | `⌥⌘S` |
+| Duplicate Track | `⇧⌘D` |
 | Delete Track | `⌘⌫` |
 | Mute Track | `M` |
 | Solo Track | `S` |
 | Record-Arm Track | `A` |
 | Input Monitoring: Off / Auto / On | `I` |
-| Duplicate Track | `⇧⌘D` |
-| Tempo Track | `⇧T` |
 
 ## Markers
 
@@ -58,6 +57,20 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 | Go to Next Marker | `⇧N` |
 | Cycle Section at Playhead | `⇧C` |
 
+## Session
+
+| Action | Keys |
+|---|---|
+| Musical Typing | `⌘K` |
+| New Session | `⌘N` |
+| Open… | `⌘O` |
+| Save | `⌘S` |
+| Save As… | `⇧⌘S` |
+| Import Audio… | `⌘I` |
+| Export Audio… | `⌘B` |
+| Settings… | `⌘,` |
+| Quit ryolune | `⌘Q` |
+
 ## View and tools
 
 | Action | Keys |
@@ -66,29 +79,36 @@ The same list is in the app: Help > Shortcuts and Help (⌘/). ⌘ is Ctrl on Wi
 | Zoom Out | `⌘-` |
 | Zoom to Fit Session | `Z` |
 | Follow Playhead | `F` |
-| Agent Panel | `⌘J` |
-| Ask Agent About Selection… | `⇧⌘J` |
+| Mixer | `X` |
+| Controller Lane | `L` |
+| Tempo Track | `⇧T` |
+| Command Palette… | `⌘P` |
+| Shortcuts and Help | `⌘/` |
 | Pointer Tool | `1` |
 | Pencil Tool | `2` |
 | Scissors Tool | `3` |
-| Mixer | `X` |
-| Controller Lane | `L` |
-| Command Palette… | `⌘P` |
-| Shortcuts and Help | `⌘/` |
-
-## Session
-
-| Action | Keys |
-|---|---|
-| New session | `⌘N` |
-| Open… | `⌘O` |
-| Save | `⌘S` |
-| Save as… | `⇧⌘S` |
-| Import audio… | `⌘I` |
-| Export audio… | `⌘B` |
-| Settings… | `⌘,` |
-| Musical typing | `⌘K` |
+| Agent Panel | `⌘J` |
+| Ask Agent About Selection… | `⇧⌘J` |
 
 ## Musical typing
 
-With musical typing on (⌘K), the letter row from A to ; plays notes on the selected instrument track, and Z / X shift the octave.
+| Action | Keys |
+|---|---|
+| White keys, C to E | `A S D F G H J K L ;` |
+| Black keys | `W E T Y U O P` |
+| Octave down / up | `Z / X` |
+| Turn musical typing on or off | `⌘K` |
+
+## Mouse
+
+| Action | Keys |
+|---|---|
+| Draw a region | `Pencil tool, drag in a lane` |
+| Open a MIDI region in the editor | `Double-click it` |
+| Resize a region | `Drag its edges` |
+| Set the cycle | `Drag in the ruler` |
+| Fade an audio region | `Drag its top corners` |
+| Move a marker | `Drag it` |
+| Rename a marker | `Double-click it` |
+| Import audio | `Drop files from your file manager` |
+| Fine adjustment, default value | `Shift-drag, double-click a control` |

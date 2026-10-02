@@ -273,9 +273,13 @@ ryolune has one theme, in a dark and a light mode. Settings > Interface shows ea
 miniature: **Dark** (graphite, for long sessions), **Light** (porcelain, for daylight) and
 **Auto**, which follows the system while the window is open.
 
-One accent, lunar gold (amber in light mode), marks the playhead, lit keys and what the agent
-touched. Channel keys light in their own colours: mute blue, solo yellow, record arm red. Knobs
-show their value as a ring; a centred knob such as pan fills from the top.
+ryolune wears the lsuite design system, shared with kimchi and zenith: frosted glass for the
+chrome (title bar, transport, browser, inspector, agent panel, menus and dialogs) over a window
+that blurs your desktop behind it, and solid surfaces for the work (arrangement, editors, mixer
+strips). One accent, ryolune teal, marks the playhead, selection, focus, lit keys and what the
+agent touched. Channel keys light in their own colours: mute blue, solo yellow, record arm red,
+and meters keep mint and amber. Knobs show their value as a ring; a centred knob such as pan
+fills from the top. With macOS's Reduce transparency setting on, the glass turns opaque.
 
 Scripts and the agent switch the mode too (`settings.set` with `interface.mode` set to `dark`,
 `light` or `auto`). Themes chosen in earlier versions (Modern, Skeuomorphic, Frutiger Aero,

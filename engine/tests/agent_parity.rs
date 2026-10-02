@@ -1,6 +1,7 @@
 //! GUI parity for agents: whatever the window does goes through a registry command, so the
-//! CLI, MCP and the built-in agent can do it too. These tests read the frontend's sources and
-//! the parity table in docs/ and fail when they drift from the registry.
+//! CLI, MCP and the built-in agent can do it too. These tests read the window's sources
+//! (`desktop/src/ui`, GPUI) and the parity table in docs/ and fail when they drift from the
+//! registry.
 use ryolune_engine::control::COMMANDS;
 use serde_json::Value;
 use std::{
@@ -59,37 +60,43 @@ fn command_literals(source: &str) -> Vec<(String, String)> {
     out
 }
 
-fn frontend_sources() -> Vec<(PathBuf, String)> {
+fn window_sources() -> Vec<(PathBuf, String)> {
     fn walk(dir: &Path, out: &mut Vec<(PathBuf, String)>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
             if path.is_dir() {
                 walk(&path, out);
-            } else if (name.ends_with(".ts") || name.ends_with(".tsx")) && !name.contains(".test.")
-            {
+            } else if path.extension().is_some_and(|e| e == "rs") {
                 out.push((path.clone(), std::fs::read_to_string(&path).unwrap()));
             }
         }
     }
     let mut out = vec![];
-    walk(&root().join("frontend/src"), &mut out);
-    assert!(out.len() > 20, "frontend sources not found");
+    walk(&root().join("desktop/src/ui"), &mut out);
+    assert!(out.len() > 10, "window sources not found");
     out
 }
 
-/// The ids of the `ActionId` union in actions.ts.
+/// The ids of the action table in desktop/src/ui/actions.rs: `a("id", …)` and `g("id", …)`.
 fn action_ids() -> BTreeSet<String> {
-    let source = read("frontend/src/state/actions.ts");
-    let start = source
-        .find("export type ActionId =")
-        .expect("ActionId union");
-    let body = &source[start..start + source[start..].find(';').unwrap()];
-    body.split('"')
-        .skip(1)
-        .step_by(2)
-        .map(str::to_string)
-        .collect()
+    let source = read("desktop/src/ui/actions.rs");
+    let start = source.find("pub const ACTIONS").expect("ACTIONS table");
+    let body = &source[start..start + source[start..].find("];").unwrap()];
+    // `a(` or `g(` followed (maybe on the next line) by the quoted id.
+    let mut ids = BTreeSet::new();
+    for (i, _) in body.match_indices('(') {
+        let head = &body[..i];
+        if !(head.ends_with("\n    a") || head.ends_with("\n    g")) {
+            continue;
+        }
+        let rest = body[i + 1..].trim_start();
+        if let Some(rest) = rest.strip_prefix('"') {
+            if let Some(end) = rest.find('"') {
+                ids.insert(rest[..end].to_string());
+            }
+        }
+    }
+    ids
 }
 
 #[test]
@@ -100,7 +107,7 @@ fn every_menu_shortcut_and_palette_action_maps_to_registry_commands() {
     assert!(ids.len() > 40, "parsed {} action ids", ids.len());
     for id in &ids {
         let commands = mapped.get(id).unwrap_or_else(|| {
-            panic!("action `{id}` in actions.ts has no entry in docs/agent-parity.json: add the registry commands that do the same")
+            panic!("action `{id}` in desktop/src/ui/actions.rs has no entry in docs/agent-parity.json: add the registry commands that do the same")
         });
         let commands = commands.as_array().expect("a list of commands");
         assert!(!commands.is_empty(), "action `{id}` maps to nothing");
@@ -115,7 +122,7 @@ fn every_menu_shortcut_and_palette_action_maps_to_registry_commands() {
     for id in mapped.keys() {
         assert!(
             ids.contains(id),
-            "docs/agent-parity.json maps `{id}`, which actions.ts no longer has"
+            "docs/agent-parity.json maps `{id}`, which desktop/src/ui/actions.rs no longer has"
         );
     }
     // The human table lists every action too.
@@ -130,32 +137,32 @@ fn every_menu_shortcut_and_palette_action_maps_to_registry_commands() {
 
 #[test]
 fn every_command_the_window_calls_by_name_is_in_the_registry() {
-    let translated: BTreeSet<String> = command_literals(&read("frontend/src/state/native.ts"))
-        .into_iter()
-        .filter(|(_, before)| before.ends_with("case"))
-        .map(|(name, _)| name)
-        .collect();
     let mut unknown = vec![];
-    for (path, source) in frontend_sources() {
+    let mut checked = 0;
+    for (path, source) in window_sources() {
         let file = path
             .strip_prefix(root())
             .unwrap_or(&path)
             .display()
             .to_string();
         for (name, before) in command_literals(&source) {
-            if before.ends_with("case") || registered(&name) {
-                continue;
+            // Only names handed to the registry: `daw.run("…")`, `request`, `fire`.
+            let called = ["run(", "request(", "fire("]
+                .iter()
+                .any(|call| before.ends_with(call));
+            checked += usize::from(called);
+            if called && !registered(&name) && ryolune_engine::control::canonical(&name) == name {
+                unknown.push(format!("{file}: {name}"));
             }
-            // Presentation names (core/index.ts) that NativeStore translates into commands.
-            if translated.contains(&name) {
-                continue;
-            }
-            unknown.push(format!("{file}: {name}"));
         }
     }
     assert!(
+        checked > 50,
+        "found only {checked} registry calls in the window"
+    );
+    assert!(
         unknown.is_empty(),
-        "The window calls names that are neither registry commands nor translated by NativeStore:\n{}",
+        "The window calls names that are not registry commands:\n{}",
         unknown.join("\n")
     );
 }

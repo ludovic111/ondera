@@ -167,7 +167,6 @@ pub(crate) struct ToolRecord {
     pub result: Option<Result<serde_json::Value>>,
     /// Sequence of the matching Changes entry, for Revert/Redo.
     pub sequence: Option<u64>,
-    pub expanded: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -271,9 +270,6 @@ pub(crate) struct Runtime {
 impl Runtime {
     pub fn running(&self) -> bool {
         self.task.is_some()
-    }
-    pub fn stopping(&self) -> bool {
-        self.task.as_ref().is_some_and(|t| t.stopping)
     }
     fn push(&mut self, entry: Entry) {
         self.transcript.push(entry);
@@ -436,7 +432,6 @@ impl Runtime {
                             args: call.args.clone(),
                             result: None,
                             sequence: None,
-                            expanded: false,
                         }),
                         streaming: true,
                     });

@@ -82,6 +82,8 @@ pub fn batchable(name: &str) -> bool {
             | "session.exportMidi"
             | "session.exportAudio"
             | "session.exportStems"
+            | "session.scoreCut"
+            | "export.toKimchi"
             | "session.restoreSnapshot"
             | "plugin.scan"
             | "ui.screenshot"
