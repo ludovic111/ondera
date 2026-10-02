@@ -159,6 +159,10 @@ pub struct Theme {
     pub note_shadow: Hsla,
     /// Staff lines, ledger lines and duration tails of the score view.
     pub staff: Hsla,
+    // Brand marks (the agent's model picker): makers' logos sit on a white tile in both
+    // modes, as their owners draw them; one-colour marks take `logo_ink`.
+    pub logo_tile: Hsla,
+    pub logo_ink: Hsla,
 }
 
 impl Global for Theme {}
@@ -492,6 +496,8 @@ fn dark(opaque: bool) -> Theme {
         note_highlight: white(0.28),
         note_shadow: black(0.4),
         staff: white(0.3),
+        logo_tile: hex(0xffffff),
+        logo_ink: hex(0x273e4e),
     }
 }
 
@@ -592,6 +598,8 @@ fn light(opaque: bool) -> Theme {
         note_highlight: white(0.4),
         note_shadow: hexa(0x141628, 0.14),
         staff: ink(0.34),
+        logo_tile: hex(0xffffff),
+        logo_ink: hex(0x273e4e),
     }
 }
 

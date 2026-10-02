@@ -54,6 +54,21 @@ impl Activity {
     }
 }
 
+/// One entry of the Changes log, as `agent.changes` reports it.
+pub(crate) struct ChangeRow<'a> {
+    pub sequence: u64,
+    pub title: &'a str,
+    /// The command as the CLI would spell it.
+    pub detail: &'a str,
+    pub output: &'a str,
+    pub succeeded: bool,
+    pub running: bool,
+    /// It changed the document, so it can be undone and redone.
+    pub mutated: bool,
+    /// Its edit is in the document now (not undone).
+    pub applied: bool,
+}
+
 struct Connection {
     port: Option<u16>,
     discovery: std::path::PathBuf,
@@ -106,6 +121,24 @@ impl AgentPanel {
                 "mutated": entry.mutated(), "applied": entry.applied(depth)
             }))
             .collect::<Vec<_>>())
+    }
+
+    /// The Changes log as the window draws it, newest first, borrowed rather than
+    /// serialised: `changes_json` would copy every output on each frame.
+    pub(crate) fn change_rows(&self, depth: usize) -> impl Iterator<Item = ChangeRow<'_>> {
+        self.history.iter().map(move |entry| ChangeRow {
+            sequence: entry.sequence,
+            title: &entry.title,
+            detail: &entry.detail,
+            output: &entry.output,
+            succeeded: entry.succeeded,
+            running: entry.running,
+            mutated: entry.mutated(),
+            applied: entry.applied(depth),
+        })
+    }
+    pub(crate) fn change_count(&self) -> usize {
+        self.history.len()
     }
 
     fn working(&self) -> bool {
