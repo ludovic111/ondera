@@ -34,6 +34,9 @@ pub fn home() -> PathBuf {
     if let Some(dir) = std::env::var_os("LSUITE_HOME").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
     }
+    if let Some(sandbox) = crate::host::scan::test_sandbox() {
+        return sandbox.join("lsuite");
+    }
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
@@ -172,6 +175,9 @@ fn rfc3339(secs: i64) -> String {
 pub fn kimchi_library() -> PathBuf {
     if let Some(dir) = std::env::var_os("KIMCHI_LIBRARY").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
+    }
+    if let Some(sandbox) = crate::host::scan::test_sandbox() {
+        return sandbox.join("kimchi");
     }
     if let Some(dir) = entry("kimchi").and_then(|e| e["dataDir"].as_str().map(PathBuf::from)) {
         return dir;
@@ -338,6 +344,18 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tests_never_reach_the_persons_profile() {
+        let sandbox = crate::host::scan::test_sandbox().expect("a cargo test binary");
+        assert!(sandbox.starts_with(std::env::temp_dir()));
+        if std::env::var_os("RYOLUNE_SETTINGS").is_none() {
+            assert!(crate::settings::Settings::path().starts_with(&sandbox));
+        }
+        if std::env::var_os("KIMCHI_LIBRARY").is_none() {
+            assert!(kimchi_library().starts_with(&sandbox));
+        }
+    }
 
     #[test]
     fn ids_and_dates_have_the_shapes_other_apps_parse() {

@@ -44,6 +44,9 @@ pub fn discovery_path() -> PathBuf {
     if let Some(p) = std::env::var_os("RYOLUNE_CONTROL").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
+    if let Some(sandbox) = crate::host::scan::test_sandbox() {
+        return sandbox.join("control.json");
+    }
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)

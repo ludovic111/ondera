@@ -572,6 +572,9 @@ impl Settings {
         if let Some(p) = std::env::var_os("RYOLUNE_SETTINGS").filter(|p| !p.is_empty()) {
             return PathBuf::from(p);
         }
+        if let Some(sandbox) = crate::host::scan::test_sandbox() {
+            return sandbox.join("settings.json");
+        }
         data_dir().join("settings.json")
     }
     /// The stored settings, or defaults when the file is absent or unreadable.
