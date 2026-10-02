@@ -211,3 +211,53 @@ fn the_lane_width_is_reported_to_the_host(cx: &mut TestAppContext) {
     assert!(width >= 50.0);
     assert_eq!(daw.read_with(cx, |d, _| d.app.lane_width), width);
 }
+
+#[gpui::test]
+fn a_region_renamed_in_place_commits_on_enter(cx: &mut TestAppContext) {
+    let (view, daw, cx) = open(cx);
+    cx.update(|window, cx| {
+        view.update(cx, |v, cx| {
+            v.edit(
+                super::Editing::Clip("hook".into()),
+                "Hook".into(),
+                window,
+                cx,
+            );
+            v.name_input
+                .update(cx, |input, cx| input.set_text("Chorus hook", cx));
+        })
+    });
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    let name = daw.read_with(cx, |d, _| d.app.store.session().clips[0].name.clone());
+    assert_eq!(name, "Chorus hook");
+    assert!(view.read_with(cx, |v, _| v.editing.is_none()));
+}
+
+#[gpui::test]
+fn the_wheel_scrolls_the_song_and_zooms_with_ctrl(cx: &mut TestAppContext) {
+    let (view, daw, cx) = open(cx);
+    let at = lane_point(&view, cx, 4.0, 0);
+    let wheel = |cx: &mut VisualTestContext, dx: f32, dy: f32, modifiers: Modifiers| {
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+            modifiers,
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+    };
+    // Content moving left: later bars come into view.
+    wheel(cx, -80.0, 0.0, Modifiers::none());
+    assert_eq!(daw.read_with(cx, |d, _| d.app.scroll), 2.0);
+    let before = daw.read_with(cx, |d, _| (d.app.zoom, d.app.scroll));
+    wheel(cx, 0.0, 50.0, Modifiers::control());
+    let (zoom, scroll) = daw.read_with(cx, |d, _| (d.app.zoom, d.app.scroll));
+    assert!(zoom > before.0, "zoomed in");
+    // The bar under the pointer (160 px in: bar 6 after scrolling two bars) stays under it.
+    assert!(
+        (scroll + 160.0 / zoom as f64 - 6.0).abs() < 1e-3,
+        "{scroll} {zoom}"
+    );
+}

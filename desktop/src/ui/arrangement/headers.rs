@@ -307,10 +307,10 @@ impl Arrangement {
             };
             div()
                 .id(SharedString::from(format!("input-{}", t.id)))
-                .w(px(44.0))
+                .w(px(24.0))
                 .h(px(8.0))
                 .flex_none()
-                .child(Meter::new([position]).linear().segments(10))
+                .child(Meter::new([position]).linear().segments(6))
                 .tooltip(move |_, cx| {
                     widgets::tip(
                         if held >= 0.98 {
@@ -325,7 +325,7 @@ impl Arrangement {
         let controls = div()
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .gap(px(6.0))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(keys)
             .children(level)

@@ -660,17 +660,19 @@ impl Arrangement {
                     .child(Button::new("empty-demo", "Open demo").on_click(act("openDemo"))),
             )
             .child(
-                Button::new("empty-agent", "Make something with an agent →")
-                    .ghost()
-                    .on_click(move |_, _, cx| {
-                        daw.update(cx, |daw, cx| {
-                            daw.run(
-                                "ui.showPanel",
-                                json!({"panel": "agent", "visible": true}),
-                                cx,
-                            );
-                        })
-                    }),
+                div().flex().child(
+                    Button::new("empty-agent", "Make something with an agent →")
+                        .ghost()
+                        .on_click(move |_, _, cx| {
+                            daw.update(cx, |daw, cx| {
+                                daw.run(
+                                    "ui.showPanel",
+                                    json!({"panel": "agent", "visible": true}),
+                                    cx,
+                                );
+                            })
+                        }),
+                ),
             )
             .into_any_element()
     }
