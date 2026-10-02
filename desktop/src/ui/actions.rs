@@ -922,7 +922,9 @@ pub fn perform(id: &str, daw: &mut Daw, cx: &mut Context<Daw>) -> bool {
             daw.fire("app.quit", cx);
         }
         "saveRecoveredTake" => {
-            daw.fire("session.saveRecoveredTake", cx);
+            // The window asks where to write it; scripts give `session.saveRecoveredTake` a path.
+            daw.app.save_recovered_take();
+            cx.notify();
         }
         "reconnectOutput" => {
             daw.fire("audio.reconnect", cx);

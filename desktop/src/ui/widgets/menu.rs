@@ -188,6 +188,8 @@ impl Render for PopupMenu {
             }))
             .on_action(cx.listener(|_, _: &Cancel, _, cx| cx.emit(DismissEvent)))
             .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            // Clicks on the menu stop here: nothing under it sees them.
+            .occlude()
             .font_family(FONT_UI)
             .min_w(self.min_width)
             .max_h(px(560.0))
