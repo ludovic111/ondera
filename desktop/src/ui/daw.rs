@@ -54,6 +54,13 @@ fn fingerprint(app: &Ryolune) -> u64 {
         .hash(&mut h);
     app.agents.fingerprint(app.store.undo_depth()).hash(&mut h);
     app.plugins.windows.len().hash(&mut h);
+    // A plugin's own window closed by the person: its key goes dark.
+    app.plugins
+        .windows
+        .values()
+        .filter(|w| w.native.as_ref().is_some_and(|n| n.is_open()))
+        .count()
+        .hash(&mut h);
     app.plugins.loaded.len().hash(&mut h);
     app.catalog.len().hash(&mut h);
     app.library.len().hash(&mut h);

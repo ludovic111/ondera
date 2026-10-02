@@ -163,6 +163,13 @@ pub struct Theme {
     // modes, as their owners draw them; one-colour marks take `logo_ink`.
     pub logo_tile: Hsla,
     pub logo_ink: Hsla,
+    // Plugin displays and the automation graph, drawn on `display`.
+    /// The graticule.
+    pub display_grid: Hsla,
+    /// 0 dB, the centre and unity lines.
+    pub display_zero: Hsla,
+    /// Faint labels and ghost traces.
+    pub display_ink: Hsla,
 }
 
 impl Global for Theme {}
@@ -498,6 +505,9 @@ fn dark(opaque: bool) -> Theme {
         staff: white(0.3),
         logo_tile: hex(0xffffff),
         logo_ink: hex(0x273e4e),
+        display_grid: white(0.05),
+        display_zero: white(0.12),
+        display_ink: oklch(0.6, 0.009, 268.0, 1.0),
     }
 }
 
@@ -600,6 +610,9 @@ fn light(opaque: bool) -> Theme {
         staff: ink(0.34),
         logo_tile: hex(0xffffff),
         logo_ink: hex(0x273e4e),
+        display_grid: ink(0.06),
+        display_zero: ink(0.14),
+        display_ink: oklch(0.54, 0.012, 268.0, 1.0),
     }
 }
 

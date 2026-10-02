@@ -708,7 +708,8 @@ impl Editor for AuEditor {
             if view.is_null() {
                 return Err("The Audio Unit did not provide an editor".into());
             }
-            let _: () = msg_send![view, retain];
+            // `retain` returns the object; objc2 checks the return type in debug builds.
+            let _: *mut AnyObject = msg_send![view, retain];
             let frame: CGRect = msg_send![view, frame];
             let (w, h) = (
                 frame.size.width.max(200.0) as u32,
