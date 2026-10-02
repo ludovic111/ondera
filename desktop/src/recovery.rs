@@ -121,6 +121,10 @@ impl Recovery {
             && (native_plugins || (dirty && self.last_revision != Some(revision)))
             && now.saturating_duration_since(self.last_attempt) >= interval
     }
+    /// Listing, writing or opening a snapshot is in progress.
+    pub(crate) fn working(&self) -> bool {
+        self.worker.is_some()
+    }
     pub(crate) fn select(&mut self, path: PathBuf) {
         self.selected = Some(path);
         self.open = false;

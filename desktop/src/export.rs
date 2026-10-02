@@ -12,6 +12,21 @@ pub(crate) const FORMATS: [(&str, &str); 3] = [
     ("pcm24", "24-bit PCM"),
     ("float32", "32-bit float"),
 ];
+/// File types a mix or stems are written as: (extension, what the dialog calls it).
+pub(crate) const CONTAINERS: [(&str, &str); 4] = [
+    ("wav", "WAV"),
+    ("aiff", "AIFF"),
+    ("flac", "FLAC (lossless, smaller)"),
+    ("ogg", "Ogg Vorbis (compressed)"),
+];
+/// Vorbis quality steps and the stereo bitrate each comes to, roughly.
+pub(crate) const OGG_QUALITIES: [(f64, &str); 5] = [
+    (0.2, "Small (about 96 kbit/s)"),
+    (0.4, "Good (about 128 kbit/s)"),
+    (0.6, "High (about 192 kbit/s)"),
+    (0.8, "Very high (about 256 kbit/s)"),
+    (1.0, "Maximum (about 500 kbit/s)"),
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -25,6 +40,10 @@ pub(crate) struct ExportDialog {
     pub(crate) mode: Mode,
     pub(crate) sample_rate: u32,
     pub(crate) format: usize,
+    /// Index in [`CONTAINERS`]: the file type of the mix or of every stem.
+    pub(crate) container: usize,
+    /// Ogg Vorbis quality, 0-1 (the other types use `format` and `dither`).
+    pub(crate) quality: f64,
     pub(crate) dither: bool,
     pub(crate) range: bool,
     pub(crate) start_bar: f64,
@@ -49,6 +68,8 @@ impl Default for ExportDialog {
             mode: Mode::Audio,
             sample_rate: 48000,
             format: 1,
+            container: 0,
+            quality: 0.6,
             dither: true,
             range: false,
             start_bar: 1.0,
@@ -113,6 +134,14 @@ impl ExportDialog {
     pub(crate) fn close(&mut self) {
         self.open = false;
     }
+    /// The file chooser is open.
+    pub(crate) fn choosing(&self) -> bool {
+        self.chooser.is_some()
+    }
+    /// Why the form cannot run yet, as the dialog says it.
+    pub(crate) fn problem(&self, session: &Session) -> Option<String> {
+        self.request(session).err()
+    }
 
     pub(crate) fn request(&self, session: &Session) -> Result<PreparedCommand> {
         let selected: Vec<&str> = session
@@ -142,8 +171,21 @@ impl ExportDialog {
                 }
             }
             Mode::Audio => {
-                if !SAMPLE_RATES.contains(&self.sample_rate) || self.format >= FORMATS.len() {
-                    return Err("Choose a supported sample rate and WAV encoding.".into());
+                if !SAMPLE_RATES.contains(&self.sample_rate)
+                    || self.format >= FORMATS.len()
+                    || self.container >= CONTAINERS.len()
+                {
+                    return Err("Choose a supported sample rate, file type and encoding.".into());
+                }
+                let container = CONTAINERS[self.container].0;
+                let lossy = container == "ogg";
+                if !lossy && container != "wav" && FORMATS[self.format].0 == "float32" {
+                    return Err(
+                        "32-bit float is written to WAV only: choose 16 or 24-bit PCM.".into(),
+                    );
+                }
+                if lossy && !(self.quality.is_finite() && (0.0..=1.0).contains(&self.quality)) {
+                    return Err("The Ogg Vorbis quality must be between 0 and 1.".into());
                 }
                 if !self.tail_seconds.is_finite() || !(0.0..=120.0).contains(&self.tail_seconds) {
                     return Err("The effect tail must be between 0 and 120 seconds.".into());
@@ -158,10 +200,14 @@ impl ExportDialog {
                 }
                 let mut params = json!({
                     "sampleRate":self.sample_rate,
-                    "format":FORMATS[self.format].0,
-                    "dither":self.dither,
                     "tailSeconds":self.tail_seconds,
                 });
+                if lossy {
+                    params["quality"] = json!(self.quality);
+                } else {
+                    params["format"] = json!(FORMATS[self.format].0);
+                    params["dither"] = json!(self.dither && FORMATS[self.format].0 != "float32");
+                }
                 if self.range {
                     params["startBar"] = json!(self.start_bar - 1.0);
                     params["endBar"] = json!(self.end_bar - 1.0);
@@ -178,6 +224,7 @@ impl ExportDialog {
                     params["trackIds"] = json!(selected);
                     params["includeEffects"] = json!(self.include_effects);
                     params["includeMaster"] = json!(self.include_master);
+                    params["container"] = json!(container);
                 }
                 PreparedCommand {
                     method: if self.stems {
@@ -204,6 +251,7 @@ impl ExportDialog {
         let stems = mode == Mode::Audio && self.stems;
         let folder = self.folder_name.trim().to_string();
         let name = session.name.trim_end_matches(".ryolune").to_string();
+        let extension = CONTAINERS[self.container.min(CONTAINERS.len() - 1)].0;
         let (tx, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let path = match mode {
@@ -224,19 +272,38 @@ impl ExportDialog {
                     .set_title("Choose parent folder for stems")
                     .pick_folder()
                     .map(|parent| parent.join(folder)),
-                Mode::Audio => rfd::FileDialog::new()
-                    .add_filter("WAV audio", &["wav"])
-                    .add_filter("AIFF audio", &["aiff", "aif"])
-                    .add_filter("FLAC audio", &["flac"])
-                    .add_filter("Ogg Vorbis audio", &["ogg"])
-                    .set_file_name(format!("{name}.wav"))
-                    .save_file()
-                    .map(|mut path| {
-                        if path.extension().is_none() {
-                            path.set_extension("wav");
-                        }
-                        path
-                    }),
+                Mode::Audio => {
+                    // The chosen type comes first, so the chooser offers it.
+                    let mut dialog = rfd::FileDialog::new();
+                    let filters: [(&str, &[&str]); 4] = [
+                        ("wav", &["wav"]),
+                        ("aiff", &["aiff", "aif"]),
+                        ("flac", &["flac"]),
+                        ("ogg", &["ogg"]),
+                    ];
+                    for (key, extensions) in filters
+                        .iter()
+                        .filter(|(key, _)| *key == extension)
+                        .chain(filters.iter().filter(|(key, _)| *key != extension))
+                    {
+                        let label = match *key {
+                            "wav" => "WAV audio",
+                            "aiff" => "AIFF audio",
+                            "flac" => "FLAC audio",
+                            _ => "Ogg Vorbis audio",
+                        };
+                        dialog = dialog.add_filter(label, extensions);
+                    }
+                    dialog
+                        .set_file_name(format!("{name}.{extension}"))
+                        .save_file()
+                        .map(|mut path| {
+                            if path.extension().is_none() {
+                                path.set_extension(extension);
+                            }
+                            path
+                        })
+                }
             };
             let _ = tx.send(path);
         });
@@ -280,8 +347,6 @@ impl ExportDialog {
             Err(error) => self.error = Some(error.clone()),
         }
     }
-
-
 }
 
 impl Ryolune {
@@ -343,6 +408,9 @@ fn report(method: &str, value: &Value) -> String {
     }
     if let Some(duration) = value["seconds"].as_f64() {
         lines.push(format!("Duration: {duration:.2} seconds"));
+    }
+    if let Some(kbps) = value["kbps"].as_f64() {
+        lines.push(format!("Ogg Vorbis, about {} kbit/s", kbps.round()));
     }
     if let Some(files) = value["files"].as_array() {
         lines.push(format!("{} stem files", files.len()));
@@ -428,6 +496,32 @@ mod tests {
         let request = dialog.request(&session).unwrap();
         assert_eq!(request.params["startBar"], 4.0);
         assert_eq!(request.params["importTempo"], false);
+    }
+
+    #[test]
+    fn file_types_choose_their_encoding_and_stems_carry_the_container() {
+        let session = store::demo();
+        let mut dialog = ExportDialog {
+            container: 3,
+            quality: 0.8,
+            ..Default::default()
+        };
+        let request = dialog.request(&session).unwrap();
+        assert_eq!(request.params["quality"], 0.8);
+        assert!(request.params.get("format").is_none() && request.params.get("dither").is_none());
+        dialog.container = 2;
+        dialog.format = 2;
+        assert!(dialog.request(&session).is_err(), "FLAC takes no float");
+        dialog.container = 0;
+        let request = dialog.request(&session).unwrap();
+        assert_eq!(request.params["format"], "float32");
+        assert_eq!(request.params["dither"], false, "float is never dithered");
+        dialog.container = 1;
+        dialog.format = 1;
+        dialog.stems = true;
+        dialog.tracks.insert(session.tracks[0].id.clone());
+        let request = dialog.request(&session).unwrap();
+        assert_eq!(request.params["container"], "aiff");
     }
 
     #[test]

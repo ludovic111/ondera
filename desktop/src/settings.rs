@@ -108,9 +108,29 @@ impl Ryolune {
         }
     }
 
-
-
-
+    /// Sign in to the Codex or Claude Code account the agent uses: the vendor CLI opens the
+    /// browser and the job ends when the sign-in does (Settings > Agent shows the outcome).
+    pub(crate) fn start_sign_in(&mut self) -> Result<()> {
+        if self.settings_ui.job.is_some() {
+            return Err("A sign-in is already running".into());
+        }
+        let agent = &self.settings.agent;
+        let (exe, args): (PathBuf, &[&str]) = match agent.provider {
+            ryolune_engine::settings::Provider::Codex => (
+                crate::agent::discover_codex(&agent.codex_executable),
+                &["login"],
+            ),
+            ryolune_engine::settings::Provider::Claude => (
+                crate::agent::discover_claude(&agent.claude_executable),
+                &["auth", "login"],
+            ),
+            _ => return Err("Sign-in is available for Codex and Claude Code".into()),
+        };
+        self.settings_ui.error = None;
+        self.settings_ui.notice = None;
+        self.start_settings_job("Sign-in".into(), exe, args);
+        Ok(())
+    }
 
     pub(crate) fn start_settings_job(&mut self, label: String, exe: PathBuf, args: &[&str]) {
         let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
@@ -241,7 +261,6 @@ pub(crate) fn reveal(path: &Path) {
     };
     let _ = Command::new(program).arg(path).spawn();
 }
-
 
 #[cfg(test)]
 mod cli_tests {
