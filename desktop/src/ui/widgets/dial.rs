@@ -150,6 +150,52 @@ impl Drive {
     }
 }
 
+/// Drag any element up and down to change a number: the tempo display, a value field.
+/// `per_px` is how much one pixel of travel changes the value; Shift is ten times finer.
+pub struct NumberDrag {
+    pub id: ElementId,
+    pub value: f32,
+    pub per_px: f32,
+    pub min: f32,
+    pub max: f32,
+}
+impl NumberDrag {
+    pub fn attach(
+        self,
+        el: gpui::Stateful<gpui::Div>,
+        on_change: impl Fn(f32, Phase, &mut Window, &mut App) + 'static,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui::Stateful<gpui::Div> {
+        let span = (self.max - self.min).max(1e-6);
+        // Drive works on 0-1; map the number onto it with the requested sensitivity.
+        let normal = (self.value - self.min) / span;
+        let (min, per_px) = (self.min, self.per_px);
+        let f: ChangeHandler = Rc::new(move |v, phase, w, cx| on_change(min + v * span, phase, w, cx));
+        let drive = Drive {
+            id: self.id,
+            axis: Axis::Knob,
+            value: normal,
+            default: normal,
+            on_change: Some(f),
+        };
+        // Knob drags move 1/160 of the range per pixel; scale to `per_px`.
+        let scale = per_px * 160.0 / span;
+        let scaled: ChangeHandler = {
+            let inner = drive.on_change.clone().unwrap();
+            Rc::new(move |v, phase, w, cx| {
+                let v = (normal + (v - normal) * scale).clamp(0.0, 1.0);
+                inner(v, phase, w, cx)
+            })
+        };
+        Drive {
+            on_change: Some(scaled),
+            ..drive
+        }
+        .attach(el, window, cx)
+    }
+}
+
 fn arc_points(center: Point<Pixels>, r: f32, from: f32, to: f32) -> Vec<Point<Pixels>> {
     let steps = (((to - from).abs() / 0.08).ceil() as usize).max(2);
     (0..=steps)
@@ -452,6 +498,7 @@ pub struct Meter {
     levels: Vec<f32>,
     vertical: bool,
     segments: usize,
+    linear: bool,
 }
 impl Meter {
     /// One bar per channel, peaks linear 0-1.
@@ -460,7 +507,13 @@ impl Meter {
             levels: levels.into_iter().collect(),
             vertical: false,
             segments: 24,
+            linear: false,
         }
+    }
+    /// Levels are already 0-1 positions (CPU load, a percentage), not audio peaks.
+    pub fn linear(mut self) -> Self {
+        self.linear = true;
+        self
     }
     pub fn vertical(mut self) -> Self {
         self.vertical = true;
@@ -477,13 +530,19 @@ impl RenderOnce for Meter {
         let levels = self.levels;
         let vertical = self.vertical;
         let n = self.segments;
+        let linear = self.linear;
         canvas(
             |_, _, _| (),
             move |b: Bounds<Pixels>, _, window, _| {
                 let channels = levels.len().max(1);
                 let gap = 1.0;
                 for (ch, level) in levels.iter().enumerate() {
-                    let lit = (meter_position(*level) * n as f32).round() as usize;
+                    let position = if linear {
+                        level.clamp(0.0, 1.0)
+                    } else {
+                        meter_position(*level)
+                    };
+                    let lit = (position * n as f32).round() as usize;
                     for i in 0..n {
                         let t = i as f32 / n as f32;
                         let color = if i >= lit {

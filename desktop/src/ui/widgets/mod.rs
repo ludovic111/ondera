@@ -7,7 +7,7 @@ pub mod menu;
 pub mod text_input;
 
 pub use controls::{any, caps, child_id, dot, icon, mono, row, tip, Button, Key, Segmented, Switch, Variant};
-pub use dial::{meter_position, Fader, Knob, Meter, Phase, Slider};
+pub use dial::{meter_position, Fader, Knob, Meter, NumberDrag, Phase, Slider};
 pub use menu::{on_context_menu, select_button, MenuHost, MenuItem, PopupMenu};
 pub use text_input::{field, InputEvent, TextInput};
 
@@ -65,4 +65,23 @@ pub fn rule(cx: &App) -> gpui::Div {
 pub fn bind(cx: &mut App) {
     text_input::bind(cx);
     menu::bind(cx);
+}
+
+/// The width of a label in the interface face, for laying out things placed by hand.
+pub fn text_width(text: &str, size_px: f32, window: &mut gpui::Window) -> f32 {
+    let style = window.text_style();
+    let mut font = style.font();
+    font.family = super::theme::FONT_UI.into();
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let line = window
+        .text_system()
+        .shape_line(text.to_string().into(), px(size_px), &[run], None);
+    f32::from(line.width)
 }

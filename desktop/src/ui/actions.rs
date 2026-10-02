@@ -398,13 +398,7 @@ pub fn playhead_bar(daw: &Daw, snap: bool) -> f64 {
     if !snap {
         return bar;
     }
-    // One grid step, in bars: a 1/16 is a quarter of a quarter note.
-    let step = 4.0 / s.transport.snap_division.max(1) as f64 / s.beats_per_bar();
-    if step > 0.0 {
-        (bar / step).round() * step
-    } else {
-        bar
-    }
+    super::format::snap_bars(bar, s.transport.snap_division, s.beats_per_bar())
 }
 
 /// Whether the action can run now.

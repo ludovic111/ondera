@@ -264,39 +264,10 @@ impl Render for Workspace {
             .text_size(px(super::theme::size::BASE))
             .text_color(theme.text)
             .bg(theme.backdrop)
-            // The backdrop's two soft glows of ryolune teal (`.ls-backdrop`), under the glass.
-            .child(
-                div()
-                    .absolute()
-                    .top(px(-260.0))
-                    .left(px(-200.0))
-                    .size(px(700.0))
-                    .rounded_full()
-                    .bg(theme.aurora)
-                    .opacity(0.55)
-                    .shadow(vec![gpui::BoxShadow {
-                        color: theme.aurora,
-                        offset: gpui::point(px(0.0), px(0.0)),
-                        blur_radius: px(320.0),
-                        spread_radius: px(120.0),
-                    }]),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(-300.0))
-                    .right(px(-160.0))
-                    .size(px(640.0))
-                    .rounded_full()
-                    .bg(theme.aurora)
-                    .opacity(0.4)
-                    .shadow(vec![gpui::BoxShadow {
-                        color: theme.aurora,
-                        offset: gpui::point(px(0.0), px(0.0)),
-                        blur_radius: px(320.0),
-                        spread_radius: px(120.0),
-                    }]),
-            )
+            // The backdrop's two soft glows of ryolune teal (`.ls-backdrop`), under the glass:
+            // a point of light with a wide blur, so only the glow shows.
+            .child(glow(gpui::point(px(120.0), px(60.0)), theme.aurora))
+            .child(glow(gpui::point(px(1400.0), px(980.0)), theme.aurora.opacity(0.7)))
             .child(
                 div()
                     .h(px(layout::TITLE_BAR))
@@ -320,4 +291,18 @@ impl Render for Workspace {
                 style.bg(theme.accent_soft)
             })
     }
+}
+
+fn glow(at: gpui::Point<gpui::Pixels>, color: gpui::Hsla) -> gpui::Div {
+    div()
+        .absolute()
+        .left(at.x)
+        .top(at.y)
+        .size(px(2.0))
+        .shadow(vec![gpui::BoxShadow {
+            color,
+            offset: gpui::point(px(0.0), px(0.0)),
+            blur_radius: px(420.0),
+            spread_radius: px(260.0),
+        }])
 }
