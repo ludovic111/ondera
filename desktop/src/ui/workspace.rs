@@ -208,6 +208,10 @@ impl Render for Workspace {
         let scale = app.settings.interface.scale.clamp(0.75, 1.5);
         let plugin_windows = !app.plugins.windows.is_empty();
         window.set_rem_size(px(16.0 * scale));
+        // The region editor (or the mixer) takes a share of the height, so a smaller window
+        // keeps room for the arrangement.
+        let body = f32::from(window.viewport_size().height) - layout::TITLE_BAR - layout::TRANSPORT;
+        let editor_height = (body * 0.46).clamp(280.0, layout::EDITOR);
 
         let body = div()
             .flex()
@@ -232,7 +236,7 @@ impl Render for Workspace {
                     .child(div().flex_1().min_h_0().child(self.arrangement.clone()))
                     .child(
                         div()
-                            .h(px(layout::EDITOR))
+                            .h(px(editor_height))
                             .flex_shrink_0()
                             .border_t_1()
                             .border_color(theme.line)
