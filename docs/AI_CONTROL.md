@@ -159,6 +159,28 @@ bearer token when a key is set, and answers with the audio itself (`audio/*`), o
 `audio` (base64, with an optional `format` such as `"wav"`) or `url` (a file to fetch). Any format
 ryolune imports works; a result may be up to 200 MB.
 
+## The lsuite: other apps
+
+ryolune is part of [lsuite](https://lsuite.xyz) with kimchi (video) and zenith (code). Each
+app writes `~/.lsuite/apps/<app>.json` when it starts: its version, where its CLI and MCP
+server are, its data folder, the hand-offs it takes and, while it runs, its pid and bridge
+port (never a token). `app.suite` lists them, so an agent working in ryolune knows which other
+apps it can drive and how.
+
+- **To kimchi.** `export.toKimchi` renders the mix (or `stems: true`, one file per track) and
+  puts it on a kimchi project (`project`: id or name, default the latest) on a new audio
+  track at `startSeconds`. kimchi closed: the project file gets the audio straight away, its
+  previous version kept beside it. kimchi open: the files wait in kimchi's lsuite inbox
+  (`~/.lsuite/inbox/kimchi`), and the answer says so.
+- **From kimchi.** A cut to score (its audio, length and markers) arrives as a manifest in
+  ryolune's inbox (`handoff.inbox` lists them). `session.scoreCut manifest=…` puts the audio
+  on a new track at bar 1, each marker on the ruler at the bar where it falls, and the cycle
+  over the cut, in one undo step. Without a manifest, give `path`, `markers` (`time` in
+  seconds, `label`) and `durationSeconds` yourself.
+- **Shared names.** Commands that every lsuite app has keep one name across the suite:
+  `app.version`, `project.overview`, `export.audio`, `export.stems` and `export.midi` work here
+  too and run `app.info`, `session.overview` and `session.export*`.
+
 ## Recipes
 
 ### Write a part
