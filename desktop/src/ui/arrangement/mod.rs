@@ -17,6 +17,7 @@ mod tests;
 mod toolbar;
 
 use super::{
+    browser::BrowserDrag,
     daw::Daw,
     theme::{arrange, layout, radius, size, Theme},
     widgets::{self, Button, InputEvent, MenuHost, TextInput},
@@ -77,6 +78,8 @@ pub struct Arrangement {
     scroll_y: f64,
     drag: Option<Drag>,
     lane_overlay: LaneOverlay,
+    /// Where a browser row being dragged would land: the track row and the bar.
+    browser_target: Option<(usize, f64)>,
     ruler_overlay: RulerOverlay,
     tempo_overlay: Option<TempoDrag>,
     lane_cursor: Cursor,
@@ -126,6 +129,7 @@ impl Arrangement {
             scroll_y: 0.0,
             drag: None,
             lane_overlay: LaneOverlay::default(),
+            browser_target: None,
             ruler_overlay: RulerOverlay::default(),
             tempo_overlay: None,
             lane_cursor: Cursor::Default,
@@ -513,7 +517,9 @@ impl Arrangement {
             )
             .on_mouse_move(cx.listener(Self::lane_hover))
             .on_drag_move::<ExternalPaths>(cx.listener(Self::file_over))
-            .on_drop::<ExternalPaths>(cx.listener(Self::file_drop));
+            .on_drop::<ExternalPaths>(cx.listener(Self::file_drop))
+            .on_drag_move::<BrowserDrag>(cx.listener(Self::browser_over))
+            .on_drop::<BrowserDrag>(cx.listener(Self::browser_drop));
 
         if let Some(Editing::Clip(id)) = &self.editing {
             if let Some(clip) = s.clips.iter().find(|c| &c.id == id) {
@@ -753,6 +759,49 @@ impl Arrangement {
             self.lane_overlay.drop_track = row;
             cx.notify();
         }
+    }
+
+    /// A browser row dragged over the lanes: light the lane and remember the bar it would
+    /// land on.
+    fn browser_over(
+        &mut self,
+        e: &gpui::DragMoveEvent<BrowserDrag>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let bounds = self.areas.lanes.get();
+        let target = if bounds.contains(&e.event.position) {
+            let (x, y) = local(bounds, e.event.position);
+            let s = self.session(cx);
+            let geo = self.geo(cx);
+            let row = geo
+                .row_at(y + self.scroll_y, s.tracks.len())
+                .unwrap_or(s.tracks.len());
+            Some((row, geometry::snap(&s, geo.bar(x).max(0.0), false)))
+        } else {
+            None
+        };
+        self.browser_target = target;
+        let row = target.map(|(row, _)| row);
+        if row != self.lane_overlay.drop_track {
+            self.lane_overlay.drop_track = row;
+            cx.notify();
+        }
+    }
+
+    /// A browser row dropped on a lane: an instrument or an effect goes to that track, a loop
+    /// or audio lands there at the bar under the pointer (one undo step).
+    fn browser_drop(&mut self, item: &BrowserDrag, _: &mut Window, cx: &mut Context<Self>) {
+        self.lane_overlay.drop_track = None;
+        let Some((row, bar)) = self.browser_target.take() else {
+            return;
+        };
+        let track = self.session(cx).tracks.get(row).map(|t| t.id.clone());
+        let item = item.clone();
+        self.daw.update(cx, |daw, cx| {
+            item.apply(daw, track.as_deref(), Some(bar), cx);
+        });
+        cx.notify();
     }
 
     /// Files dropped on an audio lane import onto that track; anywhere else they import as
