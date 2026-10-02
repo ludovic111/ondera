@@ -2,7 +2,7 @@
 //! kimchi (video). Discovery and the file formats are in `lsuite.rs`.
 
 use crate::{
-    control::{decode_file, edit, opt, place_audio, query, req, Args, Host, Kind, Spec},
+    control::{decode_file, edit, opt, place_audio, query, Args, Host, Kind, Spec},
     export::{self, ExportOptions},
     lsuite,
     model::Marker,
